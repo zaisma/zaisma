@@ -6,7 +6,7 @@ import { defaultMapDir } from "./generate.mjs";
 import { sanitizeExport } from "./page/graph.mjs";
 
 /**
- * Builds the Security map page: one self-contained HTML file with the sanitised export embedded, which the
+ * Builds the Security map page: one self-contained HTML file with the sanitized export embedded, which the
  * security-map skill's Page section publishes as a private claude.ai Artifact. The template, styles and
  * code (scripts/security-map/page/) hold no private data; the data is embedded here at build time, into a
  * file written outside both repos, so a built page can never be committed.

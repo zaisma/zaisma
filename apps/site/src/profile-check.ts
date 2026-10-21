@@ -98,7 +98,7 @@ Answer "hold" when the name or bio:
 
 Links (only adults can add them) may point to the player's own social accounts, channels, stores, games and websites: that's fine. Hold a link to sexual content, a scam, malware, or a site for meeting strangers.
 
-Otherwise "ok". Jokes, game talk, emoji, favourite games and strong language that attacks no one are fine. When unsure, hold: a person looks within a day.`;
+Otherwise "ok". Jokes, game talk, emoji, favorite games and strong language that attacks no one are fine. When unsure, hold: a person looks within a day.`;
 
 export async function aiProfileCheck(apiKey: string, model: string, text: string): Promise<CheckAnswer> {
   const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 20_000 });

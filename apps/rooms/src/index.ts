@@ -260,7 +260,7 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
  *   POST /v1/friends        { gameSlug, pass }: their friends playing this game, { friends }
  *   POST /v1/friends/room   { gameSlug, pass, serverUrl, roomCode, friendJoinsEnabled? }: the room on the
  *                           game's own servers they're in (both null when they left), so friends' Join
- *                           works there too; friendJoinsEnabled false greys it as "Private room"
+ *                           works there too; friendJoinsEnabled false grays it as "Private room"
  */
 async function answerFriends(request: Request, env: Env, isSettingRoom: boolean): Promise<Response> {
   const origin = request.headers.get("origin");

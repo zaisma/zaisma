@@ -188,7 +188,7 @@ export function normalizeWhitespace(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** The sha256 (hex) of a symbol's whitespace-normalised source, or null when the file has no such symbol. */
+/** The sha256 (hex) of a symbol's whitespace-normalized source, or null when the file has no such symbol. */
 export function hashSymbol(sourceText, symbolName) {
   const symbolText = extractSymbol(sourceText, symbolName);
   return symbolText === null ? null : createHash("sha256").update(normalizeWhitespace(symbolText)).digest("hex");

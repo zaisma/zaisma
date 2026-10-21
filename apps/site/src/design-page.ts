@@ -6,6 +6,8 @@ import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from ".
 import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
+import { loadMore } from "./components/navigation.ts";
+import { listRows } from "./components/data.ts";
 import { glassPane, tray } from "./components/foundations.ts";
 
 /*
@@ -58,7 +60,19 @@ ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_S
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
+/** The Load more example's next pages (/design/examples/older-versions?page=2 and 3): its list of the same id, and on page 2 the Load more for page 3. */
+function olderVersionsPage(env: Env, url: URL): Response {
+  const pageNumber = url.searchParams.get("page") === "3" ? 3 : 2;
+  const rows = [0, 1, 2].map((rowIndex) => {
+    const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
+    return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
+  });
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : ""}</body></html>`;
+  return new Response(page.html, { headers: securityHeaders(env) });
+}
+
 export function designPage(env: Env, url: URL): Response | null {
+  if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
   const theme = themeOf(url);
@@ -92,7 +106,7 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 }
 
 export const GALLERY_STYLES = `
-/* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labelled cells. */
+/* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labeled cells. */
 /* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
 html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
@@ -134,6 +148,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 /* The rail's example: a pane held short, so what's in it scrolls on its rail. */
 .rail-box { display: flex; height: 220px; }
+.rail-side-box p { margin: 0; white-space: nowrap; }
+.rail-example-part { margin: 0; font: var(--type-label); color: var(--ink); }
+.rail-side-box { padding-top: var(--gap-block-block); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
@@ -174,6 +191,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .stand-in-page { padding-top: 140px; }
   .header-frame { height: 320px; }
   .header-frame.tall { height: 560px; }
+  /* A header example is narrower than a phone's screen: it keeps a closer inset in its frame, so its first row has a phone's room. */
+  .header-frame .top:not(.is-logo-only) { width: calc(100% - 2 * var(--gap-words-control)); }
 }
 `;
 
@@ -218,8 +237,16 @@ export const GALLERY_SCRIPT = pageScript(
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
   });
-  document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
-  // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
+  // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
+  document.addEventListener("submit", function (event) {
+    // One a page script already handled (a step flow moving on) is left to it.
+    if (event.defaultPrevented || !event.target.closest(".example-stage") || event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
+    event.preventDefault();
+    var sheet = event.target.closest("dialog.sheet"); if (sheet && sheet.open) sheet.close();
+    // A step flow's last step sends its form: here it starts over instead.
+    if (event.target.goToStep) event.target.goToStep(0);
+  });
+  // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colors.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {
     var gl = canvas.getContext("webgl", { antialias: true });
     if (!gl) return;
@@ -245,13 +272,13 @@ export const GALLERY_SCRIPT = pageScript(
     var turn = gl.getUniformLocation(program, "turn"), aspect = gl.getUniformLocation(program, "aspect"), lit = gl.getUniformLocation(program, "lit"), shade = gl.getUniformLocation(program, "shade");
     gl.enable(gl.DEPTH_TEST);
     canvas.addEventListener("backdrop-frame", function (event) {
-      var frame = event.detail, colours = frame.colours, y = frame.timeS * 0.3, x = 0.35 + 0.15 * Math.sin(frame.timeS * 0.2);
+      var frame = event.detail, colors = frame.colors, y = frame.timeS * 0.3, x = 0.35 + 0.15 * Math.sin(frame.timeS * 0.2);
       var cy = Math.cos(y), sy = Math.sin(y), cx = Math.cos(x), sx = Math.sin(x);
       gl.viewport(0, 0, frame.widthPx, frame.heightPx);
-      gl.clearColor(colours.base[0], colours.base[1], colours.base[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.clearColor(colors.base[0], colors.base[1], colors.base[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix3fv(turn, false, [cy, 0, -sy, sy * sx, cx, cy * sx, sy * cx, -sx, cy * cx]);
       gl.uniform1f(aspect, frame.widthPx / frame.heightPx);
-      gl.uniform3fv(lit, colours.a.map(function (v) { return Math.min(1, v * 1.2 + 0.08); })); gl.uniform3fv(shade, colours.c.map(function (v) { return v * 0.6; }));
+      gl.uniform3fv(lit, colors.a.map(function (v) { return Math.min(1, v * 1.2 + 0.08); })); gl.uniform3fv(shade, colors.c.map(function (v) { return v * 0.6; }));
       gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
     });
   });
@@ -311,8 +338,8 @@ export const GALLERY_SCRIPT = pageScript(
   document.addEventListener("click", function (event) {
     var themePick = event.target.closest && event.target.closest("[data-setting-theme] button");
     if (themePick) { apply(themePick.value); return; }
-    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .colour-pick");
-    if (huePick) window.zaismaSettings.set({ glass: { hueColour: huePick.getAttribute("data-colour-value") || null } }, stage);
+    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .color-pick");
+    if (huePick) window.zaismaSettings.set({ glass: { hueColor: huePick.getAttribute("data-color-value") || null } }, stage);
   });
   pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
@@ -349,8 +376,8 @@ export const GALLERY_SCRIPT = pageScript(
   });
   // The glass button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
-    var swatch = event.target.closest && event.target.closest("[data-tint-try] .colour-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-colour-value"));
+    var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
+    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
   });
 })();
 `,
@@ -365,7 +392,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", cover: ".cover", switch: ".tab-switch" };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", text: ".text-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
   var MOVE_MS = 650, PRESS_MS = 180;
   function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
   function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }

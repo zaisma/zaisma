@@ -4,14 +4,14 @@ import { readMap } from "./generate.mjs";
 import { coveragePctOf, DONE_STATUSES, hasOpenFinding, SEVERITY_TIERS, STATUSES_WITH_EVIDENCE } from "./schema.mjs";
 
 /**
- * exports/map-public.json: the only thing the Security map page reads, sanitised so it can carry nothing
+ * exports/map-public.json: the only thing the Security map page reads, sanitized so it can carry nothing
  * private. A hole's door id would point at the hole, so a door with an open finding (a hole, or a stale
  * case that was one) is left out of its sector's doors entirely and counted only in hole_count_by_tier;
  * it comes back once its case is fixed. A door covered by a hidden one (an MCP tool over that API call)
  * is left out the same way, since it names it. Findings, anchors and verdict hashes are never exported, and
  * evidence only for robust, weak and fixed cases.
  *
- * "Since last night" compares with exports/history/<date>.json, a small index of the sanitised statuses
+ * "Since last night" compares with exports/history/<date>.json, a small index of the sanitized statuses
  * kept for HISTORY_KEEP_DAY_COUNT days, so a daytime re-export doesn't wipe a night's changes.
  */
 
@@ -57,7 +57,7 @@ function caseEntriesOf(cases, prefix = "") {
   });
 }
 
-/** The sanitised statuses and per-sector hole counts of an export: what a later export compares with. */
+/** The sanitized statuses and per-sector hole counts of an export: what a later export compares with. */
 export function historyIndexOf(exported) {
   const caseStatusByDoor = {};
   const holeCountByTierBySector = {};
@@ -68,7 +68,7 @@ export function historyIndexOf(exported) {
   return { generated_at: exported.generated_at, case_status_by_door: caseStatusByDoor, hole_count_by_tier_by_sector: holeCountByTierBySector };
 }
 
-/** What changed since the baseline index, from the exported (sanitised) sectors only; empty lists with no baseline. */
+/** What changed since the baseline index, from the exported (sanitized) sectors only; empty lists with no baseline. */
 export function sinceLastNightOf(sectors, baseline) {
   const sinceLastNight = { baseline_generated_at: baseline?.generated_at ?? null, explored_cases: [], stale_cases: [], new_doors: [] };
   if (!baseline) return sinceLastNight;
@@ -123,7 +123,7 @@ export function exportPublic(map, { now, baseline = null }) {
 }
 
 /**
- * What in an export breaks the sanitiser's rule; [] when nothing does. Given the map it came from, it also
+ * What in an export breaks the sanitizer's rule; [] when nothing does. Given the map it came from, it also
  * checks that no hidden door, finding or case id is anywhere in the text.
  */
 export function publicExportProblems(exported, map = null) {

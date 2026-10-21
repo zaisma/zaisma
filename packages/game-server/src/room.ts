@@ -54,7 +54,7 @@ export interface Room {
   setOpen(isOpen: boolean): void;
   /**
    * Whether Zaisma's Join offers this room: a player's friends on zaisma.com, and Zaisma.friends. Off
-   * shows their Join greyed as "Private room". It isn't a lock: a code or link still reaches the room,
+   * shows their Join grayed as "Private room". It isn't a lock: a code or link still reaches the room,
    * so close it (setOpen) or answer false from canJoin to keep players out.
    */
   readonly friendJoinsEnabled: boolean;

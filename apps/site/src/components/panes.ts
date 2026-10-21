@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
-import { birthdayField, cutField } from "./inputs.ts";
+import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -142,10 +142,10 @@ const DROPDOWN_STYLES = `
 .dropdown-form { margin: 0; }
 .dropdown-choice { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 14px; margin: 0; border: 0; cursor: pointer;
   font: var(--type-words); color: var(--ink-2); text-align: left; text-decoration: none;
-  --face-colour: transparent; background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s; }
+  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > .tag { margin-left: auto; }
-.dropdown-choice:hover, .dropdown-choice:focus-visible { --face-colour: var(--ghost); color: var(--ink); }
+.dropdown-choice:hover, .dropdown-choice:focus-visible { --face-color: var(--ghost); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .dropdown-choice:focus-visible { outline: none; }
 .dropdown-choice:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -187,7 +187,7 @@ const COVER_STYLES = `
 .cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
-.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: var(--type-facts); color: var(--muted); white-space: nowrap; }
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); white-space: nowrap; }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
@@ -268,7 +268,7 @@ component({
   styles: `
 /* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
    the same glass, light or smoked, only thinner and muted, so the pane stands out and the tray stays in the background: a clearer
-   tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colours behind it less lifted, and a fainter rim, its bevel as wide. */
+   tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colors behind it less lifted, and a fainter rim, its bevel as wide. */
 .tray-group { display: flex; flex-direction: column; }
 .tray-head { padding: var(--pad-pane); }
 /* Thinner glass, closer padding: a tray sits its pieces nearer its edge than a pane does (--pad-tray, not --pad-pane), still clear of its cut foot. */
@@ -328,6 +328,357 @@ component({
   ],
 });
 
+export interface SheetOptions {
+  /** Unique on the page: the button that opens it names it (cutButton's controls). */
+  id: string;
+  title: string;
+  body: Raw;
+  /** What its close button says to a screen reader: "Close". */
+  closeLabel: string;
+  /** Open in place rather than over the page: the gallery's still copy. */
+  isShown?: boolean;
+}
+
+/** A sheet: a pane of glass over the dimmed page for a task that comes and goes (report a game, block someone), opened by a button that names it. */
+export function sheet(options: SheetOptions): Raw {
+  return sheetMarkup({ id: options.id, title: options.title, body: options.body, closeButton: cutButton(options.closeLabel, { type: "submit", icon: "close", isLabelHidden: true, isSmall: true }), isShown: options.isShown });
+}
+
+export interface ConfirmSheetOptions {
+  id: string;
+  /** The question: "Sign out everywhere?" */
+  title: string;
+  /** One sentence on what happens. */
+  text: string;
+  /** Where its action posts. */
+  action: string;
+  /** The action's words: "Sign out everywhere". */
+  confirmLabel: string;
+  isShown?: boolean;
+}
+
+/** A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's is Delete button's own, the only red one. */
+export function confirmSheet(options: ConfirmSheetOptions): Raw {
+  const body = html`<p class="sheet-text">${options.text}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${runButton(options.confirmLabel, { type: "submit" })}</div></form>`;
+  return sheet({ id: options.id, title: options.title, body, closeLabel: "Close", isShown: options.isShown });
+}
+
+/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press on the dimmed page round it closes it. Esc and its own buttons close it natively. */
+export const SHEET_SCRIPT = `/* sheets */(function () {
+  document.addEventListener("click", function (event) {
+    var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
+    var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
+    if (named && named.matches("dialog.sheet")) { event.preventDefault(); if (!named.open) named.showModal(); return; }
+    var open = event.target.matches && event.target.matches("dialog.sheet[open]") ? event.target : null;
+    if (!open || !event.detail) return;
+    var r = open.getBoundingClientRect();
+    if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) open.close();
+  });
+})();
+`;
+
+const SHEET_STYLES = `
+/* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
+   little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
+   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
+.sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+  --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
+.sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
+.sheet:not([open]) { opacity: 0; transform: translateY(16px) scale(0.98); transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
+@starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
+.sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+.sheet:not([open])::backdrop { opacity: 0; }
+@starting-style { .sheet[open]::backdrop { opacity: 0; } }
+/* In place (the gallery's still copy): a pane where it sits. */
+.sheet.in-place { position: relative; z-index: auto; margin: 0; }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
+/* With a mouse it scrolls on Zaisma's rail, inside its right edge: what's in it keeps clear of the rail. */
+.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-pane) + 14px); }
+.sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
+.sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.sheet-close, .sheet-form { margin: 0; }
+.sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
+@media (max-width: 760px) {
+  /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
+  /* A sheet's buttons stack on a phone, each the sheet's full width, the action under Cancel. */
+  .sheet-form .control-row { flex-direction: column; align-items: stretch; }
+  .sheet-form .control-row > * { flex: none; margin-inline-end: 0; }
+  @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
+}
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not([open]) { transform: none; } }
+`;
+
+const reportBody = (idPrefix: string) =>
+  html`${choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}${runButton("Send report", { type: "button", isFullWidth: true })}`;
+
+component({
+  name: "Sheet",
+  slug: "sheet",
+  group: "panes",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it.",
+  styles: SHEET_STYLES,
+  render: sheet,
+  examples: [
+    { label: "Try it: from its button", markup: html`${cutButton("Report this game", { type: "button", controls: "example-sheet-try" })}${sheet({ id: "example-sheet-try", title: "Report Ashen Crown", body: reportBody("example-sheet-try"), closeLabel: "Close" })}` },
+    { label: "Open", markup: sheet({ id: "example-sheet-shown", title: "Report Ashen Crown", body: reportBody("example-sheet-shown"), closeLabel: "Close", isShown: true }), isWide: true, isStill: true },
+  ],
+});
+
+const SIGN_OUT_EVERYWHERE = { title: "Sign out everywhere?", text: "Every device signed in as you is signed out, this one too. Games keep your saves.", action: "#confirm-sheet", confirmLabel: "Sign out everywhere" } as const;
+
+component({
+  name: "Confirm sheet",
+  slug: "confirm-sheet",
+  group: "panes",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. A delete's confirm is Delete button's own, the only red one.",
+  styles: "",
+  render: confirmSheet,
+  examples: [
+    { label: "Try it: from its button", markup: html`${cutButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
+    { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
+  ],
+});
+
+export interface NoticeOptions {
+  text: string;
+  /** "done": something just went through (Saved), and it leaves by itself after 4 s. "problem": something didn't, and it stays until it's closed. */
+  tone: "done" | "problem";
+  /** Where it sits rather than floating under the header: the gallery's still copies. */
+  isInPlace?: boolean;
+}
+
+/** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
+export function notice(options: NoticeOptions): Raw {
+  const isProblem = options.tone === "problem";
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="18 14 18 14">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
+}
+
+/** Notices: one that's done leaves after 4 s (it waits while you point at it); a problem leaves when its close button is pressed. Notices a page adds later are watched too. */
+export const NOTICE_SCRIPT = `/* notices */(function () {
+  var STAY_MS = 4000, LEAVE_MS = 300;
+  // One in place (the gallery's still copy) comes back a moment after it leaves, so it can be tried again.
+  function leave(el) {
+    if (el.classList.contains("is-leaving")) return; el.classList.add("is-leaving");
+    if (el.classList.contains("in-place")) setTimeout(function () { el.classList.remove("is-leaving"); }, 1600); else setTimeout(function () { el.remove(); }, LEAVE_MS);
+  }
+  function wait(el) { clearTimeout(el.noticeTimer); el.noticeTimer = setTimeout(function () { leave(el); }, STAY_MS); }
+  function arrive(el) {
+    if (el.noticeArrived || el.classList.contains("in-place")) return; el.noticeArrived = true;
+    if (el.getAttribute("data-notice") !== "done") return;
+    wait(el);
+    el.addEventListener("pointerenter", function () { clearTimeout(el.noticeTimer); });
+    el.addEventListener("pointerleave", function () { wait(el); });
+  }
+  function find(root) { if (!root.querySelectorAll) return; if (root.matches("[data-notice]")) arrive(root); root.querySelectorAll("[data-notice]").forEach(arrive); }
+  find(document.body);
+  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(find); }); }).observe(document.body, { subtree: true, childList: true });
+  document.addEventListener("click", function (event) { var close = event.target.closest && event.target.closest("[data-notice] > .cut-btn"); if (close) leave(close.closest("[data-notice]")); });
+})();
+`;
+
+component({
+  name: "Notice",
+  slug: "notice",
+  group: "panes",
+  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.",
+  styles: `
+/* A notice: a small slab of the header's glass floating just under the header, in the middle. It comes down a little as it arrives
+   and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close button. */
+.notice { position: fixed; z-index: 30; top: var(--under-header, 96px); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
+  display: flex; align-items: center; gap: var(--gap-words-words); min-height: 52px; padding: var(--pad-inner-pane) var(--pad-tray); --glass-tint: var(--glass-top);
+  font: var(--type-words); color: var(--ink);
+  transition: var(--glass-transition), opacity 0.3s, transform 0.3s cubic-bezier(.2,.8,.2,1); }
+@starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
+.notice.is-leaving { opacity: 0; transform: translateY(-8px); }
+.notice.in-place { position: relative; top: auto; left: auto; right: auto; z-index: auto; margin: 0; }
+.notice > .ico { width: 20px; height: 20px; }
+.notice.done > .ico { color: var(--online); stroke-width: 2.4; }
+.notice.problem > .ico { color: var(--marked); }
+.notice.problem { padding-right: var(--pad-inner-pane); }
+.notice-text { min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .notice { transition: var(--glass-transition), opacity 0.3s; } }
+`,
+  render: notice,
+  examples: [
+    { label: "Done", markup: notice({ text: "Saved", tone: "done", isInPlace: true }) },
+    { label: "Done, longer", markup: notice({ text: "Version 14 is live", tone: "done", isInPlace: true }) },
+    { label: "A problem", markup: notice({ text: "Couldn't save: you're offline. Your changes are kept here.", tone: "problem", isInPlace: true }) },
+  ],
+});
+
+export interface BannerOptions {
+  text: string;
+  icon?: IconName;
+  /** At most one thing to do about it. */
+  action?: { label: string; href: string };
+}
+
+/** A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held version). One line and at most one button. */
+export function banner(options: BannerOptions): Raw {
+  return html`<div class="banner glass" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
+}
+
+component({
+  name: "Banner",
+  slug: "banner",
+  group: "panes",
+  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.",
+  styles: `
+/* A banner: a strip of the panes' glass, the width of the page's content, holding one line of words and at most one cut button at its
+   end, which fits the strip's corners. On a phone the button goes under the words. */
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-control); width: 100%; min-height: 60px; padding: var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-tray); font: var(--type-words); color: var(--ink); }
+.banner > .ico { flex: none; color: var(--ink-2); }
+.banner-text { flex: 1 1 0; min-width: 0; }
+.banner > .cut-btn { flex: none; }
+@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
+`,
+  render: banner,
+  examples: [
+    { label: "Playing as a guest", isWide: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device until you make an account.", icon: "person", action: { label: "Make an account", href: "#banner" } }) },
+    { label: "A held version", isWide: true, markup: banner({ text: "Version 14 is held: a person looks at it, usually within a day.", icon: "clock", action: { label: "See why", href: "#banner" } }) },
+    { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
+  ],
+});
+
+export interface StepFlowStep {
+  label: string;
+  /** The step's own words and fields. Given for every step, the flow moves between them on the page and sends its form once, at the end. */
+  body?: Raw;
+}
+
+export interface StepFlowOptions {
+  steps: StepFlowStep[];
+  /** The step shown now, from 0. */
+  currentIndex: number;
+  /** When each step is a page of its own (no step has a body): this step's words and fields. */
+  body?: Raw;
+  /** Where the form posts: each step, or once at the end when the steps carry their bodies. */
+  action: string;
+  /** Next's words on the last step, saying what it does ("Turn it on"). */
+  finishLabel?: string;
+  /** When each step is a page of its own: the step before's address, left out on the first step. */
+  backHref?: string;
+}
+
+/**
+ * A step flow: a task in a few steps (protect your account, set up a game's sign-in), a pane with a step line across its top and Back and
+ * Next. Its steps are pages of their own (a body, a backHref), or all on this page (each step's body), where STEP_FLOW_SCRIPT moves between them.
+ */
+export function stepFlow(options: StepFlowOptions): Raw {
+  const isOnPage = options.steps.every((step) => step.body !== undefined);
+  const lastIndex = options.steps.length - 1;
+  const stepLine = html`<ol class="step-line" aria-label="Steps">${options.steps.map((step, stepIndex) => {
+    const kind = stepIndex < options.currentIndex ? "is-done" : stepIndex === options.currentIndex ? "is-current" : "";
+    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark" aria-hidden="true"><span class="step-fill"></span></span><span class="step-label">${step.label}</span></li>`;
+  })}</ol>`;
+  const finishLabel = options.finishLabel ?? "Done";
+  const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
+  if (!isOnPage) {
+    const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(nextLabel, { type: "submit" })}</div>`;
+    return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
+  }
+  const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
+  const buttons = html`<div class="control-row" data-step-buttons>${cutButton("Back", { type: "button", isHidden: options.currentIndex === 0 })}${runButton(nextLabel, { type: "submit" })}</div>`;
+  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
+}
+
+/**
+ * Step flows with every step on the page: Next checks the step's fields, then moves on, the step line filling to the next step; Back goes
+ * back; on the last step Next sends the form. form.goToStep(index) moves to any step (the gallery starts its example over with it).
+ */
+export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
+  var LEAVE_MS = 450;
+  document.querySelectorAll("form[data-steps]").forEach(function (form) {
+    var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
+    var back = form.querySelector("[data-step-buttons] > .cut-btn"), next = form.querySelector("[data-step-buttons] > .run-wrap"), words = next.querySelector(".run > span:not([class])");
+    var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");
+    var settling = 0;
+    function mark(index) {
+      marks.forEach(function (each, i) {
+        each.classList.remove("is-leaving", "is-waiting"); each.classList.toggle("is-done", i < index); each.classList.toggle("is-current", i === index);
+        if (i === index) each.setAttribute("aria-current", "step"); else each.removeAttribute("aria-current");
+      });
+    }
+    function goToStep(index) {
+      var from = at;
+      at = Math.max(0, Math.min(last, index));
+      bodies.forEach(function (body, i) { body.hidden = i !== at; });
+      clearTimeout(settling);
+      // Going back, the lines past the new step shrink away with the light at their tip; once they're gone the step goes back to being
+      // the current one, its light at its end. Going on, the next line fills at once.
+      if (at < from && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        marks.forEach(function (each, i) {
+          if (i > at && (each.classList.contains("is-current") || each.classList.contains("is-done"))) { each.classList.remove("is-current", "is-done"); each.classList.add("is-leaving"); }
+          each.removeAttribute("aria-current");
+        });
+        marks[at].classList.remove("is-done"); marks[at].classList.add("is-current", "is-waiting"); marks[at].setAttribute("aria-current", "step");
+        settling = setTimeout(function () { mark(at); }, LEAVE_MS);
+      } else mark(at);
+      back.hidden = at === 0; words.textContent = at === last ? finishWords : nextWords;
+      var first = bodies[at].querySelector("input, select, textarea, button");
+      if (first && document.activeElement && form.contains(document.activeElement)) first.focus({ preventScroll: true });
+    }
+    form.goToStep = goToStep;
+    back.addEventListener("click", function () { goToStep(at - 1); });
+    form.addEventListener("submit", function (event) {
+      if (at === last) return;
+      event.preventDefault();
+      var fields = bodies[at].querySelectorAll("input, select, textarea");
+      for (var i = 0; i < fields.length; i++) if (!fields[i].checkValidity()) { fields[i].reportValidity(); return; }
+      goToStep(at + 1);
+    });
+  });
+})();
+`;
+
+const PROTECT_STEPS: StepFlowStep[] = [
+  { label: "Your email", body: html`<h2>Protect your account</h2><p>An email lets you back in if you lose your password, and nothing else: we never send news.</p>${cutField({ id: "example-steps-email", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com", text: "emma@example.com" })}` },
+  { label: "Check it", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-steps-code", name: "email_code", label: "Code", type: "text", icon: "mail", text: "482 913", autocomplete: "one-time-code" })}` },
+  { label: "A passkey", body: html`<h2>Add a passkey</h2><p>Your device signs you in with your face, finger or screen lock. Nobody can phish it.</p>` },
+];
+
+component({
+  name: "Step flow",
+  slug: "step-flow",
+  group: "panes",
+  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.",
+  styles: `
+/* A step flow: a pane whose top is a row of thin cut lines, one per step, each with its name under it (on a phone, only the one you're
+   on). Done steps are filled orange; the one you're on fills in orange as you reach it, brightening to a light at its leading end, so it
+   reads as moving on; the ones ahead are faint. The step's words and fields come next, then Back and Next. */
+.step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
+.step-line > li { display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
+.step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
+.step-line > li.is-done { color: var(--ink-2); }
+.step-line > li.is-done .step-fill { transform: scaleX(1); }
+.step-line > li.is-current { color: var(--ink); }
+.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
+@starting-style { .step-line > li.is-current .step-fill { transform: scaleX(0); } }
+/* Going back, a line shrinks away with its light still at its tip, before the step it goes back to takes the light. */
+.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
+.step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* On a phone only the current step's name shows; the others keep their line's room, so nothing moves as the step changes. */
+@media (max-width: 760px) { .step-line > li > .step-label { white-space: nowrap; } .step-line > li:not(.is-current) > .step-label { visibility: hidden; } }
+/* Going back, the step you return to shows as current at once, its line solid until the line past it has shrunk away. */
+.step-line > li.is-waiting .step-fill { transform: scaleX(1); background: linear-gradient(90deg, #E9820C, var(--run)); transition: none; }
+@media (prefers-reduced-motion: reduce) { .step-fill { transition: none; } }
+`,
+  render: stepFlow,
+  examples: [
+    { label: "Try it: Next and Back, and Turn it on starts it over", isWide: true, markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 0, action: "#step-flow", finishLabel: "Turn it on" }) },
+    {
+      label: "The second step, as a page of its own",
+      markup: stepFlow({ steps: PROTECT_STEPS.map(({ label }) => ({ label })), currentIndex: 1, action: "#step-flow", backHref: "#step-flow", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-step-code", name: "email_code", label: "Code", type: "text", icon: "mail", autocomplete: "one-time-code" })}` }),
+    },
+  ],
+});
+
 // Spacing sits here, where every component it shows can be imported (foundations.ts can't import them).
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
@@ -340,7 +691,7 @@ component({
   summary: "Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
   styles: `
 /* Spacing: the space each example is about, hatched over it. */
-.spacing-example { display: grid; gap: var(--gap-words-control); justify-items: start; width: 100%; }
+.spacing-example { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); justify-items: start; width: 100%; }
 .spacing-example > code { font: var(--type-code); color: var(--ink); }
 .spacing-mark { position: absolute; z-index: 6; pointer-events: none;
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 34%, transparent) 0 1.5px, transparent 1.5px 5px);
@@ -348,7 +699,7 @@ component({
 `,
   examples: [
     {
-      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbour distance: 4px",
+      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
       markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
     },
     {
@@ -364,7 +715,7 @@ component({
       markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }] })}</div>`)),
     },
     {
-      label: "Two blocks, here two labelled fields in a pane: 24px",
+      label: "Two blocks, here two labeled fields in a pane: 24px",
       markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
     },
     {

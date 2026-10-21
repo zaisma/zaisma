@@ -148,7 +148,7 @@ const details = {
   friend_joins_enabled: {
     type: "boolean",
     description:
-      "Whether Join on zaisma.com (a friend's face on /friends, \"Alex is playing\" on the game page, a profile's Playing now) and Zaisma.friends.list() take players into the room a friend is in. On by default, for every game with rooms (Zaisma rooms, or its own servers through Zaisma.friends.setRoom). false greys Join as \"This game doesn't take joins\". One room turns it off instead with joinRoom({ friendJoinsEnabled: false }) or room.setFriendJoinsEnabled(false) (\"Private room\"). It isn't a lock: a room link or code still reaches the room; close the room (setOpen(false)) or answer false from canJoin to keep players out.",
+      "Whether Join on zaisma.com (a friend's face on /friends, \"Alex is playing\" on the game page, a profile's Playing now) and Zaisma.friends.list() take players into the room a friend is in. On by default, for every game with rooms (Zaisma rooms, or its own servers through Zaisma.friends.setRoom). false grays Join as \"This game doesn't take joins\". One room turns it off instead with joinRoom({ friendJoinsEnabled: false }) or room.setFriendJoinsEnabled(false) (\"Private room\"). It isn't a lock: a room link or code still reaches the room; close the room (setOpen(false)) or answer false from canJoin to keep players out.",
   },
   room_browsing: {
     enum: ROOM_BROWSING,

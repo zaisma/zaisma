@@ -6,7 +6,7 @@ Zaisma is the glass, and the game is not. Zaisma's interface is a layer of glass
 
 ## Rules
 
-- **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat colour.
+- **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat color.
 - **Orange only on what you act on.** The runner button (the one main action), the line under the tab you're on, keyboard focus. Never on words, headings or decoration.
 - **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened.
 - **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing.
@@ -72,15 +72,15 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 - **A slab** (`class="glass"`): a tint, the page's hue, a sheen brightest at the top left, a blur and saturation of what's behind.
 - **The drawn rim** (`data-glass`, with `data-glass-corners`): `GLASS_SCRIPT` draws an `svg.edge` sized to the slab: a dark hairline, a polished edge, a bevel band and bright cut facets.
 - **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind.
-- **The hue** (`--glass-hue`): a studio's colour can tint every piece of glass under where it's set; glass tinted for a brand keeps its own colour.
+- **The hue** (`--glass-hue`): a studio's color can tint every piece of glass under where it's set; glass tinted for a brand keeps its own color.
 - **A component only sets the glass's variables** (its tint, a layer); it never paints glass of its own. `test/site/design.test.ts` checks it.
 
 ## Shapes
 
 - **Cut corners, never rounded.** Panes are cut 24 and 20, the header 20 and 14, menus 18 and 14. Fields and buttons slant 10px where they meet another (`--control-slant`).
-- **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own: 24 and 20, the header and the gallery's bar 20 and 14, menus 18 and 14. Everything inside, whether a control or a colour swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
-  - **In a pane's middle, it's square.** A swatch in the middle of the colour pane.
-  - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the colour pane's top left is cut only there.
+- **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own: 24 and 20, the header and the gallery's bar 20 and 14, menus 18 and 14. Everything inside, whether a control or a color swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
+  - **In a pane's middle, it's square.** A swatch in the middle of the color pane.
+  - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the color pane's top left is cut only there.
   - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details.
   - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
@@ -93,7 +93,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 - A **control** is anything from Actions & Inputs (a button, a field, a switch, the birthday picker).
 - **Words** are a heading, a label, a legend, a hint, an error or a line of text.
-- A **block** is a group of controls with their words (a labelled field, the sign-in buttons), a paragraph, a picture, or a pane.
+- A **block** is a group of controls with their words (a labeled field, the sign-in buttons), a paragraph, a picture, or a pane.
 
 | Token | What's on each side | Value |
 | --- | --- | --- |
@@ -108,7 +108,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
 - **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
-- **The row's gap is the edge rule's neighbour distance.** Two controls side by side with their boxes `--gap-control-row-boxes` apart slant toward each other by `--control-slant`; any other distance and they don't. A row of controls uses `--gap-control-row-boxes`, a stack `--gap-control-stack`.
+- **The row's gap is the edge rule's neighbor distance.** Two controls side by side with their boxes `--gap-control-row-boxes` apart slant toward each other by `--control-slant`; any other distance and they don't. A row of controls uses `--gap-control-row-boxes`, a stack `--gap-control-stack`.
 - **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.
 - **What isn't spacing keeps its own number:** a control's inside (its words and icon to its own edge, set by each control size), a control's own parts (a switch's tabs and the inset round its slab, the birthday's wheels, a list of places), room to scroll or for a scrollbar, and where a small mark sits on what it marks. Each one is named, with its reason, in `NOT_SPACING` in `test/site/design.test.ts`.
 
@@ -150,7 +150,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **A link in words is a Link** (`textLink`, `actions.ts`): ink, with an orange underline. In a list of links where nothing else is (the footer), it's quiet: plain until pointed at. Anything else you can follow is a control (a button, a tab, a place) or the logo. Only `.link` underlines, and only a control styles a bare link (`LINK_IN_CONTROL` in the test).
 - **A tag is a Tag** (`tag`, `foundations.ts`, shown in Data): `new` (Updated), `count` (unread topics on a place) or `glass` (the rail's labels).
 - **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
-- **One of a few colours is a Colour picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Colour pickers; light or dark is a Switch.
+- **One of a few colors is a Color picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Color pickers; light or dark is a Switch.
 - **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own.
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
@@ -175,8 +175,8 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 
 - Slabs slide on the spring, `cubic-bezier(.3, 1.2, .4, 1)`, in 0.55s; a size change (the header slimming) takes 0.45s; anything leaving goes faster than it came.
 - Moving between pages crossfades, and the header's slab slides from the last page's tab to this one's.
-- Under reduced motion nothing moves; the glass still changes colour.
+- Under reduced motion nothing moves; the glass still changes color.
 
 ## Backgrounds
 
-Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colours, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).
+Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colors, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).

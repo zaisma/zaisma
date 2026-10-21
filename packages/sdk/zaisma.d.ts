@@ -264,7 +264,7 @@ declare namespace Zaisma {
     serverUrl: string;
     /** Its room code: six characters like "K7Q2MX", from 2 to 9 and A to Z without I or O. */
     roomCode: string;
-    /** false: friends' Join shows greyed as "Private room" instead of taking them there. Default true. */
+    /** false: friends' Join shows grayed as "Private room" instead of taking them there. Default true. */
     friendJoinsEnabled?: boolean;
   }
 
@@ -500,7 +500,7 @@ declare namespace Zaisma {
     /** false: a new room that never shows in room lists, like a private match. Counts only when this player makes the room. */
     isListed?: boolean;
     /**
-     * false: a new room friends can't Join from Zaisma, shown greyed as "Private room" (codes and links
+     * false: a new room friends can't Join from Zaisma, shown grayed as "Private room" (codes and links
      * still work). Counts only when this player makes the room.
      */
     friendJoinsEnabled?: boolean;
@@ -647,7 +647,7 @@ declare namespace Zaisma {
     readonly isListed: boolean;
     /** Taking new players. A closed room lets back only players who were in it. */
     readonly isOpen: boolean;
-    /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) offers this room; when false it's greyed as "Private room". */
+    /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) offers this room; when false it's grayed as "Private room". */
     readonly friendJoinsEnabled: boolean;
     /** The room's name, like "Ana's castle", or null. */
     readonly name: string | null;
@@ -706,7 +706,7 @@ declare namespace Zaisma {
      */
     setOpen(isOpen: boolean): void;
     /**
-     * Turn Zaisma's Join on or off for this room: off, a player's friends see Join greyed as "Private
+     * Turn Zaisma's Join on or off for this room: off, a player's friends see Join grayed as "Private
      * room" on zaisma.com and in {@link Friends.list}. It isn't a lock: a code or link still reaches the
      * room, so close it (setOpen) or answer false from canJoin to keep players out. From the room's host
      * when the game uses the relay; with a game server of your own, the server decides (its

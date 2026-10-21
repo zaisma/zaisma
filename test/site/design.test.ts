@@ -9,7 +9,8 @@ import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
-import { pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { BACKDROP_SCRIPT, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import actionsSource from "../../apps/site/src/components/actions.ts?raw";
@@ -119,13 +120,13 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
-  it("fades no background by itself: colours fade through registered colours, so nothing flashes as a fade ends", () => {
-    // A background colour that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
-    // Glass fades --glass-shown-tint and every control fades --face-colour (foundations.ts) instead.
+  it("fades no background by itself: colors fade through registered colors, so nothing flashes as a fade ends", () => {
+    // A background color that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
+    // Glass fades --glass-shown-tint and every control fades --face-color (foundations.ts) instead.
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1] ?? "";
-      if (/autofill/.test(selectors)) continue; // the browser's own autofill colour, held off on purpose
+      if (/autofill/.test(selectors)) continue; // the browser's own autofill color, held off on purpose
       if (/(^|,\s*)background(-color)?\s/.test(transition)) problems.push(`${selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim()}: transition: ${transition.trim()}`);
     }
     expect(problems).toEqual([]);
@@ -211,7 +212,7 @@ describe("the gallery", () => {
   });
 
 
-  it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbour distance) and stacked --gap-control-stack apart", async () => {
+  it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbor distance) and stacked --gap-control-stack apart", async () => {
     const problems: string[] = [];
     const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
       const gap = /(?:^|[;\s])gap:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
@@ -222,7 +223,9 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.attributes.includes(' role="listbox"')) continue;
+        // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
+        if (holder.classes.includes("choice-list-in")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
@@ -326,10 +329,10 @@ describe("the gallery", () => {
 });
 
 describe("components", () => {
-  it("put a page's settings on it, taking only a #rrggbb colour as the glass's hue", () => {
-    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColour: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
+  it("put a page's settings on it, taking only a #rrggbb color as the glass's hue", () => {
+    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
     expect(pageSettingsAttributes({}).html).toBe("");
-    for (const hueColour of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColour } }).html).toBe("");
+    for (const hueColor of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColor } }).html).toBe("");
   });
 
   it("make the runner a link with an address and a button without one", () => {
@@ -342,6 +345,79 @@ describe("components", () => {
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
+  });
+
+  it("keep a delete quiet until its confirm step, whose button is the one red and no runner", () => {
+    const markup = actions.deleteButton("Delete this game", { action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", confirmText: "It's gone for good." }).html;
+    expect(markup).toContain('<form class="sheet-form" method="post" action="/dashboard/games/ashen-crown/delete">');
+    const confirmForm = markup.slice(markup.indexOf('<form class="sheet-form"'), markup.indexOf("</form>", markup.indexOf('<form class="sheet-form"')));
+    expect(confirmForm).toMatch(/<span class="face danger cut-raised"/);
+    expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
+    // Cancel closes the sheet without sending the delete.
+    expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
+    // The button that opens it is a cut button, never orange, and names its sheet.
+    const opener = markup.slice(markup.indexOf("</dialog>"));
+    expect(opener).toContain('class="shell cut-btn" type="button" aria-controls="delete-dashboard-games-ashen-crown-delete"');
+    expect(opener).not.toMatch(/\brun\b|danger/);
+  });
+
+  it("make a toggle a checkbox that posts with its form, with no script", () => {
+    const markup = inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: true }).html;
+    expect(markup).toContain('<input class="toggle-input" type="checkbox" role="switch" id="toggle-cloud_saves" name="cloud_saves" value="on" checked>');
+    expect(inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: false }).html).not.toContain(" checked");
+  });
+
+  it("announce a problem notice as an alert and a done one as a status", () => {
+    expect(panes.notice({ text: "Couldn't save", tone: "problem" }).html).toContain('role="alert"');
+    expect(panes.notice({ text: "Saved", tone: "done" }).html).toContain('role="status"');
+  });
+
+  it("count a long field's characters only from 80% of its limit", () => {
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(79) }).html).toContain('<p class="long-count" id="field-patch_notes-count" hidden>79 of 100</p>');
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count" id="field-patch_notes-count">80 of 100</p>');
+  });
+
+  it("head a table's columns for screen readers and line its numbers up on the right", () => {
+    const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
+    expect(markup).toContain('aria-labelledby="table-versions-caption"');
+    expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
+    expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
+    // A first column that names the rows is each row's head.
+    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
+  });
+
+  it("give a chart's numbers to screen readers as a table of the same values", () => {
+    const markup = data.chart({ label: "Plays a day", points: [{ label: "Oct 20", amountNumber: 1205 }, { label: "Oct 21", amountNumber: 1712.5 }], unit: "plays" }).html;
+    expect(markup).toContain('<div class="chart-body" aria-hidden="true">');
+    expect(markup).toContain('<div class="sr"><table><caption>Plays a day</caption>');
+    expect(markup).toContain('<tr><th scope="row">Oct 20</th><td>1,205 plays</td></tr><tr><th scope="row">Oct 21</th><td>1,712.5 plays</td></tr>');
+  });
+
+  it("send a date and time as ISO 8601 with its offset", () => {
+    const markup = inputs.dateTimeField({ name: "publish_at", label: "Go live", pickedAt: "2026-10-23T15:30+02:00" }).html;
+    const sent = /<input type="hidden" name="publish_at" value="([^"]*)"/.exec(markup)?.[1];
+    expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    expect(inputs.DATE_TIME_SCRIPT).toContain('sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60)');
+  });
+
+  it("make a file drop a real file input across the whole field", () => {
+    const markup = inputs.fileDrop({ name: "build", label: "Drop your build", accept: ".zip", hint: "Up to 500 MB." }).html;
+    expect(markup).toContain('<input class="file-drop-input" type="file" id="drop-build" name="build" accept=".zip" aria-describedby="drop-build-hint">');
+  });
+
+  it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
+    // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
+    // rectangles and cut corners to the pass round the shader, whose arrays are that long.
+    expect(MOST_GLASS_PANE_COUNT).toBeLessThanOrEqual(16);
+    expect(BACKDROP_SCRIPT).toContain('document.querySelectorAll("[data-glass]:not([data-cut-line])")');
+    expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
+    expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
+    expect(BACKDROP_SCRIPT).toContain('el.getAttribute("data-glass-corners")');
+    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];`);
+    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
+    // Every shader keeps its own mainImage: the pass calls it once a pixel.
+    expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);
   });
 
   it("open the Developer and Forum tabs only on a developer page", () => {
@@ -366,19 +442,25 @@ const HAND_CUT = new Set<string>([
   ".rail-thumb", ".rail:hover .rail-thumb, .rail.dragging .rail-thumb", ".rail[data-rail=\"page\"] .rail-thumb",
   ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
   ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
+  ".rail.sideways .rail-mark span", ".rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span",
+  ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
+  // The same line under a text button's words, along a list row's foot and across a step flow's top.
+  ".text-line", ".step-mark",
+  // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
+  ".presence-line", ".presence-play",
 ]);
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
 const GALLERY_ONLY = new Set<string>([
   // The page: its body, the stage that carries its settings, the bar, its title and its groups, the layout, the index and the main column.
   "gallery", "stage", "gallery-bar", "gallery-title", "gallery-groups", "gallery-layout", "gallery-index", "gallery-main", "group-name",
-  // A section (a Tray) with its name and summary, and the grid of labelled examples on it.
+  // A section (a Tray) with its name and summary, and the grid of labeled examples on it.
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "logo-frame", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "cover-sample", "example-pane",
+  "header-frame", "tall", "logo-frame", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
 ]);
 
 // Classes a script or a screen reader uses, with no look of their own.
@@ -397,8 +479,11 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's mark (the Logo)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
+  ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
+  ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
+  ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
-  ['class="one-colour"', "Discord's mark, as Discord asks it to be shown"],
+  ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
 ]);
@@ -410,51 +495,79 @@ const OWN_GLASS = new Map<string, string>([
   ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
+  ['class="sheet glass', "a sheet"],
+  ['class="select-list glass', "a select field's list"],
+  ['class="notice glass', "a notice"],
+  ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
+  ['class="backdrop-frame is-tall', "the Glass foundation's own demos of the light glass bends and the pointer's light"],
   ['data-spacing-show', "the Spacing foundation's demos, which mark a pane's own padding and gap"],
 ]);
 
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a", ".tab-switch.is-tight > a", ".tab-switch.small.is-tight > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
+  // A code field's code: inside a control, in code's letters, a size up from code in words so a key reads easily.
+  ".code-text | font",
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
-  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size", ".me | font",
+  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
-  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ]);
+  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
+  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  // The +N at the back of a row of pictures, sized to the pictures.
+  ".frame.more | font",
+]);
 
 const NOT_SPACING = new Set<string>([
+  // A table's cells: room round a cell's words, set by the table's size.
+  ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
+  // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
+  ".chart-last | margin", ".chart-dot | margin",
+  // A chart's room for the dots at its ends.
+  ".chart-inner | padding", ".usage-track | padding",
+  // A chart's number where you point: a small label's own room round its words.
+  ".chart-tip | padding",
+  // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
+  ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
   ".field.with-toggle input | padding-right", '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
-  ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".top > .logo | margin-left", ".me | gap",
+  ".tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-start",
+  ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
+  ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
+  ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
+  ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
   // Lines words up with the places' words under them.
   ".dropdown-head | padding",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
+  ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
   // Room for the covers to lift into, given back round the row.
   ".track | padding", ".track | margin",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".cover-bar | margin-top",
+  ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".text-line | margin-top",
+  // Lines a box's or a card's icon up with the first line of its words.
+  ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // A header example's stand-in page: room for the header over it, and to scroll the header compact.
   ".stand-in-page | padding", ".stand-in-page | padding-top",
 ]);

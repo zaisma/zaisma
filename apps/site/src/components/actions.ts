@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, glassPane, icon, loader, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
 
 /*
- * Actions, loudest to quietest: the runner button (the one coloured thing you press), the cut button beside it,
+ * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it,
  * the glass buttons for the other ways in, and the guest button below them. Each answers the pointer, the press
  * and the keyboard in its own way, so none of them feels dead.
  */
@@ -17,6 +17,10 @@ interface ButtonTarget {
   type?: "submit" | "button";
   name?: string;
   buttonValue?: string;
+  /** "dialog": it closes the sheet it's in instead of sending its form (a Cancel). */
+  formMethod?: "dialog";
+  /** Focused as its sheet opens: a confirm step's Cancel, so a stray Enter never confirms. */
+  isAutofocused?: boolean;
 }
 
 /** The gallery's fixed states, so they sit still side by side. */
@@ -26,7 +30,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
     ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 
@@ -70,12 +74,14 @@ export interface CutButtonOptions extends ButtonTarget {
   controls?: string;
   /** It opens what it controls (a dropdown, a search): whether that's open now (aria-expanded). Left out, it opens nothing. */
   isExpanded?: boolean;
+  /** Not shown for now: a page script shows it (a step flow's Back on its first step). */
+  isHidden?: boolean;
 }
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}`;
+  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
   return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
 }
 
@@ -83,12 +89,12 @@ const GOOGLE = raw(
   '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>',
 );
 const DISCORD = raw(
-  '<svg class="one-colour" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
+  '<svg class="one-color" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
 );
-/** The other ways in, with the marks their owners ask for. A mark that may also be one colour (Discord's) is class one-colour. */
+/** The other ways in, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
 const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
 
-/** A glass button's tint: clear glass, or glass tinted the colour of the way in. Each way has its own unless the page picks one. */
+/** A glass button's tint: clear glass, or glass tinted the color of the way in. Each way has its own unless the page picks one. */
 export type GlassTint = "clear" | "white" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
 
@@ -125,6 +131,8 @@ export const BUSY_SCRIPT = `/* busy */(function () {
   // Checked once every handler has run, so a page script that handles the press itself (and prevents it) keeps it idle.
   function afterHandlers(event, then) { setTimeout(function () { if (!event.defaultPrevented) then(); }, 0); }
   document.addEventListener("submit", function (event) {
+    // Closing a sheet (a Cancel, its close button) sends nothing, so nothing waits.
+    if (event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
     var button = (event.submitter && event.submitter.closest(".shell")) || event.target.querySelector('.shell[type="submit"]');
     afterHandlers(event, function () { busy(button); });
   });
@@ -171,7 +179,7 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
 const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 
 const RUN_STYLES = `
-/* The runner button: the one coloured thing you can press. A raised orange slab, the same height as every other button,
+/* The runner button: the one colored thing you can press. A raised orange slab, the same height as every other button,
    lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
    a glint crosses it as you arrive; a press sinks it into the glass, its light turning round, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
@@ -237,7 +245,7 @@ const COLUMN = "width:min(340px,100%)";
  * A button's states, still, side by side; then one to try, and one that points, presses and lets go on a loop
  * (the gallery's design-loops script plays it: data-state-loop names what it plays). Full-width buttons get a column.
  */
-const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "guest", isFullWidth = false) => {
+const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "guest" | "text", isFullWidth = false) => {
   const sized = (markup: Raw) => (isFullWidth ? html`<div style="${COLUMN}">${markup}</div>` : markup);
   return [
     { label: "Rest", markup: sized(render()), isStill: true },
@@ -278,36 +286,39 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
-  --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape);
-  transition: --face-colour 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
+  --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
+  transition: --face-color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
 .cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
 .cut-btn.small > .face { height: 36px; padding: 0 14px; }
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
+/* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
+.cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
+.cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
 .cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
-.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-colour: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
+.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
 /* A toggle that's on stays sunk, the same as a press. */
-.cut-btn[aria-pressed="true"] > .face { --face-colour: var(--btn-press); }
+.cut-btn[aria-pressed="true"] > .face { --face-color: var(--btn-press); }
 .cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line, .cut-btn[aria-pressed="true"] > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
-.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-colour: var(--btn-hover); }
+.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-color: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
 /* Can't press: it lies flat, faded, and answers nothing. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; }
-.cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-colour: transparent; opacity: 0.35; box-shadow: none; transform: none; }
+.cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-color: transparent; opacity: 0.35; box-shadow: none; transform: none; }
 .cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 /* Waiting: the loader before its words, in the icon's place. */
 .cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
 .cut-btn .face > .loader { position: relative; z-index: 2; }
 @media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
-@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-colour 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s; } }
 `,
   render: cutButton,
   examples: [
@@ -316,6 +327,7 @@ component({
     { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
     { label: "Only its icon", markup: cutButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
     { label: "Small", markup: cutButton("Show", { type: "button", isSmall: true }) },
+    { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
     { label: "Can't press", markup: cutButton("Details", { type: "button", isDisabled: true }), isStill: true },
     { label: "A toggle, off and on", markup: html`<div class="control-row">${cutButton("Show", { type: "button", isSmall: true, isPressed: false })}${cutButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>` },
     { label: "Big, beside Play", markup: html`<div class="control-row">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
@@ -326,15 +338,15 @@ component({
 
 const PICTURE = "display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane);background-position:center;background-size:cover;";
 const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
-/** A glass button's tints, for a colour picker (inputs.ts's Colour picker, the gallery's tint palette). */
-export const TINT_CHOICES: (ColourChoice & { colourValue: GlassTint })[] = [
-  { name: "Clear", colourValue: "clear", swatch: "clear" },
-  { name: "White", colourValue: "white", swatch: "#fff" },
-  { name: "Blue", colourValue: "blue", swatch: "#2A75E8" },
-  { name: "Indigo", colourValue: "indigo", swatch: "#5865F2" },
-  { name: "Black", colourValue: "black", swatch: "#14171C" },
+/** A glass button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+export const TINT_CHOICES: (ColorChoice & { colorValue: GlassTint })[] = [
+  { name: "Clear", colorValue: "clear", swatch: "clear" },
+  { name: "White", colorValue: "white", swatch: "#fff" },
+  { name: "Blue", colorValue: "blue", swatch: "#2A75E8" },
+  { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
+  { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
-const tintPalette = () => html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}${colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
+const tintPalette = () => html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
 const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
 
 component({
@@ -381,38 +393,49 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--focus); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* A dark tint is a solid slab: no dark hairline, white facets or white top highlight (those read as a glitchy frame), only a
-   rim in a lighter shade of its own colour, and a lift shadow that stays in its colour. */
-.glass-btn[data-tint="blue"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="indigo"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="black"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band) { opacity: 0; }
-.glass-btn[data-tint="blue"] .edge .rim, .glass-btn[data-tint="indigo"] .edge .rim, .glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 58%, white); stroke-width: 1.6; opacity: 1; }
-.glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 70%, white); }
+/* A tinted slab is colored glass, not a plate: it keeps the same glass edge as every glass button, drawn in its own color. Its bevel
+   steps from a light shade of the tint along the lit top to a deep shade along the foot, the rim and the glint at the lit corner are the
+   tint's light, and a sheen lies over the color, brightest at the top. The more color it carries, the more its edge would stand out
+   against it, so a tinted slab's edge is fainter than clear glass's: the same edge, just as quiet. No dark hairline or rainbow fringe,
+   which read as a frame round a colored slab. */
+.glass-btn[data-tint]:not([data-tint="clear"]) > .face {
+  --edge-lit: color-mix(in srgb, var(--tint-color) 30%, white); --edge-shade: color-mix(in srgb, var(--tint-color) 70%, black); --edge-corner: color-mix(in srgb, var(--tint-color) 40%, white);
+  --edge-spec: rgba(255,255,255,0.7); --edge-inner: color-mix(in srgb, var(--tint-color) 35%, white); --edge-dense: rgba(0,0,0,0.03);
+  --edge-bevel: 0.22; --edge-rim: 0.4; --edge-fringe: 0;
+  --glass-layer: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.06) 40%, rgba(255,255,255,0) 58%, rgba(0,0,0,0.08)), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+/* White: the edge is the lightest of all, so the frame inside it never draws a line round the words. */
+.glass-btn[data-tint="white"] > .face { --edge-lit: #fff; --edge-shade: #C9CFD8; --edge-corner: #EEF1F5; --edge-inner: #fff; --edge-dense: rgba(40,60,100,0.03); --edge-bevel: 0.3; --edge-rim: 0.45;
+  --glass-layer: linear-gradient(180deg, rgba(255,255,255,0.4), rgba(255,255,255,0) 50%, rgba(30,50,90,0.05)), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+.glass-btn[data-tint="black"] > .face { --edge-lit: #5A606B; --edge-shade: #000; --edge-corner: #6B717C; --edge-inner: #8A919C; }
+.glass-btn[data-tint]:not([data-tint="clear"]) .edge :is(.hair, .fringe) { opacity: 0; }
+.glass-btn[data-tint]:not([data-tint="clear"]) .edge .inner { opacity: 0.25; }
+.glass-btn[data-tint]:not([data-tint="clear"]):hover .edge .inner, .glass-btn[data-tint]:not([data-tint="clear"]).is-pointed .edge .inner { opacity: 0.45; }
 .glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
 .glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
-.glass-btn[data-tint="blue"]:focus-visible .edge .rim, .glass-btn[data-tint="indigo"]:focus-visible .edge .rim, .glass-btn[data-tint="black"]:focus-visible .edge .rim,
-.glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; }
-/* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
-   follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
+.glass-btn[data-tint]:not([data-tint="clear"]):focus-visible .edge .rim, .glass-btn[data-tint]:not([data-tint="clear"]).is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
+/* Tinted: the way's own color, mostly solid, the backdrop just showing through, in either theme (a brand's color is how you recognize it, so it doesn't
+   follow light or dark): white glass with dark words, the colored and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
-.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)); }
-/* A brand's glass keeps its own colour: the page's hue never reaches it. */
+.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+/* A brand's glass keeps its own color: the page's hue never reaches it. */
 .glass-btn[data-tint]:not([data-tint="clear"]) > .face { --glass-wash: linear-gradient(transparent, transparent); }
-.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-colour 0.3s, --tint-pct 0.3s; }
+.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-color 0.3s, --tint-pct 0.3s; }
 .glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
 .glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
 .glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
-.glass-btn[data-tint="white"] > .face { --tint-colour: #fff; color: #14171C; }
-.glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; }
-.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --pointer-glow: rgba(255,255,255,0.35); }
+.glass-btn[data-tint="white"] > .face { --tint-color: #fff; color: #14171C; }
+.glass-btn[data-tint="white"] { --glass-btn-tint-rest: 76%; --glass-btn-tint-hover: 86%; --glass-btn-tint-press: 68%; }
+.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 74%; --glass-btn-tint-hover: 82%; --glass-btn-tint-press: 68%; --pointer-glow: rgba(255,255,255,0.35); }
 .glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
-.glass-btn[data-tint="blue"] > .face { --tint-colour: #2A75E8; }
-.glass-btn[data-tint="indigo"] > .face { --tint-colour: #5865F2; }
-.glass-btn[data-tint="black"] > .face { --tint-colour: #14171C; }
-/* On a coloured or black tint a coloured mark would sink into it, so a mark that may be one colour turns white with the words.
-   Google's G stays in its colours, which only ever sit on white or clear glass. */
-.glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
+.glass-btn[data-tint="blue"] > .face { --tint-color: #2A75E8; }
+.glass-btn[data-tint="indigo"] > .face { --tint-color: #5865F2; }
+.glass-btn[data-tint="black"] > .face { --tint-color: #14171C; }
+/* On a colored or black tint a colored mark would sink into it, so a mark that may be one color turns white with the words.
+   Google's G stays in its colors, which only ever sit on white or clear glass. */
+.glass-btn[data-tint="blue"] .one-color path, .glass-btn[data-tint="indigo"] .one-color path, .glass-btn[data-tint="black"] .one-color path { fill: currentColor; transition: fill 0.3s; }
 /* On clear glass it's white over smoked glass, and its own blue over light (the fallback, since light glass leaves --clear-glass-mark unset). */
-.glass-btn[data-tint="clear"] .one-colour path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
-/* The gallery's tint palette: a Colour picker; pick one and the button above takes it (GALLERY_SCRIPT). */
+.glass-btn[data-tint="clear"] .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
+/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
 .tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 @media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: var(--glass-transition); } }
 `,
@@ -440,9 +463,9 @@ component({
 .guest-btn { display: flex; width: 100%; }
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
-  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-colour: transparent; background-color: var(--face-colour);
+  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
   clip-path: var(--cut-shape);
-  transition: --face-colour 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }
 .guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
@@ -450,21 +473,138 @@ component({
 /* Waiting: the loader takes the arrow's place. */
 .guest-btn:not([aria-busy="true"]) .loader, .guest-btn[aria-busy="true"] .arrow { display: none; }
 .guest-btn[aria-busy="true"] { cursor: progress; }
-.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-colour: var(--clear-hover); }
+.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-color: var(--clear-hover); }
 .guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
 .guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
-.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-colour: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
+.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 .guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
 .guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
 .guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
 .guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-colour 0.2s, color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-color 0.2s, color 0.2s; } }
 `,
   render: guestButton,
   examples: [
     ...stateExamples((state) => guestButton("Continue as guest", { state }), "guest", true),
     { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
     { label: "Busy", markup: guestButton("Continue as guest", { isBusy: true }), isStill: true },
+  ],
+});
+
+export interface TextButtonOptions {
+  href?: string;
+  type?: "submit" | "button";
+  name?: string;
+  buttonValue?: string;
+  formMethod?: "dialog";
+  icon?: IconName;
+  isBusy?: boolean;
+  state?: ButtonState;
+}
+
+/** A text button: words alone, the quietest thing you press (Skip for now, Show all, Undo). The orange line draws in under them as you point. */
+export function textButton(label: string, options: TextButtonOptions = {}): Raw {
+  return html`${opening(classes("text-btn", options.state), options, options.isBusy)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
+}
+
+component({
+  name: "Text button",
+  slug: "text-button",
+  group: "actions",
+  summary: "The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.",
+  styles: `
+/* A text button: words only. Pointing at it draws the orange line in under its words from the left, a light running ahead along it,
+   the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press sinks the words a pixel.
+   The shell (the button) stays still; its face moves. */
+.text-btn { vertical-align: middle; }
+.text-btn:focus-visible { outline: none; }
+.text-btn > .face { display: inline-flex; flex-direction: column; align-items: stretch; padding: 12px 2px 6px; color: var(--ink-2); white-space: nowrap; transition: color 0.2s, transform 0.4s ${SPRING}; }
+.text-words { display: inline-flex; align-items: center; justify-content: center; gap: var(--gap-words-words); font: var(--type-label); }
+.text-line { position: relative; display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+.text-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.text-btn:hover > .face, .text-btn.is-pointed > .face, .text-btn:focus-visible > .face, .text-btn.is-focused > .face { color: var(--ink); }
+.text-btn:hover .text-line, .text-btn.is-pointed .text-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.text-btn:hover .text-line::after, .text-btn.is-pointed .text-line::after { animation: text-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes text-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.text-btn:active > .face, .text-btn.is-pressed > .face { color: var(--ink); transform: translateY(1px); transition-duration: 0.08s; }
+/* Keyboard focus: an outline round its words alone. */
+.text-btn:focus-visible .text-words, .text-btn.is-focused .text-words { outline: 2px solid var(--focus); outline-offset: 4px; }
+/* Beside another control in a row it has no slant to meet, so it stands clear of that control's end by a word's gap and a row's. */
+.control-row > .text-btn:not(:first-child) { margin-inline-start: calc(var(--control-slant) + var(--gap-words-control)); }
+/* Waiting: the loader before its words. */
+.text-btn:not([aria-busy="true"]) .loader, .text-btn[aria-busy="true"] .text-words > .ico { display: none; }
+.text-btn[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .text-btn > .face, .text-line { transition: color 0.2s; } .text-line::after { animation: none !important; } }
+`,
+  render: textButton,
+  examples: [
+    ...stateExamples((state) => textButton("Skip for now", { type: "button", state }), "text"),
+    { label: "Busy", markup: textButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${textButton("Cancel", { type: "button" })}</div>` },
+  ],
+});
+
+export interface DeleteButtonOptions {
+  /** Where its confirm step posts. */
+  action: string;
+  /** The confirm's words: "Delete Ashen Crown". */
+  confirmLabel: string;
+  /** One sentence on what goes, said on the confirm step: "Its page, saves and stats are gone for good." */
+  confirmText: string;
+  /** Its confirm step's id, unique on the page. Made from action when left out. */
+  id?: string;
+  isFullWidth?: boolean;
+  state?: ButtonState;
+  /** Only its confirm step, open in place: the gallery's still copy. */
+  isConfirmShown?: boolean;
+}
+
+/** The red confirm: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it. */
+const dangerButton = (label: string) =>
+  html`${opening("danger-wrap", { type: "submit" }, undefined)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span>${label}</span></span>${closing({})}`;
+
+/** A delete: a cut button with a trash icon, never orange, that opens its confirm step, a sheet with one sentence, Cancel, and the only red in Zaisma. */
+export function deleteButton(label: string, options: DeleteButtonOptions): Raw {
+  const id = options.id ?? `delete-${options.action.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+  const body = html`<p class="sheet-text">${options.confirmText}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${dangerButton(options.confirmLabel)}</div></form>`;
+  const sheet = sheetMarkup({ id, title: `${label}?`, body, closeButton: cutButton("Close", { type: "submit", icon: "close", isLabelHidden: true, isSmall: true }), isShown: options.isConfirmShown });
+  return options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`;
+}
+
+const GAME_DELETE = { action: "#delete-button", confirmLabel: "Delete Ashen Crown", confirmText: "Its page, versions, saves and stats are gone for good. Players who have it open are sent home." } as const;
+
+component({
+  name: "Delete button",
+  slug: "delete-button",
+  group: "actions",
+  summary: "Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.",
+  styles: `
+/* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
+   A press sinks it into the glass, its light turned round, like any raised control. The shell stays still; its face moves. */
+.danger-wrap { vertical-align: middle; }
+.danger-wrap:focus-visible { outline: none; }
+.danger { position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 44px; padding: 0 24px;
+  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 16px var(--display); white-space: nowrap;
+  --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
+  clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+.danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
+.danger > :not(.cut-line) { position: relative; z-index: 2; }
+.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
+.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transform: translateY(1px); transition-duration: 0.08s; }
+.danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
+.danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.danger-wrap[aria-busy="true"] { cursor: progress; }
+.danger-wrap:not([aria-busy="true"]) .loader { display: none; }
+[data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
+@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 15px; } }
+@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
+`,
+  render: deleteButton,
+  examples: [
+    ...stateExamples((state) => deleteButton("Delete this game", { ...GAME_DELETE, id: `example-delete-${state ?? "rest"}`, state }), "cut").filter((example) => example.label !== "Try it" && example.label !== "On a loop"),
+    { label: "Try it: it opens its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-try" }) },
+    { label: "Its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-shown", isConfirmShown: true }), isWide: true, isStill: true },
   ],
 });
 

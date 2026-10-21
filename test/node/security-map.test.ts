@@ -462,7 +462,7 @@ describe("the public export", () => {
     expect(publicExportProblems(exported, map)).toEqual([]);
   });
 
-  it("exports nested cases of a visible door, sanitised the same way", () => {
+  it("exports nested cases of a visible door, sanitized the same way", () => {
     const map = emptyMap();
     const door = fixtureDoor("api:GET /nests", "player-data");
     (door.cases[0] as Case & { cases?: Case[] }).cases = [{ ...unexploredCase({ case_id: "inner", case_name: "Inner" }), finding_id: null }];

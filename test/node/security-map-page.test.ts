@@ -245,7 +245,7 @@ describe("layoutGraph", () => {
     expect(angles).toHaveLength(6);
     const lopsidedLayout = layout;
     const sectorAngles = (graphOf(lopsided) as Graph).sectorIds.map((id) => lopsidedLayout.positionsById.get(`sector:${id}`)!.angleRad);
-    // The mid-angle gaps between neighbours (and round the circle) add up to one turn; the smallest sector's arc is at least the minimum.
+    // The mid-angle gaps between neighbors (and round the circle) add up to one turn; the smallest sector's arc is at least the minimum.
     const gaps = sectorAngles.map((angle, index) => (sectorAngles[(index + 1) % 6]! - angle + 4 * Math.PI) % (2 * Math.PI));
     expect(gaps.reduce((sum, gap) => sum + gap, 0)).toBeCloseTo(2 * Math.PI, 9);
     const smallestArc = Math.min(...gaps.map((gap, index) => (gap + gaps[(index + 5) % 6]!) / 2));
@@ -269,7 +269,7 @@ describe("hitTest", () => {
   const visible = visibleNodeIds(graph, new Set(expandedIds));
   const grid = buildHitGrid(layout.positionsById, visible);
 
-  it("finds a node at its centre and nothing beyond the tolerance", () => {
+  it("finds a node at its center and nothing beyond the tolerance", () => {
     const position = layout.positionsById.get("door:demo:door-0003")!;
     expect(hitTest(grid, position.x, position.y, 3)).toBe("door:demo:door-0003");
     expect(hitTest(grid, position.x + 400, position.y + 400, 3)).toBeNull();

@@ -59,7 +59,7 @@ const PLAYER_ID = /^player_[a-z0-9]{1,40}$/;
 /** Only compared with friends' rooms, never shown, so any six letters or digits will do. */
 const ROOM_CODE = /^[A-Z0-9]{6}$/;
 
-/** Friends playing the game, each with Join, greyed with why when it won't work; none for a friend in no room Zaisma knows. */
+/** Friends playing the game, each with Join, grayed with why when it won't work; none for a friend in no room Zaisma knows. */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="pl-note">None of your friends are playing this right now.</p>`;
   return html`<ul class="pl-list">${friends.map(

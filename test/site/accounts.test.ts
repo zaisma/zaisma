@@ -1388,7 +1388,7 @@ describe("friends", () => {
     expect(await playingNowOf(env.DB, benId, null, 18)).toMatchObject({ game: { slug: "arena-game" }, join: { refusal: "friend_not_taking_joins" } });
     await env.DB.prepare("UPDATE accounts SET who_sees_playing_now = 'friends' WHERE id = ?").bind(benId).run();
 
-    // Join greys out with why: a closed room, a full one, a friend who doesn't take joins.
+    // Join grays out with why: a closed room, a full one, a friend who doesn't take joins.
     await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
     expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('data-reason="Match in progress"');
     await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 7, held_seat_count = 1").run();
@@ -1507,7 +1507,7 @@ describe("friends", () => {
     const inRoom = await (await ana.go("/g/arena-game/players/friends?room=ROOMAA")).text();
     expect(inRoom).not.toContain("Quiet_Comet");
     expect(inRoom).toContain("None of your friends are playing this right now.");
-    // Join is greyed with the reason when it won't work.
+    // Join is grayed with the reason when it won't work.
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
     const refused = await (await ana.go("/g/arena-game/players/friends?room=OTHERR")).text();
     expect(refused).toContain("Quiet_Comet isn&#39;t taking joins");
@@ -1766,7 +1766,7 @@ describe("the header and the theme", () => {
     expect(saved.headers.get("location")).toBe("/account?theme-saved#theme");
     expect(await accountById(env.DB, await idOf("Night_Owl"))).toMatchObject({ color_theme: "dark" });
     for (const path of ["/", "/account", "/friends", "/forum", "/dashboard"]) expect(await (await b.go(path)).text(), path).toContain('data-theme-choice="dark"');
-    // A fixed theme has one browser colour; System has one for each.
+    // A fixed theme has one browser color; System has one for each.
     const home = await (await b.go("/")).text();
     expect(home).toContain('<meta name="theme-color" content="#0D1015">');
     expect(home).not.toContain('media="(prefers-color-scheme: light)"');

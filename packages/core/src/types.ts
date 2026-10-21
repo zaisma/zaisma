@@ -40,7 +40,7 @@ export interface Game {
   account_offer_enabled: number;
   /** 1 when Zaisma erases a player who deletes their account from the game's database (rows whose player_id is theirs). */
   deleted_account_erase_enabled: number;
-  /** 1 when Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms; 0 greys it as "This game doesn't take joins". */
+  /** 1 when Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms; 0 grays it as "This game doesn't take joins". */
   friend_joins_enabled: number;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
@@ -231,7 +231,7 @@ export interface LiveRoom {
   maximum_player_count: number;
   is_listed: number;
   is_open: number;
-  /** 1 when Zaisma's Join offers the room; 0 greys it as "Private room" (room.setFriendJoinsEnabled). */
+  /** 1 when Zaisma's Join offers the room; 0 grays it as "Private room" (room.setFriendJoinsEnabled). */
   friend_joins_enabled: number;
   name: string | null;
   /** JSON, like {"Mode": "Classic"}. */

@@ -85,7 +85,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
 .picked:hover .change{color:var(--text)}
 .sheet form{display:grid;gap:14px}
 .sheet textarea{width:100%;min-height:120px;resize:vertical}
-/* The picture of the game sits in a machined bezel, like the game page's; unticked, it greys out. */
+/* The picture of the game sits in a machined bezel, like the game page's; unticked, it grays out. */
 .report-pic{margin:0;display:grid;gap:10px}
 .report-pic .frame{display:block;padding:3px;background:linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
 .report-pic img{display:block;width:100%;max-height:190px;object-fit:contain;background:#000;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);transition:opacity 140ms,filter 140ms}

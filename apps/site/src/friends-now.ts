@@ -64,7 +64,7 @@ const face = (friend: FriendNow, pictureSize: "xs" | "sm" | "md") => html`<a cla
 /** The room link Join opens: the game page with the room, and the game's own server when it's on one, for joinRoom to follow. */
 export const joinPath = (slug: string, join: { room_code: string; server_url: string | null }) => `/g/${slug}?room=${join.room_code}${join.server_url ? `&server=${encodeURIComponent(join.server_url)}` : ""}`;
 
-/** Join: the room link a friend could have sent, or greyed with why it won't work (on hover, or a tap). */
+/** Join: the room link a friend could have sent, or grayed with why it won't work (on hover, or a tap). */
 export function joinButton(slug: string, join: NonNullable<FriendsInGame["join"]>): Raw {
   return join.refusal
     ? html`<span class="join-off" tabindex="0" role="button" aria-disabled="true" aria-label="Join: ${joinRefusalText(join)}" data-reason="${joinRefusalText(join)}"><span class="btn ghost">Join</span></span>`
@@ -104,7 +104,7 @@ ${now.playing.length
 <style>${raw(NOW_STYLES)}</style>`;
 }
 
-/** A greyed Join: its reason shows on hover, or on a tap (which focuses it). */
+/** A grayed Join: its reason shows on hover, or on a tap (which focuses it). */
 export const JOIN_OFF_STYLES = `.join-off{position:relative;display:inline-flex;cursor:not-allowed;outline:none}
 .join-off .btn{opacity:.45;pointer-events:none}
 .join-off:hover .btn,.join-off:focus .btn{opacity:.6}

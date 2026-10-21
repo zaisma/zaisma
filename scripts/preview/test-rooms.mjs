@@ -63,7 +63,7 @@ function lobbyAgain(rooms, origin, code, ms) {
 }
 
 /**
- * A Four in a Row player waiting in the lobby (a room labelled Room: Lobby). When the game pairs it
+ * A Four in a Row player waiting in the lobby (a room labeled Room: Lobby). When the game pairs it
  * with you, it follows the move to your match, plays random columns and leaves when you do; another
  * one takes its place in the lobby.
  */
