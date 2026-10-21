@@ -475,44 +475,19 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 
 /**
  * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
- * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
- * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. That glide waits for
- * a quiet moment after the last wheel, key or touch, and any of them stops it where it is, so scrolling again mid-glide never fights it. A bar over a
- * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
+ * roomy again only at the very top, so it can't flip back and forth. The page is never scrolled for you: near the top it stays where you
+ * left it. A bar over a stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact
+ * keeps it compact.
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
-  var COMPACT_AT_PX = 24, SETTLE_PX = 56, still = window.matchMedia("(prefers-reduced-motion: reduce)"), hasScrollEnd = "onscrollend" in window;
+  var COMPACT_AT_PX = 24;
   document.querySelectorAll("[data-compacts]").forEach(function (bar) {
     if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
     // A bar follows the box that scrolls right beside it (a header example's stand-in page), or else the page: never a box deeper in, like a table.
-    var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window, target = box || document.documentElement;
-    // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
-    target.style.overflowAnchor = "none";
+    var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window;
     function at() { return box ? box.scrollTop : window.scrollY; }
-    // Nothing glides while a finger is down, or until a moment after the last wheel, key or touch; any of them stops a glide that is running.
-    var QUIET_MS = 160, isTouching = false, isGliding = false, lastInputMs = 0, timer = 0;
-    function noteInput() {
-      lastInputMs = performance.now();
-      if (isGliding) { isGliding = false; scroller.scrollTo({ top: at(), behavior: "auto" }); }
-    }
     function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
-    function settle() {
-      clearTimeout(timer);
-      if (isTouching) return;
-      var quietFor = performance.now() - lastInputMs;
-      if (quietFor < QUIET_MS) { timer = setTimeout(settle, QUIET_MS - quietFor); return; }
-      var y = at();
-      if (y > 0 && y < SETTLE_PX) { isGliding = !still.matches; scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" }); } else isGliding = false;
-    }
-    scroller.addEventListener("scroll", function () {
-      sync();
-      if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); }
-    }, { passive: true });
-    if (hasScrollEnd) scroller.addEventListener("scrollend", function () { if (at() <= 0) isGliding = false; settle(); });
-    ["wheel", "keydown", "pointerdown"].forEach(function (kind) { (box || window).addEventListener(kind, noteInput, { passive: true }); });
-    window.addEventListener("touchstart", function () { isTouching = true; noteInput(); }, { passive: true });
-    window.addEventListener("touchend", function () { isTouching = false; if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); } }, { passive: true });
-    window.addEventListener("touchcancel", function () { isTouching = false; }, { passive: true });
+    scroller.addEventListener("scroll", sync, { passive: true });
     sync();
   });
 })();

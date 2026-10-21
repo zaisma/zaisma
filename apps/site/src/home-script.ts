@@ -161,7 +161,7 @@ function openPane(shouldReveal) {
 }
 addEventListener("scroll", () => {
   if (scrollY > 24) openPane(false);
-  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; showTray(); }
+  else if (scrollY <= 0 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; showTray(); }
 }, { passive: true });
 pane.box.addEventListener("focusin", (event) => { if (pane.moreIn.contains(event.target)) openPane(false); });
 
