@@ -32,6 +32,7 @@ import relayScript from "@zaisma/sdk/relay.js";
 import warmScript from "@zaisma/sdk/warm.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 import sdkTypes from "@zaisma/sdk/zaisma.d.ts";
+import { serveBackground } from "./background.ts";
 
 export interface Env {
   DB: D1Database;
@@ -371,6 +372,11 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (game?.review_status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
   if (game?.review_status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
   if (!game) return page(404, "Game not found", "Check the link and try again.", env);
+  // Its background, which Zaisma's pages frame behind their glass: on the game's own address, never a tester or preview one.
+  if (!address && (target.path.startsWith("_zaisma/background") || target.path === "_zaisma/shader-preview")) {
+    const background = await serveBackground(request, env, game, target.path, target.base);
+    if (background) return background;
+  }
 
   let version: { id: string; kind: "zip" | "files"; r2_prefix: string };
   let tester: TesterLink | null = null;

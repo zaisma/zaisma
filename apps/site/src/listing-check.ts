@@ -17,7 +17,7 @@ import {
 } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
-import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, type ListingPicture } from "./listing-judge.ts";
+import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, type ListingPicture, type PictureOutcome } from "./listing-judge.ts";
 import { tellWebhooks } from "./webhooks.ts";
 
 const now = () => Date.now();
@@ -135,7 +135,8 @@ async function setListingReason(env: Env, imageId: string, listingReason: Review
  * person cleared goes as a reference only (a screenshot to compare covers with) or not at all (a cover).
  */
 async function listingBrief(env: Env, game: Game, images: GameImage[], title: string, description: string): Promise<{ brief: ListingBrief; sentImages: GameImage[] }> {
-  const order = (image: GameImage) => (image.kind === "screenshot" ? 1 : 0);
+  // Backgrounds last: the size cap drops them before a cover or screenshot.
+  const order = (image: GameImage) => (image.kind === "screenshot" ? 1 : image.kind === "background" || image.kind === "phone_background" ? 2 : 0);
   const candidates = images
     .filter((image) => image.kind === "screenshot" || image.cleared_at_ms === null)
     .filter((image) => Math.max(image.width_px, image.height_px) <= LISTING_CHECK_LIMITS.maximumSidePx)
@@ -156,6 +157,28 @@ async function listingBrief(env: Env, game: Game, images: GameImage[], title: st
     brief: { title, isTitleJudged: title !== game.cleared_title, description, isDescriptionJudged: true, pictures },
     sentImages,
   };
+}
+
+/**
+ * The listing check's half of the shader check (shader-check.ts): a shader's still and sampled frames, judged as backgrounds,
+ * with the game's words as they are and not judged. One outcome for them all, the worst: a fake reward holds the game for a
+ * person, words or a logo reject the shader, and a safety concern (or no answer, or no AI) leaves it for a person.
+ */
+export async function judgeShaderPictures(env: Env, game: Game, pictures: { id: string; pngBytes: Uint8Array }[], judge: ListingJudge = judgeListing): Promise<PictureOutcome> {
+  if (!(await canCheck(env))) return { outcome: "person" };
+  const brief: ListingBrief = {
+    title: game.title,
+    isTitleJudged: false,
+    description: game.description,
+    isDescriptionJudged: false,
+    pictures: pictures.map((picture) => ({ id: picture.id, kind: "background", mediaType: "image/png", base64: toBase64(picture.pngBytes), isJudged: true })),
+  };
+  const judged = await judge(env.ANTHROPIC_API_KEY!, env.LISTING_CHECK_MODEL, brief);
+  if (judged.costCents > 0) await addReviewUsage(env.DB, judged.costCents);
+  const outcomes = Object.values(listingOutcomes(brief, judged.answer).pictures);
+  const worst = outcomes.find((outcome) => outcome.outcome === "held") ?? outcomes.find((outcome) => outcome.outcome === "person") ?? outcomes.find((outcome) => outcome.outcome === "rejected");
+  if (worst?.outcome === "held" && game.review_status !== "held") await holdForFakeReward(env, game, worst.reason);
+  return worst ?? { outcome: "fine" };
 }
 
 async function holdForFakeReward(env: Env, game: Game, heldReason: ReviewReason): Promise<void> {

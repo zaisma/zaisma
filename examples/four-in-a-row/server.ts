@@ -1,7 +1,9 @@
 // Four in a row game server: turn-based, two players, everyone else watches.
 // It has no ticksPerSec, so the room sleeps between moves and costs almost nothing.
 // A room labelled Room: Lobby is where players find an opponent: each pair gets a match
-// room of their own (room.reserve), which starts with both seats taken.
+// room of their own (room.reserve), which starts with both seats taken. A player whose
+// connection drops keeps their seat for the room's reconnectTimeoutSec (30 seconds):
+// their opponent waits, and their game shows them reconnecting.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
 const COLUMN_COUNT = 7;
@@ -77,9 +79,9 @@ function share(state: State, room: Room): void {
   });
 }
 
-/** The two players who've waited longest get a match room of their own, and move there. */
+/** The two players who've waited longest get a match room of their own, and move there. Players whose connection dropped wait until they're back. */
 function pair(state: State, room: Room): void {
-  const waiting = room.players.filter((player) => !state.pairedPlayerIds.includes(player.id));
+  const waiting = room.players.filter((player) => !state.pairedPlayerIds.includes(player.id) && room.awayReason(player.id) === null);
   while (waiting.length >= 2) {
     const [first, second] = waiting.splice(0, 2) as [Player, Player];
     room.reserve({ playerIds: [first.id, second.id], setupData: { seatPlayerIds: [first.id, second.id], seatNames: [first.name, second.name] } satisfies Match });
@@ -121,6 +123,12 @@ const fourInARow: GameServer<State> = {
       state.pairedPlayerIds = state.pairedPlayerIds.filter((id) => id !== player.id);
       return pair(state, room);
     }
+    share(state, room);
+  },
+
+  // Back after a dropped connection: in the lobby they can be paired again; in a match, they get the board as it is now.
+  onBack(state, player, room) {
+    if (room.labels.Room === LOBBY) return pair(state, room);
     share(state, room);
   },
 

@@ -41,6 +41,12 @@ import {
   cardImageKey,
   imagesForGame,
   pendingImages,
+  SHADER_LIMITS,
+  settleShader,
+  shaderById,
+  shaderFrameKey,
+  shaderStillKey,
+  shadersWaitingForPerson,
   settleDetailsWaitingForReview,
   settleImage,
   CONTENT_RULES,
@@ -177,6 +183,8 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (gameMatch) return gameDetail(env, gameMatch[1]!);
   const imageMatch = path.match(/^\/admin\/images\/([a-z0-9_]+)$/);
   if (imageMatch) return adminImage(env, imageMatch[1]!);
+  const shaderPictureMatch = path.match(/^\/admin\/shaders\/(shader_[a-z0-9]+)\/(still|frame-[0-9])\.png$/);
+  if (shaderPictureMatch) return adminShaderPicture(env, shaderPictureMatch[1]!, shaderPictureMatch[2]!);
   const pictureMatch = path.match(/^\/admin\/reports\/([a-z0-9_]+)\/picture$/);
   if (pictureMatch) return reportPicture(env, pictureMatch[1]!);
   return new Response("Not found", { status: 404 });
@@ -272,6 +280,16 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     await Promise.all(replaced.map((replacedImage) => env.GAMES.delete([imageKey(replacedImage), cardImageKey(replacedImage)])));
     await audit(env.DB, image.game_id, rejectedReason ? "image-rejected" : "image-approved", reason || `${image.kind} ${image.id}`, actor, rejectedReason);
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
+  }
+
+  match = path.match(/^\/admin\/shaders\/(shader_[a-z0-9]+)\/(approve|reject)$/);
+  if (match) {
+    const shader = await shaderById(env.DB, match[1]!);
+    if (!shader) return new Response("Not found", { status: 404 });
+    const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
+    await settleShader(env.DB, shader, rejectedReason, shader.check_frame_ms, shader.flash_count);
+    await audit(env.DB, shader.game_id, rejectedReason ? "shader-rejected" : "shader-approved", reason || `${shader.screen} ${shader.id}`, actor, rejectedReason);
+    return redirect("/admin");
   }
 
   match = path.match(/^\/admin\/images\/([a-z0-9_]+)\/clear-listing$/);
@@ -487,12 +505,13 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage, images, words, spikes, feedback] = await Promise.all([
+  const [queue, reports, games, usage, images, shaders, words, spikes, feedback] = await Promise.all([
     heldVersions(env.DB),
     openReports(env.DB),
     allGames(env.DB),
     aiUsage(env.DB),
     pendingImages(env.DB),
+    shadersWaitingForPerson(env.DB),
     gamesWithDetailsWaitingForReview(env.DB),
     playSpikes(env.DB),
     feedbackSummary(env),
@@ -517,6 +536,18 @@ ${images.length
       ? html`<p class="muted">${env.ARACHNID_SHIELD_KEY ? "These passed image matching. The listing check approves the rest within minutes; these are ones it couldn't clear (a safety concern, or no AI). Check each follows the content rules." : "Image matching isn't connected yet, so check each picture follows the content rules."}</p>
 <div class="shots">${images.map((image) => html`<div>${imageReview(image)}<p><a href="/admin/games/${image.game_id}">${image.title}</a></p></div>`)}</div>`
       : html`<p class="note">Nothing waiting.</p>`}
+
+${shaders.length
+      ? html`<h2>Background shaders (${shaders.length})</h2>
+<p class="muted">The shader check drew these and image matching cleared their frames; the listing check couldn't clear them (a safety concern, or no AI). Check the still and frames follow the content rules.</p>
+<div class="shots">${shaders.map(
+          (shader) => html`<div><a href="/admin/shaders/${shader.id}/still.png"><img src="/admin/shaders/${shader.id}/still.png" alt="${shader.screen} shader" loading="lazy"></a>
+<p>${Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => html`<a href="/admin/shaders/${shader.id}/frame-${frameIndex}.png">frame ${frameIndex + 1}</a> `)}</p>
+<p>${shader.screen} shader ${pill(shader.review_status)} <span class="muted">${shader.check_frame_ms} ms a frame</span> · <a href="/admin/games/${shader.game_id}">${shader.title}</a></p>
+<div class="row"><form method="post" action="/admin/shaders/${shader.id}/approve"><button class="btn" type="submit">Approve</button></form>
+<details><summary class="btn ghost">Reject…</summary><form class="stack" method="post" action="/admin/shaders/${shader.id}/reject">${decisionFields({})}<button class="btn ghost" type="submit">Reject</button></form></details></div></div>`,
+        )}</div>`
+      : ""}
 
 <h2>New titles and descriptions (${words.length})</h2>
 ${words.length
@@ -974,6 +1005,14 @@ async function reportPicture(env: Env, id: string): Promise<Response> {
   return new Response(object.body, {
     headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
   });
+}
+
+async function adminShaderPicture(env: Env, id: string, name: string): Promise<Response> {
+  const shader = await shaderById(env.DB, id);
+  const frameIndex = name === "still" ? null : Number(name.slice("frame-".length));
+  const object = shader ? await env.GAMES.get(frameIndex === null ? shaderStillKey(shader.game_id, shader.id) : shaderFrameKey(shader.game_id, shader.id, frameIndex)) : null;
+  if (!object) return new Response("Not found", { status: 404 });
+  return new Response(object.body, { headers: { "Content-Type": "image/png", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" } });
 }
 
 async function adminImage(env: Env, id: string): Promise<Response> {

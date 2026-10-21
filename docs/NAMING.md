@@ -110,6 +110,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `game` | `game_…` |
 | `version` | `version_…` |
 | `image` | `image_…` |
+| `shader` | `shader_…` |
 | `tester` | `tester_…` |
 | `topic` (known issues too) | `topic_…` |
 | `post` | `post_…` |
@@ -210,6 +211,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A game's link name, as in zaisma.com/g/<slug> | `slug` | `slug` |
 | A version of a game | `version_id` | |
 | A cover or screenshot | `image_id` | |
+| A game's world behind Zaisma's glass, for one screen, and what it shows | `background`: `screen`, `source` (`zaisma`, `image`, `shader`, and on phone `wide`), `image_id`, `shader_id`, `still_url`; pictures are images of `kind` `background` and `phone_background` | |
+| Which screen a background is for | `screen`: `wide` (desktops and tablets), `phone` (composed for a tall screen); errors `bad_screen`, `bad_background_source`, `background_not_ready` | |
+| A small program that paints a background live | `shader_id`; a shader's `check_frame_ms`, `flash_count`, `still_url`, `frame_urls`, `source_url`. Its source keeps Shadertoy's names on purpose (`mainImage`, `fragColor`, `fragCoord`, `iResolution`, `iTime`), the form AI already writes, so nothing is left to guess | |
+| The color Zaisma tints its glass with over a game's background | `glass_tint_color` (`#RRGGBB`), error `bad_color` | |
 | A tester link | `tester_id` | |
 | A forum topic, a post in it | `topic_id`, `post_id` | |
 | A game named on something else, like a forum topic | `game_slug` | |
@@ -296,6 +301,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
 | Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck`: `server`, `client`, `off`; a player's game turns its own off with `idleCheckEnabled: false` |
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
+| How long a player whose connection dropped stays in the match, and why a player in the room isn't playing | | `reconnectTimeoutSec`; `awayReason`: `idle`, `hidden`, `lost` or `null` (`room.awayReason(playerId)` on the game server, each `ListedPlayer` in `room.players` in the game) |
 | When Zaisma will end a match past the month's free tier, and hearing it | | `endsAt` (an ISO time); the game server's `onEnding`, the SDK's `ending` event, the room's `{ type: "ending", endsAt }` |
 | What happens to a player who walks away | | `awayMode`: `hold`, `lobby` |
 | A message between a game and its room, and the game's own message in it | | `type`, `data` |

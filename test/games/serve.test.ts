@@ -467,3 +467,63 @@ describe("resolveGame", () => {
     expect(resolveGame(new URL("https://play.mygame.com/"), sub)).toEqual({ by: { hostname: "play.mygame.com" }, path: "", base: "/" });
   });
 });
+
+describe("a game's background", () => {
+  const SOURCE = "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(fragCoord / iResolution.xy, 0.5, 1.0); }";
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+  });
+
+  /** A live game showing an approved shader on wide screens. */
+  async function gameWithShader(slug: string, status = "live") {
+    const id = await addGame(slug, status);
+    const shaderId = `shader_${slug.replace(/-/g, "")}`;
+    await env.DB.prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, created_at_ms) VALUES (?, ?, 'wide', 100, 'approved', 0)").bind(shaderId, id).run();
+    await env.DB.prepare("INSERT INTO game_backgrounds (game_id, screen, source, shader_id, updated_at_ms) VALUES (?, 'wide', 'shader', ?, 0)").bind(id, shaderId).run();
+    await env.GAMES.put(`shaders/${id}/${shaderId}.glsl`, SOURCE);
+    await env.GAMES.put(`shaders/${id}/${shaderId}.still.png`, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    return id;
+  }
+
+  it("serves the runner on the game's own site, with its headers and none of the game's scripts", async () => {
+    await gameWithShader("sky");
+    const runner = await SELF.fetch(`${G}/sky/_zaisma/background?screen=wide`);
+    expect(runner.status).toBe(200);
+    expect(runner.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
+    const page = await runner.text();
+    expect(page).toContain("_zaisma/background.glsl?screen=wide&shader=shader_sky");
+    expect(page).not.toContain("relay.js");
+    expect(page).not.toContain("picture.js");
+    const source = await SELF.fetch(`${G}/sky/_zaisma/background.glsl?screen=wide`);
+    expect(await source.text()).toBe(SOURCE);
+    expect(source.headers.get("content-type")).toContain("text/plain");
+    const still = await SELF.fetch(`${G}/sky/_zaisma/background-still.png?screen=wide`);
+    expect(still.headers.get("content-type")).toBe("image/png");
+    await still.arrayBuffer();
+  });
+
+  it("follows wide on phones, and has nothing for a screen with no shader or a game players can't see", async () => {
+    const id = await gameWithShader("sky");
+    expect((await SELF.fetch(`${G}/sky/_zaisma/background.glsl?screen=phone`)).status).toBe(200);
+    await env.DB.prepare("INSERT INTO game_backgrounds (game_id, screen, source, updated_at_ms) VALUES (?, 'phone', 'zaisma', 0)").bind(id).run();
+    expect((await SELF.fetch(`${G}/sky/_zaisma/background?screen=phone`)).status).toBe(404);
+    expect((await SELF.fetch(`${G}/sky/_zaisma/background?screen=sideways`)).status).toBe(404);
+    await addGame("plain", "live");
+    expect((await SELF.fetch(`${G}/plain/_zaisma/background?screen=wide`)).status).toBe(404);
+    await gameWithShader("held-one", "held");
+    expect((await SELF.fetch(`${G}/held-one/_zaisma/background?screen=wide`)).status).toBe(404);
+    await env.DB.prepare("UPDATE game_shaders SET review_status = 'pending' WHERE game_id = ?").bind(id).run();
+    expect((await SELF.fetch(`${G}/sky/_zaisma/background.glsl?screen=wide`)).status).toBe(404);
+  });
+
+  it("serves the preview runner, which draws only what the site posts it", async () => {
+    await addGame("sky", "live");
+    const preview = await SELF.fetch(`${G}/sky/_zaisma/shader-preview`);
+    expect(preview.status).toBe(200);
+    const page = await preview.text();
+    expect(page).toContain('"isPreview":true');
+    expect(page).toContain('"site":"https://zaisma.test"');
+    expect(page).toContain("event.origin !== config.site");
+    expect(preview.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
+  });
+});

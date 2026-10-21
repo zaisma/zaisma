@@ -353,4 +353,43 @@ describe("Node runner", () => {
     for (const x of [a, b]) x.ws.close();
     await own.close();
   });
+  it("keeps a player whose connection dropped in the match until they're back, and takes them out at the next sweep once their time runs out", async () => {
+    const duel = defineGameServer({
+      maximumPlayerCount: 2,
+      reconnectTimeoutSec: 1,
+      setup: () => ({}),
+      onAway: (_s, p, room, reason) => room.broadcast({ away: p.id, reason, awayReason: room.awayReason(p.id) }),
+      onBack: (_s, p, room) => room.broadcast({ back: p.id }),
+      onLeave: (_s, p, room, leaveInfo) => room.broadcast({ left: p.id, reason: leaveInfo.reason }),
+    });
+    const { own, at } = await serve(duel);
+    const a = connect(ORIGIN, "/v1/rooms/arena/DRPNDE", at);
+    await a.open;
+    a.say({ type: "hello", pass: await pass("a") });
+    await until(a, "welcome");
+    const bPass = await pass("b");
+    const b = connect(ORIGIN, "/v1/rooms/arena/DRPNDE", at);
+    await b.open;
+    b.say({ type: "hello", pass: bPass });
+    await until(b, "welcome");
+
+    // b's connection drops: a's game sees them reconnecting, and the game server hears it.
+    b.ws.terminate();
+    expect((await until(a, "message")).data).toEqual({ away: "b", reason: "lost", awayReason: "lost" });
+    expect((await until(a, "players")).players.map((p: any) => [p.id, p.awayReason])).toEqual([["a", null], ["b", "lost"]]);
+    const again = connect(ORIGIN, "/v1/rooms/arena/DRPNDE", at);
+    await again.open;
+    again.say({ type: "hello", pass: bPass });
+    await until(again, "welcome");
+    expect((await until(a, "message")).data).toEqual({ back: "b" });
+
+    // Dropped again and not back: within the 5-second sweep after their second runs out, they leave the match.
+    const droppedAtMs = Date.now();
+    again.ws.terminate();
+    expect((await until(a, "message")).data).toEqual({ away: "b", reason: "lost", awayReason: "lost" });
+    expect((await until(a, "message")).data).toEqual({ left: "b", reason: "lost" });
+    expect(Date.now() - droppedAtMs).toBeLessThan(7000);
+    a.ws.close();
+    await own.close();
+  }, 10_000);
 });

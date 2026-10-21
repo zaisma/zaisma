@@ -167,7 +167,7 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
     });
   }
   document.querySelectorAll(".run-wrap").forEach(lean);
-  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(lean); }); }); }).observe(document.body, { subtree: true, childList: true });
+  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(lean); }); }); });
   document.addEventListener("pointermove", function (event) {
     var shell = event.target.closest && event.target.closest(".glass-btn"); if (!shell) return;
     var r = shell.getBoundingClientRect();

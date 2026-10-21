@@ -184,6 +184,7 @@ const PAGE_SECTORS = [
   ["/legal", "accounts"],
   ["/robots.txt", "accounts"],
   ["/js/", "accounts"],
+  ["/css/", "accounts"],
   ["/mcp", "api-keys"],
   ["/dashboard", "games-and-files"],
   ["/g/", "games-and-files"],

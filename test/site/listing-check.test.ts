@@ -32,7 +32,7 @@ async function api(path: string, init: { method?: string; body?: unknown; raw?: 
   return response;
 }
 
-const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", has_safety_concern: false };
+const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
 const CLEAN_WORDS = { title_fake_reward: "", title_famous_name: "", title_tag: "", description_fake_reward: "", has_words_safety_concern: false };
 
 /** A stand-in judge: each picture's answer by its kind (covers and screenshots), the words' answer as given; it records what it was sent. */
@@ -241,5 +241,46 @@ describe("the listing check", () => {
     await runListingCheck(testEnv, game.id, judgeSays({}, {}, briefs));
     await runListingCheck(testEnv, game.id, judgeSays({}, {}, briefs));
     expect(briefs.length).toBe(1);
+  });
+});
+
+describe("the listing check on backgrounds", () => {
+  const brief = (kind: ImageKind): ListingBrief => ({ title: "Lava Leap", isTitleJudged: false, description: "", isDescriptionJudged: false, pictures: [{ id: "background", kind, mediaType: "image/png", base64: "", isJudged: true }] });
+  const answer = (picture: Partial<PictureAnswer>): ListingAnswer => ({ pictures: [{ ...NO, ...picture, number: 1 }], ...CLEAN_WORDS });
+
+  it("reject a background with words or a logo on it, even the game's own title", () => {
+    for (const kind of ["background", "phone_background"] as const) {
+      expect(listingOutcomes(brief(kind), answer({ background_text: "LAVA LEAP" })).pictures.background).toEqual({
+        outcome: "rejected",
+        reason: { code: "text_on_background", message: 'The background has words or a logo on it: "LAVA LEAP".', content_rule: null },
+      });
+    }
+    expect(listingOutcomes(brief("background"), answer({ background_text: "PLAY / the Roblox logo" })).pictures.background).toMatchObject({ outcome: "rejected", reason: { code: "text_on_background", message: 'The background has words or a logo on it: "PLAY", "the Roblox logo".' } });
+    // What the cover questions answer never counts against a background.
+    expect(listingOutcomes(brief("background"), answer({ extra_text: "LAVA LEAP", overlay: "a badge" })).pictures.background).toEqual({ outcome: "fine" });
+  });
+
+  it("hold the game for a fake reward on a background, and leave safety to a person", () => {
+    const held = listingOutcomes(brief("background"), answer({ fake_reward: "FREE ROBUX", background_text: "FREE ROBUX" }));
+    expect(held.pictures.background).toMatchObject({ outcome: "held", reason: { code: "fake_reward", message: 'The background promises "FREE ROBUX".' } });
+    expect(held.heldReason?.code).toBe("fake_reward");
+    expect(listingOutcomes(brief("background"), answer({ has_safety_concern: true })).pictures.background).toEqual({ outcome: "person" });
+    expect(listingOutcomes(brief("background"), answer({})).pictures.background).toEqual({ outcome: "fine" });
+  });
+
+  it("approve a clean background picture, and reject one with words on it", async () => {
+    const { game } = await liveGameWithPictures("lava-leap");
+    const background = ((await (await api("/games/lava-leap/images?kind=background", { raw: png(2400, 1200) })).json()) as { image: { id: string } }).image.id;
+    await runListingCheck(testEnv, game.id, judgeSays({}));
+    expect((await imagesForGame(env.DB, game.id)).find((image) => image.id === background)?.review_status).toBe("approved");
+
+    const worded = ((await (await api("/games/lava-leap/images?kind=phone_background", { raw: png(1200, 2400) })).json()) as { image: { id: string } }).image.id;
+    await env.DB.prepare("UPDATE games SET listing_checked_at_ms = NULL WHERE id = ?").bind(game.id).run();
+    await runListingCheck(testEnv, game.id, judgeSays({ phone_background: { background_text: "LAVA LEAP" } }));
+    const rejected = (await imagesForGame(env.DB, game.id)).find((image) => image.id === worded)!;
+    expect(rejected.review_status).toBe("rejected");
+    expect(readReviewReason(rejected.review_reason)?.code).toBe("text_on_background");
+    // A rejected background never keeps the game off lists: only covers do.
+    expect(await homeHas("lava-leap")).toBe(true);
   });
 });

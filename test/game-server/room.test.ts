@@ -58,21 +58,21 @@ describe("RoomCore", () => {
     expect(sent.a![0]).toEqual({
       type: "welcome",
       me: { id: "a", name: "A", kind: "guest" },
-      players: [{ id: "a", name: "A", kind: "guest" }],
+      players: [{ id: "a", name: "A", kind: "guest", awayReason: null }],
       room: { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} },
       hostPlayerId: null,
       awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null },
       endsAt: null,
       probeIntervalSec: null,
     });
-    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest" }, { id: "b", name: "B", kind: "guest" }], hostPlayerId: null });
+    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest", awayReason: null }, { id: "b", name: "B", kind: "guest", awayReason: null }], hostPlayerId: null });
 
     expect(room.receive("a", msg("hit"))).toBeNull();
     expect(sent.b!.at(-1)).toEqual({ type: "message", data: { count: 1, by: "a" } });
 
     room.leave("b");
     expect(room.state.left).toEqual(["b"]);
-    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest" }], hostPlayerId: null });
+    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest", awayReason: null }], hostPlayerId: null });
   });
 
   it("caps players, and a reconnect keeps the same place without joining twice", () => {
@@ -341,7 +341,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -481,7 +481,7 @@ describe("kicking and turning players away", () => {
     expect(sent.b!.at(-1)).toEqual({ type: "kicked", message: "Too rough.", isKeptOut: false });
     expect(closed).toEqual(["b"]);
     expect(room.state).toMatchObject({ count: 1, left: ["b"] });
-    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest" }], hostPlayerId: null });
+    expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest", awayReason: null }], hostPlayerId: null });
     // Kicked without keepOut, they may come back while the room is open.
     expect(room.join({ id: "b", name: "B", kind: "guest" })).toEqual({ isAllowed: true, isRejoin: false });
   });
@@ -567,7 +567,7 @@ describe("kicking and turning players away", () => {
     expect(closed).toEqual(["c"]);
 
     room.leave("a");
-    expect(sent.b!.at(-1)).toEqual({ type: "players", players: [{ id: "b", name: "B", kind: "guest" }], hostPlayerId: "b" });
+    expect(sent.b!.at(-1)).toEqual({ type: "players", players: [{ id: "b", name: "B", kind: "guest", awayReason: null }], hostPlayerId: "b" });
     expect(room.receive("b", JSON.stringify({ type: "room", isOpen: false }))).toBeNull();
   });
 });
@@ -717,7 +717,7 @@ describe("players who walk away", () => {
     room.join({ id: "b", name: "B", kind: "guest" });
     expect(room.receive("a", say("idle"))).toBeNull();
     expect(sent.a!.at(-1)).toEqual({ type: "away", reason: "idle", seatHoldDurationSec: 300 });
-    expect(sent.b!.at(-1)).toEqual({ type: "players", players: [{ id: "b", name: "B", kind: "guest" }], hostPlayerId: null });
+    expect(sent.b!.at(-1)).toEqual({ type: "players", players: [{ id: "b", name: "B", kind: "guest", awayReason: null }], hostPlayerId: null });
     expect(room.state.left).toEqual([["a", "idle"]]);
     expect(room.playingCount).toBe(1);
     expect(room.heldSeatCount).toBe(1);
@@ -817,7 +817,8 @@ describe("players who walk away", () => {
 
   it("holds the seat of a player whose connection was lost, but not one who left", () => {
     const { t } = transport();
-    const room = new RoomCore(hosted(), t);
+    // reconnectTimeoutSec 0: a dropped player leaves the match at once.
+    const room = new RoomCore(hosted({ reconnectTimeoutSec: 0 }), t);
     room.join({ id: "a", name: "A", kind: "guest" });
     room.join({ id: "b", name: "B", kind: "guest" });
     room.leave("a", "lost");
@@ -878,7 +879,7 @@ describe("players who walk away", () => {
 
   it("keeps held seats and players kept away through a sleep", async () => {
     const { t } = transport();
-    const keeper = hosted({ maximumPlayerCount: 3, onAway: () => {} });
+    const keeper = hosted({ maximumPlayerCount: 3, reconnectTimeoutSec: 0, onAway: () => {} });
     const room = new RoomCore(keeper, t);
     room.join({ id: "a", name: "A", kind: "guest" });
     room.join({ id: "b", name: "B", kind: "guest" });
@@ -1130,11 +1131,16 @@ describe("ping and the room's clock", () => {
     now += 1;
     room.tick(0.05);
     expect(closed).toEqual([["a", 4003]]);
+    // Dropped: still in the match, reconnecting, for reconnectTimeoutSec.
+    expect(room.state.left).toEqual([]);
+    expect((room as any).api.awayReason("a")).toBe("lost");
+    // The runtime's close event comes later and changes nothing.
+    room.leave("a", "lost");
+    expect(room.state.left).toEqual([]);
+    now += ROOM_LIMITS.defaultReconnectTimeoutSec * 1000;
+    room.tick(0.05);
     expect(room.state.left).toEqual([["a", "lost"]]);
     expect(room.held.get("a")?.reason).toBe("lost");
-    // The runtime's close event comes later and finds them gone.
-    room.leave("a", "lost");
-    expect(room.state.left).toEqual([["a", "lost"]]);
     expect(room.players.has("b")).toBe(true);
 
     const turns = recording();
@@ -1143,6 +1149,9 @@ describe("ping and the room's clock", () => {
     now += ROOM_LIMITS.probeAnswerTimeoutSec * 1000;
     slow.sweep();
     expect(turns.closed).toEqual([["a", 4003]]);
+    expect(slow.state.left).toEqual([]);
+    now += ROOM_LIMITS.defaultReconnectTimeoutSec * 1000;
+    slow.sweep();
     expect(slow.state.left).toEqual([["a", "lost"]]);
   });
 
@@ -1171,9 +1180,9 @@ describe("ping and the room's clock", () => {
     // Dropped on the send that took them past 2 MB.
     expect(count * (big.length + 30)).toBeGreaterThan(ROOM_LIMITS.maximumUnansweredSentBytes);
     expect((count - 1) * big.length).toBeLessThanOrEqual(ROOM_LIMITS.maximumUnansweredSentBytes);
-    expect(room.state.left).toEqual([["a", "lost"]]);
-    // b, who answers, gets the players list once a is out, after the message that dropped a.
-    expect(sent.b!.at(-1)).toMatchObject({ type: "players", players: [{ id: "b" }] });
+    expect(room.state.left).toEqual([]);
+    // b, who answers, gets the players list with a reconnecting, after the message that dropped a.
+    expect(sent.b!.at(-1)).toMatchObject({ type: "players", players: [{ id: "a", awayReason: "lost" }, { id: "b", awayReason: null }] });
 
     // Answering the probes in between keeps a player in.
     const kept = recording();
@@ -1194,5 +1203,211 @@ describe("ping and the room's clock", () => {
     const room = new RoomCore(game(), recording().t, { now: () => now });
     expect((room as any).api.serverTimeMs()).toBe(now);
     expect((room as any).api.pingDurationMs("nobody")).toBeNull();
+  });
+});
+
+describe("dropped players stay in the match", () => {
+  const game = (overrides: Partial<GameServer> = {}) =>
+    defineGameServer({
+      maximumPlayerCount: 3,
+      setup: () => ({ joined: [] as any[], left: [] as any[], away: [] as any[], back: [] as string[], score: 0 }),
+      onJoin: (s, p, _room, _joinData, joinInfo) => void s.joined.push([p.id, joinInfo.isReturning]),
+      onLeave: (s, p, _room, leaveInfo) => void s.left.push([p.id, leaveInfo.reason]),
+      onAway: (s, p, room, reason) => void s.away.push([p.id, reason, room.awayReason(p.id)]),
+      onBack: (s, p, room) => {
+        s.back.push(p.id);
+        room.send(p.id, { score: s.score });
+      },
+      onMessage: (s) => void s.score++,
+      ...overrides,
+    } as GameServer);
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  const setUp = (server: GameServer = game()) => {
+    const clock = { now: 1_000_000 };
+    const { t, sent, closed } = transport();
+    const room = new RoomCore(server, t, { now: () => clock.now });
+    return { clock, room, sent, closed, api: (room as any).api };
+  };
+  const lastPlayers = (messages: any[] | undefined) => (messages ?? []).filter((message) => message.type === "players").at(-1);
+
+  it("keeps a dropped player in the room as away, lost: onAway runs, onLeave doesn't, and everyone's list says so", () => {
+    const { room, sent, api } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    room.receive("a", msg("point"));
+    room.leave("a", "lost");
+    expect(api.players.map((p: any) => p.id)).toEqual(["a", "b"]);
+    expect(api.awayReason("a")).toBe("lost");
+    expect(api.awayReason("b")).toBeNull();
+    expect(room.state.away).toEqual([["a", "lost", "lost"]]);
+    expect(room.state.left).toEqual([]);
+    expect(room.playingCount).toBe(1);
+    expect(lastPlayers(sent.b)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest", awayReason: "lost" }, { id: "b", name: "B", kind: "guest", awayReason: null }], hostPlayerId: null });
+    // A second close, or the runtime's after the room acted, changes nothing.
+    room.leave("a", "lost");
+    expect(room.state.away).toHaveLength(1);
+  });
+
+  it("lets them carry on where they were when they're back in time: onBack, no onJoin, the state kept", () => {
+    const { clock, room, sent, api } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    room.receive("a", msg("point"));
+    answerProbes(room, sent);
+    room.leave("a", "lost");
+    clock.now += 29_000;
+    room.sweep();
+    sent.a = [];
+    expect(room.join(player("a"))).toEqual({ isAllowed: true, isRejoin: true });
+    expect(room.state.back).toEqual(["a"]);
+    expect(room.state.joined).toEqual([["a", false], ["b", false]]);
+    expect(room.state.score).toBe(1);
+    expect(api.awayReason("a")).toBeNull();
+    expect(room.playingCount).toBe(2);
+    // Their welcome lists them as playing, and onBack's message reaches them after it.
+    expect(sent.a![0]).toMatchObject({ type: "welcome", players: [{ id: "a", awayReason: null }, { id: "b", awayReason: null }] });
+    expect(sent.a!.find((message) => message.type === "message")).toEqual({ type: "message", data: { score: 1 } });
+    expect(lastPlayers(sent.b).players.map((p: any) => p.awayReason)).toEqual([null, null]);
+    expect(room.nextReconnectDeadlineMs()).toBeNull();
+  });
+
+  it("takes them out of the match at reconnectTimeoutSec, through a sweep or a tick, with their seat held", () => {
+    const { clock, room, sent, api } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    answerProbes(room, sent);
+    room.leave("a", "lost");
+    expect(room.nextReconnectDeadlineMs()).toBe(clock.now + 30_000);
+    clock.now += 29_999;
+    room.sweep();
+    expect(room.state.left).toEqual([]);
+    clock.now += 1;
+    room.sweep();
+    expect(room.state.left).toEqual([["a", "lost"]]);
+    expect(api.players.map((p: any) => p.id)).toEqual(["b"]);
+    expect(room.held.get("a")?.reason).toBe("lost");
+    expect(room.heldSeatCount).toBe(1);
+    room.join(player("a"));
+    expect(room.state.joined.at(-1)).toEqual(["a", true]);
+
+    const ticking = setUp(game({ ticksPerSec: 20, onTick: () => {}, reconnectTimeoutSec: 5 }));
+    ticking.room.join(player("a"));
+    ticking.room.join(player("b"));
+    ticking.room.leave("a", "lost");
+    ticking.clock.now += 5_000;
+    ticking.room.tick(0.05);
+    expect(ticking.room.state.left).toEqual([["a", "lost"]]);
+  });
+
+  it("takes a dropped player out at once with reconnectTimeoutSec 0, as before", () => {
+    const { room, api } = setUp(game({ reconnectTimeoutSec: 0 }));
+    room.join(player("a"));
+    room.join(player("b"));
+    room.leave("a", "lost");
+    expect(room.state.away).toEqual([]);
+    expect(room.state.left).toEqual([["a", "lost"]]);
+    expect(api.players.map((p: any) => p.id)).toEqual(["b"]);
+    expect(room.held.get("a")?.reason).toBe("lost");
+  });
+
+  it("checks reconnectTimeoutSec when the game server is defined", () => {
+    const define = (reconnectTimeoutSec: unknown) => () => defineGameServer({ setup: () => ({}), reconnectTimeoutSec } as GameServer);
+    for (const given of [-1, 301, "30"]) {
+      expect(define(given)).toThrow(`reconnectTimeoutSec is ${JSON.stringify(given)}. Give seconds from 0 (leave at once) to 300, like 30. (bad_option)`);
+    }
+    expect(define(0)).not.toThrow();
+    expect(define(300)).not.toThrow();
+    expect(() => defineGameServer({ setup: () => ({}), reconnectSec: 30 } as GameServer)).toThrow("reconnectTimeoutSec");
+  });
+
+  it("hears again, as lost, from a player kept as idle whose connection then drops", () => {
+    const { clock, room } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    room.receive("a", JSON.stringify({ type: "idle" }));
+    expect(room.nextReconnectDeadlineMs()).toBeNull();
+    room.leave("a", "lost");
+    expect(room.state.away).toEqual([["a", "idle", "idle"], ["a", "lost", "lost"]]);
+    expect(room.nextReconnectDeadlineMs()).toBe(clock.now + 30_000);
+    room.join(player("a"));
+    expect(room.state.back).toEqual(["a"]);
+  });
+
+  it("hands the host on while the host reconnects, and back once they return still first", () => {
+    const { room, sent } = setUp(game({ hostControlsEnabled: true }));
+    room.join(player("a"));
+    room.join(player("b"));
+    expect(room.hostPlayerId).toBe("a");
+    room.leave("a", "lost");
+    expect(room.hostPlayerId).toBe("b");
+    expect(lastPlayers(sent.b).hostPlayerId).toBe("b");
+    room.join(player("a"));
+    expect(room.hostPlayerId).toBe("a");
+    expect(lastPlayers(sent.b).hostPlayerId).toBe("a");
+  });
+
+  it("counts a reconnecting player's seat toward a full room", async () => {
+    const { room } = setUp(game({ maximumPlayerCount: 2 }));
+    room.join(player("a"));
+    room.join(player("b"));
+    room.leave("a", "lost");
+    expect(await room.admit(player("c"))).toEqual({ isAllowed: false, code: "full" });
+    expect(await room.admit(player("a"))).toEqual({ isAllowed: true });
+  });
+
+  it("sends, counts and probes nothing for a reconnecting player, so they're never dropped as too far behind", () => {
+    const { clock, room, sent, closed } = setUp(game({ ticksPerSec: 20, onTick: (_s: any, _d: any, r: any) => r.broadcast("x".repeat(100 * 1024)) }));
+    room.join(player("a"));
+    room.join(player("b"));
+    room.leave("a", "lost");
+    sent.a = [];
+    const traffic = room.takeTraffic();
+    for (let i = 0; i < 40; i++) {
+      clock.now += 500;
+      room.tick(0.05);
+      answerProbes(room, { b: sent.b! });
+    }
+    expect(sent.a).toEqual([]);
+    expect(closed).toEqual([]);
+    expect(traffic.outboundMessageCount).toBeGreaterThan(0);
+    expect(room.takeTraffic().outboundSizeBytes).toBeLessThan(41 * (100 * 1024 + 64));
+    expect(room.state.left).toEqual([]);
+  });
+
+  it("keeps reconnecting players through a sleep, though the room wakes with only the players it has connections for", () => {
+    const { clock, room } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    room.leave("a", "lost");
+    const saved = room.saved;
+    expect(saved.reconnecting).toEqual({ a: { player: player("a"), untilMs: clock.now + 30_000 } });
+    const { t } = transport();
+    const woke = new RoomCore(game(), t, { state: room.state, players: [player("b")], room: saved, now: () => clock.now });
+    expect((woke as any).api.awayReason("a")).toBe("lost");
+    expect(woke.playingCount).toBe(1);
+    expect(woke.nextReconnectDeadlineMs()).toBe(clock.now + 30_000);
+    woke.join(player("a"));
+    expect(woke.state.back).toEqual(["a"]);
+    expect(woke.state.joined).toEqual([["a", false], ["b", false]]);
+
+    // Woken after their time ran out: they come back to their held seat.
+    const late = new RoomCore(game(), transport().t, { state: room.state, players: [player("b")], room: saved, now: () => clock.now + 31_000 });
+    late.join(player("a"));
+    expect(late.state.left).toEqual([["a", "lost"]]);
+    expect(late.state.joined.at(-1)).toEqual(["a", true]);
+
+    // A room that starts afresh (a ticking room's state isn't saved) doesn't keep them.
+    const fresh = new RoomCore(game(), transport().t, { room: saved, now: () => clock.now });
+    expect(fresh.players.size).toBe(0);
+  });
+
+  it("ends a match without trying to reach reconnecting players", () => {
+    const { room, closed } = setUp();
+    room.join(player("a"));
+    room.join(player("b"));
+    room.leave("a", "lost");
+    room.end("Over");
+    expect(closed).toEqual(["b"]);
+    expect(room.nextReconnectDeadlineMs()).toBeNull();
   });
 });

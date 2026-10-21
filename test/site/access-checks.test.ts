@@ -19,6 +19,9 @@ import {
   createWebhook,
   forumMediaKey,
   imageKey,
+  addShader,
+  settleShader,
+  shaderKey,
   manifestKey,
   newId,
   ownedBlobKey,
@@ -110,6 +113,9 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "PATCH /games/:slug": () => ({ body: { description: "Hop higher." } }),
   "POST /games/:slug/images": () => ({ query: { kind: "cover" }, bytes: png(1280, 720) }),
   "DELETE /games/:slug/images/:image_id": () => ({}),
+  "POST /games/:slug/shaders": () => ({ query: { screen: "wide" }, bytes: text("void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }") }),
+  "DELETE /games/:slug/shaders/:shader_id": () => ({}),
+  "PUT /games/:slug/backgrounds/:screen": (world) => ({ body: { source: "shader", shader_id: world.values.shader_id } }),
   "POST /check": (world) => ({ body: { files: [{ path: "index.html", size_bytes: 15, content_text: "<!doctype html>" }], slug: world.values.slug } }),
   "POST /games/:slug/uploads": (world) => ({ body: { files: [{ path: "index.html", sha256: world.storedFile.sha256, size_bytes: world.storedFile.sizeBytes }] } }),
   "PUT /files/:sha256": (world) => ({ pathValues: { sha256: world.newFile.sha256 }, bytes: world.newFile.bytes }),
@@ -209,10 +215,11 @@ const isLogged = (apiRoute: ApiRoute) => (apiRoute.method !== "GET" && !(nameOf(
  * Path parts that name something inside the path's game or topic by its ID: from inside the stranger's own
  * game or topic, the developer's must be answered like nothing there.
  */
-const IDS_INSIDE = ["image_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id"];
+const IDS_INSIDE = ["image_id", "shader_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id"];
 /** Path parts inside a game that aren't IDs of the developer's things, and why a stranger may use them in their own game. */
 const NAMES_INSIDE: Record<string, string> = {
   secret_name: "A name the developer picks: any game can have a secret of that name.",
+  screen: "wide or phone: every game has a background for both.",
   player_id: "A player's save in this game: a game's developer reads and changes its own players' saves, and a player has one in each game they play.",
 };
 
@@ -279,6 +286,9 @@ async function makeWorld(): Promise<World> {
   await env.DB.prepare("UPDATE versions SET scan_status = 'approved', preview_link_key = ? WHERE id = ?").bind(`preview${n}`, versionId).run();
   const image = await addImage(env.DB, { id: newId("image"), game_id: game.id, kind: "cover", content_type: "image/png", width_px: 1280, height_px: 720, size_bytes: 64 });
   await env.GAMES.put(imageKey(image), png(1280, 720));
+  const shader = await addShader(env.DB, { id: newId("shader"), game_id: game.id, screen: "wide", size_bytes: 80 });
+  await env.GAMES.put(shaderKey(game.id, shader.id), "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }");
+  await settleShader(env.DB, shader, null, 20, 0);
   const tester = await addTesterLink(env.DB, game.id, "Playtesters");
   expect(await env.GAME_SECRETS!.set(game.id, "API_TOKEN", `secret ${n}`, nowMs)).toHaveProperty("secret");
 
@@ -342,6 +352,8 @@ async function makeWorld(): Promise<World> {
     values: {
       slug: game.slug,
       image_id: image.id,
+      shader_id: shader.id,
+      screen: "wide",
       version_id: versionId,
       tester_id: tester.id,
       secret_name: "API_TOKEN",
@@ -356,7 +368,7 @@ async function makeWorld(): Promise<World> {
       sha256: storedFile.sha256,
       part_number: "1",
     },
-    strangerValues: { slug: strangerGame.slug, topic_id: strangerTopicId, webhook_id: strangerWebhook.id, sign_in_app_id: strangerApp.id, player_id: player!.player_id, secret_name: "API_TOKEN" },
+    strangerValues: { slug: strangerGame.slug, topic_id: strangerTopicId, webhook_id: strangerWebhook.id, sign_in_app_id: strangerApp.id, player_id: player!.player_id, secret_name: "API_TOKEN", screen: "wide" },
     otherSlug: otherGame.slug,
     publicTopicId,
     publicPostId,
@@ -372,12 +384,12 @@ async function makeWorld(): Promise<World> {
 /** The developer's things a stranger must never see in an answer: their account, games and IDs. */
 function privateValues(world: World): string[] {
   const { values } = world;
-  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
+  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.shader_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
 }
 
 /** The same request with each of the developer's things swapped for one that doesn't exist, and how to swap them back in an answer. */
 function withNothingThere(world: World, sample: Required<Pick<Sample, "pathValues">> & Sample): { sample: typeof sample; swapBack: (answerText: string) => string } {
-  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
+  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", shader_id: "shader", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
   const swaps: [string, string][] = [
     [world.values.slug!, `gone-${world.n}`],
     [world.otherSlug, `gone-other-${world.n}`],
@@ -447,7 +459,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 

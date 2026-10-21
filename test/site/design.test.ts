@@ -13,7 +13,15 @@ import { BACKDROP_SCRIPT, pageSettingsAttributes } from "../../apps/site/src/com
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
+import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
+import iconsSource from "../../apps/site/src/components/icons.ts?raw";
+import glassScriptSource from "../../apps/site/src/components/glass-script.ts?raw";
+import backdropScriptSource from "../../apps/site/src/components/backdrop-script.ts?raw";
 import actionsSource from "../../apps/site/src/components/actions.ts?raw";
+import fieldsSource from "../../apps/site/src/components/fields.ts?raw";
+import switchSource from "../../apps/site/src/components/switch.ts?raw";
+import choicesSource from "../../apps/site/src/components/choices.ts?raw";
+import examplePaneSource from "../../apps/site/src/components/example-pane.ts?raw";
 import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
 import navigationSource from "../../apps/site/src/components/navigation.ts?raw";
 import panesSource from "../../apps/site/src/components/panes.ts?raw";
@@ -22,8 +30,9 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
-  "components/foundations.ts": foundationsSource, "components/actions.ts": actionsSource, "components/inputs.ts": inputsSource,
-  "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource, "design-page.ts": galleryPageSource,
+  "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
+  "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
+  "design-page.ts": galleryPageSource,
 };
 
 /**
@@ -605,3 +614,64 @@ function matchesSubject(element: Element, subject: string): boolean {
   if (!tag && classes.length === 0) return false;
   return classes.every((each) => element.classes.includes(each));
 }
+
+describe("the example page", () => {
+  // The page shell's own piece no component draws: the ambient light behind the header (html.ts, AMBIENT_STYLES).
+  const SHELL_CLASSES = new Set<string>(["ambient"]);
+
+  it("is built only from components: every class comes from one, and nothing is styled in place", async () => {
+    const { response, text } = await page("/design/example");
+    expect(response.status).toBe(200);
+    const body = text.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "");
+    const componentCss = COMPONENT_STYLES();
+    const styledBy = (name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(componentCss);
+    const problems = [...body.matchAll(/\sclass="([^"]*)"/g)]
+      .flatMap(([, list = ""]) => list.split(/\s+/).filter(Boolean))
+      .filter((name) => !styledBy(name) && !SHELL_CLASSES.has(name) && !UNSTYLED_HOOKS.has(name))
+      .map((name) => `.${name} comes from no component`);
+    // A page places components; its own look is a component's. Only the variables a component offers (--swatch, the pane's cut) or a placed size may be set.
+    for (const [, style = ""] of body.matchAll(/\sstyle="([^"]*)"/g)) if (/(^|;)\s*(color|background|border|font|box-shadow|filter|opacity)/.test(style)) problems.push(`style="${style}" restyles a piece`);
+    expect([...new Set(problems)]).toEqual([]);
+    expect(text).not.toContain("<style");
+  });
+
+  it("uses the cached stylesheet and the components' script, like every page", async () => {
+    const { text } = await page("/design/example");
+    expect(text).toMatch(/<link rel="stylesheet" href="\/css\/site\.[0-9a-f]{16}\.css">/);
+    expect(text).toMatch(/<script src="\/js\/components\.[0-9a-f]{16}\.js"/);
+  });
+});
+
+describe("pages' stylesheets", () => {
+  it("are linked, never written into the page: a page carries only its own markup and a link to a file cached for good", async () => {
+    for (const path of ["/", "/design/example", "/design", "/design/actions"]) {
+      const { response, text } = await page(path);
+      expect(response.status, path).toBe(200);
+      const sheet = path.startsWith("/design") && path !== "/design/example" ? "design" : "site";
+      expect(text, path).toMatch(new RegExp(`<link rel="stylesheet" href="/css/${sheet}\\.[0-9a-f]{16}\\.css">`));
+      // The components' own CSS (200 KB) is in the file; what a page writes itself is small.
+      expect(text.length, path).toBeLessThan(120_000);
+      expect(text, path).not.toContain(".cut-btn {");
+    }
+  });
+
+  it("are served from /css/<name>.<hash>.css named for their contents, cached for good; an older address gets the current one uncached", async () => {
+    const { text } = await page("/design/example");
+    const path = text.match(/href="(\/css\/site\.[0-9a-f]{16}\.css)"/)![1]!;
+    const sheet = await SELF.fetch(`${SITE}${path}`);
+    const css = await sheet.text();
+    expect(sheet.status).toBe(200);
+    expect(sheet.headers.get("Content-Type")).toBe("text/css; charset=utf-8");
+    expect(sheet.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(sheet.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(css).toContain(".cut-btn");
+    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(css)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    expect(path).toBe(`/css/site.${hash.slice(0, 16)}.css`);
+    const older = await SELF.fetch(`${SITE}/css/site.0000000000000000.css`);
+    expect(older.status).toBe(200);
+    expect(older.headers.get("Cache-Control")).toBe("no-store");
+    expect(await older.text()).toBe(css);
+    for (const wrong of ["/css/nothing.0000000000000000.css", "/css/site.css", "/css/", "/css/../index.ts"]) expect((await SELF.fetch(`${SITE}${wrong}`)).status, wrong).toBe(404);
+    expect((await SELF.fetch(`${SITE}${path}`, { method: "POST" })).status).toBe(405);
+  });
+});

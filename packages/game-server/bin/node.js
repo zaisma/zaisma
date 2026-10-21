@@ -22,8 +22,11 @@ import { existsSync } from "node:fs";
 import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, WEBHOOK_LIMITS, RoomCore, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
-/** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
-const SWEEP_MS = 15 * 1000;
+/**
+ * How often rooms check on their players (idle, hidden, held seats, players whose time to reconnect ran
+ * out), and drop connections that stopped answering. Rooms that tick also check reconnects every tick.
+ */
+const SWEEP_MS = 5 * 1000;
 /** A connection with no ping or message for this long is dropped. Games ping every 25 seconds (once a minute while hidden). */
 const DEAD_MS = 75 * 1000;
 /** The most of a request read: the request, its pass and the JSON around them. */
@@ -352,9 +355,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     room.waitTimer.unref?.();
   }
 
-  // A room with nobody connected stays while it holds seats, so players who lost their connection can come back.
+  // A room with nobody connected stays while players whose connection dropped have time to come back, and while it holds seats.
   function closeIfEmpty(code, room) {
-    if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0))) return;
+    if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0 || room.core.nextReconnectDeadlineMs() !== null))) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
   }

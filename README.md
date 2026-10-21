@@ -178,11 +178,13 @@ Playing alone needs no room, so don't make one until others can join: time in a 
 
 Players who walk away stop holding seats and running matches, in every game, with no code:
 
-- **Lost connections** (a closed laptop, lost signal): the SDK pings the room every 25 seconds without waking it, and a connection that stops answering is dropped about a minute later. The SDK says goodbye as the page closes, so most players leave at once.
+- **Lost connections** (a closed laptop, lost signal): the SDK pings the room every 25 seconds without waking it, and a connection that stops answering is dropped about a minute later (within seconds in a real-time room). The SDK says goodbye as the page closes, so most players leave at once.
 - **Idle:** after 10 minutes without input the SDK asks "Still there?" with a small plate at the top of the game for 30 seconds; no answer, and the player walks away. Rooms check for themselves too: a game that sends nothing at all for a minute past that counts as idle.
 - **Hidden:** in a real-time room (one with `ticksPerSec`), a game hidden for 2 minutes counts as away.
 
-A player who walks away or loses their connection leaves the match (`onLeave` with `leaveInfo.reason`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `joinInfo.isReturning`. Held seats count toward `maximumPlayerCount`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
+A player whose connection drops stays in the match first, as away with reason `lost`, for 30 seconds while the SDK reconnects: `onAway` runs if your game server has one, every player's game sees `awayReason: "lost"` for them in `room.players`, and if they're back in time, `onBack` runs and they carry on where they were. Freeze their character meanwhile (in `onTick`, skip players whose `room.awayReason(playerId)` is `"lost"`), or do nothing and they stand still.
+
+A player who walks away, or whose connection stays lost, leaves the match (`onLeave` with `leaveInfo.reason`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `joinInfo.isReturning`. Held seats count toward `maximumPlayerCount`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
 
 Your game server picks what happens:
 
@@ -191,9 +193,10 @@ export default {
   idleCheck: "server",       // who checks: "server" (the default), "client" (each player's game decides), or "off"
   idleTimeoutSec: 300,       // seconds without input before "Still there?" (default 600)
   seatHoldDurationSec: 120,  // seconds a seat stays held (default 300, up to 1800; 0 for none)
+  reconnectTimeoutSec: 30,   // seconds a player whose connection dropped stays in the match (default 30, up to 300; 0 to take them out at once)
   awayMode: "lobby",         // send players who walk away back to the room that made this one (room.reserve); "hold" is the default
-  onAway(state, player, room, reason) {},  // or decide yourself: the player stays in the room, you kick, move or keep them
-  onBack(state, player, room) {},          // a player onAway kept came back
+  onAway(state, player, room, reason) {},  // reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
+  onBack(state, player, room) {},          // a player onAway kept, or whose connection dropped, came back: send them the full state
 };
 ```
 
@@ -204,8 +207,11 @@ room.on("connectionStatus", (connectionStatus) => {});        // "away" while ou
 room.on("away", ({ reason, seatHoldDurationSec }) => {});     // reason: "idle" or "hidden"; the seat is held that long
 room.on("idle", (isAsking) => {});            // ask "Still there?" your way: true to show it, false when answered or over
 room.on("back", (back) => back.rejoin());     // back after the seat ran out: listening turns off rejoining by itself
+room.on("players", (players) => {});          // each player's awayReason: "lost" while their connection dropped, "idle" or "hidden" if onAway kept them, else null
 Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game (where idleCheck is "client", as with the relay, the room follows this)
 ```
+
+Every number behind this (pings, timeouts, reconnecting, held seats, message limits, close codes) is in [Room connections](docs/DEVELOPER-API.md#room-connections).
 
 Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Errors from the room are `{"type":"error","code":"full","message":"This room is full."}`, with codes in lowercase snake_case: `full`, `closed`, `ended`, `kept_out`, `refused`, `month_limit`, `bad_pass`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `no_room`.
 

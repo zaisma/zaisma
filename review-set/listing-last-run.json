@@ -1,22 +1,46 @@
 {
-  "fingerprint_sha256": "0fb42280f4ba7b33730544b1da1463aa0ba3ccb9f4dac064da2e7ebaa2f889c0",
-  "ran_at": "2026-10-19T15:05:20Z",
+  "fingerprint_sha256": "d83a578a3749c62b00387f2b5813c1955edfab0e38c07df019e5eff32afb6ae5",
+  "ran_at": "2026-10-21T17:55:55Z",
   "model_vars": {
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
-    "case_count": 16,
-    "honest_case_count": 7,
-    "slop_case_count": 9,
-    "matched_case_count": 16,
+    "case_count": 18,
+    "honest_case_count": 8,
+    "slop_case_count": 10,
+    "matched_case_count": 18,
     "missed_case_count": 0,
     "inconsistent_case_count": 0,
     "declined_attempt_count": 0,
-    "cost_cents": 24.71096,
+    "cost_cents": 31.7418,
     "is_passing": true
   },
   "cases": [
+    {
+      "name": "background-world",
+      "is_honest": true,
+      "expected": {
+        "title": "fine",
+        "background.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "background.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "background.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "background.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
     {
       "name": "busy-bright-cover",
       "is_honest": true,
@@ -408,6 +432,30 @@
         },
         {
           "title": "tag_in_title"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "title-on-background",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "background.webp": "text_on_background"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "background.webp": "text_on_background"
+        },
+        {
+          "title": "fine",
+          "background.webp": "text_on_background"
+        },
+        {
+          "title": "fine",
+          "background.webp": "text_on_background"
         }
       ],
       "outcome": "matched",

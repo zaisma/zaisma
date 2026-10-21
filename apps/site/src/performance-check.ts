@@ -201,6 +201,7 @@ const wait = (durationMs: number) => new Promise((resolve) => setTimeout(resolve
 
 /** The run in Cloudflare's headless Chrome, over its DevTools protocol, as scripts/engines/play.mjs does locally. */
 export const runInChrome: ChromeRun = async (env, pageUrl, gameBaseUrl) => {
+  if (!env.BROWSER) throw new Error("No Browser Rendering binding (BROWSER)");
   const browser = await puppeteer.launch(env.BROWSER as unknown as Parameters<typeof puppeteer.launch>[0]);
   try {
     const page = await browser.newPage();

@@ -123,6 +123,7 @@ export const GAME = object({
   links: list(LINK, "Its registered links, which the game opens with Zaisma.links.open; [] for none."),
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for the listing check (about a minute) or a person before players see it.")),
   title_listing_reason: nullable(reviewReason("Why the title keeps the game off Zaisma's lists (a famous name, a tag) or held it (a fake reward); null when nothing does. The game still plays by its link.")),
+  glass_tint_color: nullable(describe({ type: "string", pattern: "^#[0-9a-f]{6}$" }, "The color Zaisma tints its glass with over the game's background, like #6b3fa0; Zaisma still decides how thick the glass is. null: no tint.")),
   updated_at: isoTime(),
 });
 
@@ -246,7 +247,14 @@ export const GAME_CHECK = object(GAME_CHECK_FIELDS);
 
 export const IMAGE = object({
   id: idOf("image"),
-  kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot", share: "the picture shared links show instead of the cover" }),
+  kind: choice({
+    cover: "landscape cover",
+    square: "square cover, shown on phones",
+    screenshot: "a screenshot",
+    share: "the picture shared links show instead of the cover",
+    background: "a background for wide screens: the game's world behind Zaisma's glass, with no title on it",
+    phone_background: "a background composed for a tall phone screen",
+  }),
   review_status: choice({ pending: "only you see it until the listing check (about a minute) or a person approves it", approved: "shown to players", rejected: "not shown" }),
   review_reason: nullable(reviewReason("Why it wasn't approved; null otherwise.")),
   listing_reason: nullable(reviewReason("Why this cover keeps the game off Zaisma's lists, though it shows on the game page (text, an overlay, a famous name, a subject not in the game), or held the game (a fake reward); null when nothing does.")),
@@ -255,6 +263,28 @@ export const IMAGE = object({
   size_bytes: countOf(),
   image_url: url(),
   created_at: isoTime(),
+});
+
+export const SHADER = object({
+  id: idOf("shader"),
+  screen: choice({ wide: "for desktops and tablets", phone: "composed for a tall phone screen" }),
+  review_status: choice({ pending: "waiting for its check (about a minute), or for a person when the check asks for one", approved: "passed: set_background can show it", rejected: "didn't pass; review_reason says why" }),
+  review_reason: nullable(reviewReason("Why it didn't pass: it didn't compile, took too long a frame, flashes, or has words or a logo in it; null otherwise.")),
+  check_frame_ms: nullable(number("The check's median time to draw one 640 by 360 frame, in milliseconds on a software renderer (far slower than any GPU), scaled to the renderer's speed; null until the check ran.")),
+  flash_count: nullable(countOf("The most times it flashed in any one second of the check; over 3 is refused. null until the check ran.")),
+  still_url: nullable(url("Its still frame at 2 seconds, full size (1920 by 1080, or 1080 by 1920 for phone): shown under reduced motion and wherever it can't run. null until the check saved it.")),
+  frame_urls: list(url(), "Frames the check drew over its first 30 seconds, for the developer to look at; [] until the check saved them."),
+  source_url: url("The shader's source as sent, for a live preview: only the developer, signed in, opens it until it's approved."),
+  size_bytes: countOf(),
+  created_at: isoTime(),
+});
+
+export const BACKGROUND = object({
+  screen: choice({ wide: "desktops and tablets", phone: "phones" }),
+  source: choice({ zaisma: "Zaisma's own background", image: "one of the game's background images (image_id)", shader: "one of the game's shaders (shader_id)", wide: "phone only: phones show the wide background" }),
+  image_id: nullable(idOf("image")),
+  shader_id: nullable(idOf("shader")),
+  still_url: nullable(url("The picture it shows: the image, or the shader's still. null for Zaisma's own, and for phone following wide.")),
 });
 
 export const TESTER = object({
@@ -535,6 +565,7 @@ export const GAME_EXPORT = object({
     withheld_version_count: countOf("Versions listed in versions.json with no files: still being scanned, held or rejected."),
     image_count: countOf("Covers and screenshots in it: the ones that passed review."),
     withheld_image_count: countOf("Images listed in game.json with no file: waiting for review or not approved."),
+    shader_count: countOf("Background shaders in it, as .glsl files: the ones that passed their check."),
     save_count: countOf("Players whose cloud save is in saves.jsonl."),
     files_size_bytes: countOf("The versions' and images' files together; the database, saves and JSON come on top."),
   }),

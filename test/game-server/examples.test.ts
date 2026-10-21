@@ -43,6 +43,24 @@ describe("arena", () => {
     room.tick(0.05);
     expect(last("a").snapshot.find((body: { id: string }) => body.id === "a").color).toBe("#7dff8a");
   });
+
+  it("freezes a player whose connection dropped, keeping their place and score, until they're back", () => {
+    const { t, last } = transport();
+    const room = new RoomCore(defineGameServer(arena), t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
+    room.receive("a", msg({ input: [1, 0] }));
+    room.tick(0.05);
+    room.leave("a", "lost");
+    const frozen = last("b").snapshot.find((body: { id: string }) => body.id === "a");
+    for (let i = 0; i < 10; i++) room.tick(0.05);
+    expect(last("b").snapshot.find((body: { id: string }) => body.id === "a")).toMatchObject({ x: frozen.x, y: frozen.y, score: frozen.score });
+    // Back: the same body, moving again on new input.
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.receive("a", msg({ input: [1, 0] }));
+    for (let i = 0; i < 5; i++) room.tick(0.05);
+    expect(last("a").snapshot.find((body: { id: string }) => body.id === "a").x).toBeGreaterThan(frozen.x);
+  });
 });
 
 describe("four in a row", () => {
@@ -75,5 +93,30 @@ describe("four in a row", () => {
     room.leave("a");
     room.join({ id: "a", name: "A", kind: "guest" });
     expect(last("a").seatPlayerIds).toEqual(["a", "b"]);
+  });
+
+  it("gives a player whose connection dropped the board when they're back, their seat kept meanwhile", () => {
+    const { room, sent, last } = play();
+    room.receive("a", msg({ column: 3 }));
+    room.leave("a", "lost");
+    room.join({ id: "c", name: "C", kind: "guest" });
+    expect(last("c").seatPlayerIds).toEqual(["a", "b"]);
+    sent.a = [];
+    room.join({ id: "a", name: "A", kind: "guest" });
+    expect(last("a")).toMatchObject({ seatPlayerIds: ["a", "b"], turnSeat: 2 });
+    expect(last("a").board[38]).toBe(1);
+  });
+
+  it("pairs only lobby players who are playing, and a player back from a dropped connection once they're back", () => {
+    const tr = transport();
+    const lobby = new RoomCore(defineGameServer(fourInARow), { ...tr.t, reserve: (code, start) => reserved.push(start.playerIds) });
+    const reserved: string[][] = [];
+    // The player who makes the room labels it the lobby, as the game does.
+    lobby.join({ id: "a", name: "A", kind: "guest" }, { labels: { Room: "Lobby" } });
+    lobby.leave("a", "lost");
+    lobby.join({ id: "b", name: "B", kind: "guest" });
+    expect(reserved).toEqual([]);
+    lobby.join({ id: "a", name: "A", kind: "guest" });
+    expect(reserved).toEqual([["a", "b"]]);
   });
 });

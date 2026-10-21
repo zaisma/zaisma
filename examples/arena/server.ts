@@ -2,7 +2,9 @@
 // other players to bump them off the platform. Ticks 20 times a second. Each
 // player's best score goes in the game's database, and the game asks for the
 // best scores board with a request (onRequest), outside the room. Once a day a
-// schedule (onSchedule) keeps that board's table small.
+// schedule (onSchedule) keeps that board's table small. A player whose connection
+// drops stays frozen where they were for the room's reconnectTimeoutSec (30 seconds),
+// so a blip never costs them their place or their score.
 // Only plain JavaScript plus type annotations, so Node can run it as-is.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
@@ -169,12 +171,24 @@ const arena: GameServer<State> = {
     if (sent.dash === true) startDash(body);
   },
 
+  // Back after a dropped connection: their body unfreezes by itself (onTick), and the next snapshot catches their game up.
+  onBack(state, player) {
+    console.log(`${player.name} is back`);
+  },
+
   onTick(state, tickDurationSec, room) {
     // A late tick moves things at most a tenth of a second, so nobody jumps through a wall.
     const stepSec = Math.min(tickDurationSec, 0.1);
+    // Players whose connection dropped are frozen until they're back: they don't move, bump or get bumped.
+    // Reading room.awayReason here, rather than adding onAway, leaves idle and hidden players to the room.
+    const frozenIds = new Set(room.players.filter((player) => room.awayReason(player.id) === "lost").map((player) => player.id));
     const ids = Object.keys(state.bodies);
     for (const id of ids) {
       const body = state.bodies[id]!;
+      if (frozenIds.has(id)) {
+        body.inputX = body.inputY = body.velocityX = body.velocityY = 0;
+        continue;
+      }
       if (body.respawnInSec > 0) {
         body.respawnInSec -= stepSec;
         if (body.respawnInSec <= 0) spawn(body);
@@ -196,7 +210,7 @@ const arena: GameServer<State> = {
       for (let j = i + 1; j < ids.length; j++) {
         const first = state.bodies[ids[i]!]!;
         const second = state.bodies[ids[j]!]!;
-        if (first.respawnInSec || second.respawnInSec) continue;
+        if (first.respawnInSec || second.respawnInSec || frozenIds.has(ids[i]!) || frozenIds.has(ids[j]!)) continue;
         const gapX = second.x - first.x;
         const gapY = second.y - first.y;
         const distance = Math.hypot(gapX, gapY);
