@@ -403,6 +403,86 @@ describe("game server", () => {
     });
   });
 
+  describe("each version's own address, so returning players skip file checks", () => {
+    const enc = (text: string) => new TextEncoder().encode(text);
+    const IMMUTABLE = "public, max-age=31536000, immutable";
+
+    /** A file-by-file version of a game: approved, and published when isPublished. */
+    async function addFilesVersion(gameId: string, versionId: string, files: Record<string, string>, isPublished: boolean) {
+      const manifest: Record<string, { sha256: string }> = {};
+      for (const [path, text] of Object.entries(files)) {
+        const sha = await sha256Hex(enc(text));
+        await env.GAMES.put(blobKey(sha), text);
+        manifest[path] = { sha256: sha };
+      }
+      await env.GAMES.put(manifestKey(versionId), JSON.stringify({ files: manifest }));
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 'files', ?, 0)")
+        .bind(versionId, gameId, `manifests/${versionId}`, isPublished ? 1 : null)
+        .run();
+    }
+
+    it("opens pages at their version's address, keeping the query, and keeps what they load for good", async () => {
+      const id = await addGame("kept", "live", false);
+      await addFilesVersion(id, "vkept1", { "index.html": "<!doctype html><head></head><p>one</p>", "Build/game.wasm": "wasm one" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vkept1' WHERE id = ?").bind(id).run();
+
+      const opened = await SELF.fetch(`${G}/kept/?room=ABC234`, { redirect: "manual" });
+      expect(opened.status).toBe(302);
+      expect(opened.headers.get("location")).toBe("/kept/_zaisma/versions/vkept1/?room=ABC234");
+      expect(opened.headers.get("cache-control")).toBe("no-store");
+      expect((await SELF.fetch(`${G}/kept/menu.html`, { redirect: "manual" })).headers.get("location")).toBe("/kept/_zaisma/versions/vkept1/menu.html");
+
+      const page = await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/`);
+      expect(page.headers.get("cache-control")).toBe("no-cache");
+      const text = await page.text();
+      expect(text).toContain("<p>one</p>");
+      expect(text).toContain('src="/kept/_zaisma/relay.js');
+
+      const file = await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/Build/game.wasm`);
+      expect(file.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect(await file.text()).toBe("wasm one");
+      // At the game's own address (a file named by its full path), it's checked each time as before.
+      expect((await SELF.fetch(`${G}/kept/Build/game.wasm`)).headers.get("cache-control")).toBe("no-cache");
+      // The SDK, named by a relative path from a page at the version's address.
+      expect((await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/_zaisma/v1.js`)).status).toBe(200);
+    });
+
+    it("sends an earlier version's page back to the live one, keeps its released files, and applies a takedown at once", async () => {
+      const id = await addGame("updated", "live", false);
+      await addFilesVersion(id, "vupdated1", { "index.html": "<!doctype html><p>one</p>", "level.json": "one" }, true);
+      await addFilesVersion(id, "vupdated2", { "index.html": "<!doctype html><p>two</p>", "level.json": "two" }, true);
+      await addFilesVersion(id, "vupdated3", { "index.html": "<!doctype html><p>three</p>", "level.json": "three" }, false);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vupdated2' WHERE id = ?").bind(id).run();
+
+      // A reload after the update: the old page goes back to the game's address, which opens the new version.
+      const reloaded = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated1/?room=ABC234`, { redirect: "manual" });
+      expect(reloaded.status).toBe(302);
+      expect(reloaded.headers.get("location")).toBe("/updated/?room=ABC234");
+      // A game still running the released version 1 finishes loading its own files.
+      const earlier = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated1/level.json`);
+      expect(earlier.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect(await earlier.text()).toBe("one");
+      // A version never released isn't opened through the public address.
+      const unreleased = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated3/level.json`, { redirect: "manual" });
+      expect(unreleased.status).toBe(302);
+      expect(unreleased.headers.get("location")).toBe("/updated/level.json");
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/nothing/level.json`, { redirect: "manual" })).headers.get("location")).toBe("/updated/level.json");
+
+      await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/level.json`)).status).toBe(410);
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/`)).status).toBe(410);
+    });
+
+    it("keeps a zip version's files for good at its address", async () => {
+      await addGame("zipped", "live");
+      expect((await SELF.fetch(`${G}/zipped/`, { redirect: "manual" })).headers.get("location")).toBe("/zipped/_zaisma/versions/vgzipped/");
+      const file = await SELF.fetch(`${G}/zipped/_zaisma/versions/vgzipped/sfx/beep.mp3`);
+      expect(file.status).toBe(200);
+      expect(file.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect((await SELF.fetch(`${G}/zipped/sfx/beep.mp3`)).headers.get("cache-control")).toBe("public, max-age=60");
+    });
+  });
+
   it("only allows reading", async () => {
     expect((await SELF.fetch(`${G}/live-one/`, { method: "POST" })).status).toBe(405);
   });
