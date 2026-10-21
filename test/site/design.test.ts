@@ -514,7 +514,7 @@ const NOT_SPACING = new Set<string>([
   ".dropdown-head | padding",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
-  ".choice-list-in.own-scroll | padding-right", ".sheet-in.own-scroll | padding-right",
+  ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
   // Room for the covers to lift into, given back round the row.
   ".track | padding", ".track | margin",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.

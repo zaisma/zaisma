@@ -1029,7 +1029,7 @@ component({
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
-.choice-list-in.own-scroll { padding-right: 18px; }
+.choice-list-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: 18px; }
 .choice-list .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
 .choice-list .choice-words { gap: 2px; }
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }

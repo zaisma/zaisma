@@ -395,7 +395,7 @@ const SHEET_STYLES = `
 .sheet.in-place { position: relative; z-index: auto; margin: 0; }
 .sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: what's in it keeps clear of the rail. */
-.sheet-in.own-scroll { padding-right: calc(var(--pad-pane) + 14px); }
+.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-pane) + 14px); }
 .sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
 .sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 .sheet-close, .sheet-form { margin: 0; }
@@ -404,6 +404,9 @@ const SHEET_STYLES = `
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
   .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
+  /* A sheet's buttons stack on a phone, each the sheet's full width, the action under Cancel. */
+  .sheet-form .control-row { flex-direction: column; align-items: stretch; }
+  .sheet-form .control-row > * { flex: none; margin-inline-end: 0; }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
 @media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not([open]) { transform: none; } }
