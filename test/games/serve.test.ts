@@ -22,7 +22,7 @@ async function addGame(slug: string, status: string, withVersion = true) {
 
 describe("game server", () => {
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM performance_checks; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM performance_checks; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
   afterAll(async () => {
     await env.DB.exec("DELETE FROM tester_links;");
@@ -471,6 +471,87 @@ describe("game server", () => {
       await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
       expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/level.json`)).status).toBe(410);
       expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/`)).status).toBe(410);
+    });
+
+    // A player always plays the version their room runs (docs/DEVELOPER-API.md, "Updates").
+    it("serves a room's players the version it runs while it runs it, and only one the game could roll back to", async () => {
+      const id = await addGame("rooms-on", "live", false);
+      await addFilesVersion(id, "vroomson1", { "index.html": "<!doctype html><head></head><p>one</p>", "level.json": "one" }, true);
+      await addFilesVersion(id, "vroomson2", { "index.html": "<!doctype html><head></head><p>two</p>", "level.json": "two" }, true);
+      await addFilesVersion(id, "vroomson3", { "index.html": "<!doctype html><head></head><p>three</p>", "level.json": "three" }, false);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vroomson2' WHERE id = ?").bind(id).run();
+      const addRoom = (roomCode: string, versionId: string | null) =>
+        env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, version_id, created_at_ms, updated_at_ms) VALUES (?, ?, 2, 8, ?, ?, ?)").bind(id, roomCode, versionId, Date.now(), Date.now()).run();
+      await addRoom("PRVRMA", "vroomson1");
+      await addRoom("NEWRMA", "vroomson2");
+      await addRoom("BLTNRM", null);
+      await addRoom("UNRLSD", "vroomson3");
+      const NAME = "__Host-zaisma_room_version_rooms-on";
+      const cookie = `${NAME}=vroomson1.PRVRMA`;
+      const get = (path: string, cookieHeader?: string) => SELF.fetch(`${G}/rooms-on/${path}`, { redirect: "manual", headers: cookieHeader ? { cookie: cookieHeader } : {} });
+      const versionOfSdk = async (cookieHeader?: string) => (await (await get("_zaisma/v1.js", cookieHeader)).text()).match(/"version":"(\w+)"/)?.[1];
+
+      // Opened into the room: its version's page, and the cookie that carries it to the page's other files.
+      const opened = await get("?room=prvrma");
+      expect(opened.headers.get("location")).toBe("/rooms-on/_zaisma/versions/vroomson1/?room=prvrma");
+      expect(opened.headers.get("set-cookie")).toBe(`${cookie}; Path=/; Secure; HttpOnly; SameSite=None; Partitioned`);
+      const page = await get("_zaisma/versions/vroomson1/?room=PRVRMA");
+      expect(await page.text()).toContain("<p>one</p>");
+      // Only this browser's: no shared cache keeps it, and nothing indexes it.
+      expect(page.headers.get("cache-control")).toBe("private, no-cache");
+      expect(page.headers.get("x-robots-tag")).toBe("noindex");
+      const file = await get("level.json", cookie);
+      expect(await file.text()).toBe("one");
+      expect(file.headers.get("cache-control")).toBe("private, no-cache");
+      expect(file.headers.get("set-cookie")).toBeNull();
+      expect(await versionOfSdk(cookie)).toBe("vroomson1");
+      expect(await (await get("_zaisma/versions/vroomson1/index.html", cookie)).text()).toContain("<p>one</p>");
+
+      // Everyone else, and a page opened outside a room, plays the live version; the cookie goes.
+      expect(await (await get("level.json")).text()).toBe("two");
+      expect(await versionOfSdk()).toBe("vroomson2");
+      const outside = await get("", cookie);
+      expect(outside.headers.get("location")).toBe("/rooms-on/_zaisma/versions/vroomson2/");
+      expect(outside.headers.get("set-cookie")).toBe(`${NAME}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None; Partitioned`);
+      // A room on the live version, or with a built-in game server, or on a version never released: the live one.
+      for (const roomCode of ["NEWRMA", "BLTNRM", "UNRLSD", "NXRMZZ"]) {
+        const elsewhere = await get(`?room=${roomCode}`);
+        expect(elsewhere.headers.get("location")).toBe(`/rooms-on/_zaisma/versions/vroomson2/?room=${roomCode}`);
+        expect(elsewhere.headers.get("set-cookie")).toBeNull();
+      }
+      // The version comes from the room, never the browser: a cookie naming another room's version, or another version, gets the live one.
+      for (const named of [`${NAME}=vroomson1.NEWRMA`, `${NAME}=vroomson3.UNRLSD`, `${NAME}=vroomson2.PRVRMA`, `${NAME}=nonsense`]) {
+        const forged = await get("level.json", named);
+        expect(await forged.text()).toBe("two");
+        expect(forged.headers.get("set-cookie")).toContain("Max-Age=0");
+      }
+
+      // Held, pruned or a room that stopped checking in: the live one at once.
+      await env.DB.prepare("UPDATE versions SET report_held_at_ms = 1 WHERE id = 'vroomson1'").run();
+      expect(await (await get("level.json", cookie)).text()).toBe("two");
+      expect((await get("?room=PRVRMA")).headers.get("location")).toBe("/rooms-on/_zaisma/versions/vroomson2/?room=PRVRMA");
+      await env.DB.prepare("UPDATE versions SET report_held_at_ms = NULL WHERE id = 'vroomson1'").run();
+      await env.DB.prepare("UPDATE live_rooms SET updated_at_ms = 0 WHERE room_code = 'PRVRMA'").run();
+      expect(await (await get("level.json", cookie)).text()).toBe("two");
+      await env.DB.prepare("UPDATE live_rooms SET updated_at_ms = ? WHERE room_code = 'PRVRMA'").bind(Date.now()).run();
+      expect(await (await get("level.json", cookie)).text()).toBe("one");
+      await env.DB.prepare("DELETE FROM versions WHERE id = 'vroomson1'").run();
+      expect(await (await get("level.json", cookie)).text()).toBe("two");
+      // A takedown applies to it too.
+      await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await get("level.json", cookie)).status).toBe(410);
+    });
+
+    it("leaves tester links to their own version, whatever room they open into", async () => {
+      const id = await addGame("testers-room", "live");
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, published_at_ms, created_at_ms) VALUES ('vtestersold', ?, 'games/t/old', 1, 0, 'approved', 1, 0)").bind(id).run();
+      await env.GAMES.put("games/t/old/index.html", "<!doctype html><p>old</p>");
+      await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, version_id, created_at_ms, updated_at_ms) VALUES (?, 'TSTRRM', 2, 8, 'vtestersold', ?, ?)").bind(id, Date.now(), Date.now()).run();
+      const link = await addTesterLink(env.DB, id, "Playtesters");
+      const { cookie } = await enter("testers-room", "tester", await createAccessGrant(env.DB, { gameId: id, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 }));
+      const page = await SELF.fetch(`${G}/testers-room--tester/?room=TSTRRM`, { headers: { cookie: `${cookie}; __Host-zaisma_room_version_testers-room=vtestersold.TSTRRM` } });
+      expect(await page.text()).toContain("<p>game</p>");
+      expect(page.headers.get("set-cookie")).toBeNull();
     });
 
     it("keeps a zip version's files for good at its address", async () => {

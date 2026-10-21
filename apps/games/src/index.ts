@@ -15,6 +15,7 @@ import {
   playsOnline,
   readGameAddress,
   readVersionAddress,
+  ROOM_STALE_MS,
   SAVE_LIMIT_BYTES,
   servableGame,
   testerLinkVersion,
@@ -167,6 +168,52 @@ async function openThroughLink(request: Request, url: URL, env: Env, target: Tar
   }
   if (!pass) return page(404, "Open this game through its link", "Tester links and previews open from zaisma.com. Open the link you were given again.", env);
   return pass;
+}
+
+/** Where a version's files are, as the request handler serves them. */
+type ServedVersion = { id: string; kind: "zip" | "files"; r2_prefix: string };
+
+/** The cookie that carries a room's version to the rest of its page's files, named for the game, since path mode puts every game on one origin. */
+const roomVersionCookieName = (slug: string) => `__Host-zaisma_room_version_${slug}`;
+const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+
+/**
+ * A player always plays the version their room runs: on a game's public address, a page opened into a room
+ * (?room=CODE) whose sandboxed game server runs another version than the live one gets that version, and the
+ * cookie carries it to the page's other files. The version comes only from the room's row, never from what the
+ * browser names, and only while it's one the game could roll back to (approved, published, not held, still
+ * kept), so a takedown or hold applies at once; the cookie is checked against the room on every request.
+ * Answers the version to serve (null: the live one) and the Set-Cookie to send, if any.
+ */
+async function roomVersionFor(request: Request, url: URL, env: Env, target: Target, game: Game): Promise<{ version: ServedVersion | null; setCookie: string | null }> {
+  const cookieName = roomVersionCookieName(game.slug);
+  const cookie = cookieValue(request, cookieName);
+  const clear = cookie === null ? null : `${cookieName}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None; Partitioned`;
+  const pinned = readVersionAddress(target.path);
+  const requestedPath = pinned ? pinned.path : target.path;
+  const isPage = requestedPath === "" || requestedPath.endsWith("/") || requestedPath.endsWith(".html");
+  const linkedCode = url.searchParams.get("room")?.toUpperCase() ?? "";
+  let roomCode: string;
+  let cookieVersionId: string | null = null;
+  if (isPage && ROOM_CODE.test(linkedCode)) roomCode = linkedCode;
+  // A page opened at the game's own address outside a room plays the live version.
+  else if ((isPage && !pinned) || cookie === null) return { version: null, setCookie: clear };
+  else {
+    const dotIndex = cookie.lastIndexOf(".");
+    cookieVersionId = cookie.slice(0, dotIndex);
+    roomCode = cookie.slice(dotIndex + 1);
+    if (dotIndex < 1 || !ROOM_CODE.test(roomCode)) return { version: null, setCookie: clear };
+  }
+  const roomVersion = await env.DB.prepare(
+    `SELECT versions.id, versions.kind, versions.r2_prefix FROM live_rooms JOIN versions ON versions.id = live_rooms.version_id AND versions.game_id = live_rooms.game_id
+     WHERE live_rooms.game_id = ? AND live_rooms.room_code = ? AND live_rooms.updated_at_ms > ? AND versions.id != ?
+       AND versions.scan_status = 'approved' AND versions.published_at_ms IS NOT NULL AND versions.report_held_at_ms IS NULL`,
+  )
+    .bind(game.id, roomCode, Date.now() - ROOM_STALE_MS, game.live_version_id)
+    .first<ServedVersion>();
+  if (!roomVersion || (cookieVersionId !== null && cookieVersionId !== roomVersion.id)) return { version: null, setCookie: clear };
+  const roomVersionCookie = `${roomVersion.id}.${roomCode}`;
+  return { version: roomVersion, setCookie: cookie === roomVersionCookie ? null : `${cookieName}=${roomVersionCookie}; Path=/; Secure; HttpOnly; SameSite=None; Partitioned` };
 }
 
 /**
@@ -383,8 +430,11 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (background) return background;
   }
 
-  let version: { id: string; kind: "zip" | "files"; r2_prefix: string };
+  let version: ServedVersion;
   let tester: TesterLink | null = null;
+  // The version of the room the player's page opened into, when it isn't the live one (roomVersionFor).
+  let isRoomVersion = false;
+  let roomVersionCookie: string | null = null;
   // An accounts-only game's public address serves only browsers that came in through its page.
   const isAccountsOnly = !address && game.account_requirement === "whole_game";
   if (address) {
@@ -410,12 +460,20 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       if (refused) return gated(refused);
     }
     version = { id: game.live_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
+    if (!isAccountsOnly) {
+      const room = await roomVersionFor(request, url, env, target, game);
+      roomVersionCookie = room.setCookie;
+      if (room.version) {
+        version = room.version;
+        isRoomVersion = true;
+      }
+    }
   }
   // Previews and tester links keep their saves in their own browser storage, never the player's account.
   const cloudSavesEnabled = Boolean(game.cloud_saves_enabled) && !address;
   /** What only this browser's access or entry cookie opens: no other game loads it as its own, and no shared cache keeps it. */
   function gated(response: Response): Response {
-    if (!address && !isAccountsOnly) return response;
+    if (!address && !isAccountsOnly && !isRoomVersion) return response;
     const out = new Response(response.body, response);
     out.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     out.headers.set("X-Robots-Tag", "noindex");
@@ -443,7 +501,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       if (address || filePath === "" || filePath.endsWith("/") || filePath.endsWith(".html")) return backToGameAddress();
       const earlier = await env.DB.prepare("SELECT id, kind, r2_prefix FROM versions WHERE id = ? AND game_id = ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND report_held_at_ms IS NULL")
         .bind(pinned.versionId, game.id)
-        .first<{ id: string; kind: "zip" | "files"; r2_prefix: string }>();
+        .first<ServedVersion>();
       if (!earlier) return backToGameAddress();
       servedVersion = earlier;
     }
@@ -579,7 +637,11 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     }
     return new Response(request.method === "HEAD" ? null : object.body, { status: httpStatus, headers });
   };
-  return gated(await serveFile());
+  const response = gated(await serveFile());
+  if (!roomVersionCookie) return response;
+  const out = new Response(response.body, response);
+  out.headers.append("Set-Cookie", roomVersionCookie);
+  return out;
 }
 
 export default {
