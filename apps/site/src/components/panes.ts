@@ -688,7 +688,7 @@ component({
   summary: "Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
   styles: `
 /* Spacing: the space each example is about, hatched over it. */
-.spacing-example { display: grid; gap: var(--gap-words-control); justify-items: start; width: 100%; }
+.spacing-example { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); justify-items: start; width: 100%; }
 .spacing-example > code { font: var(--type-code); color: var(--ink); }
 .spacing-mark { position: absolute; z-index: 6; pointer-events: none;
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 34%, transparent) 0 1.5px, transparent 1.5px 5px);
