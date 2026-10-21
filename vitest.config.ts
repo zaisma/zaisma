@@ -136,8 +136,8 @@ export default defineConfig({
         LINK_CHECK_DNS_URL: "https://dns.zaisma.test/dns-query",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
-        // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.
-        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" } },
+        // consumer can't be removed; instead uploads send their scan and compress jobs to queues nothing reads.
+        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" } },
         workers: [roomsDatabaseWorker, photoDnaWorker],
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),

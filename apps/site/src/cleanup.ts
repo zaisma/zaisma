@@ -1,5 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -152,6 +152,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteEndedAccessPasses(env.DB, nowMs);
   // Files the scan cleared more than 30 days ago: they're matched again when they next come up (scan.ts, matchMedia).
   await env.DB.prepare("DELETE FROM checked_files WHERE checked_at_ms <= ?").bind(nowMs - CHECKED_FILE_KEPT_DURATION_DAYS * DAY_MS).run();
+  // VirusTotal's answers past their week: looked up again when the file next comes up (scan.ts, virusTotal).
+  await env.DB.prepare("DELETE FROM antivirus_lookups WHERE looked_up_at_ms <= ?").bind(nowMs - ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS * DAY_MS).run();
   // Images uploaded for a forum post that was never posted.
   const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };
@@ -171,8 +173,11 @@ async function deleteUnusedFiles(env: Env, cutoffMs: number): Promise<string[]> 
   const unusedShared = shared.filter((blob) => !used.has(blobKey(blob.sha256)));
   const unusedOwned = owned.filter((blob) => !used.has(ownedBlobKey(blob.owner_id, blob.sha256)));
   const keys = [...unusedShared.map((blob) => blobKey(blob.sha256)), ...unusedOwned.map((blob) => ownedBlobKey(blob.owner_id, blob.sha256))];
-  for (let i = 0; i < keys.length; i += 1000) await env.GAMES.delete(keys.slice(i, i + 1000));
+  // With their Brotli copies (compress.ts).
+  const allKeys = [...keys, ...keys.map(brotliKeyOf)];
+  for (let i = 0; i < allKeys.length; i += 1000) await env.GAMES.delete(allKeys.slice(i, i + 1000));
   const statements = [
+    ...keys.map((key) => env.DB.prepare("DELETE FROM compressed_blobs WHERE storage_key = ?").bind(key)),
     ...unusedShared.map((blob) => env.DB.prepare("DELETE FROM blobs WHERE sha256 = ?").bind(blob.sha256)),
     ...unusedShared.map((blob) => env.DB.prepare("DELETE FROM blob_owners WHERE sha256 = ?").bind(blob.sha256)),
     ...unusedOwned.map((blob) => env.DB.prepare("DELETE FROM owned_blobs WHERE owner_id = ? AND sha256 = ?").bind(blob.owner_id, blob.sha256)),

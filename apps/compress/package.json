@@ -1,0 +1,11 @@
+{
+  "name": "@zaisma/compress",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@zaisma/core": "*"
+  }
+}

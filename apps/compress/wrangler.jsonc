@@ -1,0 +1,18 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-compress",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Only the queue: no address of its own.
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  // A 500 MB file takes about half of the 5 minutes of CPU (src/index.ts).
+  "limits": { "cpu_ms": 300000 },
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932" }],
+  "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }],
+  // Brotli copies of game files the site queues (apps/site/src/compress.ts), one file a batch.
+  "queues": {
+    "consumers": [{ "queue": "zaisma-compress", "max_batch_size": 1, "max_retries": 3 }]
+  }
+}

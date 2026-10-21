@@ -1,3 +1,4 @@
+import { sha256Hex } from "./ids.ts";
 import { REVIEWED_CONTENT_RULES } from "./review.ts";
 
 /**
@@ -84,6 +85,14 @@ export const REVIEW_LIMITS = {
   maximumSmallReviewsPerDay: 30,
   /** Share of the monthly review budget that sends Julius one email. */
   budgetAlertPct: 80,
+  /** A changed file is compared with its earlier text in content-defined pieces of about this size (contentPieces). */
+  changedPieceAverageCharacterCount: 8_000,
+  changedPieceMinimumCharacterCount: 2_000,
+  changedPieceMaximumCharacterCount: 32_000,
+  /** Characters read on each side of a changed region, so the reader sees what the change sits in. */
+  changedRegionContextCharacterCount: 2_000,
+  /** Past this share of a file changed, it's read whole: regions and context would cost about as much. */
+  wholeFileReadChangedShare: 0.5,
 } as const;
 
 /** Every piece of a text the readers see: chunks of readerChunkCharacterCount, each overlapping the one before. */
@@ -96,6 +105,75 @@ export function chunkText(text: string): string[] {
     if (startIndex + chunkCharacterCount >= text.length) break;
   }
   return pieces;
+}
+
+/** Characters the rolling hash looks back over: a boundary depends only on the text just before it. */
+const PIECE_WINDOW_CHARACTER_COUNT = 48;
+const PIECE_HASH_MULTIPLIER_NUMBER = 0x01000193;
+/** The multiplier to the window's length, for taking the character that leaves the window out of the hash. */
+const PIECE_HASH_LEAVING_MULTIPLIER_NUMBER = Array.from({ length: PIECE_WINDOW_CHARACTER_COUNT }).reduce<number>((powerNumber) => Math.imul(powerNumber, PIECE_HASH_MULTIPLIER_NUMBER), 1);
+
+/** Spreads the rolling hash's bits, so its remainder doesn't lean on the characters' low bits. */
+const mixed = (hashNumber: number): number => {
+  let mixedNumber = Math.imul(hashNumber ^ (hashNumber >>> 16), 0x85ebca6b);
+  mixedNumber = Math.imul(mixedNumber ^ (mixedNumber >>> 13), 0xc2b2ae35);
+  return (mixedNumber ^ (mixedNumber >>> 16)) >>> 0;
+};
+
+/** A stretch of a text: from startIndex up to, not including, endIndex. */
+export interface TextRegion {
+  startIndex: number;
+  endIndex: number;
+}
+
+/**
+ * A text cut into pieces at content-defined boundaries: a boundary falls where a rolling hash of the last 48
+ * characters hits a set remainder, within changedPieceMinimumCharacterCount and changedPieceMaximumCharacterCount.
+ * The boundaries depend on the text around them, not on where they are, so an edit moves only the pieces
+ * around it, even in a minified bundle that's one line. Each piece has its SHA-256.
+ */
+export async function contentPieces(text: string): Promise<(TextRegion & { sha256: string })[]> {
+  const { changedPieceAverageCharacterCount: averageCharacterCount, changedPieceMinimumCharacterCount: minimumCharacterCount, changedPieceMaximumCharacterCount: maximumCharacterCount } = REVIEW_LIMITS;
+  const endIndexes: number[] = [];
+  let startIndex = 0;
+  let hashNumber = 0;
+  for (let index = 0; index < text.length; index++) {
+    hashNumber = (Math.imul(hashNumber, PIECE_HASH_MULTIPLIER_NUMBER) + text.charCodeAt(index)) | 0;
+    if (index >= PIECE_WINDOW_CHARACTER_COUNT) hashNumber = (hashNumber - Math.imul(text.charCodeAt(index - PIECE_WINDOW_CHARACTER_COUNT), PIECE_HASH_LEAVING_MULTIPLIER_NUMBER)) | 0;
+    const pieceCharacterCount = index + 1 - startIndex;
+    if (pieceCharacterCount >= maximumCharacterCount || (pieceCharacterCount >= minimumCharacterCount && mixed(hashNumber) % averageCharacterCount === 0)) {
+      endIndexes.push(index + 1);
+      startIndex = index + 1;
+    }
+  }
+  if (startIndex < text.length) endIndexes.push(text.length);
+  const encoder = new TextEncoder();
+  return Promise.all(
+    endIndexes.map(async (endIndex, pieceIndex) => {
+      const pieceStartIndex = pieceIndex === 0 ? 0 : endIndexes[pieceIndex - 1]!;
+      return { startIndex: pieceStartIndex, endIndex, sha256: await sha256Hex(encoder.encode(text.slice(pieceStartIndex, endIndex))) };
+    }),
+  );
+}
+
+/**
+ * Where a text changed since its earlier text: its pieces that the earlier text doesn't have, next ones joined,
+ * each widened by changedRegionContextCharacterCount on both sides, and overlaps joined. In order; none when
+ * nothing changed.
+ */
+export async function changedRegions(earlierText: string, text: string): Promise<TextRegion[]> {
+  const earlierShas = new Set((await contentPieces(earlierText)).map((piece) => piece.sha256));
+  const contextCharacterCount = REVIEW_LIMITS.changedRegionContextCharacterCount;
+  const regions: TextRegion[] = [];
+  for (const piece of await contentPieces(text)) {
+    if (earlierShas.has(piece.sha256)) continue;
+    const startIndex = Math.max(0, piece.startIndex - contextCharacterCount);
+    const endIndex = Math.min(text.length, piece.endIndex + contextCharacterCount);
+    const last = regions.at(-1);
+    if (last && startIndex <= last.endIndex) last.endIndex = Math.max(last.endIndex, endIndex);
+    else regions.push({ startIndex, endIndex });
+  }
+  return regions;
 }
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();

@@ -346,7 +346,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     const extension = extensionOf(path);
     if (PRECOMPRESSED_EXTENSIONS.includes(extension)) {
       const unpackedPath = path.slice(0, -extension.length - 1);
-      add("precompressed_file", { message: `${path} is pre-compressed.`, path, fix: `zaisma upload unpacks it into ${unpackedPath} and points the game at it; Zaisma compresses files for players itself. With upload_files or the API, turn off compression in the engine's build settings (Unity: Publishing Settings, Compression Format: Disabled) and build again.` });
+      add("precompressed_file", { message: `${path} is pre-compressed.`, path, fix: `zaisma upload unpacks it into ${unpackedPath} and points the game at it; Zaisma compresses files for players itself, even Unity and Godot data files. With upload_files or the API, turn off compression in the engine's build settings (Unity: Publishing Settings, Compression Format: Disabled) and build again.` });
     } else if (!GAME_FILE_EXTENSIONS.includes(extension)) {
       add("file_type_not_allowed", { message: `${path}: .${extension || "(no extension)"} files aren't allowed in games.`, path, fix: `Leave it out of the game's folder. Games can have: ${GAME_FILE_EXTENSIONS.join(", ")}.` });
     }

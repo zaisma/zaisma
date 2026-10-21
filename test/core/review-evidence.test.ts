@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { REVIEW_LIMITS, chunkText, isSameItem, isTweak, keepQuotedItems, reviewCostCents, type EvidenceItem } from "@zaisma/core";
+import { REVIEW_LIMITS, changedRegions, chunkText, contentPieces, isSameItem, isTweak, keepQuotedItems, reviewCostCents, type EvidenceItem } from "@zaisma/core";
+import { minifiedBundle } from "../helpers.ts";
 
 const item = (fields: Partial<EvidenceItem>): EvidenceItem => ({ kind: "connects_to", subject: "api.example.invalid", detail: "d", path: "game.js", quote: "", file_sha256: "", source: "reader", ...fields });
 
@@ -13,6 +14,47 @@ describe("chunkText", () => {
     expect(pieces[1]!.slice(0, overlap)).toBe(pieces[0]!.slice(-overlap));
     expect(pieces.at(-1)!.endsWith(text.slice(-1000))).toBe(true);
     expect(chunkText("short")).toEqual(["short"]);
+  });
+});
+
+describe("contentPieces and changedRegions", () => {
+  const bundle = minifiedBundle(3_000_000);
+  const edited = (text: string, atIndex: number, replacement: string) => text.slice(0, atIndex) + replacement + text.slice(atIndex + replacement.length);
+
+  it("keeps the same boundaries away from an edit, within the piece sizes", async () => {
+    const pieces = await contentPieces(bundle);
+    expect(pieces[0]!.startIndex).toBe(0);
+    expect(pieces.at(-1)!.endIndex).toBe(bundle.length);
+    for (const [index, piece] of pieces.entries()) {
+      if (index > 0) expect(piece.startIndex).toBe(pieces[index - 1]!.endIndex);
+      if (index < pieces.length - 1) expect(piece.endIndex - piece.startIndex).toBeGreaterThanOrEqual(REVIEW_LIMITS.changedPieceMinimumCharacterCount);
+      expect(piece.endIndex - piece.startIndex).toBeLessThanOrEqual(REVIEW_LIMITS.changedPieceMaximumCharacterCount);
+    }
+    const averageCharacterCount = bundle.length / pieces.length;
+    expect(averageCharacterCount).toBeGreaterThan(REVIEW_LIMITS.changedPieceAverageCharacterCount / 2);
+    expect(averageCharacterCount).toBeLessThan(REVIEW_LIMITS.changedPieceAverageCharacterCount * 2);
+
+    // An edit near the start, and one inserted characters later: the boundaries far from it stay, only shifted.
+    const after = await contentPieces(`${bundle.slice(0, 1000)}let extra = 42;${bundle.slice(1000)}`);
+    const farEnds = new Set(pieces.filter((piece) => piece.startIndex > 100_000).map((piece) => piece.endIndex + "let extra = 42;".length));
+    const afterFar = after.filter((piece) => piece.startIndex > 100_100);
+    expect(afterFar.length).toBeGreaterThan(0);
+    expect(afterFar.every((piece) => farEnds.has(piece.endIndex))).toBe(true);
+  });
+
+  it("finds one small region for a 20-character edit in a 3 MB one-line bundle", async () => {
+    const regions = await changedRegions(bundle, edited(bundle, 1_500_000, "fetch('x.invalid');;"));
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.endIndex - regions[0]!.startIndex).toBeLessThan(40_000);
+    expect(regions[0]!.startIndex).toBeLessThan(1_500_000 - REVIEW_LIMITS.changedRegionContextCharacterCount);
+    expect(regions[0]!.endIndex).toBeGreaterThan(1_500_020 + REVIEW_LIMITS.changedRegionContextCharacterCount);
+  });
+
+  it("finds nothing in an unchanged text, and all of a rewritten one", async () => {
+    expect(await changedRegions(bundle, bundle)).toEqual([]);
+    const rewritten = minifiedBundle(200_000, 7);
+    expect(await changedRegions(minifiedBundle(200_000, 3), rewritten)).toEqual([{ startIndex: 0, endIndex: rewritten.length }]);
+    expect(await changedRegions("", "short")).toEqual([{ startIndex: 0, endIndex: 5 }]);
   });
 });
 
