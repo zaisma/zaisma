@@ -123,8 +123,17 @@ function measureStage() {
   const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
   const stagedPx = isPhone() ? pane.box.offsetWidth : Math.min(520, home.clientWidth);
   const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
-  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx) + "px");
+  // On a wide screen "More games" sits under the staged pane, so it's kept on screen too.
+  const cue = home.querySelector(".home-cue"), cuePx = cue ? cue.offsetHeight : 0;
+  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx + cuePx) + "px");
 }
+// "More games" takes the page to where the shelf docks beside the pane: the top of the shelf just under the header.
+const cueLink = home.querySelector(".home-cue a");
+if (cueLink) cueLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  const headerRoomPx = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+  scrollTo({ top: home.querySelector(".home-window").getBoundingClientRect().bottom + scrollY - headerRoomPx, behavior: isReduced ? "auto" : "smooth" });
+});
 addEventListener("resize", measureStage);
 
 /* The pane opens when the page scrolls (wanting more) and shuts again back at the top, where Play and Details sit on the art. */

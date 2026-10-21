@@ -217,8 +217,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
         body: html`<div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
 <div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
 <div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div>`,
-      })}</div>
-<div class="home-shelf">${glassPane({
+      })}<div class="home-cue">${cutButton("More games", { href: "#home-games", icon: "chevron-down", isSmall: true })}</div></div>
+<div class="home-shelf" id="home-games">${glassPane({
         paneSize: "full",
         label: "Games",
         body: html`${env.SUPABASE_URL
@@ -366,7 +366,12 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
    shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
    top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
    simply opens docked. */
+/* Staged, a small "More games" button under the pane says there's more below; it takes the page down to the shelf, and fades as the pane docks. */
+.home-cue { display: none; }
 @media (min-width: 761px) {
+  .home-cue { position: absolute; top: 100%; left: 0; right: 0; display: flex; justify-content: center; padding-top: var(--gap-words-words);
+    opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0s 0.3s; }
+  html[data-home-staged] .home-cue { opacity: 1; visibility: visible; transition: opacity 0.3s 0.2s, visibility 0s; }
   html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
   html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--pad-pane))); }
 }
