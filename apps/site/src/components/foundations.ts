@@ -40,7 +40,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
-  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03);
+  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03); --edge-caustic: rgba(255, 252, 244, 0.95);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
@@ -72,7 +72,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
   --edge-lit: rgba(220, 228, 242, 0.55); --edge-shade: rgba(140, 152, 176, 0.05); --edge-corner: rgba(196, 206, 224, 0.26);
-  --edge-spec: rgba(255, 255, 255, 0.4); --edge-dense: rgba(255, 255, 255, 0.015);
+  --edge-spec: rgba(255, 255, 255, 0.4); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: rgba(255, 250, 240, 0.4);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
@@ -215,6 +215,9 @@ export const TOKEN_STYLES = `
 .edge .bevel polygon, .edge .rim-band polygon { fill: color-mix(in srgb, var(--edge-lit) var(--side-light), var(--edge-shade)); }
 .edge .rim { stroke: none; }
 .edge .fringe { opacity: var(--edge-fringe); }
+/* Caustics: soft steps of gathered light just inside a pane's bevel, each side as bright as it's lit, fading inward. */
+.edge .caustic polygon { fill: var(--edge-caustic); opacity: calc(var(--side-light) * var(--caustic-step)); }
+.edge .caustic.step-1 { --caustic-step: 0.32; } .edge .caustic.step-2 { --caustic-step: 0.18; } .edge .caustic.step-3 { --caustic-step: 0.09; } .edge .caustic.step-4 { --caustic-step: 0.035; }
 /* A slanted outline drawn just inside a cut field or button, so its slanted ends are outlined like its top and bottom. */
 .cut-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
 .cut-line polygon { fill: none; stroke: transparent; stroke-width: 1; transition: stroke 0.3s; }
@@ -406,6 +409,10 @@ export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
  */
 export const GLASS_SCRIPT = `/* glass */(function () {
   var SVG = "http://www.w3.org/2000/svg";
+  // On a phone a pane's corners are cut a fifth smaller (24 and 20 become 19 and 16), so a narrow screen of panes isn't all corners.
+  // What sits in a pane follows, since the edge rule reads the same cuts.
+  var narrow = window.matchMedia("(max-width: 760px)");
+  function phoneCut(cut) { return narrow.matches ? Math.round(cut * 0.8) : cut; }
   /* The sign-in pane's glass, for any slab: cut corners and the drawn rim (dark hairline, polished edge, bevel band, faint rainbow fringe, bright cut facets). */
   function cutPoints(w, h, c, inset) {
     // A corner that isn't cut stays square all the way in, so its bands meet in a plain mitre, not a facet of their own.
@@ -450,6 +457,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
         inner: node("polygon", { "class": "inner", fill: "none", stroke: "url(#" + id + "in)", "stroke-width": "1" }),
+        // Caustics, on a pane (not a control): the light the thick glass gathers just inside its edge, brightest on the lit facets,
+        // fading inward in a few soft steps. It's part of the pane's own rim, so it moves with the pane, never a frame behind it.
+        caustics: isControl ? [] : [1, 2, 3, 4].map(function (step) { return { group: node("g", { "class": "caustic step-" + step }), quads: [] }; }),
         facets: []
       };
     }
@@ -467,7 +477,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         at = function (inset) { return insetShape(shape, inset); };
         lights = shape.map(function (p, i) { return FACING_LIGHT[facing(p, shape[(i + 1) % shape.length])]; });
       } else {
-        var c = corners().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); }), cornerKey = c.join(",");
+        var c = corners().map(function (cut) { return Math.min(phoneCut(cut), Math.round(short * 0.3)); }), cornerKey = c.join(",");
         if (cornerKey !== lastCorners) {
           lastCorners = cornerKey;
           el.style.clipPath = "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))";
@@ -489,6 +499,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       // Dispersion: a faint split of color along the facet's inner edge, where the light bends.
       parts.fringe.setAttribute("points", pointList(at(Math.max(2.4, band - 0.8))));
       parts.inner.setAttribute("points", pointList(at(band)));
+      var causticInsets = [band, band + 2, band + 5, band + 9, band + 14];
+      parts.caustics.forEach(function (caustic, i) { placeBands(caustic.group, caustic.quads, at(causticInsets[i]), at(causticInsets[i + 1]), lights); });
       // The cut facets: a bright line on each side cut across a corner, the one facing the light brightest.
       var outline = at(0), facetSides = [];
       outline.forEach(function (p, i) {
@@ -528,7 +540,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   function glassCorners(pane) {
     var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
-    return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
+    return cuts.map(function (cut) { return Math.min(phoneCut(cut), Math.round(short * 0.3)); });
   }
   // What holds a control: the nearest pane, tray or control round it. data-on-no-pane stops the search (a gallery example's stage:
   // what's shown in it is shown on no pane, even when the stage sits on a tray).
@@ -753,7 +765,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   function glassCuts(el, width, height) {
     var short = Math.min(width, height);
-    return (el.getAttribute("data-glass-corners") || "24 20 24 20").trim().split(/ +/).map(function (cut) { return Math.min(Number(cut) || 0, Math.round(short * 0.3)); });
+    var isNarrow = window.matchMedia("(max-width: 760px)").matches;
+    return (el.getAttribute("data-glass-corners") || "24 20 24 20").trim().split(/ +/).map(function (cut) { return Math.min(isNarrow ? Math.round((Number(cut) || 0) * 0.8) : Number(cut) || 0, Math.round(short * 0.3)); });
   }
   // Each layer's panes, in its canvas's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
   function placeGlass(layer) {

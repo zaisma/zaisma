@@ -208,9 +208,10 @@ export const MOST_GLASS_PANE_COUNT = 16;
 
 /**
  * The runner's pass round any shader's mainImage (BACKDROP_SCRIPT): glass that bends the backdrop's light. Under each piece of glass
- * it draws what's behind a little magnified and bent inward along the cut edge, as through thick glass, with bright caustics along the
- * edge, brightest on the lit facets (the top left, as the rim is lit); fainter under smoked glass. Everything is in the canvas's own
- * pixels, from its bottom left.
+ * it draws what's behind a little magnified and bent inward along the cut edge, as through thick glass; fainter under smoked glass.
+ * The light the glass gathers along its edge is the pane's own rim (GLASS_SCRIPT's caustics), so it moves with the pane as the page
+ * scrolls; the backdrop sits still under the page and could only follow a frame late. Everything is in the canvas's own pixels, from
+ * its bottom left.
  */
 export const GLASS_LIGHT_PASS = `
 uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];     // each pane: left, bottom, right, top
@@ -229,24 +230,22 @@ float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
   return d;
 }
 void main() {
-  vec2 f = gl_FragCoord.xy, at = f; float caustic = 0.0;
+  vec2 f = gl_FragCoord.xy, at = f;
   // The panes come smallest first, so a pane on a tray bends the light under it, not the tray.
   for (int i = 0; i < ${MOST_GLASS_PANE_COUNT}; i++) {
     if (float(i) >= zaismaPaneCount) break;
     vec4 cuts = zaismaPaneCuts[i]; float smoke = step(4096.0, cuts.w); cuts.w = mod(cuts.w, 4096.0);
     vec2 n; float d = zaismaPaneShape(f, zaismaPanes[i], cuts, n);
-    float strength = mix(1.0, 0.5, smoke), rim = 18.0 * zaismaPixel, lit = clamp(dot(n, vec2(-0.70710678, 0.70710678)), 0.0, 1.0);
+    float strength = mix(1.0, 0.5, smoke), rim = 18.0 * zaismaPixel;
     if (d < 0.0) {
       float depth = -d, edge = 1.0 - smoothstep(0.0, rim, depth);
       vec2 center = (zaismaPanes[i].xy + zaismaPanes[i].zw) * 0.5;
       // Thick glass: what's behind is magnified a little and bent inward along the rim, most at the very edge.
       at = center + (f - center) * (1.0 - 0.018 * strength) - n * rim * 0.45 * strength * edge * edge;
-      // Caustics: light gathered along the edge inside, brightest on the lit facets; wide enough to show through the blur on top.
-      caustic = exp(-depth / (rim * 0.45)) * (0.15 + 0.85 * lit) * 0.32 * strength;
       break;
     }
   }
   vec4 color; mainImage(color, at);
-  vec3 col = color.rgb + vec3(1.0, 0.97, 0.92) * caustic;
+  vec3 col = color.rgb;
   gl_FragColor = vec4(col, 1.0);
 }`;
