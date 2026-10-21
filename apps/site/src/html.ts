@@ -1,20 +1,16 @@
+// The markup primitives come first, so the components this module imports find them ready (markup.ts).
+export { Raw, accountPicture, esc, html, raw } from "./markup.ts";
+import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
-
-/** Escape text for HTML. Every value from a user or a game goes through this. */
-export function esc(content: unknown): string {
-  return String(content ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
-}
-
-/** Tagged template: interpolations are escaped unless wrapped in raw(). */
-export class Raw {
-  constructor(readonly html: string) {}
-  toString() {
-    return this.html;
-  }
-}
-export const raw = (html: string) => new Raw(html);
+import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
+import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
+import { cutButton } from "./components/actions.ts";
+import { pictureFrame } from "./components/data.ts";
+import { backdrop } from "./components/foundations.ts";
+import type { SwitchTab } from "./components/inputs.ts";
+import type { Viewer } from "./viewer.ts";
 
 /** A page's scripts, as their files (page-scripts.ts). They run in order once the page is read. */
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
@@ -38,26 +34,11 @@ export function structuredData(values: unknown): Raw {
   return raw(`<script type="application/ld+json">${JSON.stringify(values).replace(/</g, "\\u003c")}</script>`);
 }
 
-export function html(strings: TemplateStringsArray, ...values: unknown[]): Raw {
-  let out = strings[0]!;
-  values.forEach((interpolation, i) => {
-    out += render(interpolation) + strings[i + 1]!;
-  });
-  return new Raw(out);
-}
-
-function render(interpolation: unknown): string {
-  if (interpolation instanceof Raw) return interpolation.html;
-  if (Array.isArray(interpolation)) return interpolation.map(render).join("");
-  if (interpolation === null || interpolation === undefined || interpolation === false) return "";
-  return esc(interpolation);
-}
-
-// Steel: the design system. Rules and reasons in docs/DESIGN.md.
-const STYLES = `
-@font-face{font-family:Jost;src:url(/fonts/jost.woff2) format("woff2");font-weight:100 900;font-display:swap}
-/* Steel, forged. Three materials: the ground (deep brushed steel, lit from the top left, with the
-   game's own art bleeding in from above), gunmetal plates (every surface: brushed face, lit rim,
+// Steel: the old design system, kept only for page bodies their own slices haven't rebuilt yet (main.steel, or a game
+// page's div.steel). Everything in it is scoped to that body with :where(.steel), which adds no weight, so a page's own
+// styles still win as before and nothing reaches the glass header, the footer or a rebuilt page.
+const STEEL_RULES = `
+/* Steel, forged. Three materials: the ground (deep brushed steel, lit from the top left), gunmetal plates (every surface: brushed face, lit rim,
    the Z's chamfered corner) and chrome (only the main action, focus and selection). */
 :root{color-scheme:dark;
   --bg:#0b0d10;--panel:#1d2026;--panel-2:#16181c;--raised:#2a2e35;--pic:#1c1f25;--line:#23262c;--line-2:#363a42;
@@ -71,15 +52,12 @@ const STYLES = `
   --drop:0 14px 32px rgba(0,0,0,.42);
   --brush:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0035 0.9' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.16 0 0 0 -0.045'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E");
   --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.09 0 0 0 -0.025'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
-*{box-sizing:border-box}
 *{scrollbar-width:thin;scrollbar-color:#3a3e46 transparent}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 ::-webkit-scrollbar-thumb{background:#30343b;border:3px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background-color:#4a4f58}
-html{background:var(--bg)}
-html,body{margin:0;color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-body{position:relative;isolation:isolate;min-height:100vh;display:flex;flex-direction:column;background:
+:root{color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:
   radial-gradient(1200px 560px at 14% -6%,rgba(160,175,200,.09),transparent 70%),
   var(--grain) 0 0/200px 200px,
   linear-gradient(180deg,#12151a 0%,#0b0d10 52%)}
@@ -90,14 +68,6 @@ h1{font-size:clamp(32px,5vw,48px);line-height:1.04;margin:0 0 10px}
 h2{font-size:26px;line-height:1.15;margin:44px 0 18px}
 h3{font-size:19px;margin:0 0 6px}
 p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
-
-/* The game's art, blurred behind the whole screen, like a console's big-screen mode. Two layers so a
-   new game fades in over the last. */
-.ambient{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;
-  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.62) 55%,rgba(0,0,0,.3) 100%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.62) 55%,rgba(0,0,0,.3) 100%)}
-.ambient i{position:absolute;inset:-90px;background:var(--art,none) center/cover no-repeat;filter:blur(72px) saturate(1.15) brightness(.5);opacity:0;transition:opacity 650ms ease}
-.ambient i.on{opacity:1}
-.ambient::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 120% 90% at 50% 30%,transparent 35%,rgba(5,6,8,.6) 100%)}
 
 /* The chamfer: the Z's cut corner on a plate, with its edge catching the light. Plates set --cut. */
 .bevel-s{--cut:8px;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
@@ -111,27 +81,9 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
     var(--brush) 0 0/320px 320px,var(--face);
   box-shadow:var(--rim),var(--drop)}
 
-/* Header: a brushed bar across the top, the current page marked by a chrome rail. */
-header.top{position:sticky;top:0;z-index:30;
   background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,rgba(40,44,51,.94),rgba(24,26,31,.94));
   -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 #000,0 2px 0 rgba(255,255,255,.035),0 12px 30px rgba(0,0,0,.38)}
-header.top .in{max-width:1240px;min-height:64px;margin:0 auto;padding:0 24px;display:flex;flex-wrap:wrap;align-items:center;gap:0 28px}
-header.top .logo{display:flex;padding:8px 0}
-header.top .logo img{height:28px;display:block;filter:drop-shadow(0 2px 0 rgba(0,0,0,.6))}
-header.top nav{display:flex;gap:26px;align-self:stretch;font-family:var(--display);font-size:16px;font-weight:500}
-header.top nav a{position:relative;display:flex;align-items:center;text-decoration:none;color:var(--muted)}
-header.top nav a:hover{color:var(--text)}
-header.top nav a[aria-current]{color:var(--text)}
-header.top nav a[aria-current]::after{content:"";position:absolute;left:-4px;right:-4px;bottom:0;height:3px;background:var(--chrome);box-shadow:0 0 14px rgba(225,230,240,.35)}
-header.top .end{margin-left:auto;display:flex;gap:12px;align-items:center;padding:10px 0}
-/* A page's own search and main action live in the header (the forum's), not in a second bar. */
-header.top .find{flex:1 1 220px;max-width:420px;margin-left:auto;display:flex;align-items:center;padding:10px 0}
-header.top .find input{width:100%;min-height:40px;padding-left:36px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23969ba4' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='M13 13l4 4'/%3E%3C/svg%3E") 11px center/16px no-repeat,#0d0f12}
-header.top .find+.end{margin-left:0}
-header.top .end .btn{min-height:40px}
-main{flex:1 0 auto;width:100%;max-width:1240px;margin:0 auto;padding:32px 24px 72px}
-body>main.gp{flex:1 0 auto;width:100%}
 
 /* A section heading is engraved, with a machined rule running out to the edge. */
 .sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin:48px 0 18px}
@@ -271,11 +223,6 @@ th,td{text-align:left;padding:9px 8px;vertical-align:top;background:linear-gradi
 tr:not(:last-child) td{box-shadow:0 1px 0 rgba(255,255,255,.04)}
 th{color:var(--muted);font-weight:500;font-family:var(--display)}
 
-footer{background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#121418,#0a0b0d);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 -1px 0 #000}
-footer .in{max-width:1240px;margin:0 auto;padding:24px;color:var(--muted);font-size:14px;display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center}
-footer .mark{height:20px;width:auto;margin-right:2px;filter:drop-shadow(0 1px 0 #000)}
-footer a{text-decoration:none}
-footer a:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 .narrow{--cut:36px;max-width:560px;margin:12px 0 0;padding:30px 30px 26px;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);
   background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.3) calc(50% - 1.5px),rgba(255,255,255,.3) 50%,transparent 50%) top right/36px 36px no-repeat,var(--brush) 0 0/320px 320px,var(--face);box-shadow:var(--rim)}
 .narrow>h1:first-child{margin-top:0}
@@ -378,8 +325,107 @@ dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);ba
 [aria-busy=true]{cursor:progress}
 [aria-busy=true] svg{display:none}
 @keyframes spin-calm{50%{opacity:.4}}
-@media (max-width:640px){main{padding:20px 16px 56px}header.top .in{padding:0 16px;gap:0 18px}header.top .find{order:3;flex-basis:100%;max-width:none;padding-top:0}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.ambient i{transition:none}.spin{-webkit-mask-image:url(/zaisma-mark-small-white.svg);mask-image:url(/zaisma-mark-small-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
+@media (max-width:640px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.spin{-webkit-mask-image:url(/zaisma-mark-small-white.svg);mask-image:url(/zaisma-mark-small-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
+`;
+
+/** A style sheet with each rule's selectors changed by mapSelector. @media and @supports blocks are changed inside; @keyframes, @property and the like stay as they are. */
+function mapSelectors(css: string, mapSelector: (selector: string) => string): string {
+  let mapped = "";
+  let ruleIndex = 0;
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  while (ruleIndex < text.length) {
+    const openIndex = text.indexOf("{", ruleIndex);
+    if (openIndex < 0) return mapped + text.slice(ruleIndex);
+    let braceDepthCount = 1;
+    let endIndex = openIndex + 1;
+    for (; braceDepthCount > 0; endIndex++) braceDepthCount += text[endIndex] === "{" ? 1 : text[endIndex] === "}" ? -1 : 0;
+    const prelude = text.slice(ruleIndex, openIndex).trim();
+    const inside = text.slice(openIndex + 1, endIndex - 1);
+    if (/^@(media|supports)\b/.test(prelude)) mapped += `${prelude}{${mapSelectors(inside, mapSelector)}}`;
+    else if (prelude.startsWith("@")) mapped += `${prelude}{${inside}}`;
+    else mapped += `${topLevelParts(prelude, ",").map((selector) => mapSelector(selector.trim())).join(",")}{${inside}}`;
+    ruleIndex = endIndex;
+  }
+  return mapped;
+}
+
+/** Splits at each separator outside brackets and parentheses (the commas between selectors, not those inside :is(…)). */
+function topLevelParts(text: string, separators: string): string[] {
+  const parts: string[] = [];
+  let bracketDepthCount = 0;
+  let partStartIndex = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(" || text[i] === "[") bracketDepthCount++;
+    else if (text[i] === ")" || text[i] === "]") bracketDepthCount--;
+    else if (bracketDepthCount === 0 && separators.includes(text[i]!)) {
+      parts.push(text.slice(partStartIndex, i));
+      partStartIndex = i + 1;
+    }
+  }
+  parts.push(text.slice(partStartIndex));
+  return parts;
+}
+
+/** Steel's rules, inside Steel bodies only: :root becomes the body itself, and every other selector something inside it. */
+const insideSteel = (selector: string) => (selector.startsWith(":root") ? `:where(.steel)${selector.slice(5)}` : `:where(.steel) ${selector}`);
+
+/** The components' rules that hold on every page, Steel bodies too: boxes measured with their borders, hidden is hidden, words only for screen readers. */
+const EVERYWHERE = new Set(["*", "*::before", "*::after", "[hidden]", ".sr"]);
+
+/**
+ * The components' rules, outside Steel bodies: an old body's own classes (its .rail, .tag, .count) keep their old look. A component
+ * placed in an old body goes in an element of class not-steel. The condition joins the selector's last part, before any ::pseudo-element.
+ */
+function outsideSteel(selector: string): string {
+  if (EVERYWHERE.has(selector)) return selector;
+  const lastPart = topLevelParts(selector, " \n\t>+~").pop()!;
+  const pieces = topLevelParts(lastPart, ":");
+  // "a::before" splits into "a", "" and "before": the empty piece is where a pseudo-element starts.
+  const pseudoElementIndex = pieces.findIndex((piece, i) => i > 0 && piece === "" && pieces[i + 1] !== undefined);
+  const conditionIndex = pseudoElementIndex < 0 ? selector.length : selector.length - lastPart.length + pieces.slice(0, pseudoElementIndex).join(":").length;
+  return `${selector.slice(0, conditionIndex)}:where(:not(.steel *), .not-steel, .not-steel *)${selector.slice(conditionIndex)}`;
+}
+
+const STEEL_STYLES = mapSelectors(STEEL_RULES, insideSteel);
+
+/** Zaisma's look: the tokens and every component (components/), defined once in the gallery at /design. Read at the first page, once every component is defined. */
+let systemStyles = "";
+const SYSTEM_STYLES = (): string => (systemStyles ||= mapSelectors(COMPONENT_STYLES(), outsideSteel));
+
+/**
+ * A game's art, blurred behind the top of the page under the glass, and fading into the page below. Pointing at a game card
+ * fades it to that game's art. Two layers, so a new game fades in over the last.
+ */
+const AMBIENT_STYLES = `
+.ambient { position: absolute; inset: 0 0 auto; height: 620px; overflow: hidden; z-index: 0; pointer-events: none; --ambient-opacity: 0.55; }
+.ambient i { position: absolute; inset: -60px; background: var(--art, none) center / cover no-repeat; filter: blur(48px) saturate(1.3); opacity: 0; transition: opacity 650ms ease; }
+.ambient i.on { opacity: var(--ambient-opacity); }
+.ambient::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, var(--page)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .ambient { --ambient-opacity: 0.32; } }
+[data-theme-choice="dark"] .ambient { --ambient-opacity: 0.32; }
+@media (prefers-reduced-motion: reduce) { .ambient i { transition: none; } }
+`;
+
+/**
+ * The shell every page shares: Zaisma's backdrop and the ambient behind, the floating glass header, the page, the footer.
+ * A page body not yet rebuilt is a band of Steel under the header (main.steel), the width of the window.
+ */
+const SHELL_STYLES = `
+/* The room the floating header takes at the top: the page starts below it, and a link to a part of the page stops below it. */
+:root { --header-room: calc(var(--pad-pane) + 68px + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
+@media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + 122px + var(--gap-block-block)); } }
+body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
+  padding-top: var(--header-room); }
+body > main { position: relative; flex: 1 0 auto; width: 100%; }
+body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
+main.steel, .game-steel { position: relative; }
+.game-steel { flex: 1 0 auto; }
+main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
+@media (max-width: 640px) { main.steel { padding: 20px 16px 56px; } }
+/* A page's main action, until its page is rebuilt with one of its own (the forum's New topic). */
+main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 0 18px; }
+body > .foot { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); }
 `;
 
 // Every page's own script: the metal hover, the page's colors following the game pointed at, and
@@ -402,11 +448,11 @@ window.zaismaArt=u=>{home=u||"";show(home)};if(home!==shown)show(home);
 const pick=e=>{const h=e.target.closest&&e.target.closest("[data-art]");clearTimeout(t);t=setTimeout(()=>show(h?h.dataset.art:home),h?80:500)};
 addEventListener("pointerover",pick,{passive:true});addEventListener("focusin",pick)})();`;
 
-// A button that sends a form or opens a page shows it's working and can't be pressed twice.
+// A Steel button that sends a form or opens a page shows it's working and can't be pressed twice (the components have their own).
 // Pages that handle a form themselves (preventDefault) are left alone. A link marked data-download
 // opens no page, so it shows it's working only until its download starts: the response sets the
 // readable download_started cookie (downloadStartedCookie), which the page watches for.
-const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
+const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.closest(".shell")||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
 setTimeout(()=>{if(b.tagName==="BUTTON")b.disabled=true},0)};
 const idle=b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())};
 const started=/(?:^|; )((?:__Host-)?download_started)=1/;const forget=()=>{const m=document.cookie.match(started);if(m)document.cookie=m[1]+"=; Max-Age=0; Path=/"+(location.protocol==="https:"?"; Secure":"")};
@@ -428,23 +474,6 @@ export function metalButton(label: string, options: { href?: string; id?: string
     ? html`<a class="${classNames}" href="${options.href}"${dataAttributes}>${inner}</a>`
     : html`<button class="${classNames}" type="${options.type ?? "button"}"${options.id ? raw(` id="${options.id}"`) : ""}>${inner}</button>`;
   return html`<span class="hit${options.isFullWidth ? " block" : ""}">${element}</span>`;
-}
-
-function hue(name: string): number {
-  let hueDeg = 7;
-  for (const character of name) hueDeg = (hueDeg * 31 + character.codePointAt(0)!) % 360;
-  return hueDeg;
-}
-
-function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? [Array.from(words[0]!)[0], Array.from(words[1]!)[0]] : Array.from(words[0] ?? "?").slice(0, 2);
-  return letters.join("").toUpperCase();
-}
-
-/** An account's picture: for now its initials on a plate in its own color, until profiles bring uploaded pictures. */
-export function accountPicture(name: string, pictureSize: "xs" | "sm" | "md" = "md", options: { title?: string; mark?: Raw | string } = {}): Raw {
-  return html`<span class="av ${pictureSize}" style="--h:${hue(name)}" title="${options.title ?? name}" aria-hidden="true">${initials(name)}${options.mark ?? ""}</span>`;
 }
 
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
@@ -490,11 +519,28 @@ beat();setInterval(beat,${PRESENCE_CHECK_IN_MS});document.addEventListener("visi
 new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-presence-game"]});
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
-// Right after the link, before the page shows, so a signed-in player never sees Sign in flash: the one script that isn't deferred.
-const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}})();`);
-const accountLink = () => html`<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script src="${pageScriptPath(ACCOUNT_LINK_SCRIPT)}"></script>`;
+// Right after the header, before the page shows, so a signed-in player never sees Sign in flash on a page that doesn't know who's
+// looking (message and legal pages, cached for everyone): the Sign in runner becomes a way to the account.
+const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a.run-wrap");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`);
 
-export type Nav = "dashboard" | "forum" | "home";
+/**
+ * Light or dark: the page carries the player's choice (data-theme-choice on <html>, "system" for guests), and CSS follows it with no script.
+ * This tells page scripts what's showing: zaismaTheme.now() is "light" or "dark", choice() the saved choice, and onChange(fn) hears the
+ * device change. It also sets data-theme on <html> to what's showing. It isn't deferred, so data-theme is there before the first paint.
+ */
+const THEME_SCRIPT = pageScript("theme", `(function () {
+  var root = document.documentElement, query = window.matchMedia("(prefers-color-scheme: dark)"), listeners = [];
+  function choice() { var saved = root.getAttribute("data-theme-choice"); return saved === "light" || saved === "dark" ? saved : "system"; }
+  function now() { return choice() === "system" ? (query.matches ? "dark" : "light") : choice(); }
+  function apply() { var theme = now(); if (root.getAttribute("data-theme") === theme) return; root.setAttribute("data-theme", theme); listeners.forEach(function (listener) { listener(theme); }); }
+  if (query.addEventListener) query.addEventListener("change", apply);
+  window.zaismaTheme = { now: now, choice: choice, onChange: function (listener) { listeners.push(listener); } };
+  apply();
+})();
+`);
+
+/** Where a page is in the header: Home, or the developer tabs, which open out of the end of the tabs on developer pages. */
+export type Nav = "home" | "developer" | "forum";
 
 /** A page's search box in the header: where it sends, what's typed, and fields it keeps. */
 export interface HeaderSearch {
@@ -505,31 +551,69 @@ export interface HeaderSearch {
   keep?: Record<string, string>;
 }
 
-export function layout(env: Env, options: { title: string; body: Raw; head?: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[]; formTargets?: string[] }): Response {
+const ADMIN_TABS: [string, string][] = [
+  ["Admin", "/admin"], ["Reports", "/admin/reports"], ["Feedback", "/admin/feedback"], ["Profiles", "/admin/profiles"], ["Publishing", "/admin/publishing"],
+  ["Chat reviews", "/admin/chat-reviews"], ["Precedents", "/admin/precedents"], ["Audit log", "/admin/audit"],
+];
+
+export interface LayoutOptions {
+  title: string;
+  body: Raw;
+  head?: Raw;
+  /** The page lays itself out (the game page): only the body, with the header and footer it puts in itself. */
+  isBare?: boolean;
+  isAdmin?: boolean;
+  isPrivate?: boolean;
+  nav?: Nav;
+  art?: string | null;
+  hasTurnstileCheck?: boolean;
+  search?: HeaderSearch;
+  /** The page's main action, at the top of a Steel page until its page is rebuilt. */
+  action?: Raw;
+  frames?: string[];
+  formTargets?: string[];
+  /**
+   * Who is looking (viewer.ts): their account's picture in the header and their light or dark. A page that already read the session
+   * passes its account as { account }, so the session is read once. Left out, the header says Sign in until the page sees the signed-in cookie.
+   */
+  viewer?: Pick<Viewer, "account"> | null;
+  /** The body is built in Zaisma's look: no Steel around it. */
+  isRebuilt?: boolean;
+}
+
+export function layout(env: Env, options: LayoutOptions): Response {
+  const colorTheme = options.viewer?.account?.color_theme ?? "system";
+  const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#EEF2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#0D1015" : "#EEF2F7"}">`;
   const page = html`<!doctype html>
-<html lang="en">
+<html lang="en" data-theme-choice="${colorTheme}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${options.title}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="theme-color" content="#111214">
+<link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
+${themeColors}
 ${options.head ?? ""}
-<style>${raw(STYLES)}</style>
+<script src="${pageScriptPath(THEME_SCRIPT)}"></script>
+<style>${raw(SYSTEM_STYLES() + AMBIENT_STYLES + SHELL_STYLES + STEEL_STYLES)}</style>
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
+${backdrop()}
 ${ambient(options.art)}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, options)}
-<main>${options.body}</main>
+<main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 </body>
 </html>`;
-  return new Response(page.html, { headers: securityHeaders(env, options.isAdmin || options.isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets) });
+  const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
+  return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets) });
 }
 
 /**
@@ -540,24 +624,29 @@ export function ambient(art: string | null | undefined): Raw {
   return html`<div class="ambient" id="ambient" aria-hidden="true" data-art="${art ?? ""}"><i${art ? raw(` class="on" data-u="${esc(art)}" style="--art:url('${esc(art)}')"`) : ""}></i><i></i></div>`;
 }
 
-/** The site's header, also used on its own by pages that lay themselves out (the game page). */
-export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; action?: Raw } = {}): Raw {
-  const here = (nav: Nav) => (options.nav === nav ? raw(' aria-current="page"') : "");
-  const search = options.search;
-  return html`<header class="top"><div class="in">
-  <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${options.isAdmin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/feedback">Feedback</a><a href="/admin/profiles">Profiles</a><a href="/admin/publishing">Publishing</a><a href="/admin/chat-reviews">Chat reviews</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : options.nav === "dashboard" || options.nav === "forum" ? html`<a href="/">Home</a><a href="/dashboard"${here("dashboard")}>Your games</a><a href="/forum"${here("forum")}>Forum</a>` : html`<a href="/"${here("home")}>Home</a>`}</nav>
-  ${search ? html`<form class="find" method="get" action="${search.action}" role="search">${Object.entries(search.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="search_text" value="${search.searchText}" maxlength="200" placeholder="${search.placeholder}" aria-label="${search.label}"></form>` : ""}
-  <div class="end">${options.action ?? ""}${env.SUPABASE_URL ? accountLink() : ""}</div>
-</div></header>`;
+/**
+ * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the
+ * developer tabs open on developer pages, the page's search, and the viewer's account menu or Sign in. Admin pages have their own tabs.
+ */
+export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null } = {}): Raw {
+  const account = options.viewer?.account ?? null;
+  const markup = header({
+    current: options.isAdmin ? null : (options.nav ?? null),
+    ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
+    search: options.search ? { ...options.search, name: "search_text" } : undefined,
+    account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md") } : null,
+    isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
+  });
+  // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie.
+  return options.viewer === undefined && env.SUPABASE_URL ? html`${markup}<script src="${pageScriptPath(ACCOUNT_LINK_SCRIPT)}"></script>` : markup;
 }
 
 export function siteFooter(): Raw {
-  return html`<footer><div class="in"><img class="mark" src="/zaisma-mark-metal.svg" alt=""><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/security">Security</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/legal/defamation">Defamation</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
+  return html`${footer()}${rail("page")}`;
 }
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><a class="btn ghost" href="/">Back to games</a>` });
+  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${cutButton("Back to games", { href: "/" })}</div>` });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 

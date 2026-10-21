@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../html.ts";
+import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 
 /*

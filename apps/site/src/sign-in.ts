@@ -348,6 +348,7 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
   const response = layout(env, {
     title: `Sign in to ${app.name} · Zaisma`,
     isPrivate: true,
+    viewer: { account },
     // The Continue button's answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
     body: html`<div class="narrow">

@@ -1,4 +1,4 @@
-import type { Raw } from "../html.ts";
+import type { Raw } from "../markup.ts";
 
 /**
  * Every page is built from one gallery of components (docs/DECISIONS.md): zaisma.com/design shows each

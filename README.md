@@ -1,27 +1,18 @@
 # Zaisma
 
-**Every kind of game. One link away.**
+**Play anything, from a link.**
 
 Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game platform for the browser.
 
-- **Play instantly.** Tap a link and you're in the game: no account, no download, any device.
-- **Publish anything.** Any web game, any engine, any style, including games made with AI tools like Claude Code. Players can install any game for offline play.
-- **Keep your revenue.** No cut of your sales. Use our free checkout, your own Stripe, or any payment method you like, including Bitcoin.
-- **Multiplayer your way.** Use our rooms, free for small games and cheap after that, or run your own servers. Accounts, friends and invite links keep working either way.
-- **Fully open.** Every line of the platform is MIT licensed. Read it, fork it, run your own.
+**For players.** Tap a link and the game starts, in any browser, on any device. There's no account to make and nothing to download: you play as a guest, and your progress stays on that device. Make an account when you want to keep your progress everywhere and play with friends.
+
+**For game developers.** Publish any web game, from any engine, by hand or straight from your AI through Zaisma's MCP server or upload command. Every version is checked for safety before players get it. Your game can use Zaisma's multiplayer rooms with a game server, cloud saves and player accounts, or your own servers: player passes and room links work there too. Zaisma takes no cut of what you sell.
+
+**Open source.** All of Zaisma is under the MIT license. Read it, fork it, run your own.
 
 ## Status
 
-Pre-beta. Open source (MIT): all the code and developer docs are public.
-
-| Phase | What ships |
-| --- | --- |
-| 0. Safe hosting (live) | Scan before publish, sandboxed game domain, directory, reporting |
-| 1. Beta | Guest multiplayer and invite links, accounts and cloud saves, the developer MCP for publishing from any AI tool. **Public beta.** |
-| 2. Earn | The Zaisma buy sheet, purchases that follow players, hosting billing, Zaisma Pro, promoted games |
-| 3. Play together | Friends, Zaisma in Discord |
-| 4. Discover | Quality-ranked front page, real ratings, player lists, follows |
-| 5. Create together | Remixes, teams, mods, the Tools tab |
+Before the beta. Zaisma runs at zaisma.com, but only the people building it use it for now, and anything in it may still change.
 
 ## Design
 
@@ -330,4 +321,4 @@ A game opens its store, Patreon, Steam page or Discord with `await Zaisma.links.
 
 - Every upload is scanned before it goes live: file-type and executable checks, static malware checks, known-illegal-image matching and an AI review. Anything unclear waits for a person.
 - Games run on a separate domain inside a sandboxed frame, with a strict Content Security Policy: no access to zaisma.com, no cookies, no outside scripts, and connections only to Zaisma rooms and the game's own listed servers. They open no pages themselves: only their registered links, through Zaisma's leaving card, each site checked against Cloudflare's malware and phishing list.
-- Every game page has a Report button. Takedowns apply instantly and are logged.
+- Every game page has a Report button. Takedowns apply at once and are logged.

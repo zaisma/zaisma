@@ -25,7 +25,8 @@ import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, pageData, playerModes, raw, scriptTags, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { showcase, tile, viewerOf } from "./home.ts";
+import { showcase, tile } from "./home.ts";
+import { viewerOf } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
@@ -130,6 +131,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
     isBare: true,
+    viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
@@ -141,9 +143,11 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
 .play-check{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50}
 /* Just back from a match: the room list waits a moment for a copy without the player in it. */
 .just-left #rooms-list,.just-left #playing-now{visibility:hidden}
-body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#000}
+body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;padding:0;background:#000}
 body:not(.playing) #full{display:none}
-body.playing>header.top,body.playing>main.gp,body.playing>footer,body.playing>.ambient{display:none}
+/* Playing, the game is the whole screen: Zaisma's header, backdrop, footer and the page's details step aside, and the bar sits beside the game. */
+body.playing>header.top,body.playing>.dropdown,body.playing>.backdrop,body.playing>.ambient,body.playing>.foot,body.playing>.rail,body.playing main.gp{display:none}
+body.playing>.game-steel{display:contents}
 body:not(.playing) .bar{display:none}
 main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .gp-top{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:28px;align-items:start}
@@ -407,7 +411,8 @@ dialog nav{display:grid;gap:8px;padding:0 16px 16px}
 @media (prefers-reduced-motion:reduce){.keep,.keep-toast{animation:none}}
 @media (orientation:landscape) and (max-height:500px){.keep,.keep-toast{top:10px}}
 </style>
-${siteHeader(env)}
+${siteHeader(env, { viewer })}
+<div class="steel game-steel">
 <div class="bar">
   <a class="home" href="/" title="All games"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
@@ -462,7 +467,6 @@ ${updates.results.length
       : ""}
 ${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 class="rule-h" id="more-title">More games</h2><div class="grid">${more.map((otherGame) => tile(otherGame))}</div></section>` : ""}
 </main>
-${siteFooter()}
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
@@ -515,6 +519,8 @@ ${canSignIn
 ${leavingCard(game.title)}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
+</div>
+${siteFooter()}
 ${pageData("game-page-data", {
       slug: game.slug,
       tester_token: tester?.token ?? null,
