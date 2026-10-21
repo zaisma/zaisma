@@ -1,6 +1,6 @@
 {
   "name": "@zaisma/cli",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Upload and publish browser games on Zaisma from the command line.",
   "license": "MIT",
   "homepage": "https://zaisma.com",
