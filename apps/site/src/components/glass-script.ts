@@ -8,6 +8,8 @@
  *   A callback watching several elements runs once for the ones that changed together. batch(work), when given, wraps every callback of
  *   the same batch that is due together, so they can read the page once before any of them writes.
  * - resize(callback, batch) and scroll(callback): callback() on the window's resize, and on any scroll anywhere (captured, passive).
+ * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
+ *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
 export const WATCH_SCRIPT = `/* watch */(function () {
@@ -45,7 +47,21 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       entries.push({ callback: callback, batch: batch });
     },
     resize: function (callback, batch) { watchWindow("resize", resizeCallbacks, callback, batch); },
-    scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); }
+    scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
+    each: function (selector, callback) {
+      var wired = new WeakSet();
+      function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
+      document.querySelectorAll(selector).forEach(wire);
+      pageCallbacks.push(function (changes) {
+        changes.forEach(function (change) {
+          change.addedNodes.forEach(function (node) {
+            if (node.nodeType !== 1 || !node.isConnected) return;
+            if (node.matches(selector)) wire(node);
+            node.querySelectorAll(selector).forEach(wire);
+          });
+        });
+      });
+    }
   };
   new MutationObserver(function (changes) { pageCallbacks.slice().forEach(function (callback) { callback(changes); }); })
     .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "open", "hidden"] });

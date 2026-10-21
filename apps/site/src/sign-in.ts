@@ -15,7 +15,9 @@ import {
 } from "@zaisma/core";
 import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { html, layout, message, scriptTags } from "./html.ts";
+import { glassMessage, html, layout, scriptTags } from "./html.ts";
+import { glassPane } from "./components/foundations.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { authorizeMcp, handleMcpSignIn, isMcpClientId, tokenMcp } from "./mcp-sign-in.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -153,7 +155,7 @@ export async function handleSignIn(request: Request, env: Env, path: string): Pr
   }
   const keyLoading = signInKey(env);
   if (!keyLoading) {
-    if (path === "/oauth/authorize") return message(env, "Sign in with Zaisma isn't on yet", "This site asked you to sign in with Zaisma, which isn't switched on yet. Try again later.", 404);
+    if (path === "/oauth/authorize") return glassMessage(env, "Sign in with Zaisma isn't on yet", "This site asked you to sign in with Zaisma, which isn't switched on yet. Try again later.", 404);
     return Response.json({ error: "temporarily_unavailable", error_description: "Sign in with Zaisma isn't switched on yet." }, { status: 404, headers: OPEN });
   }
   const key = await keyLoading;
@@ -289,7 +291,7 @@ async function authorize(request: Request, env: Env): Promise<Response> {
   const form = isPost ? await request.formData() : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));
-  if ("brokenLinkReason" in checked) return message(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Tell whoever runs the site you came from.`, 400);
+  if ("brokenLinkReason" in checked) return glassMessage(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Tell whoever runs the site you came from.`, 400);
   if ("error" in checked) return redirect(backUrl(env, checked.redirectUrl, checked.state, { error: checked.error, error_description: checked.description }));
 
   const session = await currentSession(request, env);
@@ -349,37 +351,41 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
     title: `Sign in to ${app.name} · Zaisma`,
     isPrivate: true,
     viewer: { account },
+    isRebuilt: true,
     // The Continue button's answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
-    body: html`<div class="narrow">
-<h1>Sign in to ${app.name}</h1>
-<p class="lead">with your Zaisma account, ${account.username}.</p>
+    body: glassPane({
+      paneSize: "medium",
+      label: `Sign in to ${app.name}`,
+      body: html`<h1>Sign in to ${app.name}</h1>
+<p>with your Zaisma account, ${account.username}.</p>
 <p>${app.name} gets your player ID${sharesName ? " and your username" : ""}, the same as games on Zaisma see. Never your email, your age or anything else on your account.</p>
-<p class="muted">${app.name} is run by ${developer ? `${developer.name}, a developer on Zaisma` : "a developer on Zaisma"}, not by Zaisma. After this you go back to <strong>${backTo.host}</strong>.</p>
-<form class="row" method="post" action="/oauth/authorize">
+<p>${app.name} is run by ${developer ? `${developer.name}, a developer on Zaisma` : "a developer on Zaisma"}, not by Zaisma. After this you go back to <strong>${backTo.host}</strong>.</p>
+<form method="post" action="/oauth/authorize">
 ${AUTHORIZE_FIELDS.filter((name) => checked.parameters[name]).map((name) => html`<input type="hidden" name="${name}" value="${checked.parameters[name]!}">`)}
-<button class="btn" type="submit" name="decision" value="allow" autofocus>Continue</button>
-<button class="btn ghost" type="submit" name="decision" value="cancel">Cancel</button>
+<div class="control-row">${runButton("Continue", { name: "decision", buttonValue: "allow", isAutofocused: true })}${cutButton("Cancel", { name: "decision", buttonValue: "cancel" })}</div>
 </form>
-<p class="muted small">You can remove ${app.name} any time from <a href="/account#sign-ins">your account</a>.</p>
-</div>`,
+<p>You can remove ${app.name} any time from ${textLink("your account", "/account#sign-ins")}.</p>`,
+    }),
   });
   return response;
 }
 
-const BACK_TO_APP_SCRIPT = pageScript("back-to-app", `location.replace(document.getElementById("back").href);`);
+const BACK_TO_APP_SCRIPT = pageScript("back-to-app", `location.replace(document.querySelector("#back a").href);`);
 
 /** Signed in on our own pages: move on to the app from a page, since a redirect would be held to the sign-in form. */
 function continuePage(env: Env, app: SignInApp, back: string): Response {
   const response = layout(env, {
     title: `Back to ${app.name} · Zaisma`,
     isPrivate: true,
-    body: html`<div class="narrow">
-<h1>Back to ${app.name}</h1>
-<p class="lead">You're signed in. Taking you back now.</p>
-<a class="btn" id="back" href="${back}">Back to ${app.name}</a>
-${scriptTags(BACK_TO_APP_SCRIPT)}
-</div>`,
+    isRebuilt: true,
+    body: glassPane({
+      paneSize: "medium",
+      body: html`<h1>Back to ${app.name}</h1>
+<p>You're signed in. Taking you back now.</p>
+<div id="back">${runButton(`Back to ${app.name}`, { href: back, isFullWidth: true })}</div>
+${scriptTags(BACK_TO_APP_SCRIPT)}`,
+    }),
   });
   return response;
 }
