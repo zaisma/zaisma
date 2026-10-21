@@ -341,7 +341,8 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
   transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
 .home-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
-.home-pane > .glass-pane > .pane-in { gap: 0; opacity: 0; transition: opacity 0.25s; }
+/* The pane never scrolls: compact it's the cover and Play, and open its details are clamped to fit, so it gets no scrollbar. */
+.home-pane > .glass-pane > .pane-in { gap: 0; overflow: hidden; opacity: 0; transition: opacity 0.25s; }
 .is-home-ready .home-pane .pane-in { opacity: 1; }
 /* The game's cover is its face here: its title and studio are on it, as the studio drew them, over a background that stays a background.
    The title is still the page's heading, for screen readers; a game without a cover shows it in words instead. */
