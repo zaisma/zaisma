@@ -721,7 +721,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
   var VERTEX = "attribute vec2 corner; void main() { gl_Position = vec4(corner, 0.0, 1.0); }";
-  var still = window.matchMedia("(prefers-reduced-motion: reduce)"), phone = window.matchMedia("(hover: none), (pointer: coarse)");
+  var still = window.matchMedia("(prefers-reduced-motion: reduce)");
   var layers = [], lastMs = 0, running = false;
   function rgb(value) {
     var digits = value.trim().replace("#", "");
@@ -775,27 +775,6 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.glass = { rects: rects, cuts: cuts, count: found.length, scale: scale, box: box };
     layer.isDrawn = false;
   }
-  /*
-   * Light that follows the pointer: the control (or else the pane) under it, or the one keyboard focus is on, lit from behind. Its
-   * rectangle and strength ease towards where they're going each frame, so it never jumps. Off on phones and under reduced motion.
-   */
-  var light = { el: null, focused: null, pointer: null, now: null, share: 0 };
-  function litTarget(el) { return el && el.closest ? el.closest("[data-cut-line], [data-glass]") : null; }
-  document.addEventListener("pointermove", function (event) { if (event.pointerType === "mouse") { light.pointer = [event.clientX, event.clientY]; light.el = litTarget(event.target); } }, { passive: true });
-  document.documentElement.addEventListener("pointerleave", function () { light.el = null; });
-  document.addEventListener("focusin", function (event) { light.focused = event.target.matches && event.target.matches(":focus-visible") ? litTarget(event.target) : null; });
-  document.addEventListener("focusout", function () { light.focused = null; });
-  function easeLight(gapS) {
-    var el = light.focused || light.el, isOn = Boolean(el) && !still.matches && !phone.matches, t = 1 - Math.exp(-gapS * 9);
-    if (isOn) {
-      var r = el.getBoundingClientRect(), goal = [r.left, r.top, r.right, r.bottom], point = light.focused ? [(r.left + r.right) / 2, (r.top + r.bottom) / 2] : light.pointer || goal;
-      light.host = hostOf(el);
-      if (!light.now) light.now = goal.concat(point);
-      goal.concat(point).forEach(function (value, i) { light.now[i] += (value - light.now[i]) * t; });
-    }
-    light.share += ((isOn ? 1 : 0) - light.share) * t;
-    if (light.share < 0.002 && !isOn) { light.share = 0; light.now = null; }
-  }
   function shaderDrawer(canvas) {
     var gl = canvas.getContext("webgl", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
     if (!gl) return null;
@@ -806,7 +785,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
     var precision = "#ifdef GL_FRAGMENT_PRECISION_HIGH\\nprecision highp float;\\n#else\\nprecision mediump float;\\n#endif\\n";
     var head = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA);
-    // Every shader gets the glass and light pass round its mainImage; a device that can't build it gets the shader alone.
+    // Every shader gets the glass pass round its mainImage; a device that can't build it gets the shader alone.
     function build(withPass) {
       var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, head + (withPass ? GLASS_LIGHT : "\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy); gl_FragColor = vec4(color.rgb, 1.0); }"));
       if (!vertex || !fragment) return null;
@@ -820,19 +799,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
-    var at = {}; ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaLight", "zaismaLightShare", "zaismaPointer", "zaismaPixel"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
+    var at = {}; ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaPixel"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
     return function (timeS, colors, layer) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform3f(at.iResolution, canvas.width, canvas.height, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
       if (!hasPass) { gl.drawArrays(gl.TRIANGLES, 0, 3); return; }
       var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
       gl.uniform4fv(at.zaismaPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
-      var lit = light.now && light.host === canvas.parentElement ? light.now : null, box = glass.box, k = glass.scale;
-      gl.uniform1f(at.zaismaLightShare, lit ? light.share : 0);
-      if (lit) {
-        gl.uniform4f(at.zaismaLight, (lit[0] - box.left) * k, (box.bottom - lit[3]) * k, (lit[2] - box.left) * k, (box.bottom - lit[1]) * k);
-        gl.uniform2f(at.zaismaPointer, (lit[4] - box.left) * k, (box.bottom - lit[5]) * k);
-      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
@@ -860,12 +833,11 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var gapMs = nowMs - lastMs; lastMs = nowMs;
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
-    var wasLit = light.share > 0; easeLight(Math.min(0.1, gapMs / 1000)); var isLit = light.share > 0 || wasLit;
     layers.forEach(function (layer) {
       if (!layer.isInView) return;
       if (layer.drawShader && (isMoved || !layer.glass)) placeGlass(layer);
-      // Still (reduced motion, or held on a slow device), it's drawn again only when the glass over it moves or the light changes.
-      if ((layer.isHeld || still.matches) && layer.isDrawn && !isLit) return;
+      // Still (reduced motion, or held on a slow device), it's drawn again only when the glass over it moves.
+      if ((layer.isHeld || still.matches) && layer.isDrawn) return;
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
         layer.slowS = gapMs > 50 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
@@ -1090,7 +1062,6 @@ component({
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
     { label: "Over a busy shader, the words keep their contrast", isWide: true, markup: lightFrame({ shader: NEON_DRIFT_SHADER, isSmoked: true, cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
-    { label: "Point at it: the glass is lit from behind (Tab works too)", isWide: true, markup: lightFrame({ cards: [["One", "Point here."], ["Two", "Or here."], ["Three", "The light eases over."]] }) },
     {
       label: "Thin to thick",
       isWide: true,
@@ -1149,7 +1120,7 @@ component({
   name: "Shader background",
   slug: "shader-background",
   group: "foundations",
-  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and adds the glass's light to any shader: what's behind each pane bent as through thick glass, light along its cut edge, and a soft light behind what you point at.",
+  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and bends the light under the glass for any shader: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
 .shader-code { margin: 0; width: 100%; padding: var(--pad-inner-pane); overflow-x: auto; white-space: pre; font: var(--type-code); color: var(--ink-2);

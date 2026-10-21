@@ -207,19 +207,15 @@ void mainImage(out vec4 o, in vec2 f) {
 export const MOST_GLASS_PANE_COUNT = 16;
 
 /**
- * The runner's pass round any shader's mainImage (BACKDROP_SCRIPT): glass that bends the backdrop's light, and light that follows
- * the pointer. Under each piece of glass it draws what's behind a little magnified and bent inward along the cut edge, as through thick
- * glass, with bright caustics along the edge, brightest on the lit facets (the top left, as the rim is lit); fainter under smoked glass.
- * Around the pane or control under the pointer (or keyboard focus) it adds a soft light, so the glass looks lit from behind.
- * Everything is in the canvas's own pixels, from its bottom left.
+ * The runner's pass round any shader's mainImage (BACKDROP_SCRIPT): glass that bends the backdrop's light. Under each piece of glass
+ * it draws what's behind a little magnified and bent inward along the cut edge, as through thick glass, with bright caustics along the
+ * edge, brightest on the lit facets (the top left, as the rim is lit); fainter under smoked glass. Everything is in the canvas's own
+ * pixels, from its bottom left.
  */
 export const GLASS_LIGHT_PASS = `
 uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];     // each pane: left, bottom, right, top
 uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // its cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
 uniform float zaismaPaneCount;
-uniform vec4 zaismaLight;       // the lit pane or control: left, bottom, right, top
-uniform float zaismaLightShare; // 0 to 1, eased in and out
-uniform vec2 zaismaPointer;
 uniform float zaismaPixel;      // canvas pixels per CSS pixel
 // Signed distance to a pane's cut shape (negative inside), and the outward normal of its nearest side.
 float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
@@ -254,15 +250,5 @@ void main() {
   }
   vec4 color; mainImage(color, at);
   vec3 col = color.rgb + vec3(1.0, 0.97, 0.92) * (caustic + halo);
-  if (zaismaLightShare > 0.001) {
-    vec2 h = (zaismaLight.zw - zaismaLight.xy) * 0.5, q = f - (zaismaLight.xy + zaismaLight.zw) * 0.5, a = abs(q) - h;
-    float d = length(max(a, 0.0)) + min(max(a.x, a.y), 0.0);
-    float glow = exp(-max(d, 0.0) / (60.0 * zaismaPixel)) * (d < 0.0 ? 0.8 : 1.0);
-    float spot = exp(-length(f - zaismaPointer) / (180.0 * zaismaPixel));
-    // On a light backdrop there's no room to brighten, so the light warms it; on a dark one it brightens it.
-    float amount = (glow * 0.6 + spot * 0.4) * zaismaLightShare;
-    vec3 warm = vec3(1.0, 0.86, 0.66);
-    col = mix(mix(col, warm, amount * 0.3), col + warm * amount * 0.2, iDark);
-  }
   gl_FragColor = vec4(col, 1.0);
 }`;
