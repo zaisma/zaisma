@@ -235,7 +235,7 @@ const FOOTER_LINKS: [string, string][] = [
 ];
 
 export function footer(): Raw {
-  return html`<footer class="foot">
+  return html`<footer class="foot glass" data-glass data-glass-corners="20 14 20 14">${EDGE}
   ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
@@ -584,7 +584,15 @@ component({
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
-.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
+/* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. */
+.foot {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-inner-pane);
+  color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
+  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
+  transition: var(--glass-transition);
+}
+.foot > :not(.edge) { position: relative; z-index: 3; }
 /* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
 .foot p { margin: 0 0 0 auto; }

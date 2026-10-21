@@ -6,7 +6,7 @@ import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { footer, rowArrows } from "./components/navigation.ts";
+import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
@@ -169,7 +169,7 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
     : game.square
       ? `<picture><source media="(max-width:640px)" srcset="${esc(game.square)}"><img src="${esc(game.cover)}" alt="" loading="lazy"></picture>`
       : `<span class="fill" style="--fill:url(${esc(game.cover)})"></span><img src="${esc(game.cover)}" alt="" loading="lazy">`;
-  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
+  return `<div class="hit block"><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
 }
 
 /** Shown in place of a cover for a game that has none: the home's rows are covers, so a game without one gets Zaisma's mark on glass. */
@@ -228,8 +228,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
 ${popular.length ? row("popular", "Popular", "popular", popular) : ""}
 ${trending.length ? row("trending", "Trending", "trending", trending) : ""}
 ${fresh.length ? row("new", "New", "new", fresh) : ""}
-<div class="home-all">${textButton("All games", { href: "/games" })}</div>
-${footer()}`,
+<div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
       })}</div>
 </div>
 <noscript><style>.home-pane .pane-in { opacity: 1 !important; }</style></noscript>`
@@ -241,8 +240,6 @@ ${footer()}`,
     nav: "home",
     viewer,
     isRebuilt: true,
-    // The footer ends the shelf's glass: bare words over a game's background would be lost in it.
-    isFooterInBody: Boolean(first),
     // Play opens the game's page in a frame of the home.
     frames: ["'self'"],
     head: styleTags(HOME_STYLE),
@@ -318,8 +315,6 @@ export function playable(game: Game): boolean {
  * screen with its background behind the glass; the pane holds its words and Play, the shelf below holds the rows.
  */
 const HOME_STYLE = pageStyle("home", () => `
-/* The Steel-era ambient (a blurred wash fading into the page colour over the top 620px) would veil the game's background. */
-.ambient { display: none; }
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(300px, calc(100svh - var(--header-room) - 200px)); }

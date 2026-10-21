@@ -140,7 +140,6 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
-    art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
 /* Cloudflare's check is invisible; if it ever needs a tap, it sits at the bottom, above the game. */
@@ -150,7 +149,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;padding:0;background:#000}
 body:not(.playing) #full{display:none}
 /* Playing, the game is the whole screen: Zaisma's header, backdrop, footer and the page's details step aside, and the bar sits beside the game. */
-body.playing>header.top,body.playing>.dropdown,body.playing>.backdrop,body.playing>.ambient,body.playing>.foot,body.playing>.rail,body.playing main.gp{display:none}
+body.playing>header.top,body.playing>.dropdown,body.playing>.backdrop,body.playing>.foot,body.playing>.rail,body.playing main.gp{display:none}
 body.playing>.game-steel{display:contents}
 body:not(.playing) .bar{display:none}
 main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}

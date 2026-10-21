@@ -401,21 +401,7 @@ let systemStyles = "";
 const SYSTEM_STYLES = (): string => (systemStyles ||= mapSelectors(COMPONENT_STYLES(), outsideSteel));
 
 /**
- * A game's art, blurred behind the top of the page under the glass, and fading into the page below. Pointing at a game card
- * fades it to that game's art. Two layers, so a new game fades in over the last.
- */
-const AMBIENT_STYLES = `
-.ambient { position: absolute; inset: 0 0 auto; height: 620px; overflow: hidden; z-index: 0; pointer-events: none; --ambient-opacity: 0.55; }
-.ambient i { position: absolute; inset: -60px; background: var(--art, none) center / cover no-repeat; filter: blur(48px) saturate(1.3); opacity: 0; transition: opacity 650ms ease; }
-.ambient i.on { opacity: var(--ambient-opacity); }
-.ambient::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, var(--page)); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .ambient { --ambient-opacity: 0.32; } }
-[data-theme-choice="dark"] .ambient { --ambient-opacity: 0.32; }
-@media (prefers-reduced-motion: reduce) { .ambient i { transition: none; } }
-`;
-
-/**
- * The shell every page shares: Zaisma's backdrop and the ambient behind, the floating glass header, the page, the footer.
+ * The shell every page shares: Zaisma's backdrop behind, the floating glass header, the page, the footer.
  * A page body not yet rebuilt is a band of Steel under the header (main.steel), the width of the window.
  */
 const SHELL_STYLES = `
@@ -432,11 +418,10 @@ main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
 @media (max-width: 640px) { main.steel { padding: 20px 16px 56px; } }
 /* A page's main action, until its page is rebuilt with one of its own (the forum's New topic). */
 main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 0 18px; }
-body > .foot { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); }
 `;
 
-/** Every page's styles in one cached file: the components' look, the ambient, the shell and Steel. */
-export const SITE_STYLE = pageStyle("site", () => SYSTEM_STYLES() + AMBIENT_STYLES + SHELL_STYLES + STEEL_STYLES);
+/** Every page's styles in one cached file: the components' look, the shell and Steel. */
+export const SITE_STYLE = pageStyle("site", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
 
 // Every page's own script: the metal hover, the page's colors following the game pointed at, and
 // buttons that show they're working.
@@ -451,13 +436,6 @@ el.style.setProperty("--gx",(r.width/2+sweep*r.width*.75).toFixed(1)+"px");el.st
 addEventListener("pointermove",e=>{const h=e.target.closest?e.target.closest(".hit"):null;if(h!==cur){if(cur)off(cur);cur=h}if(!cur)return;x=e.clientX;y=e.clientY;if(!raf)raf=requestAnimationFrame(paint)},{passive:true});
 document.documentElement.addEventListener("pointerleave",()=>{if(cur)off(cur);cur=null})})();`;
 
-// The page's colors follow the game being pointed at. Images load before they fade in.
-const AMBIENT_SCRIPT = `(()=>{const a=document.getElementById("ambient");if(!a)return;const L=[...a.children];let home=a.dataset.art||"",shown=(L.find(l=>l.classList.contains("on"))||{dataset:{}}).dataset.u||"",t=0,want="";
-const show=u=>{want=u;if(u===shown)return;if(!u){shown="";L.forEach(l=>l.classList.remove("on"));return}const img=new Image();img.onload=()=>{if(want!==u)return;shown=u;const off=L.find(l=>!l.classList.contains("on"))||L[0];off.dataset.u=u;off.style.setProperty("--art","url('"+u+"')");requestAnimationFrame(()=>L.forEach(l=>l.classList.toggle("on",l===off)))};img.src=u};
-window.zaismaArt=u=>{home=u||"";show(home)};if(home!==shown)show(home);
-const pick=e=>{const h=e.target.closest&&e.target.closest("[data-art]");clearTimeout(t);t=setTimeout(()=>show(h?h.dataset.art:home),h?80:500)};
-addEventListener("pointerover",pick,{passive:true});addEventListener("focusin",pick)})();`;
-
 // A Steel button that sends a form or opens a page shows it's working and can't be pressed twice (the components have their own).
 // Pages that handle a form themselves (preventDefault) are left alone. A link marked data-download
 // opens no page, so it shows it's working only until its download starts: the response sets the
@@ -471,7 +449,7 @@ addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog"
 addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
-const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + AMBIENT_SCRIPT + BUSY_SCRIPT);
+const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT);
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -575,7 +553,6 @@ export interface LayoutOptions {
   isAdmin?: boolean;
   isPrivate?: boolean;
   nav?: Nav;
-  art?: string | null;
   hasTurnstileCheck?: boolean;
   search?: HeaderSearch;
   /** The page's main action, at the top of a Steel page until its page is rebuilt. */
@@ -591,8 +568,6 @@ export interface LayoutOptions {
   viewer?: Pick<Viewer, "account"> | null;
   /** The body is built in Zaisma's look: no Steel around it. */
   isRebuilt?: boolean;
-  /** The body puts the footer in itself (the home ends its shelf's glass with it), so the layout adds only the page's scrollbar. */
-  isFooterInBody?: boolean;
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
@@ -617,25 +592,16 @@ ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
 ${backdrop()}
-${ambient(options.art)}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, options)}
 <main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
-${options.isFooterInBody ? rail("page") : siteFooter()}`}
+${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
   return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
-}
-
-/**
- * A game's art, blurred behind the top of the page. Pointing at a game card fades the page to that
- * game's art (cards carry data-art), and back to the page's own when the pointer moves on.
- */
-export function ambient(art: string | null | undefined): Raw {
-  return html`<div class="ambient" id="ambient" aria-hidden="true" data-art="${art ?? ""}"><i${art ? raw(` class="on" data-u="${esc(art)}" style="--art:url('${esc(art)}')"`) : ""}></i><i></i></div>`;
 }
 
 /**
