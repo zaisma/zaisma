@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -199,6 +199,12 @@ const details = {
       'The game\'s registered links: the sites it opens with Zaisma.links.open(link_name), like its store, Patreon, Steam page or Discord, behind Zaisma\'s "You\'re leaving Zaisma" card over the game; the game can open no other sites. The whole list each time, up to 20; [] for none. The game can add a path and query under a link\'s address: Zaisma.links.open("store", { path: "/buy", queryParameters: { item: "sword" } }). Signed-in adults open any link; guests and under-18 accounts only links on trusted store, payment and video sites (itch.io, Steam, Patreon, Ko-fi, Gumroad, PayPal, Stripe payment links, hosted Bitcoin pages, YouTube and others), never chat apps or social networks like Discord or Instagram: get_game\'s who_can_open says which, and anyone a link doesn\'t open for sees "This link can\'t be opened here." (the game hears "stayed"). No link shorteners, IP addresses or user names in addresses. Every site is checked against Cloudflare\'s malware and phishing list when added and every day; a listed one opens for nobody, with a review_reason. Live at once, with no approval.',
     examples: [[{ link_name: "store", destination_url: "https://kit.itch.io/sky-hopper", is_on_game_page: true }], [{ link_name: "patreon", destination_url: "https://www.patreon.com/kit", is_on_game_page: true }, { link_name: "discord", destination_url: "https://discord.gg/skyhopper", is_on_game_page: false }]],
   },
+  glass_tint_color: {
+    type: ["string", "null"],
+    pattern: "^#[0-9a-fA-F]{6}$",
+    description: "A color Zaisma tints its glass with over the game's background (set_background), as # and six hex digits; Zaisma still decides how thick the glass is, so words stay readable. null: no tint.",
+    examples: ["#6b3fa0", null],
+  },
 };
 const DETAILS = Object.keys(details);
 const read = { readOnlyHint: true, openWorldHint: false } as const;
@@ -232,7 +238,7 @@ export const TOOLS: Tool[] = [
     title: "Get a game",
     description: "One game: its details (and review_reason when Zaisma holds it or took it down; its registered links, each with who_can_open), its alerts (what needs your attention, as in list_games), covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links.",
     inputSchema: object({ slug }, ["slug"]),
-    outputSchema: answer({ game: GAME, alerts: GAME_ALERTS, playing_now_player_count: countOf("People playing now: browsers that pressed Play and still have the game on screen, plus players in your Zaisma rooms. Counted from the last 6 minutes."), images: list(IMAGE), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
+    outputSchema: answer({ game: GAME, alerts: GAME_ALERTS, playing_now_player_count: countOf("People playing now: browsers that pressed Play and still have the game on screen, plus players in your Zaisma rooms. Counted from the last 6 minutes."), images: list(IMAGE), backgrounds: list(BACKGROUND, "Wide, then phone."), shaders: list(SHADER, "Newest first."), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}`),
   },
@@ -255,7 +261,8 @@ export const TOOLS: Tool[] = [
       'Not: { "own_server_urls": ["wss://play.example.com/rooms"] } (nothing after the name: ["wss://play.example.com"])\n' +
       'Not: { "links": { "store": "https://kit.itch.io/sky-hopper" } } (a list: [{ "link_name": "store", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }])\n' +
       'Not: { "links": [{ "link_name": "patreon", "destination_url": "patreon.com/kit", "is_on_game_page": true }] } (the whole address: "https://www.patreon.com/kit")\n' +
-      'Not: { "links": [{ "link_name": "Store Page", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }] } (lowercase letters, digits and underscores: "store_page")',
+      'Not: { "links": [{ "link_name": "Store Page", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }] } (lowercase letters, digits and underscores: "store_page")\n' +
+      'Not: { "glass_tint_color": "purple" } (# and six hex digits: "#6b3fa0")',
     inputSchema: {
       ...object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
       examples: [
@@ -270,6 +277,7 @@ export const TOOLS: Tool[] = [
         { slug: "sky-hopper", game_server_allowed_hosts: ["discord.com", "api.github.com"] },
         { slug: "sky-hopper", own_server_urls: ["wss://play.skyhopper.io"] },
         { slug: "sky-hopper", links: [{ link_name: "store", destination_url: "https://kit.itch.io/sky-hopper", is_on_game_page: true }, { link_name: "patreon", destination_url: "https://www.patreon.com/kit", is_on_game_page: true }] },
+        { slug: "sky-hopper", glass_tint_color: "#6b3fa0" },
       ],
     },
     outputSchema: answer({
@@ -430,9 +438,9 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "add_image",
-    title: "Add a cover or screenshot",
-    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8), or a share picture (optional: what shared game and room links show instead of the cover in chats, social sites and search; landscape, 1200 by 630 shows best). A new cover or share picture replaces the old one of its kind once approved. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. An AI check approves images in about a minute (get_game shows the result). Zaisma's lists only show games whose covers keep five lines: no text but the game's name, a subtitle and the studio's logo; nothing laid over the picture (buttons, menus, shop panels, badges, stickers, arrows); no fake rewards like free Robux (that holds the game); no famous characters, logos or names you don't own (Mario, Naruto, a club's crest); and the cover's main subject appears in a screenshot. Screenshots are real captures: the game's own interface is fine, but nothing added afterwards (captions, arrows, stickers). Style is free, but the best covers show one subject from the game, the name big enough to read on a phone, in the game's own art and colors on a simple background: zaisma.com/developers/covers has examples. No lifelike gore on covers, share pictures or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
-    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot", "share"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
+    title: "Add a cover, screenshot or background",
+    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8), or a share picture (optional: what shared game and room links show instead of the cover in chats, social sites and search; landscape, 1200 by 630 shows best), or a background picture: the game's world behind Zaisma's glass on the home and the game page, with no title, logo or words on it (those go on the cover). A background (kind background) is landscape, 1.3 to 2.4 times as wide as tall, at least 1600 px wide, like 2560 by 1440, with room for the glass on the left; a phone background (kind phone_background) is portrait, 1.6 to 2.4 times as tall as wide, at least 1600 px tall, with room for the glass on the bottom half. Once one passes, set_background shows it. A new cover, share picture or background replaces the old one of its kind once approved, and a background showing on a screen is replaced there too. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. An AI check approves images in about a minute (get_game shows the result). Zaisma's lists only show games whose covers keep five lines: no text but the game's name, a subtitle and the studio's logo; nothing laid over the picture (buttons, menus, shop panels, badges, stickers, arrows); no fake rewards like free Robux (that holds the game); no famous characters, logos or names you don't own (Mario, Naruto, a club's crest); and the cover's main subject appears in a screenshot. Screenshots are real captures: the game's own interface is fine, but nothing added afterwards (captions, arrows, stickers). Style is free, but the best covers show one subject from the game, the name big enough to read on a phone, in the game's own art and colors on a simple background: zaisma.com/developers/covers has examples. No lifelike gore on covers, share pictures or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
+    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot", "share", "background", "phone_background"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
     outputSchema: answer({ image: IMAGE, review_message: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/images?kind=${pathPart(toolArguments.kind)}`, decode(String(toolArguments.image_base64 ?? ""), "base64", "image_base64")),
@@ -445,6 +453,75 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ removed_image_id: idOf("image"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/images/${pathPart(toolArguments.image_id)}`),
+  },
+  {
+    name: "add_shader",
+    title: "Add a background shader",
+    description:
+      "Send a shader for the game's background: a small program that paints the background live behind Zaisma's glass, on the home and the game page, and loads almost at once. It's Shadertoy's form: one function, void mainImage(out vec4 fragColor, in vec2 fragCoord), that gives each pixel its color, reading iResolution (the screen's size in pixels, a vec3) and iTime (seconds, a float) only: no textures, mouse, audio or #extension lines, and no #version line or main() (Zaisma adds them). Write any helper functions you need above mainImage. Up to 16 KB. screen wide is for desktops and tablets; phone is composed for a tall screen (without one, phones show the wide background). Like any picture, no title, logo or words in it.\n\n" +
+      "Before anyone sees it, Zaisma draws it on a software renderer: it must compile, take at most a set time a frame (get_game's check_frame_ms against the limit in the error), and not flash more than 3 times a second. Its still and sampled frames go through the same safety checks as pictures. Players' browsers draw it at about half resolution and at most 30 frames a second, with less detail, then a still frame, on devices that can't keep up, and the still alone under reduced motion. Once it passes (get_game, about a minute), show the developer its still_url and frame_urls (or the live preview in the dashboard's Background section), then set_background shows it.\n\n" +
+      "Not: a full program with void main() and gl_FragColor (send mainImage only)\n" +
+      "Not: a video or GIF (a shader, or a picture with add_image kind background)\n" +
+      "Not: texture2D(iChannel0, uv) (no textures: draw everything in the shader)",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          screen: { enum: ["wide", "phone"], description: "wide: desktops and tablets. phone: composed for a tall screen." },
+          source: { type: "string", minLength: 1, maxLength: 16384, description: "The GLSL text: helper functions, then void mainImage(out vec4 fragColor, in vec2 fragCoord)." },
+        },
+        ["slug", "screen", "source"],
+      ),
+      examples: [
+        {
+          slug: "sky-hopper",
+          screen: "wide",
+          source:
+            "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  float horizon = uv.y + 0.05 * sin(iTime * 0.3 + uv.x * 4.0);\n  vec3 color = mix(vec3(0.98, 0.55, 0.3), vec3(0.1, 0.12, 0.35), smoothstep(0.0, 1.0, horizon));\n  fragColor = vec4(color, 1.0);\n}",
+        },
+      ],
+    },
+    outputSchema: answer({ shader: SHADER, review_message: text(), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/shaders?screen=${pathPart(toolArguments.screen)}`, decode(String(toolArguments.source ?? ""), "text", "source")),
+  },
+  {
+    name: "remove_shader",
+    title: "Remove a background shader",
+    description: "Remove a shader by its id from get_game. A screen showing it goes back to its default: Zaisma's own background on wide, and the wide background on phones.",
+    inputSchema: object({ slug, shader_id: idInput("shader", "A shader's id from get_game") }, ["slug", "shader_id"]),
+    outputSchema: answer({ removed_shader_id: idOf("shader"), backgrounds: list(BACKGROUND, "Wide, then phone."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/shaders/${pathPart(toolArguments.shader_id)}`),
+  },
+  {
+    name: "set_background",
+    title: "Choose a background",
+    description:
+      "Choose what a screen shows behind Zaisma's glass on the home and the game page: one of the game's approved background pictures (source image, with image_id: kind background for wide, phone_background for phone), one of its approved shaders for that screen (source shader, with shader_id), or Zaisma's own (source zaisma). On phone, source wide shows the wide background, which phones do until it's set. Shows at once. get_game lists the candidates with their review_status. To tint the glass over it, update_game's glass_tint_color.\n\n" +
+      'Not: { "screen": "wide", "source": "wide" } (only phone follows wide)\n' +
+      'Not: { "screen": "wide", "source": "shader", "shader_id": "shader_…" } with a shader sent for phone (background_not_ready: send it again for wide)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          screen: { enum: ["wide", "phone"], description: "wide: desktops and tablets. phone: phones." },
+          source: { enum: ["zaisma", "image", "shader", "wide"], description: "zaisma: Zaisma's own. image: a background picture (image_id). shader: a shader (shader_id). wide: phone only, show the wide one." },
+          image_id: idInput("image", "With source image: an approved background image's id from get_game"),
+          shader_id: idInput("shader", "With source shader: an approved shader's id from get_game, sent for this screen"),
+        },
+        ["slug", "screen", "source"],
+      ),
+      examples: [
+        { slug: "sky-hopper", screen: "wide", source: "image", image_id: "image_8f3k2m9q1x7c4v6b0n5z" },
+        { slug: "sky-hopper", screen: "wide", source: "shader", shader_id: "shader_8f3k2m9q1x7c4v6b0n5z" },
+        { slug: "sky-hopper", screen: "phone", source: "wide" },
+        { slug: "sky-hopper", screen: "wide", source: "zaisma" },
+      ],
+    },
+    outputSchema: answer({ background: BACKGROUND, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PUT", `/games/${pathPart(toolArguments.slug)}/backgrounds/${pathPart(toolArguments.screen)}`, pick(toolArguments, ["source", "image_id", "shader_id"])),
   },
   {
     name: "add_tester_link",
@@ -1406,6 +1483,9 @@ const MEANT: Record<string, string> = {
   images: "images_base64",
   image: "image_base64",
   game: "slug",
+  // Tools of their own, for names an AI might try on update_game.
+  background_video: "add_shader",
+  set_background_image: "set_background",
   // The admin MCP's names before docs/NAMING.md.
   group: "report_group_id",
   reason: "why",
@@ -1426,7 +1506,9 @@ export function checkArguments(tool: Pick<Tool, "name" | "inputSchema">, toolArg
   const names = Object.keys(properties);
   for (const key of Object.keys(toolArguments)) {
     if (key in properties) continue;
-    const meant = MEANT[key] && MEANT[key] in properties ? `Did you mean ${MEANT[key]}? ` : "";
+    // A name that belongs to a tool of its own (a background_video on update_game) points at that tool.
+    const meantTool = MEANT[key] && TOOLS.some((other) => other.name === MEANT[key]) ? `That's what ${MEANT[key]} does. ` : "";
+    const meant = MEANT[key] && MEANT[key] in properties ? `Did you mean ${MEANT[key]}? ` : meantTool;
     throw new ApiError("unknown_field", { message: `${key} isn't an argument of ${tool.name}.`, field: key, fix: `${meant}${tool.name} takes: ${names.join(", ") || "no arguments"}.` });
   }
   for (const key of (tool.inputSchema.required ?? []) as string[]) {

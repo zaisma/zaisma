@@ -316,6 +316,11 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
+  Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
+                  shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
+                  or choose a .glsl file to preview it before sending; the purple glass tint)
+                  ${SITE}/dashboard/arena/details#background  (a shader the check refused: "It flashes more than 3 times a second…")
+                  ${GAMES}/shard-dodge/_zaisma/background?screen=phone  (the shader runner alone, on the game's own site)
   Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
@@ -555,6 +560,22 @@ async function seed() {
       }
     }
   }
+  // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the looks drafts' Neon Drift shader, drawn by
+  // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
+  // the check refuses for flashing.
+  const { image: world } = await api("POST", "/games/shard-dodge/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
+  await go(`/admin/images/${world.id}/approve`, form({ reason: "" }));
+  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "image", image_id: world.id });
+  const sendShader = (slug, screen, file) => api("POST", `/games/${slug}/shaders?screen=${screen}`, new Uint8Array(readFileSync(join(ROOT, "scripts/preview/shaders", file))));
+  const { shader: neonDrift } = await sendShader("shard-dodge", "phone", "neon-drift.glsl");
+  await sendShader("arena", "wide", "strobe.glsl");
+  const isChecked = async () => (await api("GET", "/games/shard-dodge")).shaders.find((shader) => shader.id === neonDrift.id)?.review_status !== "pending";
+  for (let tryIndex = 0; tryIndex < 45 && !(await isChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
+  // Without a local browser, a person approves it, as on /admin (it then has no still or frames).
+  if (!(await isChecked())) await go(`/admin/shaders/${neonDrift.id}/approve`, form({ reason: "Preview test data" }));
+  await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
+  await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
+
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).
   await api("PATCH", "/games/tiny-farm", {

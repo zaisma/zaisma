@@ -14,7 +14,7 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Apps that can't send a key connect by signing in instead. In claude.ai: Settings → Connectors → Add custom connector, with `https://zaisma.com/mcp`; ChatGPT and other apps the same way, wherever they add a remote MCP server. The app opens a Zaisma page where you choose what it may do and tap your passkey, then you're back in the app with every tool working. The key command above stays the way for Claude Code and the upload command.
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `check_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -101,7 +101,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | --- | --- | --- |
 | `no_player` | 404 | No account has that player ID: a guest's, or a deleted account's. |
 
-**Covers, screenshots and other images**
+**Covers, screenshots, backgrounds and other images**
 
 | Code | HTTP | Meaning |
 | --- | --- | --- |
@@ -114,6 +114,14 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `image_refused` | 422 | The image can't be used. |
 | `no_image` | 404 | The game has no image with that ID. |
 | `no_file` | 400 | A form on Zaisma's pages was sent without its image. |
+| `bad_background_shape` | 400 | A wide background is landscape (1.3 to 2.4 times as wide as tall), a phone background portrait (1.6 to 2.4 times as tall as wide), and its long side at least 1600 px. |
+| `not_a_shader` | 415 | A shader is UTF-8 text with a mainImage function, no #extension lines, no textures and no #version line. |
+| `shader_too_big` | 413 | The shader is over 16 KB. |
+| `no_shader` | 404 | The game has no shader with that ID. |
+| `bad_screen` | 400 | screen isn't wide or phone. |
+| `bad_background_source` | 400 | source isn't zaisma, image or shader, or wide (which only phone takes). |
+| `background_not_ready` | 409 | The image or shader isn't this game's, isn't approved yet, or is for the other screen. |
+| `bad_color` | 400 | The color isn't #RRGGBB. |
 
 **Uploading versions**
 
@@ -380,7 +388,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `link_flagged` | `malware` | Cloudflare lists the link's site for malware or phishing, so the link opens for nobody. |
 | `details_rejected` | picked | A person at Zaisma didn't approve the new title or description; the message says why. |
 
-**The listing check** (covers, screenshots and titles; see Covers, screenshots and share pictures)
+**The listing check** (covers, screenshots, backgrounds and titles; see Covers, screenshots and share pictures, and Backgrounds), **and the shader check** (see Backgrounds)
 
 | Code | Rule | Meaning |
 | --- | --- | --- |
@@ -391,6 +399,10 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `tag_in_title` | none | The title carries a tag instead of only naming the game: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. "+1" and "2x" are fine. |
 | `fake_reward` | `malware` | A cover, screenshot, title or description promises a fake reward or real-money bait, like free Robux, V-Bucks, gift cards or cash; the message quotes it. Players can't open the game until a person looks. |
 | `screenshot_not_from_game` | none | The screenshot has something added after it was captured, like a caption, an arrow or circle, a sticker, a pasted logo or a device frame, so it doesn't show. The game's own interface is fine. |
+| `text_on_background` | none | A background has no title, logo or text on it; those go on the cover. The message quotes what it found. |
+| `shader_does_not_compile` | none | The shader didn't compile; the message gives the first compiler error. |
+| `shader_too_slow` | none | The shader took too long to draw a frame in the check; the message says how long, and the most it can take. |
+| `shader_flashes` | none | The shader flashes more than 3 times a second, which can cause seizures. |
 
 | Rule | What it says |
 | --- | --- |
@@ -852,6 +864,40 @@ A cover or title that breaks a line still shows on the game page and plays by it
 ```bash
 curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
   -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @cover.png
+```
+
+## Backgrounds
+
+A game's background is its world behind Zaisma's glass: on the home while the game is in focus, and on its game page. Each screen has its own: **wide** (desktops and tablets) and **phone** (composed for a tall screen). Each shows a picture, a shader, or Zaisma's own background (white glass facets with orange nodes gliding over them, graphite in dark mode); phones show the wide one until they have their own. A background is separate from the cover and carries no title, logo or words: those go on the cover.
+
+| Call | What it does |
+| --- | --- |
+| `POST /games/:slug/images?kind=background` or `?kind=phone_background` | Send a background picture, as for covers. It's checked the same way, and a newly approved one replaces the old one of its kind, on the screen showing it too. |
+| `POST /games/:slug/shaders?screen=wide` or `?screen=phone` | Send a shader: the GLSL text as the request body. Answers 201 with the `shader` (`id`, `screen`, `review_status`, `review_reason`, `check_frame_ms`, `flash_count`, `still_url`, `frame_urls`, `source_url`, `size_bytes`, `created_at`), a `review_message` and `next_steps`. Zaisma keeps a screen's newest 4 shaders besides the one it shows. |
+| `DELETE /games/:slug/shaders/:shader_id` | Remove one; answers `removed_shader_id` and both `backgrounds`. A screen showing it goes back to its default. |
+| `PUT /games/:slug/backgrounds/:screen` | Choose what `wide` or `phone` shows: `{ "source": "image", "image_id" }`, `{ "source": "shader", "shader_id" }`, `{ "source": "zaisma" }`, or on phone `{ "source": "wide" }`. Only an approved picture of the screen's kind, or an approved shader sent for that screen (`background_not_ready` otherwise). Answers the `background` (`screen`, `source`, `image_id`, `shader_id`, `still_url`). |
+| `PATCH /games/:slug` with `glass_tint_color` | A color Zaisma tints its glass with over the background, as `#RRGGBB` (`bad_color` otherwise); `null` clears it. Zaisma still decides how thick the glass is, so words stay readable. |
+
+`get_game` answers `backgrounds` (both screens, wide first, with the defaults when nothing is chosen) and `shaders` (newest first), and the background pictures are in its `images`. Choosing is its own step, so look at a shader's still and frames, or preview it live in the dashboard's Background section, before it shows anywhere.
+
+**Pictures.** A wide background is landscape, 1.3 to 2.4 times as wide as tall, at least 1600 px wide, like 2560 by 1440; a phone background is portrait, 1.6 to 2.4 times as tall as wide, at least 1600 px tall, like 1440 by 3120 (`bad_background_shape` otherwise). Leave room for the glass on the left of a wide one and on the bottom half of a phone one.
+
+**Shaders** are Shadertoy's form, which AI writes well: one function, `void mainImage(out vec4 fragColor, in vec2 fragCoord)`, that gives each pixel its color, reading `iResolution` (the screen's size in pixels, a `vec3`) and `iTime` (seconds, a `float`) only. Write any helpers above it. No textures, mouse, audio, `#extension` or `#version` lines, and no `main()`: Zaisma adds them. UTF-8, up to 16 KB (`not_a_shader`, `shader_too_big`). The names stay Shadertoy's on purpose (see `shader` in [`docs/NAMING.md`](NAMING.md)).
+
+**The check.** Before anyone sees a shader, Zaisma draws it on a software renderer (headless Chromium on Cloudflare, WebGL through SwiftShader), in a page that loads nothing, usually within a minute:
+
+- It must compile (`shader_does_not_compile`, with the compiler's first error).
+- 90 frames at 640 by 360 (360 by 640 for phone) are timed. `check_frame_ms` is their median, scaled to the renderer's speed on Zaisma's own background in the same browser, and the most is 75 ms (`shader_too_slow`). Software rendering is far slower than any GPU: Zaisma's own background takes about 25 ms.
+- Their brightness is read for flashes: a change of at least 10% that turns back within 3 frames, as WCAG 2.3.1 counts them. More than 3 in any one second is refused (`shader_flashes`): flashing can cause seizures. `flash_count` is the most it counted.
+- A still frame at 2 seconds (1920 by 1080, or 1080 by 1920 for phone) and 6 frames over its first 30 seconds are saved (`still_url`, `frame_urls`), and go through the same safety checks as pictures: image matching, and the listing check, where words or a logo in them is `text_on_background`.
+
+**Running.** A chosen shader runs on the game's own site, in a frame behind Zaisma's glass, like any game file: at about half resolution and at most 30 frames a second, with fewer pixels, then a still frame, on a device that can't keep up, and its still alone under reduced motion and where WebGL can't run. The glass over it bends its light at the edges, and Zaisma picks light or smoked glass from its still, so words over it stay readable.
+
+```bash
+curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/shaders?screen=wide" \
+  -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @background.glsl
+curl -X PUT "https://zaisma.com/api/dev/games/sky-hopper/backgrounds/wide" \
+  -H "Authorization: Bearer $ZAISMA_KEY" -H "Content-Type: application/json" -d '{"source":"shader","shader_id":"shader_8f3k2m9q1x7c4v6b0n5z"}'
 ```
 
 ## The developer forum

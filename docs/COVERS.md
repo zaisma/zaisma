@@ -32,6 +32,10 @@ Bright colors, busy art, shocked faces, piles of coins and an AI-made look are n
 
 A screenshot is a real capture of the game. Its score, menus, buttons and shop screens are welcome. Anything added afterwards isn't: a caption, an arrow or circle, a sticker, a pasted logo, a device frame (`screenshot_not_from_game`, and the screenshot doesn't show). The test: would it be on the player's screen while playing?
 
+## Backgrounds
+
+A background is your game's world behind Zaisma's glass, on the home and your game page: a picture, or a shader that paints it live. It's separate from your cover and carries no title, logo or words: those go on the cover (`text_on_background`, and it doesn't show). Words that are part of the scene, like a sign on a building, are fine. Compose it for the glass: on a wide one, Zaisma's glass sits on the left, so keep the left calm and let the world open up on the right; on a phone one, the glass takes the bottom half, so keep the interest in the top half. Without a phone background, phones show the wide one.
+
 ## Titles
 
 A title names the game. No tags (`tag_in_title`): a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. "+1 Speed Run", "Wrangler 2x" and "Free Fall" are names, so they're fine. No famous names you don't own (`famous_name`), and no fake rewards (`fake_reward`). Patch notes are where you say what's new.

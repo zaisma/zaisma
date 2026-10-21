@@ -4,6 +4,7 @@ import { checkAllowedHosts } from "./reach.ts";
 import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
 import { randomKey } from "./game-access.ts";
+import { GLASS_LIGHT_PASS } from "./glass-light.ts";
 import { ACCOUNT_REQUIREMENTS, MINIMUM_PLAYER_AGES, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type MinimumPlayerAge, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -644,6 +645,8 @@ export interface DetailsChange {
   own_server_urls?: string[];
   /** Its registered links, the whole list, checked by checkLinks (and their sites by checkLinkSites). */
   links?: GameLink[];
+  /** The color Zaisma tints its glass with over the game's background, #RRGGBB; null clears it. */
+  glass_tint_color?: string | null;
 }
 
 /** Check a change from the API (docs/NAMING.md). Returns the tidied change or a plain error. */
@@ -740,6 +743,12 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     if ("problem" in checked) return checked;
     change.links = checked.links;
   }
+  if ("glass_tint_color" in input) {
+    if (input.glass_tint_color !== null && !isGlassTintColor(input.glass_tint_color)) {
+      return { problem: { code: "bad_color", field: "glass_tint_color", message: `glass_tint_color ${JSON.stringify(input.glass_tint_color)} isn't a color like "#6b3fa0".`, fix: 'Give a color as # and six hex digits, like "#6b3fa0", or null for no tint.' } };
+    }
+    change.glass_tint_color = input.glass_tint_color === null ? null : (input.glass_tint_color as string).toLowerCase();
+  }
   return { change };
 }
 
@@ -818,6 +827,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.game_server_allowed_hosts !== undefined) set("game_server_allowed_hosts", JSON.stringify(change.game_server_allowed_hosts));
   // Players' next page load connects to them, and the game's menu names them.
   if (change.own_server_urls !== undefined) set("own_server_urls", JSON.stringify(change.own_server_urls));
+  if (change.glass_tint_color !== undefined) set("glass_tint_color", change.glass_tint_color);
   if (change.links !== undefined) {
     set("links", JSON.stringify(change.links));
     // A link whose site couldn't be checked yet puts the game first in line for the next check.
@@ -848,8 +858,12 @@ export async function gamesWithDetailsWaitingForReview(database: D1Database): Pr
 
 // --- Covers and screenshots ------------------------------------------------------
 
-/** cover: landscape, the game's card and picture. square: an optional second cover for phones. share: an optional picture for shared links, in place of the cover. */
-export type ImageKind = "cover" | "square" | "screenshot" | "share";
+/**
+ * cover: landscape, the game's card and picture. square: an optional second cover for phones. share: an optional picture for shared links, in place of the cover.
+ * background and phone_background: the game's world behind Zaisma's glass, on wide screens and on phones (Backgrounds, below), with no title on it.
+ */
+export type ImageKind = "cover" | "square" | "screenshot" | "share" | "background" | "phone_background";
+export const IMAGE_KINDS: readonly ImageKind[] = ["cover", "square", "screenshot", "share", "background", "phone_background"];
 export type ImageReviewStatus = "pending" | "approved" | "rejected";
 
 /** A row of the game_images table: the same names the developer API shows. */
@@ -890,7 +904,28 @@ export async function requestListingCheck(database: D1Database, gameId: string):
   await database.prepare("UPDATE games SET listing_check_requested_at_ms = ? WHERE id = ?").bind(now(), gameId).run();
 }
 
-export const IMAGE_LIMITS = { maximumSizeBytes: 5 * 1024 * 1024, minimumSidePx: 320, maximumSidePx: 8192, maximumScreenshotCount: 8, minimumSquareSidePx: 512 };
+export const IMAGE_LIMITS = {
+  maximumSizeBytes: 5 * 1024 * 1024,
+  minimumSidePx: 320,
+  maximumSidePx: 8192,
+  maximumScreenshotCount: 8,
+  minimumSquareSidePx: 512,
+  /** A background fills a screen, so its long side is at least this. */
+  minimumBackgroundLongSidePx: 1600,
+  /** A wide background's width ÷ height. */
+  minimumWideBackgroundRatio: 1.3,
+  maximumWideBackgroundRatio: 2.4,
+  /** A phone background's height ÷ width. */
+  minimumPhoneBackgroundRatio: 1.6,
+  maximumPhoneBackgroundRatio: 2.4,
+};
+
+/** Whether a background picture has its screen's shape: landscape for wide, portrait for phones, and big enough to fill it. */
+export function isBackgroundShape(kind: "background" | "phone_background", widthPx: number, heightPx: number): boolean {
+  if (Math.max(widthPx, heightPx) < IMAGE_LIMITS.minimumBackgroundLongSidePx) return false;
+  if (kind === "background") return widthPx / heightPx >= IMAGE_LIMITS.minimumWideBackgroundRatio && widthPx / heightPx <= IMAGE_LIMITS.maximumWideBackgroundRatio;
+  return heightPx / widthPx >= IMAGE_LIMITS.minimumPhoneBackgroundRatio && heightPx / widthPx <= IMAGE_LIMITS.maximumPhoneBackgroundRatio;
+}
 
 /** A square cover is as wide as it is tall, give or take 1%. */
 export const isSquare = (widthPx: number, heightPx: number) => Math.abs(widthPx - heightPx) <= Math.max(widthPx, heightPx) * 0.01;
@@ -979,7 +1014,11 @@ export async function pendingImages(database: D1Database): Promise<(GameImage & 
  */
 export async function settleImage(database: D1Database, image: GameImage, rejectedReason: ReviewReason | null, decidedBy: "person" | "check" = "person", listingReason: ReviewReason | null = null): Promise<GameImage[]> {
   if (rejectedReason) {
-    await database.prepare("UPDATE game_images SET review_status = 'rejected', review_reason = ?, listing_reason = NULL WHERE id = ?").bind(JSON.stringify(rejectedReason), image.id).run();
+    await database.batch([
+      database.prepare("UPDATE game_images SET review_status = 'rejected', review_reason = ?, listing_reason = NULL WHERE id = ?").bind(JSON.stringify(rejectedReason), image.id),
+      // A rejected background stops showing: its screen goes back to its default.
+      database.prepare("DELETE FROM game_backgrounds WHERE game_id = ? AND image_id = ?").bind(image.game_id, image.id),
+    ]);
     return [];
   }
   const { results: replaced } =
@@ -991,6 +1030,8 @@ export async function settleImage(database: D1Database, image: GameImage, reject
       ? database.prepare("UPDATE game_images SET review_status = 'approved', listing_reason = NULL, cleared_at_ms = ? WHERE id = ?").bind(now(), image.id)
       : database.prepare("UPDATE game_images SET review_status = 'approved', listing_reason = ? WHERE id = ?").bind(listingReason ? JSON.stringify(listingReason) : null, image.id),
     ...replaced.map((old) => database.prepare("DELETE FROM game_images WHERE id = ?").bind(old.id)),
+    // A background chosen for its screen hands its place to the one replacing it, checked the same way.
+    ...replaced.map((old) => database.prepare("UPDATE game_backgrounds SET image_id = ?, updated_at_ms = ? WHERE game_id = ? AND source = 'image' AND image_id = ?").bind(image.id, now(), image.game_id, old.id)),
   ]);
   return replaced;
 }
@@ -998,3 +1039,176 @@ export async function settleImage(database: D1Database, image: GameImage, reject
 export async function deleteImageRow(database: D1Database, id: string): Promise<void> {
   await database.prepare("DELETE FROM game_images WHERE id = ?").bind(id).run();
 }
+
+// --- Backgrounds -------------------------------------------------------------------
+
+/**
+ * A game's background, behind Zaisma's glass on the home (while the game is in focus) and on its game page: one for wide screens
+ * (desktops and tablets) and one for phones. Each shows a picture (an image of kind background or phone_background), a shader, or
+ * Zaisma's own; phone can also follow wide, which it does until it's set. Choosing is its own step (setBackground), so the
+ * developer sees a shader's check and previews it before it shows anywhere.
+ */
+export type BackgroundScreen = "wide" | "phone";
+export const BACKGROUND_SCREENS: readonly BackgroundScreen[] = ["wide", "phone"];
+/** zaisma: Zaisma's own background. image and shader: the game's own, by its ID. wide: phones show the wide one (phone only). */
+export type BackgroundSource = "zaisma" | "image" | "shader" | "wide";
+export const BACKGROUND_SOURCES: readonly BackgroundSource[] = ["zaisma", "image", "shader", "wide"];
+/** The image kind each screen's pictures are. */
+export const BACKGROUND_IMAGE_KINDS: Record<BackgroundScreen, "background" | "phone_background"> = { wide: "background", phone: "phone_background" };
+
+/** A row of the game_shaders table: the same names the developer API shows. */
+export interface GameShader {
+  id: string;
+  game_id: string;
+  screen: BackgroundScreen;
+  size_bytes: number;
+  review_status: ImageReviewStatus;
+  /** Why it wasn't approved, as JSON (a ReviewReason); NULL otherwise. */
+  review_reason: string | null;
+  /** The check's median time to draw one frame, in milliseconds; NULL until it ran. */
+  check_frame_ms: number | null;
+  /** The most flashes the check counted in any one second; NULL until it ran. */
+  flash_count: number | null;
+  checked_at_ms: number | null;
+  created_at_ms: number;
+}
+
+/** A row of the game_backgrounds table, or the default a screen has without one. */
+export interface GameBackground {
+  game_id: string;
+  screen: BackgroundScreen;
+  source: BackgroundSource;
+  image_id: string | null;
+  shader_id: string | null;
+  updated_at_ms: number | null;
+}
+
+/**
+ * Shaders: Shadertoy's form, `void mainImage(out vec4 fragColor, in vec2 fragCoord)` reading iResolution and iTime only, as one
+ * small text file. The check draws it at checkWidthPx × checkHeightPx before anyone sees it; players' browsers draw it at about
+ * half resolution and at most 30 frames a second, stepping down, then holding a still frame, on a device that can't keep up.
+ */
+export const SHADER_LIMITS = {
+  maximumSizeBytes: 16_384,
+  checkWidthPx: 640,
+  checkHeightPx: 360,
+  /** Frames the check draws and times, each at iTime = frame × checkFrameStepSec. */
+  checkFrameCount: 90,
+  checkFrameStepSec: 1 / 30,
+  /**
+   * Software rendering's speed varies up to twice over from one browser to the next, so the check first times Zaisma's own
+   * background in the same browser and scales the shader's median frame to it: check_frame_ms is what a frame takes on a
+   * renderer that draws Zaisma's own in referenceFrameMs.
+   */
+  referenceFrameMs: 25,
+  /**
+   * The most check_frame_ms may be. Calibrated Oct 21, 2026 on Cloudflare Browser Rendering (SwiftShader) at 640 × 360, scaled, three
+   * runs each: the looks drafts' shaders take night-market 11–13, neon-drift 14–19, rift-runners 14–17, starward 19–22, last-signal
+   * 19–28, emberfall 20–24, zaisma 24–25, zaisma-dark 21–25 and frostline 43–47 ms; a 256-step ray-march 90–109 ms. The slowest × 2
+   * (95 ms) let the ray-march through, so it's the slowest × 1.5, rounded up to 5 ms.
+   */
+  maximumCheckFrameMs: 75,
+  /** WCAG 2.3.1: no more than three flashes in any one second. */
+  maximumFlashCountPerSec: 3,
+  /** When the still frame is drawn. */
+  stillTimeSec: 2,
+  /** Frames saved for the developer and the safety checks, spread over the first 30 seconds. */
+  sampledFrameCount: 6,
+  sampledFramesOverSec: 30,
+  /** Shaders kept per screen besides the chosen one: older pending and unchosen ones go. */
+  keptShaderCount: 4,
+  runtimeMaximumFps: 30,
+  runtimeResolutionScale: 0.5,
+};
+
+/** Where a shader's source lives in the games bucket, with its still and sampled frames beside it. */
+export const shaderKey = (gameId: string, id: string) => `shaders/${gameId}/${id}.glsl`;
+export const shaderStillKey = (gameId: string, id: string) => `shaders/${gameId}/${id}.still.png`;
+export const shaderFrameKey = (gameId: string, id: string, frameIndex: number) => `shaders/${gameId}/${id}.frame-${frameIndex}.png`;
+/** Every key a shader has in the games bucket. */
+export const shaderKeys = (gameId: string, id: string) => [shaderKey(gameId, id), shaderStillKey(gameId, id), ...Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => shaderFrameKey(gameId, id, frameIndex))];
+
+/** What's wrong with a shader's text before it's drawn, or null: Shadertoy's mainImage, with nothing a runner doesn't give it. */
+export function shaderSourceProblem(source: string): string | null {
+  if (!/\bvoid\s+mainImage\s*\(/.test(source)) return "It has no mainImage function: void mainImage(out vec4 fragColor, in vec2 fragCoord).";
+  if (/^\s*#\s*version\b/m.test(source)) return "It has a #version line; Zaisma gives the shader its own.";
+  if (/^\s*#\s*extension\b/m.test(source)) return "It has an #extension line; shaders get no extensions.";
+  if (/\bsampler\w*|\btexture\w*\s*\(/.test(source)) return "It reads a texture; shaders get no textures, only iResolution and iTime.";
+  return null;
+}
+
+/**
+ * The whole fragment shader a background compiles: precision, the two inputs, the developer's mainImage, and the glass pass
+ * round it (GLASS_LIGHT_PASS). The check, the game domain's runner and the dashboard's preview all compile this, so a shader
+ * that passed the check runs the same everywhere.
+ */
+export function wrapShader(source: string): string {
+  return SHADER_HEAD + source + "\n" + GLASS_LIGHT_PASS;
+}
+/** What comes before a shader's own source: precision, and the two inputs it reads. */
+export const SHADER_HEAD = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nuniform vec3 iResolution;\nuniform float iTime;\n";
+
+export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes">): Promise<GameShader> {
+  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, check_frame_ms: null, flash_count: null, checked_at_ms: null, created_at_ms: now() };
+  await database.prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)").bind(row.id, row.game_id, row.screen, row.size_bytes, row.review_status, row.created_at_ms).run();
+  return row;
+}
+
+export async function shaderById(database: D1Database, id: string): Promise<GameShader | null> {
+  return database.prepare("SELECT * FROM game_shaders WHERE id = ?").bind(id).first<GameShader>();
+}
+
+/** A game's shaders, newest first. */
+export async function shadersForGame(database: D1Database, gameId: string): Promise<GameShader[]> {
+  const { results } = await database.prepare("SELECT * FROM game_shaders WHERE game_id = ? ORDER BY created_at_ms DESC, id DESC").bind(gameId).all<GameShader>();
+  return results;
+}
+
+/** Shaders the check drew that wait for a person: the check's safety half asked for one, or couldn't answer. */
+export async function shadersWaitingForPerson(database: D1Database): Promise<(GameShader & { slug: string; title: string })[]> {
+  const { results } = await database
+    .prepare("SELECT game_shaders.*, games.slug, games.title FROM game_shaders JOIN games ON games.id = game_shaders.game_id WHERE game_shaders.review_status = 'pending' AND game_shaders.checked_at_ms IS NOT NULL ORDER BY game_shaders.created_at_ms LIMIT 100")
+    .all<GameShader & { slug: string; title: string }>();
+  return results;
+}
+
+/**
+ * The shader check's result: approved (rejectedReason null) or rejected, with what it measured. A shader the check drew but
+ * left for a person keeps pending, with its numbers (waitsForPerson).
+ */
+export async function settleShader(database: D1Database, shader: Pick<GameShader, "id">, rejectedReason: ReviewReason | null, checkFrameMs: number | null, flashCount: number | null, waitsForPerson = false): Promise<void> {
+  const reviewStatus = rejectedReason ? "rejected" : waitsForPerson ? "pending" : "approved";
+  await database
+    .prepare("UPDATE game_shaders SET review_status = ?, review_reason = ?, check_frame_ms = ?, flash_count = ?, checked_at_ms = ? WHERE id = ?")
+    .bind(reviewStatus, rejectedReason ? JSON.stringify(rejectedReason) : null, checkFrameMs, flashCount, now(), shader.id)
+    .run();
+}
+
+/** What a screen shows without a row: Zaisma's own on wide; phones follow wide. */
+const defaultBackground = (gameId: string, screen: BackgroundScreen): GameBackground => ({ game_id: gameId, screen, source: screen === "wide" ? "zaisma" : "wide", image_id: null, shader_id: null, updated_at_ms: null });
+
+/** Both screens' backgrounds, the defaults filled in. */
+export async function backgroundsFor(database: D1Database, gameId: string): Promise<Record<BackgroundScreen, GameBackground>> {
+  const { results } = await database.prepare("SELECT * FROM game_backgrounds WHERE game_id = ?").bind(gameId).all<GameBackground>();
+  const set = (screen: BackgroundScreen) => results.find((row) => row.screen === screen) ?? defaultBackground(gameId, screen);
+  return { wide: set("wide"), phone: set("phone") };
+}
+
+/** Choose what a screen shows. The caller checks the image or shader is this game's, approved and for this screen. */
+export async function setBackground(database: D1Database, gameId: string, screen: BackgroundScreen, source: BackgroundSource, imageId: string | null, shaderId: string | null): Promise<GameBackground> {
+  const row: GameBackground = { game_id: gameId, screen, source, image_id: source === "image" ? imageId : null, shader_id: source === "shader" ? shaderId : null, updated_at_ms: now() };
+  await database
+    .prepare("INSERT INTO game_backgrounds (game_id, screen, source, image_id, shader_id, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (game_id, screen) DO UPDATE SET source = excluded.source, image_id = excluded.image_id, shader_id = excluded.shader_id, updated_at_ms = excluded.updated_at_ms")
+    .bind(row.game_id, row.screen, row.source, row.image_id, row.shader_id, row.updated_at_ms)
+    .run();
+  return row;
+}
+
+/** A screen showing this image or shader, which is going away, goes back to its default. */
+export async function dropChosenBackground(database: D1Database, gameId: string, chosen: { imageId: string } | { shaderId: string }): Promise<void> {
+  const [column, id] = "imageId" in chosen ? ["image_id", chosen.imageId] : ["shader_id", chosen.shaderId];
+  await database.prepare(`DELETE FROM game_backgrounds WHERE game_id = ? AND ${column} = ?`).bind(gameId, id).run();
+}
+
+/** A glass tint as the API takes it: #RRGGBB. */
+export const isGlassTintColor = (given: unknown): given is string => typeof given === "string" && /^#[0-9a-fA-F]{6}$/.test(given);

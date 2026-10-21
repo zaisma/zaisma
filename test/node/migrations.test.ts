@@ -316,3 +316,29 @@ describe("migration 0084", () => {
     ]);
   });
 });
+
+describe("migration 0110", () => {
+  const database = migratedFrom(
+    "0110_",
+    `INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_one', 'one', 'One', 'live', 1, 1);
+     INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms, review_reason, listing_reason, cleared_at_ms)
+       VALUES ('image_cover', 'game_one', 'cover', 'image/png', 1280, 720, 100, 'approved', 5, NULL, '{"code":"extra_text_on_cover","message":"Words.","content_rule":null}', NULL),
+              ('image_shot', 'game_one', 'screenshot', 'image/webp', 1280, 720, 200, 'approved', 6, NULL, NULL, 9);`,
+  );
+
+  it("keeps every cover and screenshot through the rebuild, with its listing reason and when it was cleared", () => {
+    expect(database.prepare("SELECT id, kind, review_status, listing_reason, cleared_at_ms FROM game_images ORDER BY id").all()).toEqual([
+      { id: "image_cover", kind: "cover", review_status: "approved", listing_reason: '{"code":"extra_text_on_cover","message":"Words.","content_rule":null}', cleared_at_ms: null },
+      { id: "image_shot", kind: "screenshot", review_status: "approved", listing_reason: null, cleared_at_ms: 9 },
+    ]);
+  });
+
+  it("takes the background kinds, shaders and backgrounds, and a glass tint", () => {
+    database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_world', 'game_one', 'phone_background', 'image/png', 1440, 3120, 300, 7)");
+    database.exec("INSERT INTO game_shaders (id, game_id, screen, size_bytes, created_at_ms) VALUES ('shader_one', 'game_one', 'wide', 120, 8)");
+    database.exec("INSERT INTO game_backgrounds (game_id, screen, source, shader_id, updated_at_ms) VALUES ('game_one', 'wide', 'shader', 'shader_one', 8)");
+    expect(() => database.exec("INSERT INTO game_backgrounds (game_id, screen, source, updated_at_ms) VALUES ('game_one', 'wide', 'video', 8)")).toThrow();
+    expect(database.prepare("SELECT review_status FROM game_shaders").get()).toEqual({ review_status: "pending" });
+    expect(database.prepare("SELECT glass_tint_color FROM games").get()).toEqual({ glass_tint_color: null });
+  });
+});
