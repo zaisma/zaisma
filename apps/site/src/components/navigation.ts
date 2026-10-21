@@ -613,8 +613,11 @@ component({
   .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
   .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
 }
-/* By touch, the marks' names show only while a finger drags the thumb, never on a tap's leftover hover. */
+/* By touch, a mark is only a faint tick: a tap or a drag lands on the rail itself (letting go near a tick goes to its part), and the marks'
+   names and full ticks show only while a finger drags the thumb, never on a tap's leftover hover. */
 @media (hover: none) {
+  .rail .rail-mark { pointer-events: none; }
+  .rail:not(.dragging) .rail-mark::before { opacity: 0.4; }
   .rail:not(.dragging) .rail-mark span { visibility: hidden; }
 }
 @media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
