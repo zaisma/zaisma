@@ -915,6 +915,44 @@ describe("versions published now, and the connection beside the game", () => {
     expect(connection().at(-1)).toMatchObject({ connectionStatus: "reconnecting" });
   });
 
+  it("joins a room on another version through the page, which reloads the game at it, never twice", async () => {
+    const wait = (durationMs = 0) => new Promise((resolve) => setTimeout(resolve, durationMs));
+    const knock = async (sdk: ReturnType<typeof loadSdk>, joinOptions: Record<string, unknown> = { roomCode: "K7Q2MX" }) => {
+      const outcome: { code?: string; isSettled: boolean } = { isSettled: false };
+      sdk.Zaisma.joinRoom(joinOptions).then(
+        () => (outcome.isSettled = true),
+        (error: { code: string }) => Object.assign(outcome, { isSettled: true, code: error.code }),
+      );
+      await wait();
+      const socket = sdk.sockets.at(-1)!;
+      socket.onopen!();
+      const hello = JSON.parse(socket.sent[0]!);
+      say(socket, { type: "error", code: "other_version", message: "This room runs another version of the game, so the game reloads at it first.", versionId: "version_one" });
+      socket.onclose!({ code: 4001, reason: "other_version" });
+      await wait();
+      return { hello, outcome, socketCount: sdk.sockets.length };
+    };
+    const reloads = (sdk: ReturnType<typeof loadSdk>) => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:reload");
+    const onVersionTwo = { ...ON_ZAISMA, version: "version_two" } as typeof ON_ZAISMA;
+
+    // The hello says the tab's version; the page reloads the game at the room's, and the join waits for it.
+    const sdk = loadSdk(onVersionTwo);
+    const first = await knock(sdk);
+    expect(first.hello).toMatchObject({ type: "hello", versionId: "version_two" });
+    expect(reloads(sdk)).toEqual([{ type: "zaisma:reload", code: "K7Q2MX", versionId: "version_one" }]);
+    await wait(600);
+    expect(sdk.sockets.length).toBe(first.socketCount);
+    expect(first.outcome.isSettled).toBe(false);
+
+    // Opened into that very room already, or through a tester link: the join fails, so the game never reloads round and round.
+    for (const again of [loadSdk(onVersionTwo, undefined, "guest", "?room=K7Q2MX"), loadSdk({ ...onVersionTwo, tester: "tester_1" } as typeof ON_ZAISMA)]) {
+      expect((await knock(again)).outcome).toEqual({ isSettled: true, code: "other_version" });
+      expect(reloads(again)).toEqual([]);
+    }
+    // The game's own servers have no versions of Zaisma's: their hello says none.
+    expect((await knock(loadSdk(onVersionTwo), { roomCode: "K7Q2MX", serverUrl: "wss://play.example.com" })).hello).not.toHaveProperty("versionId");
+  });
+
   it("offers a game not in a match the version the page found, and says whether the game took it", () => {
     const sdk = loadSdk({ ...ON_ZAISMA, version: "version_one" } as typeof ON_ZAISMA);
     expect(sdk.page.posted).toContainEqual({ type: "zaisma:version", versionId: "version_one" });
