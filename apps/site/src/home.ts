@@ -364,8 +364,9 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 /* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
 .home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
 .home-row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; }
-.home-row-head > .steps { margin-left: auto; }
-.home-row-head > .tab-switch { margin-left: var(--gap-words-control); }
+/* The row's controls sit at its right end, the sort switch before the arrows. */
+.home-row-head > .steps, .home-row-head > .tab-switch { margin-left: auto; }
+.home-row-head > .tab-switch + .steps { margin-left: 0; }
 /* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
 .home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
