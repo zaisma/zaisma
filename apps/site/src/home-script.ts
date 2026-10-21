@@ -409,6 +409,8 @@ showTray();
 measureStage();
 // The opening script staged it; a page that opens scrolled down (a reload) starts docked instead.
 if (scrollY > 24) openPane(false);
+// Everything placed for the page as it opens is laid out before anything may glide, so nothing moves into place on the first frames.
+void home.offsetHeight;
 document.body.classList.add("is-home-ready");
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {

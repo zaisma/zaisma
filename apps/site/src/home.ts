@@ -338,8 +338,8 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 /* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
    the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
-.home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
-  transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
+.home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block); }
+.is-home-ready .home-pane { transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
 /* The pane is a tray's head: staged, "More games" sits on the tray under it; docked, the tray tucks away and the head is a whole pane. */
 .home-pane > .tray-group { width: 100%; }
 .home-pane .tray-head { max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
@@ -363,7 +363,9 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
 @media (max-height: 640px) and (min-width: 761px) { .home-description { display: none; } }
 /* The shelf: one long sheet of glass with every row on it. */
-.home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); transition: transform 0.45s cubic-bezier(.2,.8,.2,1); }
+.home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
+/* The shelf and the pane glide only once the page is ready: as it opens, they're simply put where the measured pane leaves them. */
+.is-home-ready .home-shelf { transition: transform 0.45s cubic-bezier(.2,.8,.2,1); }
 /* On a wide screen the page opens staged, as a phone does: the game in focus centered over its world, larger, with Play under it, and the
    shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
    top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
