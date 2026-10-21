@@ -895,31 +895,91 @@ const passkeyWay = (next: string, isAutofill: boolean) =>
 const providerButtons = (providers: Provider[], next: string | null) =>
   html`${providers.map((provider) => glassButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, icon: provider }))}`;
 
-async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200, login = ""): Promise<Response> {
+/** Which of the two the pane shows: signing in, or the first step of making an account. */
+type EntryView = "signin" | "join";
+
+/**
+ * Sign in and Make an account are one pane with both in it: the switch swaps them in place (ENTRY_SWITCH_SCRIPT), so the city
+ * carries on behind, and the address follows. Each is its own address too, so a link or a page without the script opens the right one.
+ */
+async function entryPage(env: Env, current: EntryView, next: string | null, given: { signinError?: string; login?: string; ageError?: string; via?: Provider; httpStatus?: number } = {}): Promise<Response> {
   const providers = await providersOn(env);
   const game = await askingGame(env, next);
-  return signInPage(
-    env,
+  const view = (name: EntryView, title: string, body: Raw) =>
+    html`<section class="pane-stack" id="view-${name}" data-entry-view="${name}" data-title="${title} · Zaisma"${name === current ? "" : raw(" hidden")}>${body}</section>`;
+  const signin = view(
+    "signin",
     "Sign in",
-    html`${signInSwitch("signin", next)}
-${paneHeading("Welcome back", game)}
+    html`${paneHeading("Welcome back", game)}
 <form method="post" action="/signin" id="signin-form">
 ${nextField(next)}
-${cutField({ id: "signin-username", name: "username", label: "Username", type: "text", icon: "person", text: login, autocomplete: "username webauthn", isRequired: true })}
-${cutField({ id: "signin-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "current-password", isRequired: true, error })}
+${cutField({ id: "signin-username", name: "username", label: "Username", type: "text", icon: "person", text: given.login ?? "", autocomplete: "username webauthn", isRequired: true })}
+${cutField({ id: "signin-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "current-password", isRequired: true, error: given.signinError })}
 ${botCheck(env, "sign_in")}
 ${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
 <p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
-<div class="ways-in" id="ways"${providers.length ? "" : raw(" hidden")}>
+<div class="ways-in pane-stack" id="ways"${providers.length ? "" : raw(" hidden")}>
 <p class="or">or</p>
 <div class="ways">${passkeyWay(next ?? "/", true)}${providerButtons(providers, next)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>
-</div>
-${guestWay(game, false)}
-${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    { game, httpStatus, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+</div>`,
   );
+  const join = view(
+    "join",
+    "Make an account",
+    html`${paneHeading("Make an account", game)}
+<p>${given.via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[given.via]} to finish.` : "Keep your progress, play with friends and get your own username."}</p>
+<form method="post" action="/join/age" id="age-form">
+${nextField(next)}
+${given.via ? html`<input type="hidden" name="with" value="${given.via}">` : ""}
+${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, state: given.ageError ? "marked" : undefined })}
+<p class="note">Your birthday is never shown to anyone.</p>
+${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+</form>`,
+  );
+  // The guest way's own "or" only under Make an account: under Sign in, the ways in above already have one.
+  return signInPage(
+    env,
+    current === "signin" ? "Sign in" : "Make an account",
+    html`${signInSwitch(current, next)}
+${signin}
+${join}
+<p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
+${guestWay(game, false)}
+${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT)}`,
+    { game, httpStatus: given.httpStatus, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+  );
+}
+
+// Sign in and Make an account swap in place: the other view shows, the switch's slab slides to it, and the address and title follow
+// (back and forward too). Anything but a plain click (a new tab, a modifier) goes to its own address as a link does.
+const ENTRY_SWITCH_SCRIPT = pageScript("entry-switch", `(() => {
+  const sw = document.querySelector(".city-pane .tab-switch");
+  const views = [...document.querySelectorAll("[data-entry-view]")];
+  if (!sw || views.length < 2) return;
+  const tabs = [...sw.querySelectorAll(":scope > a")];
+  const viewOf = (url) => (new URL(url, location.href).pathname === "/join" ? "join" : "signin");
+  function show(name) {
+    for (const view of views) view.hidden = view.dataset.entryView !== name;
+    for (const or of document.querySelectorAll("[data-entry-or]")) or.hidden = or.dataset.entryOr !== name;
+    const tab = tabs.find((each) => viewOf(each.href) === name);
+    for (const each of tabs) { if (each === tab) each.setAttribute("aria-current", "page"); else each.removeAttribute("aria-current"); }
+    if (tab && sw.pickTab) sw.pickTab(tab);
+    document.title = views.find((view) => view.dataset.entryView === name).dataset.title;
+  }
+  for (const tab of tabs) tab.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (tab.getAttribute("aria-current") === "page") return;
+    history.pushState({ entryView: viewOf(tab.href) }, "", tab.href);
+    show(viewOf(tab.href));
+  });
+  addEventListener("popstate", () => show(viewOf(location.href)));
+})();`);
+
+async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200, login = ""): Promise<Response> {
+  return entryPage(env, "signin", next, { signinError: error, login, httpStatus });
 }
 
 /**
@@ -1000,23 +1060,7 @@ ${kind === "confirm" ? html`<input type="hidden" name="kind" value="confirm">` :
 
 /** The first step of making an account: the birthday, on the wheels. Each starts blank, so nothing suggests an age. */
 async function agePage(env: Env, next: string | null, error?: string, via?: Provider): Promise<Response> {
-  const game = await askingGame(env, next);
-  return signInPage(
-    env,
-    "Make an account",
-    html`${signInSwitch("join", next)}
-${paneHeading("Make an account", game)}
-<p>${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own username."}</p>
-<form method="post" action="/join/age" id="age-form">
-${nextField(next)}
-${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
-${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, state: error ? "marked" : undefined })}
-<p class="note">Your birthday is never shown to anyone.</p>
-${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
-</form>
-${guestWay(game)}`,
-    { game, httpStatus: error ? 400 : 200 },
-  );
+  return entryPage(env, "join", next, { ageError: error, via, httpStatus: error ? 400 : 200 });
 }
 
 const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };

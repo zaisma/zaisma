@@ -158,10 +158,10 @@ const HEADER_STYLES = `
   .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 
-/* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
+/* Sign-in's header: only the logo, straight on the scene: white, with a soft dark shadow that keeps it legible over anything, by day or at night. */
 .top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
   background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
-.top.is-logo-only .logo { --logo-height: 30px; filter: var(--logo-halo); }
+.top.is-logo-only .logo { --logo-height: 30px; color: #fff; filter: var(--logo-halo); }
 @media (max-width: 760px) {
   /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
   .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }

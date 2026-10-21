@@ -2153,15 +2153,22 @@ describe("cloud saves", () => {
     // One pane of glass over the city: its canvas, the still under it, the logo alone above, and the switch to making an account.
     expect(plain).toContain('<div class="city-pane" data-city-pane>');
     expect(plain).toContain('<canvas class="city"></canvas>');
-    expect(plain).toMatch(/<picture class="city-still is-day"><source media="\(max-width: 760px\) and \(orientation: portrait\)" srcset="\/sign-in\/city-day-phone\.webp">/);
+    expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
     expect(plain).toContain('<header class="top is-logo-only"');
     expect(plain).toContain('<a href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a href="/join">Make an account</a>');
     expect(plain).toContain("Continue as guest");
     expect(plain).not.toContain("asked you to sign in");
-    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in"]));
-    const stills = ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"];
-    for (const still of stills) expect(plain).toContain(`/sign-in/${still}`);
+    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in", "entry-switch"]));
+    // Sign in and Make an account are both in the pane, so the switch swaps them in place; each address opens on its own.
+    expect(plain).toContain('<section class="pane-stack" id="view-signin" data-entry-view="signin" data-title="Sign in · Zaisma">');
+    expect(plain).toContain('<section class="pane-stack" id="view-join" data-entry-view="join" data-title="Make an account · Zaisma" hidden>');
+    const joinPage = await (await new Browser().go("/join")).text();
+    expect(joinPage).toContain('data-entry-view="signin" data-title="Sign in · Zaisma" hidden>');
+    expect(joinPage).toContain('<a href="/join" aria-current="page">Make an account</a>');
+    // The stills are the stage's CSS, so only the one showing loads.
+    const styles = await (await SELF.fetch(`${SITE}${plain.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
+    for (const still of ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"]) expect(styles).toContain(`url(/sign-in/${still})`);
 
     // A game's tab: the pane says the game asked, and the guest way goes back to it, on every pane of the way in.
     const next = encodeURIComponent("/account/kept?game=owl-game");

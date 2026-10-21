@@ -165,7 +165,7 @@ const PANE_STYLES = `
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
-.glass-pane > .pane-in > form, .glass-pane .pane-stack { display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.glass-pane > .pane-in form, .glass-pane .pane-stack { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }

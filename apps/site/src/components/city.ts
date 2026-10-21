@@ -11,20 +11,17 @@ import { runButton } from "./actions.ts";
  * and the developer front door can reuse it: nothing here is the sign-in's.
  *
  * cityStage() is the canvas and, under it, a still of the same city, so the first frame is never empty. CITY_SCRIPT draws the city
- * into the canvas and fades it in over the still once it renders. The canvas never starts, and the still stays, under reduced
- * motion, without WebGL 2, or on a device that can't keep it smooth even at its lowest step (then it fades back out and stops).
+ * into the canvas and shows it in place of the still from its first frame, with no fade: the still and the moving city never
+ * show at once. The canvas never starts, and the still stays, under reduced motion, without WebGL 2, or on a device that can't
+ * keep it smooth even at its lowest step (then the still comes back and it stops).
  *
  * The stills are renders of the city itself (brand/sign-in/, served at /sign-in/): the opening shot, the camera at
  * [430, 120, 300] looking at [0, 20, 0] with the city's seed 7274, a flyer mid-flight, foam on the sea and the sun's glint on,
  * at midday for light and at night for dark. Wide ones are 2400×1500, phone ones 1200×1800, WebP at quality 0.82.
  */
 
-/** Where the stills are served (brand/sign-in/). */
-const STILL_PATH = "/sign-in";
-
-/** One still of the city, day or night, with its phone and wide renders. Only the one the theme shows is loaded (loading="lazy" skips a hidden image). */
-const still = (timeOfDay: "day" | "night") =>
-  html`<picture class="city-still is-${timeOfDay}"><source media="(max-width: 760px) and (orientation: portrait)" srcset="${STILL_PATH}/city-${timeOfDay}-phone.webp"><img src="${STILL_PATH}/city-${timeOfDay}.webp" alt="" loading="lazy" decoding="async" width="2400" height="1500"></picture>`;
+/** One still of the city, day or night: its picture is the stage's CSS, so only the one showing (by theme, phone or wide) is loaded, at once. */
+const still = (timeOfDay: "day" | "night") => html`<div class="city-still is-${timeOfDay}"></div>`;
 
 export interface CityStageOptions {
   /** Fills its own box instead of the window: the gallery's example. */
@@ -44,7 +41,7 @@ export function cityStage(options: CityStageOptions = {}): Raw {
  * - It finds its canvas and the pane over it on the page, and works in the canvas's own box (the gallery frames it).
  * - Phones (a coarse pointer, or narrower than 760px) start at 1 pixel per CSS pixel instead of 1.5.
  * - Below the draft's lowest resolution, two cheaper steps: bloom and depth of field off, then the god rays, the lens glint and
- *   half the flyers off. Slow even then, it fades out to the still and stops.
+ *   half the flyers off. Slow even then, the still comes back and it stops.
  * - Taps work by touch as clicks do: a touch that didn't move is a tap; a drag scrolls the page.
  * - Night follows the theme the page shows where the canvas is (its color-scheme).
  */
@@ -62,7 +59,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (!pane || isFramed || window.innerWidth === placedWidth) return;
     placedWidth = window.innerWidth;
     if (!isNarrow()) { pane.style.marginTop = ""; return; }
-    var button = pane.querySelector(".run-wrap") || pane.querySelector("button, a");
+    // The first main button showing (a pane can hold views that take turns, like Sign in and Make an account).
+    var button = Array.prototype.find.call(pane.querySelectorAll(".run-wrap, button, a"), function (el) { return el.getClientRects().length > 0 && el.matches(".run-wrap"); }) || pane.querySelector("button, a");
     pane.style.marginTop = "0px";
     var peek = (button ? button.getBoundingClientRect().bottom : pane.getBoundingClientRect().top + 240) - pane.getBoundingClientRect().top + 24;
     var below = header ? header.offsetTop + header.offsetHeight + 12 : 12;
@@ -1273,13 +1271,19 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 `);
 
 const CITY_STYLES = `
-/* The city's stage: under everything on the page, filling the window. The still shows at once; the live city fades in over it
-   once it renders, and back out to it if the device can't keep up. */
+/* The city's stage: under everything on the page, filling the window. The still shows at once; the live city takes its place on its
+   first frame, with no fade (a still and a moving city seen through each other look doubled), and gives it back if the device can't keep up. */
 .city-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
 .city-stage.is-framed { position: absolute; z-index: 0; }
-.city-stage .city-still, .city-stage .city-still img, .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.city-stage .city-still img { object-fit: cover; }
-.city-stage .city { opacity: 0; transition: opacity 1.2s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.city-stage .city-still, .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.city-stage .city-still { background: center / cover no-repeat; }
+.city-stage .city-still.is-day { background-image: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { background-image: url(/sign-in/city-night.webp); }
+@media (max-width: 760px) and (orientation: portrait) {
+  .city-stage .city-still.is-day { background-image: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { background-image: url(/sign-in/city-night-phone.webp); }
+}
+.city-stage .city { opacity: 0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .city-stage .city.on { opacity: 1; }
 /* Day for light, night for dark: only the one showing is loaded. */
 .city-stage .city-still.is-night { display: none; }
@@ -1294,7 +1298,6 @@ const CITY_STYLES = `
 [data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
-@media (prefers-reduced-motion: reduce) { .city-stage .city { transition: none; } }
 
 /* A pane on the city: glass in front, never resting in the scene. On a wide screen it stands on the right, level with the logo, full height;
    on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
