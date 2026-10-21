@@ -390,16 +390,25 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--focus); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* A dark tint is a solid slab: no dark hairline, white facets or white top highlight (those read as a glitchy frame), only a
-   rim in a lighter shade of its own color, and a lift shadow that stays in its color. */
-.glass-btn[data-tint="blue"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="indigo"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="black"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band) { opacity: 0; }
-.glass-btn[data-tint="blue"] .edge .rim, .glass-btn[data-tint="indigo"] .edge .rim, .glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-color) 58%, white); stroke-width: 1.6; opacity: 1; }
-.glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-color) 70%, white); }
+/* A tinted slab is colored glass, not a plate: it keeps the glass's edge, drawn in its own color. Its bevel steps from a light shade of
+   the tint along the lit top to a deep shade along the foot, the polished rim and the glint at the lit corner are the tint's light, the
+   inner facet line catches light from below, and the glass is a little denser at its edge. A sheen lies over the color, brightest at the
+   top. No dark hairline or rainbow fringe on it, which read as a frame round a colored slab. */
+.glass-btn[data-tint]:not([data-tint="clear"]) > .face {
+  --edge-lit: color-mix(in srgb, var(--tint-color) 30%, white); --edge-shade: color-mix(in srgb, var(--tint-color) 55%, black); --edge-corner: color-mix(in srgb, var(--tint-color) 25%, white);
+  --edge-spec: rgba(255,255,255,0.95); --edge-inner: color-mix(in srgb, var(--tint-color) 20%, white); --edge-dense: rgba(0,0,0,0.07);
+  --edge-bevel: 0.6; --edge-rim: 0.85; --edge-fringe: 0;
+  --glass-layer: linear-gradient(180deg, rgba(255,255,255,0.3), rgba(255,255,255,0.08) 40%, rgba(255,255,255,0) 58%, rgba(0,0,0,0.1)), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+.glass-btn[data-tint="white"] > .face { --edge-lit: #fff; --edge-shade: #AEB6C3; --edge-corner: #E3E7ED; --edge-inner: #fff; --edge-dense: rgba(40,60,100,0.06); --edge-bevel: 0.75;
+  --glass-layer: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 50%, rgba(30,50,90,0.06)), linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+.glass-btn[data-tint="black"] > .face { --edge-lit: #5A606B; --edge-shade: #000; --edge-corner: #6B717C; --edge-inner: #8A919C; }
+.glass-btn[data-tint]:not([data-tint="clear"]) .edge :is(.hair, .fringe) { opacity: 0; }
+.glass-btn[data-tint]:not([data-tint="clear"]) .edge { opacity: 1; }
+.glass-btn[data-tint]:not([data-tint="clear"]) .edge .inner { opacity: 0.8; }
 .glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
 .glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
-.glass-btn[data-tint="blue"]:focus-visible .edge .rim, .glass-btn[data-tint="indigo"]:focus-visible .edge .rim, .glass-btn[data-tint="black"]:focus-visible .edge .rim,
-.glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; }
-/* Tinted: the way's own color, nearly solid, in either theme (a brand's color is how you recognize it, so it doesn't
+.glass-btn[data-tint]:not([data-tint="clear"]):focus-visible .edge .rim, .glass-btn[data-tint]:not([data-tint="clear"]).is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
+/* Tinted: the way's own color, mostly solid, the backdrop just showing through, in either theme (a brand's color is how you recognize it, so it doesn't
    follow light or dark): white glass with dark words, the colored and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
 .glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
@@ -410,8 +419,8 @@ component({
 .glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
 .glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
 .glass-btn[data-tint="white"] > .face { --tint-color: #fff; color: #14171C; }
-.glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; }
-.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --pointer-glow: rgba(255,255,255,0.35); }
+.glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 96%; --glass-btn-tint-press: 76%; }
+.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 88%; --glass-btn-tint-hover: 94%; --glass-btn-tint-press: 80%; --pointer-glow: rgba(255,255,255,0.35); }
 .glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
 .glass-btn[data-tint="blue"] > .face { --tint-color: #2A75E8; }
 .glass-btn[data-tint="indigo"] > .face { --tint-color: #5865F2; }
