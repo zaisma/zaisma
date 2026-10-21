@@ -113,6 +113,7 @@ async function deleteGame(env: Env, deletion: GameDeletion): Promise<void> {
   await deleteKeys(env.GAMES, fileVersions.map((version) => manifestKey(version.id)));
   await deleteUnder(env.GAMES, `games/${gameId}/`);
   await deleteUnder(env.GAMES, `images/${gameId}/`);
+  await deleteUnder(env.GAMES, `shaders/${gameId}/`);
   await deleteUnder(env.GAMES, heldImageKey(gameId, ""));
   await deleteUnder(env.GAMES, logPrefix(gameId));
   const { results: reports } = await env.DB.prepare("SELECT id FROM reports WHERE game_id = ?").bind(gameId).all<{ id: string }>();

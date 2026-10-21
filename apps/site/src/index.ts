@@ -1,5 +1,5 @@
 import { deleteDueGames } from "./game-deletion.ts";
-import { gameBySlug, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob } from "@zaisma/core";
+import { gameBySlug, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
@@ -24,7 +24,9 @@ import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
+import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
+import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
 // Every component of the look (components/), defined before the first request, and the gallery that shows them.
 import "./components/index.ts";
@@ -163,9 +165,15 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
+    // Versions to open in Chrome have a queue of their own (zaisma-performance, or its stand-in in tests).
+    if (batch.queue.startsWith("zaisma-performance")) return handlePerformanceBatch(batch as MessageBatch<PerformanceJob>, env);
     const scans: Message<ScanJob>[] = [];
     for (const message of batch.messages) {
       const body = message.body;
+      if ("shaderCheckId" in body) {
+        await checkShaderFromQueue(env, message as Message<ShaderCheckJob>);
+        continue;
+      }
       if (!("listingCheckGameId" in body)) {
         scans.push(message as Message<ScanJob>);
         continue;
@@ -185,7 +193,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
-} satisfies ExportedHandler<Env, ScanJob | ListingCheckJob>;
+} satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

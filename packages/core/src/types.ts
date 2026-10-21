@@ -79,6 +79,8 @@ export interface Game {
   /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */
   listing_check_requested_at_ms: number | null;
   listing_checked_at_ms: number | null;
+  /** The color Zaisma tints its glass with over the game's background, as #RRGGBB; NULL for none. */
+  glass_tint_color: string | null;
   /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */
@@ -212,6 +214,11 @@ export interface ScanJob {
 /** The listing check on a game's covers, screenshots and words ("No slop"), on the scan queue beside ScanJob. */
 export interface ListingCheckJob {
   listingCheckGameId: string;
+}
+
+/** The shader check on one shader a game sent for its background (apps/site/src/shader-check.ts), on the scan queue too. */
+export interface ShaderCheckJob {
+  shaderCheckId: string;
 }
 
 /** Why a player reports another player in a room. */

@@ -309,7 +309,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
 });
 
 /** The game domain's saves script on a game page, in a stand-in browser that answers for the Zaisma page. */
-function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = undefined as unknown } = {}) {
+function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = undefined as unknown, saveLimitBytes = 5 * 1024 * 1024 } = {}) {
   const source = readFileSync(join(import.meta.dirname, "../../packages/sdk/saves.js"), "utf8");
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const documentListeners: Record<string, (() => void)[]> = {};
@@ -318,7 +318,7 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
   const localStorage = storage(localItems);
   const window = { parent, indexedDB };
   const browser = {
-    __ZAISMA_SAVES__: { site: SITE },
+    __ZAISMA_SAVES__: { site: SITE, saveLimitBytes },
     window,
     parent,
     indexedDB,
@@ -344,6 +344,25 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
     steps: (step: string) => toPage.filter((message) => message.step === step),
   };
 }
+
+describe("the game domain's saves script, past the save limit", () => {
+  it("says the save is over the limit instead of sending it, and the game page keeps it on the device", async () => {
+    const frame = loadGameFrame({ localItems: { world: "x".repeat(200) }, saveLimitBytes: 100 });
+    frame.fromPage({ step: "sync", text: null });
+    await vi.waitFor(() => expect(frame.steps("over_limit")).toHaveLength(1));
+    expect(frame.steps("save")).toEqual([]);
+
+    const page = loadGamePage();
+    await playing(page, { level: "3" });
+    page.fromGame({ step: "over_limit" });
+    expect(page.told("pause")).toHaveLength(1);
+    expect(page.elements["save-status"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
+    // Paused: a later save isn't sent to the account.
+    page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(page.asked.filter((each) => each.method !== "GET")).toEqual([]);
+  });
+});
 
 describe("the game domain's saves script, putting a save in place while the game runs", () => {
   it("writes the save and says so, and the next check has nothing to send", async () => {

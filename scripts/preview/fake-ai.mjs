@@ -118,8 +118,8 @@ function checkListing(text) {
   const title = words.match(/^Title(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
   const isTitleJudged = !/^Title \(not judged\)/m.test(words);
   const description = words.match(/^Description(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
-  const judgedCount = [...text.matchAll(/^Picture (\d+): [a-z ]+, JUDGE$/gm)].map((match) => Number(match[1]));
-  const no = { extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", has_safety_concern: false };
+  const judgedCount = [...text.matchAll(/^Picture (\d+): .+, JUDGE$/gm)].map((match) => Number(match[1]));
+  const no = { extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
   const tag = title.match(/\[[^\]]*\]|\([^)]*\)|\p{Extended_Pictographic}|\b(?:NEW|UPDATE)\b/u)?.[0] ?? "";
   return {
     pictures: judgedCount.map((number) => ({ ...no, number })),

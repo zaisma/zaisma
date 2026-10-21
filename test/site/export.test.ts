@@ -90,6 +90,7 @@ describe("export everything", () => {
       withheld_version_count: 1,
       image_count: 1,
       withheld_image_count: 1,
+      shader_count: 0,
       save_count: 1,
       files_size_bytes: 25 + 11 + 9,
     });

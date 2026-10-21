@@ -66,6 +66,7 @@ import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { sendAlert } from "./email.ts";
+import { queuePerformanceCheck } from "./performance-check.ts";
 import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
 import { turnOffLeakedKeys } from "./leaked-keys.ts";
@@ -927,6 +928,7 @@ export async function passVersion(env: Env, version: Version, why: string, actor
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish`, actor);
   }
+  await queuePerformanceCheck(env, version);
 }
 
 /**
@@ -983,5 +985,5 @@ export async function pruneVersions(env: Env, gameId: string): Promise<void> {
 export async function deleteVersion(env: Env, version: Version): Promise<void> {
   if (version.kind === "files") await env.GAMES.delete(manifestKey(version.id));
   else await deletePrefix(env.GAMES, version.r2_prefix);
-  await env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(version.id).run();
+  await env.DB.batch([env.DB.prepare("DELETE FROM performance_checks WHERE version_id = ?").bind(version.id), env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(version.id)]);
 }
