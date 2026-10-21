@@ -1,7 +1,7 @@
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, COLOUR_PICKER_SCRIPT, GLASS_SCRIPT, TOKEN_STYLES } from "./foundations.ts";
-import { RUNNER_SCRIPT } from "./actions.ts";
+import { BUSY_SCRIPT, RUNNER_SCRIPT } from "./actions.ts";
 import { BIRTHDAY_SCRIPT, FIELD_SCRIPT, SWITCH_SCRIPT } from "./inputs.ts";
 import { COMPACT_SCRIPT, RAIL_SCRIPT, ROW_SCRIPT, SCROLL_FADE_SCRIPT } from "./navigation.ts";
 import { DROPDOWN_SCRIPT } from "./panes.ts";
@@ -19,4 +19,4 @@ export { HEADER_SCRIPT } from "./navigation.ts";
 /** The tokens, then every component's CSS in gallery order. */
 export const COMPONENT_STYLES = (): string => TOKEN_STYLES + COMPONENTS().map((each) => each.styles).join("");
 
-export const COMPONENT_SCRIPT: PageScript = pageScript("components", GLASS_SCRIPT + BACKDROP_SCRIPT + COLOUR_PICKER_SCRIPT + FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BIRTHDAY_SCRIPT + DROPDOWN_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT);
+export const COMPONENT_SCRIPT: PageScript = pageScript("components", GLASS_SCRIPT + BACKDROP_SCRIPT + COLOUR_PICKER_SCRIPT + FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + BIRTHDAY_SCRIPT + DROPDOWN_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT);

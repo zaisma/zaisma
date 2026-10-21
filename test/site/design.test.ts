@@ -11,6 +11,19 @@ import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import { pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { html } from "../../apps/site/src/html.ts";
+import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
+import actionsSource from "../../apps/site/src/components/actions.ts?raw";
+import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
+import navigationSource from "../../apps/site/src/components/navigation.ts?raw";
+import panesSource from "../../apps/site/src/components/panes.ts?raw";
+import dataSource from "../../apps/site/src/components/data.ts?raw";
+import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
+
+/** The gallery's own source, to check it draws nothing by hand. */
+const SOURCES: Record<string, string> = {
+  "components/foundations.ts": foundationsSource, "components/actions.ts": actionsSource, "components/inputs.ts": inputsSource,
+  "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource, "design-page.ts": galleryPageSource,
+};
 
 /**
  * Every page is built from one gallery of components (docs/DECISIONS.md): zaisma.com/design shows each one,
@@ -29,9 +42,9 @@ describe("the gallery", () => {
     for (const each of COMPONENTS()) {
       const { response, text } = await page(groupPath(each.group));
       expect(response.status, each.group).toBe(200);
-      const at = text.indexOf(`<section class="component-section" id="${each.slug}"`);
+      const at = text.indexOf(`<div class="component-section" id="${each.slug}"`);
       expect(at, each.slug).toBeGreaterThan(-1);
-      const next = text.indexOf('<section class="component-section"', at + 1);
+      const next = text.indexOf('<div class="component-section"', at + 1);
       const section = text.slice(at, next === -1 ? undefined : next);
       expect(section, each.slug).toContain(each.name.replace(/'/g, "&#39;"));
       expect(section.split('<figure class="example').length - 1, each.slug).toBeGreaterThanOrEqual(1);
@@ -234,6 +247,61 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("builds everything on its pages from the gallery: every piece comes from a component, or is a named exception", async () => {
+    // A class on a gallery page is a component's (its styles define it) or the gallery's own scaffolding (GALLERY_ONLY, with why).
+    // The gallery may place a component (where it sits and how big its box is) or set the variables it offers, never restyle it.
+    // No source draws its own icon, button or pane: icons are the icon set's (or a named brand mark), buttons come from actions.ts,
+    // and glass sheets from Glass pane or Tray, or one of the named pieces made of glass (OWN_GLASS).
+    const problems: string[] = [];
+    const componentCss = COMPONENT_STYLES();
+    const rules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = "", declarations = ""]) => ({ selector: selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations }));
+    const styledBy = (css: string, name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(css);
+    for (const { group } of COMPONENT_GROUPS) {
+      const body = (await page(groupPath(group))).text.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "");
+      for (const [, list = ""] of body.matchAll(/\sclass="([^"]*)"/g)) {
+        for (const name of list.split(/\s+/).filter(Boolean)) {
+          if (styledBy(componentCss, name) || GALLERY_ONLY.has(name) || UNSTYLED_HOOKS.has(name)) continue;
+          problems.push(`${group}: .${name} comes from no component`);
+        }
+      }
+    }
+    const PLACING = /^(--[\w-]+|margin(-[a-z]+)?|position|top|right|bottom|left|inset|z-index|flex(-[a-z]+)?|order|align-self|justify-self|grid-(column|row)|width|max-width|min-width|height|max-height|min-height|display)$/;
+    for (const { selector, declarations } of rules(GALLERY_STYLES)) {
+      if (selector.startsWith("@")) continue;
+      for (const each of selector.split(",")) {
+        const subject = each.trim().split(/[\s>+~]+/).pop() ?? "";
+        const classes = [...subject.matchAll(/\.([\w-]+)/g)].map((match) => match[1]!);
+        // The gallery's own element (a class only it styles) is the gallery's to style.
+        if (!classes.length || classes.some((name) => GALLERY_ONLY.has(name)) || !classes.some((name) => styledBy(componentCss, name))) continue;
+        for (const [, property = ""] of declarations.matchAll(/(?:^|[;\s])([\w-]+)\s*:/g)) if (!PLACING.test(property)) problems.push(`gallery restyles ${each.trim()}: ${property}`);
+      }
+    }
+    for (const [file, source] of Object.entries(SOURCES)) {
+      for (const line of source.split("\n")) {
+        if (/<svg[\s>]/.test(line) && ![...OWN_SVG.keys()].some((name) => line.includes(name))) problems.push(`${file}: draws an svg of its own: ${line.trim().slice(0, 70)}`);
+        if (/class=\\?"shell/.test(line) && file !== "components/actions.ts") problems.push(`${file}: builds a button by hand: ${line.trim().slice(0, 70)}`);
+        if (/<[a-z][^>]*\sdata-glass(?=[\s>])/.test(line) && ![...OWN_GLASS.keys()].some((name) => line.includes(name))) problems.push(`${file}: makes glass by hand: ${line.trim().slice(0, 70)}`);
+      }
+    }
+    expect([...new Set(problems)]).toEqual([]);
+  });
+
+  it("names no exception that's gone: every entry in the lists below is still in the code", async () => {
+    const problems: string[] = [];
+    const css = COMPONENT_STYLES() + GALLERY_STYLES;
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = "", declarations = ""]) => ({ selector: selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations }));
+    const declared = new Set(rules.flatMap(({ selector, declarations }) => [...declarations.matchAll(/(?:^|[;\s{])([\w-]+)\s*:/g)].map(([, property]) => `${selector} | ${property}`)));
+    for (const entry of [...NOT_SPACING, ...NOT_TYPE]) if (!declared.has(entry)) problems.push(`${entry} (NOT_SPACING or NOT_TYPE)`);
+    const selectors = new Set(rules.flatMap(({ selector }) => [selector, ...selector.split(",").map((each) => each.trim().replace(/:[a-z-]+(\([^)]*\))?/g, ""))]));
+    for (const entry of [...LINK_IN_CONTROL, ...HAND_CUT]) if (!selectors.has(entry)) problems.push(`${entry} (LINK_IN_CONTROL or HAND_CUT)`);
+    let pages = "";
+    for (const { group } of COMPONENT_GROUPS) pages += (await page(groupPath(group))).text;
+    for (const name of [...GALLERY_ONLY, ...UNSTYLED_HOOKS]) if (!new RegExp(`class="[^"]*\\b${name}\\b`).test(pages)) problems.push(`.${name} (GALLERY_ONLY or UNSTYLED_HOOKS)`);
+    const source = Object.values(SOURCES).join("\n");
+    for (const name of [...OWN_SVG.keys(), ...OWN_GLASS.keys()]) if (!source.includes(name)) problems.push(`${name} (OWN_SVG or OWN_GLASS)`);
+    expect(problems).toEqual([]);
+  });
+
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
       const { text } = await page(`${groupPath(group)}?theme=dark`);
@@ -279,11 +347,11 @@ describe("components", () => {
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
-    expect(onDashboard).toContain('<a href="/dashboard" class="dev" aria-current="page">Developer</a>');
-    expect(onDashboard).toContain('<a href="/forum" class="dev">Forum</a>');
+    expect(onDashboard).toContain('<a href="/dashboard" class="foldable" aria-current="page">Developer</a>');
+    expect(onDashboard).toContain('<a href="/forum" class="foldable">Forum</a>');
     const atHome = navigation.header({ current: "home", isOnDeveloperPage: false, account }).html;
-    expect(atHome).toContain('<a href="/dashboard" class="dev off" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true">Forum</a>');
+    expect(atHome).toContain('<a href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(atHome).toContain('<a href="/forum" class="foldable folded" tabindex="-1" aria-hidden="true">Forum</a>');
   });
 });
 
@@ -302,10 +370,59 @@ const HAND_CUT = new Set<string>([
   ".tag", ".cover-bar",
 ]);
 
+// The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
+const GALLERY_ONLY = new Set<string>([
+  // The page: its body, the stage that carries its settings, the bar, its title and its groups, the layout, the index and the main column.
+  "gallery", "stage", "gallery-bar", "gallery-title", "gallery-groups", "gallery-layout", "gallery-index", "gallery-main", "group-name",
+  // A section (a Tray) with its name and summary, and the grid of labelled examples on it.
+  "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
+  // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
+  // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
+  "header-frame", "tall", "logo-frame", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "cover-sample", "example-pane",
+]);
+
+// Classes a script or a screen reader uses, with no look of their own.
+const UNSTYLED_HOOKS = new Set<string>([
+  "bday-read", // The birthday's spoken summary (and .sr hides it).
+  "row", // A row of covers, for the rail's marks.
+]);
+
+// The only svgs drawn in source, each with why: everything else is an icon from the set.
+const OWN_SVG = new Map<string, string>([
+  ["const stroke = ", "the icon set's line icons"],
+  ['"arrow-back"', "the icon set's filled arrows"],
+  ['"arrow-on"', "the icon set's filled arrows"],
+  ["play: '<svg", "the icon set's play triangle"],
+  ["9988 2820", "Zaisma's wordmark (the Logo)"],
+  ["4527 3300", "Zaisma's mark (the Logo)"],
+  ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
+  ['class="edge"', "glass's drawn rim (EDGE)"],
+  ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
+  ['class="one-colour"', "Discord's mark, as Discord asks it to be shown"],
+  ["cursor.innerHTML", "the gallery's loops' own pointer"],
+  ["data-glass-play", "the Glass foundation's demo window's resize grip"],
+]);
+
+// The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
+const OWN_GLASS = new Map<string, string>([
+  ['class="glass glass-pane', "Glass pane itself"],
+  ['class="tray-group"', "Tray itself"],
+  ['class="face glass"', "a glass button's face"],
+  ['class="frame ${pictureSize} glass', "a picture's frame"],
+  ['class="dropdown glass', "a dropdown"],
+  ['class="top glass', "the header"],
+  ['class="gallery-bar glass', "the gallery's bar"],
+  ['class="gallery-index glass', "the gallery's index"],
+  ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
+  ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
+  ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
+  ['data-spacing-show', "the Spacing foundation's demos, which mark a pane's own padding and gap"],
+]);
+
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
-  ".nav a", ".nav a[aria-current=\"page\"]", ".nav:not(.is-ready) a[aria-current=\"page\"]", ".nav a.dev", ".nav a.dev.off", ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a",
+  ".tab-switch > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
@@ -314,28 +431,26 @@ const NOT_TYPE = new Set<string>([
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".nav a | font", ".top .end .run | font-size", ".me | font",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size", ".me | font",
   // A picture's initials, sized to the picture.
-  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ".cover-meta .frame.xs .av::first-letter | font-size",
-]);
+  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ]);
 
 const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
-  ".field.with-toggle input | padding-right", ".field .show | padding", '.find input[type="search"] | padding', ".bday-field | gap",
-  ".bday-field | padding", ".bday-field .chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
-  ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".logo | margin-left", ".nav a | padding", ".me | gap",
+  ".field.with-toggle input | padding-right", '.find input[type="search"] | padding', ".bday-field | gap",
+  ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
+  ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".top > .logo | margin-left", ".me | gap",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
   // Lines words up with the places' words under them.
   ".dropdown-head | padding",
   // Room to scroll, or for a scrollbar or a page's rail.
-  ".wheel | padding", ".glass-pane > .pane-in | margin-right", ".glass-pane > .pane-in::-webkit-scrollbar-track | margin-block",
-  "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
+  ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
   // Room for the covers to lift into, given back round the row.
   ".track | padding", ".track | margin",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.

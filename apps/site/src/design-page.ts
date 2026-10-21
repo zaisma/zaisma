@@ -3,10 +3,10 @@ import { headScriptTags, html, pageData, raw, securityHeaders, type Raw } from "
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { CUT_LINE, EDGE, WORDMARK, backdrop, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
+import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
-import { glassPane } from "./components/panes.ts";
+import { glassPane, tray } from "./components/foundations.ts";
 
 /*
  * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
@@ -31,10 +31,12 @@ function examples(each: Component): Raw {
 }
 
 function section(each: Component, theme: GalleryTheme): Raw {
-  return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
-<div class="component-head glass" data-glass data-glass-corners="24 20 24 20"><h2 id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p>${each.summary}</p></div>
-${examples(each)}
-</section>`;
+  // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it.
+  return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${tray({
+    head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${each.summary}</p>`,
+    body: examples(each),
+    label: each.name,
+  })}</div>`;
 }
 
 /** The sun and the moon, from the sign-in draft's theme control. */
@@ -71,9 +73,9 @@ ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="20 14 20 14">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
+<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="20 14 20 14">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
-<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row" data-fades-sideways>${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
+<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></header>
 <div class="gallery-layout">
 <nav class="gallery-index glass" aria-label="Groups" data-glass data-glass-corners="24 20 24 20">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
 <main class="gallery-main">
@@ -99,7 +101,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
 .gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
   --glass-tint: var(--glass-top); }
-.gallery-bar .logo svg { height: 24px; }
+.gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-bar > .cut-btn { margin-left: auto; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
@@ -109,9 +111,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* The group's name is already the current place in the index (or the tabs on a phone), so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: 96px; }
-.component-head { padding: var(--pad-pane); margin-bottom: var(--gap-block-block); }
-.component-head h2 { margin: 0; font: var(--type-section); }
-.component-head p { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
+.component-name { margin: 0; font: var(--type-section); }
+.component-summary { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
@@ -130,9 +131,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .loop-cursor.is-down svg { transform: scale(0.84); }
 .dropdown-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
-.rail-box { position: relative; width: min(420px, 100%); height: 220px; }
-.rail-box-in { height: 100%; overflow-y: auto; padding: var(--pad-pane); }
-.rail-box-in p { margin: 0; color: var(--ink-2); }
+/* The rail's example: a pane held short, so what's in it scrolls on its rail. */
+.rail-box { display: flex; height: 220px; }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
@@ -153,18 +153,14 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
   /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
      before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
-  .gallery-groups { display: block; position: relative; flex: 1 0 100%; min-width: 0; height: 36px; background: var(--well); box-shadow: var(--well-shade);
-    clip-path: var(--cut-shape); }
-  .gallery-groups-row { height: 100%; }
-  .gallery-groups .tab-switch { width: max-content; }
+  .gallery-groups { display: flex; flex: 1 0 100%; min-width: 0; }
+  .gallery-groups > .switch-frame { flex: 1; }
   /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
      from every edge of the pane; compact keeps it even, only smaller. */
   .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
   .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
-  .gallery-bar.is-compact .logo svg { height: 18px; }
-  .gallery-bar > .cut-btn > .face { height: 40px; width: 48px; transition: height 0.25s; }
-  .gallery-bar.is-compact > .cut-btn > .face { height: 36px; }
+  .gallery-bar > .logo { --logo-height: 22px; }
+  .gallery-bar.is-compact > .logo { --logo-height: 18px; }
   .component-section { scroll-margin-top: 130px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .cover-sample { width: 100%; }

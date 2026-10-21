@@ -11,7 +11,7 @@ import { component } from "./component.ts";
 const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
-  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-dropdown: rgba(250, 252, 255, 0.62);
+  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-dropdown: rgba(250, 252, 255, 0.62); --glass-tray: rgba(250, 252, 255, 0.2);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
@@ -48,7 +48,7 @@ const LIGHT_GLASS = `color-scheme: light;
 const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-dropdown: rgba(18, 21, 27, 0.62);
+  --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-dropdown: rgba(18, 21, 27, 0.62); --glass-tray: rgba(14, 17, 24, 0.24);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.12));
   --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.35);
   --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -264,6 +264,7 @@ export const ICONS = {
     '<g class="on-light"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></g><g class="on-smoked"><path d="M15.5 12.6A6.6 6.6 0 0 1 7.4 4.5a6.6 6.6 0 1 0 8.1 8.1z"/></g>',
     ' stroke-width="1.8"',
   ),
+  passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
   "arrow-on": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>',
@@ -289,6 +290,39 @@ export const WORDMARK = raw(
   `<svg viewBox="-120 1080 9988 2820" role="img" aria-label="Zaisma"><g fill="currentColor"><g transform="translate(0 3779) scale(0.62132) translate(0 -3779)">${MARK_PATHS}</g><g transform="translate(-1953 0)"><path d="M4957,1879 L5877,1879 L6132,3779 L5212,3779 L4837,3449 L4765,2909 L5051,2579 L5601,2579 L5557,2249 L4677,2249 Z M5140,2949 L5650,2949 L5712,3409 L5202,3409 Z" fill-rule="evenodd"/><path d="M6077,1879 L6447,1879 L6702,3779 L6332,3779 Z M5991,1239 L6541,1239 L6412,1619 L6042,1619 Z" fill-rule="evenodd"/><path d="M6647,1879 L7847,1879 L7667,2249 L7067,2249 L7120,2644 L7950,2644 L8102,3779 L6902,3779 L7082,3409 L7682,3409 L7629,3014 L6799,3014 Z" fill-rule="evenodd"/><path d="M8091,2209 L8377,1879 L9997,1879 L10252,3779 L9882,3779 L9677,2249 L9257,2249 L9462,3779 L9092,3779 L8887,2249 L8467,2249 L8672,3779 L8302,3779 Z" fill-rule="evenodd"/><path d="M10527,1879 L11447,1879 L11702,3779 L10782,3779 L10407,3449 L10335,2909 L10621,2579 L11171,2579 L11127,2249 L10247,2249 Z M10710,2949 L11220,2949 L11282,3409 L10772,3409 Z" fill-rule="evenodd"/></g></g></svg>`,
 );
 export const MARK = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g fill="currentColor">${MARK_PATHS}</g></svg>`);
+
+export const PANE_SIZES = { small: 320, medium: 480, large: 720 } as const;
+
+export interface GlassPaneOptions {
+  paneSize: "small" | "medium" | "large" | "full";
+  body: Raw;
+  /** Cut corners: top left, top right, bottom right, bottom left. Panes are 24 and 20. */
+  corners?: [number, number, number, number];
+  label?: string;
+}
+
+/** A pane of Zaisma's glass (panes.ts's Glass pane shows it): cut corners, a drawn rim, clear glass. Long content scrolls inside it, so nothing in it shrinks. */
+export function glassPane(options: GlassPaneOptions): Raw {
+  const corners = (options.corners ?? [24, 20, 24, 20]).join(" ");
+  const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
+  return pane;
+}
+
+/**
+ * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
+ * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
+ * ones are square where they meet. What sits on a tray keeps its own edges: the edge rule treats it as on no pane (data-glass-tray).
+ */
+export function tray(options: { head: Raw; body: Raw; label?: string }): Raw {
+  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="24 20 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-tray data-glass-corners="0 0 24 20">${EDGE}${options.body}</div></section>`;
+}
+
+/** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */
+export const logo = (kind: "wordmark" | "mark"): Raw =>
+  html`<a class="logo ${kind}" href="/" aria-label="Zaisma home">${kind === "wordmark" ? WORDMARK : MARK}</a>`;
+
+/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' colour. Shown only once something was pressed. */
+export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
 export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
@@ -459,7 +493,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
-  function holderOf(el) { return el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line]"); }
+  // A tray (data-glass-tray) is a backing, not a pane: what sits on it keeps the edges it would have on no pane.
+  function holderOf(el) { return el.parentElement && el.parentElement.closest("[data-glass]:not([data-glass-tray]), [data-cut-line]"); }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
@@ -591,7 +626,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     };
     if (window.ResizeObserver) {
       var watch = new ResizeObserver(draw); watch.observe(el);
-      var holder = el.parentElement && el.parentElement.closest("[data-glass]"); if (holder) watch.observe(holder);
+      var holder = el.parentElement && el.parentElement.closest("[data-glass]:not([data-glass-tray])"); if (holder) watch.observe(holder);
     }
     window.addEventListener("resize", draw);
     // Where it sits can change without its size changing: once the fonts are in, the layout has settled.
@@ -793,7 +828,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  html`<div class="glass swatch-pane" data-glass data-glass-corners="24 20 24 20">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
+  glassPane({ paneSize: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
 
 component({
   name: "Colour",
@@ -802,14 +837,13 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatch-pane { width: 100%; }
-.swatches { list-style: none; margin: 0; padding: var(--pad-pane); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
+.swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: var(--type-facts); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
-.divider-sample { display: grid; padding: var(--pad-pane); width: min(300px, 100%); }
+.divider-sample { display: grid; }
 .divider-sample strong { font: var(--type-name); }
 .divider-sample span { font: var(--type-facts); color: var(--muted); }
 .divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
@@ -819,7 +853,7 @@ component({
     { label: "Every token", markup: swatches(), isWide: true },
     {
       label: "The divider: a line between two parts of one pane",
-      markup: html`<div class="glass divider-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>`,
+      markup: glassPane({ paneSize: "small", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
     },
   ],
 });
@@ -1006,4 +1040,42 @@ component({
 .icon-set .play { color: var(--ink); }
 `,
   examples: [{ label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` }],
+});
+
+component({
+  name: "Logo",
+  slug: "logo",
+  group: "foundations",
+  summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' colour, never restyled.",
+  styles: `
+/* The logo: drawn in the words' colour, at --logo-height (a bar sets it as it slims). */
+.logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
+.logo.wordmark { --logo-height: 26px; }
+.logo.mark { --logo-height: 17px; padding: 0; opacity: 0.8; }
+.logo svg { height: var(--logo-height); width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
+.logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .logo svg { transition: none; } }
+`,
+  examples: [
+    { label: "The wordmark", markup: logo("wordmark") },
+    { label: "The mark", markup: logo("mark") },
+  ],
+});
+
+component({
+  name: "Loader",
+  slug: "loader",
+  group: "foundations",
+  summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
+  styles: `
+/* The loader: the brand's Z, masked so it takes the words' colour, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
+.loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; background: currentColor;
+  -webkit-mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; }
+@keyframes loader-calm { 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .loader { -webkit-mask-image: url(/zaisma-mark-small-white.svg); mask-image: url(/zaisma-mark-small-white.svg); animation: loader-calm 2.4s ease-in-out infinite; } }
+`,
+  examples: [
+    { label: "On its own", markup: loader() },
+    { label: "Bigger, for a page that's loading", markup: html`<span style="--loader-width:40px;color:var(--ink)">${loader()}</span>` },
+  ],
 });

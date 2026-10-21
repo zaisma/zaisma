@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, MARK, WORDMARK, icon, railMarkup, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
-import { searchField, type SearchFieldOptions } from "./inputs.ts";
+import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { pictureFrame } from "./data.ts";
 
@@ -35,15 +35,14 @@ export interface HeaderOptions {
   id?: string;
 }
 
-const tab = (label: string, href: string, isCurrent: boolean, isDeveloperTab = false, isOpen = true) =>
-  html`<a href="${href}"${isDeveloperTab ? raw(isOpen ? ' class="dev"' : ' class="dev off" tabindex="-1" aria-hidden="true"') : ""}${isCurrent ? raw(' aria-current="page"') : ""}>${label}</a>`;
+const tab = (label: string, href: string, isCurrent: boolean, isFoldable = false, isOpen = true): SwitchTab => ({ label, href, isCurrent, isFoldable, isFolded: isFoldable && !isOpen });
 
 /** The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. */
 export function header(options: HeaderOptions): Raw {
   const id = options.id ?? "top";
   const account = options.account ?? null;
-  const logo = html`<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a>`;
-  if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${logo}</header>`;
+  const wordmark = logo("wordmark");
+  if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${wordmark}</header>`;
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
   const menuItems: DropdownItem[] = account
@@ -57,9 +56,9 @@ export function header(options: HeaderOptions): Raw {
       ]
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
-  ${logo}
-  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<div class="nav-row" data-fades-sideways><span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</div></nav>
-  ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
+  ${wordmark}
+  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
+  ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
   <div class="end">${
     account
       ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
@@ -96,69 +95,48 @@ const HEADER_STYLES = `
 }
 .top.is-compact { height: 58px; top: 8px; }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .nav, .top .find, .top .find input, .top .run, .top .me { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
+.top .find, .top .find input, .top .run, .top .me { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
 /* Your picture is glass, so its changes start with the glass's. */
 .top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
-.top.is-compact .nav, .top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
+.top.is-compact .nav { --switch-height: 38px; }
+.top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
 .top.is-compact .run { font-size: 15px; }
 .top.is-compact .me .frame { --frame: 32px; }
 
-.logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
 .top > .logo { margin-right: var(--gap-block-block); }
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
 .top .find:has(~ .end > .run-wrap) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
-.logo svg { height: 26px; width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
-.top.is-compact .logo svg { height: 23px; }
-.logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.top.is-compact .logo { --logo-height: 23px; }
 
-/* Where you are: the sign-in's switch, laid flat. A white slab with an orange underline sits under the page you're on; a faint one follows the pointer. */
-/* The tabs sit in a row inside the carved well; when there are more than fit (a phone's dashboard), only the row scrolls, fading at its ends. */
-.nav { position: relative; display: flex; height: 44px; padding: 4px; flex: none; min-width: 0;
-  background: var(--well); box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape); }
-.nav-row { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; }
-.nav .slab, .nav .ghost { position: absolute; top: 0; bottom: 0; left: 0; width: 0; clip-path: var(--cut-shape); pointer-events: none;
-  transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.nav .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
-.nav .ghost { background: var(--ghost); opacity: 0; }
-.nav.pointing .ghost { opacity: 1; }
-.nav a { position: relative; display: grid; place-content: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
-.nav a[aria-current="page"] { color: var(--ink); }
-.nav a:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
-/* Before the script has measured, the tab you're on carries its own slab. */
-.nav:not(.is-ready) a[aria-current="page"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
-/* The Developer and Forum tabs open out of the end of the tabs on a developer page and fold back into it when you leave, while the slab slides. */
-.nav a.dev { max-width: 160px; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
-.nav a.dev.off { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
+/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims. */
+.nav { display: flex; flex: none; min-width: 0; }
+.nav > .switch-frame { flex: 1; }
 
 /* Search sits after the tabs, pushed to the end. */
 .top .find { margin-left: auto; }
 .end { display: flex; align-items: center; flex: none; }
-.top .find ~ .end, .top .find-open ~ .end { margin-left: 0; }
+.top .find ~ .end { margin-left: 0; }
 .top .nav + .end { margin-left: auto; }
 
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
-.find-open { display: none; }
+/* The phone's search button: a small Cut button, icon only, that swaps the tabs for the field. */
+.top > .find + .cut-btn { display: none; }
 @media (max-width: 760px) {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
   .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  .logo { margin-left: 6px; }
-  .logo svg, .top.is-compact .logo svg { height: 22px; }
+  .top > .logo { margin-left: 6px; }
+  .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
   .top.searching .find { display: block; }
   .top.searching .nav { display: none; }
-  .find-open { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; margin-right: var(--gap-words-control); border: 0; background: none; color: var(--ink); cursor: pointer; }
-  .find-open .ico { width: 20px; height: 20px; }
-  .find-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
+  .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
   .top .nav + .end { margin-left: auto; }
-  .top .nav { order: 4; flex-basis: 100%; height: 42px; }
-  .top.is-compact .find-open { height: 38px; }
-  .nav a { flex: 1 0 auto; padding: 0 12px; }
+  .top .nav { order: 4; flex-basis: 100%; --switch-height: 42px; }
   /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
   .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
   .top .me .name { display: none; }
@@ -167,15 +145,14 @@ const HEADER_STYLES = `
 /* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
 .top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
   background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
-.top.is-logo-only .logo svg { height: 30px; filter: var(--logo-halo); }
+.top.is-logo-only .logo { --logo-height: 30px; filter: var(--logo-halo); }
 @media (max-width: 760px) {
   /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
   .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
   .top.is-logo-only .logo { margin-left: 0; }
-  .top.is-logo-only .logo svg { height: 26px; }
+  .top.is-logo-only .logo { --logo-height: 26px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nav .slab, .nav .ghost, .nav a.dev, .logo svg { transition: none; }
   /* The header's glass still changes as all glass does: only its movement stops. */
   .top { transition: var(--glass-transition); }
 }
@@ -194,48 +171,10 @@ export const HEADER_SCRIPT = pageScript(
   headers.forEach(function (top) {
     /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
 
-    /* Where you are: the white slab sits under the current page; a faint one follows the pointer across the others. */
-    var nav = top.querySelector(".nav"), slab = nav.querySelector(".slab"), ghost = nav.querySelector(".ghost"), links = nav.querySelectorAll("a"), devTabs = nav.querySelectorAll(".dev");
-    // A page that isn't one of these (like sign-in) has no current link, so no slab.
-    // The edge rule, as on a switch: the slab slants only where another tab is beside it, and its end on the first or last tab follows the tabs' end.
-    function fit(el, link) {
-      var shown = Array.prototype.filter.call(links, function (each) { return !each.classList.contains("off"); }), isFirst = link === shown[0], isLast = link === shown[shown.length - 1];
-      el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
-      var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
-      if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut();
-    }
-    function put(el, link) { if (!link) { el.style.width = "0px"; return; } el.style.width = link.offsetWidth + "px"; el.style.transform = "translateX(" + link.offsetLeft + "px)"; fit(el, link); }
-    function current() { return nav.querySelector('[aria-current="page"]'); }
-    function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; nav.classList.add("is-ready"); }
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
-    settle();
-    if (window.ResizeObserver) new ResizeObserver(settle).observe(nav); else window.addEventListener("resize", settle);
-    links.forEach(function (link) {
-      link.addEventListener("pointerenter", function () { if (link !== current()) { put(ghost, link); nav.classList.add("pointing"); } else nav.classList.remove("pointing"); });
-      // The slab goes to the tab you chose at once, while its page loads.
-      link.addEventListener("click", function () {
-        if (current()) current().removeAttribute("aria-current"); link.setAttribute("aria-current", "page");
-        nav.classList.remove("pointing"); developerTab(link.classList.contains("dev"));
-      });
-    });
-    nav.addEventListener("pointerleave", function () { nav.classList.remove("pointing"); });
-    // Opens or folds the Developer and Forum tabs, and sends the slab straight to where the current tab will be once it has (measured first, without the motion).
-    function developerTab(on) {
-      if (!devTabs.length) return;
-      var was = !devTabs[0].classList.contains("off"), link = current();
-      function fold(isOff) { devTabs.forEach(function (each) { each.classList.toggle("off", isOff); }); }
-      devTabs.forEach(function (each) { each.style.transition = "none"; }); fold(!on);
-      var left = link ? link.offsetLeft : 0, width = link ? link.offsetWidth : 0;
-      fold(!was); devTabs[0].offsetWidth; devTabs.forEach(function (each) { each.style.transition = ""; });
-      fold(!on); devTabs.forEach(function (each) { each.tabIndex = on ? 0 : -1; each.setAttribute("aria-hidden", String(!on)); });
-      slab.style.width = width + "px"; slab.style.transform = "translateX(" + left + "px)";
-      ghost.style.width = width + "px"; ghost.style.transform = "translateX(" + left + "px)";
-      if (link) { fit(slab, link); fit(ghost, link); }
-    }
+    /* Where you are is a framed Switch, which moves its own slab (SWITCH_SCRIPT). */
 
     /* Search: on a phone the search button swaps the row below for the field. */
-    var search = top.querySelector('.find input[type="search"]'), findOpen = top.querySelector(".find-open");
+    var search = top.querySelector('.find input[type="search"]'), findOpen = top.querySelector(".find + .cut-btn");
     top.openSearch = function () { if (!search) return; top.classList.add("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "true"); search.focus(); };
     top.closeSearch = function () { top.classList.remove("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "false"); };
     if (findOpen) findOpen.addEventListener("click", function () { if (top.classList.contains("searching")) top.closeSearch(); else top.openSearch(); });
@@ -260,7 +199,7 @@ const FOOTER_LINKS: [string, string][] = [
 
 export function footer(): Raw {
   return html`<footer class="foot">
-  <a class="mark" href="/" aria-label="Zaisma home">${MARK}</a>
+  ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
 </footer>`;
@@ -507,15 +446,12 @@ component({
   styles: `
 /* The foot, at the end of the page. */
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
-.foot .mark { color: var(--ink); }
-.foot .mark svg { height: 17px; width: auto; display: block; opacity: 0.8; }
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
-.foot .mark:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .foot p { margin: 0 0 0 auto; }
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,
   render: footer,
-  examples: [{ label: "On glass", isWide: true, markup: html`<div class="glass example-wide" data-glass data-glass-corners="24 20 24 20">${footer()}</div>` }],
+  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],
 });
 
 component({
@@ -575,7 +511,7 @@ component({
   examples: [
     {
       label: "In a box",
-      markup: html`<div class="glass rail-box" data-glass data-glass-corners="24 20 24 20"><div class="rail-box-in"><p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p></div>${rail("box")}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
     },
   ],
 });
@@ -609,7 +545,7 @@ component({
     {
       label: "A row, at its start",
       isWide: true,
-      markup: html`<div class="glass example-wide" data-glass data-glass-corners="24 20 24 20"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section></div>`,
+      markup: glassPane({ paneSize: "full", body: html`<section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section>` }),
     },
   ],
 });

@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, icon, tag, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colourPicker, glassPane, icon, tag, type ColourChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES, cutButton } from "./actions.ts";
 
 /*
@@ -76,7 +76,7 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
   const isMarked = options.state === "marked";
   return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>Pick your birthday to go on.</p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
 <div class="wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-own-fade data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-own-fade data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-own-fade data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
@@ -107,6 +107,9 @@ export interface SwitchTab {
   badgeCount?: number;
   /** Attributes of its own, like a data attribute a script reads. */
   extra?: Raw;
+  /** It can fold away into the end of the tabs (the header's Developer and Forum, off a developer page): folded, it takes no room and can't be reached. */
+  isFoldable?: boolean;
+  isFolded?: boolean;
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
@@ -115,14 +118,18 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const inside = (tab: SwitchTab) =>
     tab.icon || tab.badgeCount ? html`${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span>${tab.badgeCount ? tag(tab.badgeCount, "count") : ""}` : html`${tab.label}`;
   const kind = `${options.switchSize}${options.isVertical ? " vertical" : ""}`;
-  // Framed: inside a carved frame of its own (a [data-cut-line] box) that it scrolls in, so it has no well or cut of its own,
-  // and its slab's ends on the first and last tabs follow the frame's ends.
-  const own = options.isFramed ? html`<div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
+  const folding = (tab: SwitchTab) =>
+    tab.isFoldable ? (tab.isFolded ? raw(' class="foldable folded" tabindex="-1" aria-hidden="true"') : raw(' class="foldable"')) : "";
+  // Framed: in a carved frame of its own that it scrolls inside, fading at its ends (the header's tabs, the gallery's groups on a phone), so
+  // the switch has no well or cut of its own, and its slab's ends on the first and last tabs follow the frame's ends.
+  const own = options.isFramed
+    ? html`<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row" data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
+    : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
-      ? html`<a href="${tab.href}"${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+      ? html`<a href="${tab.href}"${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${inside(tab)}</button>`,
-  )}</div>`;
+  )}</div>${options.isFramed ? raw("</div></div>") : ""}`;
 }
 
 /** Show/Hide: shows the password it controls, and hides it again. */
@@ -149,7 +156,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     function put(el, tab, isGliding) {
       if (!tab) { el.style.width = "0px"; return; }
       var from = { beside: el.getAttribute("data-cut-beside"), ends: el.getAttribute("data-cut-ends") || "", stack: el.getAttribute("data-cut-stack") };
-      var isFirst = tab === tabs[0], isLast = tab === tabs[tabs.length - 1];
+      // A folded tab takes no room, so the ends are the first and last tabs shown.
+      var shown = Array.prototype.filter.call(tabs, function (each) { return !each.classList.contains("folded"); });
+      var isFirst = tab === shown[0], isLast = tab === shown[shown.length - 1];
       // Vertical: the slab spans the well's width and moves down it; it never slants, and only on the first or last tab does it follow the well's top or bottom.
       if (isVertical) {
         el.style.height = tab.offsetHeight + "px"; el.style.transform = "translateY(" + tab.offsetTop + "px)";
@@ -354,7 +363,7 @@ const FIELD_STYLES = `
 .field > .cut-btn { position: absolute; z-index: 5; right: 8px; top: 8px; }
 `;
 
-const examplePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
+const examplePane = (body: Raw) => glassPane({ paneSize: "small", body });
 
 component({
   name: "Cut field",
@@ -418,11 +427,12 @@ component({
 .bday-field:hover { --face-colour: var(--field-hover); }
 .bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; --face-colour: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
-.bday-field .ico { position: absolute; left: 18px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
-.bday-field[aria-expanded="true"] .ico, .bday-field.set .ico { color: var(--ink); }
-.bday-field .chev { flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
+.bday-field > .ico { position: absolute; left: 18px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
+.bday-field[aria-expanded="true"] > .ico, .bday-field.set > .ico { color: var(--ink); }
+.bday-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
+.bday-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
-.bday-field[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.bday-field[aria-expanded="true"] .bday-chev { transform: rotate(180deg); }
 .bday-field .cut-line { z-index: 4; }
 .bday-field .cut-line polygon { stroke: var(--field-outline); }
 .bday-field[aria-expanded="true"] .cut-line polygon, .bday-field:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -483,7 +493,17 @@ component({
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
-.tab-switch.framed, .tab-switch.framed.small { background: none; box-shadow: none; clip-path: none; }
+/* Framed: the carved frame is its own (.switch-frame), --switch-height tall, and the tabs scroll inside it. */
+.switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, 44px); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
+  transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
+.switch-frame.small { height: var(--switch-height, 36px); }
+.switch-frame-row { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; }
+.tab-switch.framed, .tab-switch.framed.small { height: 100%; width: max-content; min-width: 100%; background: none; box-shadow: none; clip-path: none; }
+/* When they fit, the tabs share out the frame's width; when they don't, they keep their own and scroll. */
+.tab-switch.framed > a, .tab-switch.framed > button { flex: 1 0 auto; }
+/* A tab that folds away into the end of the tabs and opens out of it again. */
+.tab-switch > .foldable { max-width: 160px; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
+.tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
 .tab-switch > :focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
@@ -498,7 +518,7 @@ component({
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
 .tab-switch.vertical > :focus-visible { outline-offset: -2px; }
-@media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost, .tab-switch > .foldable { transition: none; } }
 `,
   render: tabSwitch,
   examples: [
@@ -522,6 +542,14 @@ component({
     {
       label: "Vertical, plain",
       markup: html`<div style="width:min(220px,100%)">${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, tabIndex) => ({ label, isCurrent: tabIndex === 1 })) })}</div>`,
+    },
+    {
+      label: "Framed: more tabs than fit scroll inside the frame, fading at its ends",
+      markup: html`<div style="width:min(300px,100%)">${tabSwitch({ label: "Groups", switchSize: "small", isFramed: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation", "Panes", "Data"].map((label, tabIndex) => ({ label, href: "#switch", isCurrent: tabIndex === 2 })) })}</div>`,
+    },
+    {
+      label: "Framed, with tabs folded away (the header off a developer page)",
+      markup: tabSwitch({ label: "Main", switchSize: "big", isFramed: true, tabs: [{ label: "Home", href: "#switch", isCurrent: true }, { label: "Your games", href: "#switch", isCurrent: false }, { label: "Developer", href: "#switch", isCurrent: false, isFoldable: true, isFolded: true }, { label: "Forum", href: "#switch", isCurrent: false, isFoldable: true, isFolded: true }] }),
     },
     {
       label: "Links to pages",

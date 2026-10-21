@@ -1,7 +1,7 @@
 import { accountPicture, html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
 import { textLink } from "./actions.ts";
-import { CUT_LINE, MINUTE_MS, ago, icon, tag, type TagTone } from "./foundations.ts";
+import { MINUTE_MS, ago, glassPane, icon, tag, type TagTone } from "./foundations.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -146,7 +146,7 @@ component({
 });
 
 const HOUR_MS = 60 * MINUTE_MS;
-const glancePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
+const glancePane = (body: Raw) => glassPane({ paneSize: "small", body });
 
 component({
   name: "Glance facts",

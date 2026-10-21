@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, ago, icon, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { birthdayField, cutField } from "./inputs.ts";
@@ -10,22 +10,6 @@ import { birthdayField, cutField } from "./inputs.ts";
  * from a button, and a game's cover. From the sign-in, header and home drafts.
  */
 
-const PANE_SIZES = { small: 320, medium: 480, large: 720 } as const;
-
-export interface GlassPaneOptions {
-  paneSize: "small" | "medium" | "large" | "full";
-  body: Raw;
-  /** Cut corners: top left, top right, bottom right, bottom left. Panes are 24 and 20. */
-  corners?: [number, number, number, number];
-  label?: string;
-}
-
-/** A pane of Zaisma's glass: cut corners, a drawn rim, clear glass. Long content scrolls inside it, so nothing in it shrinks. */
-export function glassPane(options: GlassPaneOptions): Raw {
-  const corners = (options.corners ?? [24, 20, 24, 20]).join(" ");
-  const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
-  return pane;
-}
 
 /** A dropdown's choice: a link, or a button that posts a form (like Sign out). */
 export interface DropdownChoice {
@@ -175,20 +159,13 @@ const PANE_STYLES = `
 .glass-pane.medium { width: ${PANE_SIZES.medium}px; }
 .glass-pane.large { width: ${PANE_SIZES.large}px; }
 .glass-pane.full { width: 100%; }
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); margin-right: 10px; }
+.glass-pane { position: relative; }
+/* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). */
+.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 .glass-pane h2 { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }
-/* The scrollbar is a sliver of the same glass: a clear track, a bright bevelled thumb, kept clear of the cut corners. */
-@supports not selector(::-webkit-scrollbar) { .glass-pane > .pane-in { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.9) rgba(255,255,255,0.14); } }
-.glass-pane > .pane-in::-webkit-scrollbar { width: 12px; }
-.glass-pane > .pane-in::-webkit-scrollbar-track { background: linear-gradient(90deg, rgba(255,255,255,0) 3px, rgba(255,255,255,0.16) 3px, rgba(255,255,255,0.16) 9px, rgba(255,255,255,0) 9px); margin-block: 34px; }
-.glass-pane > .pane-in::-webkit-scrollbar-thumb { border: 3px solid transparent; background-clip: padding-box; background-color: rgba(255,255,255,0.78);
-  background-image: linear-gradient(90deg, rgba(255,255,255,1), rgba(222,233,248,0.7)); box-shadow: inset 0 0 0 1px rgba(26,44,80,0.16); }
-.glass-pane > .pane-in::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.95); }
-.glass-pane > .pane-in::-webkit-scrollbar-button { display: none; }
-@media (max-width: 760px) { .glass-pane > .pane-in { margin-right: 0; } }
 `;
 
 const COVER_STYLES = `
@@ -281,7 +258,35 @@ const ACCOUNT_ITEMS: DropdownItem[] = [
 ];
 /** An example menu hanging from its button, open. */
 const dropdownFrame = (buttonLabel: string, options: DropdownOptions) =>
-  html`<div class="dropdown-frame">${raw(`<button type="button" class="shell cut-btn" aria-controls="${options.id}" aria-expanded="true"><span class="face cut-raised" data-cut-line="10">`)}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>${buttonLabel}</span></span></button>${dropdown({ ...options, isOpen: true })}</div>`;
+  html`<div class="dropdown-frame">${cutButton(buttonLabel, { type: "button", controls: options.id, isExpanded: true })}${dropdown({ ...options, isOpen: true })}</div>`;
+
+component({
+  name: "Tray",
+  slug: "tray",
+  group: "panes",
+  summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.",
+  styles: `
+/* A tray: the pane above holds the words, square along its foot; the tray hangs from it, thinner and clearer (--glass-tray, less blur), and holds the rest. */
+.tray-group { display: flex; flex-direction: column; }
+.tray-head { padding: var(--pad-pane); }
+.tray { --glass-tint: var(--glass-tray); --glass-blur: 10px; padding: var(--pad-pane); }
+.tray-sample-title { margin: 0; font: var(--type-section); }
+.tray-sample-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--gap-block-block); }
+`,
+  render: tray,
+  examples: [
+    {
+      label: "A head, and what it's about on the tray",
+      isWide: true,
+      markup: tray({ head: html`<h3 class="tray-sample-title">Your games</h3>`, body: html`<div class="control-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>` }),
+    },
+    {
+      label: "Holding a row of covers",
+      isWide: true,
+      markup: tray({ head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: html`<div class="tray-sample-row">${Object.values(STAND_IN_COVERS).slice(0, 3).map((cover) => cover)}</div>` }),
+    },
+  ],
+});
 
 component({
   name: "Dropdown",
@@ -323,7 +328,7 @@ component({
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
-const spacingPane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
+const spacingPane = (body: Raw) => glassPane({ paneSize: "small", body });
 component({
   name: "Spacing",
   slug: "spacing",

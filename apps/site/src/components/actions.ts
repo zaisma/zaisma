@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, colourPicker, icon, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colourPicker, glassPane, icon, loader, type ColourChoice, type IconName } from "./foundations.ts";
 
 /*
  * Actions, loudest to quietest: the runner button (the one coloured thing you press), the cut button beside it,
@@ -8,7 +8,8 @@ import { CUT_LINE, colourPicker, icon, type ColourChoice, type IconName } from "
  * and the keyboard in its own way, so none of them feels dead.
  */
 
-const ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="9" height="14"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.6"/></svg></span>');
+/** The runner's arrow: the icon set's chevron, in a span that moves. */
+const ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
 
 /** What a button is: a link when it has an address, otherwise a button of a form. */
 interface ButtonTarget {
@@ -33,7 +34,7 @@ export interface RunButtonOptions extends ButtonTarget {
   /** The home's Play: 56px, for a pane's one main action. */
   isBig?: boolean;
   isFullWidth?: boolean;
-  /** Pressed and waiting: the arrow drifts, and busyLabel (if any) takes the label's place. */
+  /** Pressed and waiting: the loader takes the arrow's (or icon's) place, and busyLabel (if any) the label's. */
   isBusy?: boolean;
   busyLabel?: string;
   /** An icon before the label in place of the arrow after it, like Play's. */
@@ -44,8 +45,8 @@ export interface RunButtonOptions extends ButtonTarget {
 /** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
 export function runButton(label: string, options: RunButtonOptions = {}): Raw {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
-  const shell = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
-  return html`${opening(shell, options, options.isBusy)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
+  const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
+  return html`${opening(shell, options, options.isBusy)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -67,13 +68,15 @@ export interface CutButtonOptions extends ButtonTarget {
   isPressed?: boolean;
   /** The id of what it shows, hides or changes (aria-controls). */
   controls?: string;
+  /** It opens what it controls (a dropdown, a search): whether that's open now (aria-expanded). Left out, it opens nothing. */
+  isExpanded?: boolean;
 }
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
+  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}`;
+  return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
 }
 
 const GOOGLE = raw(
@@ -82,28 +85,25 @@ const GOOGLE = raw(
 const DISCORD = raw(
   '<svg class="one-colour" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
 );
-const PASSKEY = raw(
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/></svg>',
-);
 /** The other ways in, with the marks their owners ask for. A mark that may also be one colour (Discord's) is class one-colour. */
-const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: PASSKEY } as const;
+const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
 
 /** A glass button's tint: clear glass, or glass tinted the colour of the way in. Each way has its own unless the page picks one. */
 export type GlassTint = "clear" | "white" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
 
 /** A glass button for another way in (a passkey, Google, Discord): a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. */
-export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
+export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState; isBusy?: boolean }): Raw {
   const tint = options.tint ?? WAY_TINTS[options.icon];
   const target = { href: options.href, type: options.type ?? "button" } as const;
-  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
+  return html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
 }
 
-const GUEST_ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="8" height="12"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>');
+const GUEST_ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
 
 /** The guest way: words and an arrow under the glass buttons, the quietest way on. Its cut slab shows only when you point at it, press it or tab to it. */
-export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState } = {}): Raw {
-  return html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, false)}<span class="face" data-cut-line="10">${CUT_LINE}<span>${label}</span>${GUEST_ARROW}</span>${closing({ href: options.href })}`;
+export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState; isBusy?: boolean } = {}): Raw {
+  return html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}<span>${label}</span>${loader()}${GUEST_ARROW}</span>${closing({ href: options.href })}`;
 }
 
 /**
@@ -112,6 +112,36 @@ export function guestButton(label: string, options: { href?: string; type?: "sub
  * for its face and its side, which move inside it.
  * The glass buttons: their light follows the pointer across the glass.
  */
+/**
+ * Busy: a button that sends a form, or a link-button that opens another page, shows the loader once it's pressed (aria-busy) and
+ * can't be pressed twice. Coming back to the page from the browser's history puts it back as it was.
+ */
+export const BUSY_SCRIPT = `/* busy */(function () {
+  function busy(button) {
+    if (!button || button.getAttribute("aria-busy") === "true") return;
+    button.setAttribute("aria-busy", "true");
+    if (button.tagName === "BUTTON") setTimeout(function () { button.disabled = true; }, 0);
+  }
+  // Checked once every handler has run, so a page script that handles the press itself (and prevents it) keeps it idle.
+  function afterHandlers(event, then) { setTimeout(function () { if (!event.defaultPrevented) then(); }, 0); }
+  document.addEventListener("submit", function (event) {
+    var button = (event.submitter && event.submitter.closest(".shell")) || event.target.querySelector('.shell[type="submit"]');
+    afterHandlers(event, function () { busy(button); });
+  });
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a.shell[href]");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target === "_blank") return;
+    var to = new URL(link.href, location.href);
+    if (to.origin === location.origin && to.pathname === location.pathname && to.search === location.search) return;
+    afterHandlers(event, function () { busy(link); });
+  });
+  window.addEventListener("pageshow", function (event) {
+    if (!event.persisted) return;
+    document.querySelectorAll('.shell[aria-busy="true"]').forEach(function (button) { button.removeAttribute("aria-busy"); button.disabled = false; });
+  });
+})();
+`;
+
 export const RUNNER_SCRIPT = `/* runner */(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !window.matchMedia("(hover: hover)").matches) return;
   function lean(shell) {
@@ -179,6 +209,7 @@ const RUN_STYLES = `
 @keyframes run-glint { from { left: -50%; } to { left: 120%; } }
 .run > :not(.cut-line) { position: relative; z-index: 2; }
 .run .arrow, .run .play { display: inline-flex; transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
+.run .arrow > .ico { width: 9px; height: 14px; stroke-width: 2.6; }
 .run-wrap.over .run .arrow, .run-wrap.is-pointed .run .arrow { transform: translateX(4px); }
 .run-wrap.over .run .play, .run-wrap.is-pointed .run .play { transform: translateX(3px) scale(1.08); }
 .run-wrap.is-pointed { --lift: -1.5px; }
@@ -190,11 +221,13 @@ const RUN_STYLES = `
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
 .run-wrap[aria-busy="true"] { cursor: progress; }
 .run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
-.run-wrap[aria-busy="true"] .arrow { animation: run-drift 1.6s ease-in-out infinite; }
+/* Waiting: the loader takes the arrow's or the icon's place. */
+.run-wrap:not([aria-busy="true"]) .loader, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .face > .ico, .run-wrap[aria-busy="true"] .face > .play { display: none; }
+.run .loader { position: relative; z-index: 2; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
 /* On a phone it keeps the other buttons' heights: 44px, and 48px big. */
 @media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
-@media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after { animation: none; } }
 `;
 
 /** A full-width button's examples sit in a column this wide. */
@@ -270,7 +303,9 @@ component({
 .cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-colour: transparent; opacity: 0.35; box-shadow: none; transform: none; }
 .cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
-.cut-btn[aria-busy="true"] > .face { opacity: 0.7; }
+/* Waiting: the loader before its words, in the icon's place. */
+.cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
+.cut-btn .face > .loader { position: relative; z-index: 2; }
 @media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-colour 0.2s; } }
 `,
@@ -320,6 +355,9 @@ component({
   transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
 .glass-btn .face > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}; }
+/* Waiting: the loader takes the way's mark's place. */
+.glass-btn:not([aria-busy="true"]) .loader, .glass-btn[aria-busy="true"] .face > svg:not(.edge) { display: none; }
+.glass-btn[aria-busy="true"] { cursor: progress; }
 .glass-btn .edge { opacity: 0.7; transition: opacity 0.3s; }
 /* A small slab's rim, kept as quiet in light glass as it is in smoked: a faint hairline and a soft inner line. */
 .glass-btn .edge .hair { stroke: var(--glass-btn-hair-rest); transition: stroke 0.3s; }
@@ -381,6 +419,7 @@ component({
   render: glassButton,
   examples: [
     ...stateExamples(wayIn, "glass", true),
+    { label: "Busy", markup: html`<div style="${COLUMN}">${glassButton("Sign in with a passkey", { icon: "passkey", isBusy: true })}</div>`, isStill: true },
     { label: "Every tint: pick one", markup: tintPalette() },
     { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
     // Over a game's picture the glass follows the picture, not the theme: light glass on a bright one, smoked on a dark one.
@@ -407,6 +446,10 @@ component({
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }
 .guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
+.guest-btn .arrow > .ico { width: 8px; height: 12px; stroke-width: 2.4; }
+/* Waiting: the loader takes the arrow's place. */
+.guest-btn:not([aria-busy="true"]) .loader, .guest-btn[aria-busy="true"] .arrow { display: none; }
+.guest-btn[aria-busy="true"] { cursor: progress; }
 .guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-colour: var(--clear-hover); }
 .guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
 .guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
@@ -421,11 +464,12 @@ component({
   examples: [
     ...stateExamples((state) => guestButton("Continue as guest", { state }), "guest", true),
     { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
+    { label: "Busy", markup: guestButton("Continue as guest", { isBusy: true }), isStill: true },
   ],
 });
 
 // Cut shapes sits with the buttons, so it can show the edge rule on real ones (foundations.ts can't import this file).
-const edgePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
+const edgePane = (body: Raw) => glassPane({ paneSize: "small", body });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;

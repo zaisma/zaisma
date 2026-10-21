@@ -110,6 +110,13 @@ Applies where Spacing does. Every word outside a control's own inside is set in 
 
 ## Small pieces
 
+**Everything derives from the gallery.** Every piece of UI on a page, and on the gallery itself, comes from a gallery component, or is a named exception with its reason in `test/site/design.test.ts`, which fails on anything else:
+
+- **Classes:** every class on a gallery page is styled by a component. The only others are the gallery's own scaffolding (`GALLERY_ONLY`) and hooks with no look (`UNSTYLED_HOOKS`).
+- **Placing, not restyling:** the gallery, or a component holding another, may only place it (where it sits, how big its box is) or set the variables it offers (`--logo-height`, `--switch-height`, `--loader-width`). It never restyles it.
+- **No hand-drawn pieces:** no source draws its own icon (`OWN_SVG` names the brand marks and the icon set itself), builds a button outside `actions.ts`, or makes a sheet of glass other than a Glass pane or a Tray (`OWN_GLASS` names the pieces made of glass, like a glass button's face).
+- **No stale lists:** an exception that's no longer in the code fails the test too, so every list stays exactly the real exceptions.
+
 Anything with a look of its own is a component in the gallery, or part of one, and every page uses that component. Never style one in place.
 
 - **A link in words is a Link** (`textLink`, `actions.ts`): ink, with an orange underline. In a list of links where nothing else is (the footer), it's quiet: plain until pointed at. Anything else you can follow is a control (a button, a tab, a place) or the logo. Only `.link` underlines, and only a control styles a bare link (`LINK_IN_CONTROL` in the test).
@@ -118,6 +125,10 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **One of a few colours is a Colour picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Colour pickers; light or dark is a Switch.
 - **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own.
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
+- **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
+- **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
+- **What belongs to a pane sits on its Tray** (`tray`): a thinner, clearer sheet the pane extends into, square where they meet. Every gallery section is one. What's on a tray keeps the edges it would have on no pane.
+- **A switch that scrolls is a framed Switch** (`isFramed`), which draws its own carved frame: the header's tabs, the gallery's groups on a phone. Its tabs can fold away (`isFoldable`), as the header's Developer and Forum do off a developer page.
 - **Online is the Picture frame's** (`isOnline`); **you, signed in, are the Account button.**
 
 ## Components
