@@ -55,6 +55,15 @@ async function arrive(game: string, code: string, joinData: unknown, pass: strin
   return got;
 }
 
+/** Answer a probe at once, as the SDK does; a connection the test already closed has nothing to answer. */
+function answerProbe(ws: WebSocket, probeNumber: number) {
+  try {
+    ws.send(JSON.stringify({ type: "probe_answer", probeNumber }));
+  } catch {
+    // Closed.
+  }
+}
+
 async function join(game: string, code: string, joinData?: unknown) {
   const { pass, player } = await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
@@ -65,6 +74,8 @@ async function join(game: string, code: string, joinData?: unknown) {
   const waiters: ((m: any) => void)[] = [];
   ws.addEventListener("message", (ev) => {
     const m = JSON.parse(ev.data as string);
+    // Probes are answered at once, as the SDK does.
+    if (m.type === "probe") return answerProbe(ws, m.probeNumber);
     const w = waiters.shift();
     w ? w(m) : inbox.push(m);
   });
@@ -162,6 +173,29 @@ describe("sandboxed game servers", () => {
     a.ws.send(JSON.stringify({ type: "block", playerId: b.player.id }));
     b.say("check");
     expect(await b.next()).toEqual({ type: "message", data: { hasBlockBetween: true, areFriends: false } });
+  });
+
+  it("reads each player's ping and the room's clock", async () => {
+    await addSandboxGame(
+      "pinged",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, message, room) {
+    room.send(player.id, { pingDurationMs: room.pingDurationMs(player.id), nobodyPingDurationMs: room.pingDurationMs("nobody"), serverTimeMs: room.serverTimeMs() });
+  },
+};`,
+    );
+    const a = await join("pinged", "PNGDRM");
+    // The client answers its first probe as it arrives, just after welcome.
+    let answer: any = null;
+    for (let i = 0; i < 20 && typeof answer?.data.pingDurationMs !== "number"; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 20));
+      a.say("ping?");
+      answer = await a.next();
+    }
+    expect(typeof answer.data.pingDurationMs).toBe("number");
+    expect(answer.data.nobodyPingDurationMs).toBeNull();
+    expect(Math.abs(answer.data.serverTimeMs - Date.now())).toBeLessThan(1000);
   });
 
   it("ticks", async () => {
@@ -407,7 +441,7 @@ describe("a game server whose sandbox keeps failing", () => {
       },
     };
     const server = await wrapSession(async () => (opened++, session as never), () => broken++);
-    const room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} } as never;
+    const room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} , serverTimeMs: () => Date.now() } as never;
 
     expect(await server.onTick!({ tickCount: 0 }, 0.1, room)).toEqual({ tickCount: 1 });
     fail = true;
@@ -433,7 +467,7 @@ describe("a game server's new errors", () => {
     };
     let newErrorCount = 0;
     const server = await wrapSession(async () => session as never, () => {}, {}, () => newErrorCount++);
-    const room = { players: [], isListed: true, isOpen: true, name: null, labels: {}, endsAt: null } as never;
+    const room = { players: [], isListed: true, isOpen: true, name: null, labels: {}, endsAt: null , serverTimeMs: () => Date.now() } as never;
     await expect(server.onTick!({}, 0.1, room)).rejects.toThrow("boom");
     await expect(server.onTick!({}, 0.1, room)).rejects.toThrow("boom");
     expect(newErrorCount).toBe(1);

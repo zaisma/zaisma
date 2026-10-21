@@ -112,6 +112,19 @@ export interface Room {
    * anyone's friend. It never says who else a player's friends are.
    */
   areFriends(firstPlayerId: string, secondPlayerId: string): boolean;
+  /**
+   * A player's round trip to the room in milliseconds, smoothed, or null for a player who isn't in the
+   * room or hasn't been measured yet (the room probes each player right after they join). The player's
+   * game reads the same number as room.pingDurationMs. The room measures it itself, so a player can only
+   * make theirs look worse by answering late, never better: cap any lag compensation that uses it.
+   */
+  pingDurationMs(playerId: string): number | null;
+  /**
+   * The room's clock now, in epoch milliseconds, like Date.now(). Players' games estimate the same
+   * clock with room.serverTimeMs(), so a time the game server sends, like when a race starts, means
+   * the same moment for everyone.
+   */
+  serverTimeMs(): number;
 }
 
 export interface BroadcastOptions {
@@ -404,6 +417,16 @@ export const ROOM_LIMITS = {
   /** How long a seat is held by default, and at most (seatHoldDurationSec). */
   defaultSeatHoldDurationSec: 300,
   maximumSeatHoldDurationSec: 1800,
+  /** How often a ticking room probes each player, for their ping and the room's clock. */
+  probeIntervalSec: 2,
+  /** A probe left unanswered this long drops the player: their connection stopped or fell too far behind. */
+  probeAnswerTimeoutSec: 8,
+  /** A player is also probed each time this much has gone out to them since their last probe. */
+  sentBytesPerProbe: 256 * 1024,
+  /** Bytes sent to a player since the last probe they answered; past it, they're dropped. */
+  maximumUnansweredSentBytes: 2 * 1024 * 1024,
+  /** Unanswered probes the room remembers per player; the oldest is forgotten past it. */
+  maximumUnansweredProbeCount: 16,
 } as const;
 
 /** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
@@ -516,9 +539,19 @@ export interface RoomSettings {
  * {type: "back", joinData?, idleTimeoutSec?, idleCheckEnabled?} when the player returns. A player out
  * of the match with their seat held gets {type: "away"}, and once the seat is no longer held, their
  * connection closes with SEAT_GONE_CLOSE_CODE.
+ *
+ * Ping and the room's clock (docs/DECISIONS.md, "Rooms under lag"): the room sends {type: "probe",
+ * probeNumber, serverTimeMs, pingDurationMs} right after welcome and again once it's answered (so the
+ * client hears its first ping), every welcome.probeIntervalSec while
+ * the room ticks (null when it doesn't), and each time ROOM_LIMITS.sentBytesPerProbe has gone out to
+ * the player. The client answers at once with {type: "probe_answer", probeNumber}. Answers aren't game
+ * messages: they don't count toward the 30 a second or the idle check. A probe left unanswered for
+ * ROOM_LIMITS.probeAnswerTimeoutSec, or ROOM_LIMITS.maximumUnansweredSentBytes sent since the last
+ * answered one, closes the connection with NO_ANSWER_CLOSE_CODE.
  */
 export type ServerMessage =
-  | { type: "welcome"; me: Player; players: Player[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null }
+  | { type: "welcome"; me: Player; players: Player[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
+  | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
   | { type: "players"; players: Player[]; hostPlayerId: string | null }
   | { type: "away"; reason: AwayReason; seatHoldDurationSec: number }
@@ -682,7 +715,7 @@ export const ENDED_CLOSE_CODE = 4000;
 export const REFUSED_CLOSE_CODE = 4001;
 /** Close code for a player who walked away, once the room stops holding their seat. They may try to come back. */
 export const SEAT_GONE_CLOSE_CODE = 4002;
-/** Close code for a connection that stopped answering. */
+/** Close code for a connection that stopped answering or fell too far behind; the SDK reconnects. */
 export const NO_ANSWER_CLOSE_CODE = 4003;
 
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
@@ -744,6 +777,8 @@ export class RoomCore<S = any> {
   /** When this room last reserved rooms, for the limit. */
   private reservedAtMs: number[] = [];
   private buckets = new Map<string, { tokenCount: number; filledAtMs: number }>();
+  /** Probes this room has sent, to every player: each probe's number. */
+  private probeCount = 0;
   private readonly now: () => number;
   readonly maximumPlayerCount: number;
   private readonly api: Room;
@@ -778,7 +813,7 @@ export class RoomCore<S = any> {
     for (const player of startOptions.players ?? []) {
       this.players.set(player.id, player);
       const was = startOptions.presence?.[player.id];
-      this.presence.set(player.id, { seenAtMs: was?.seenAtMs ?? this.now(), clientIdle: clientIdle(was?.clientIdle) });
+      this.presence.set(player.id, newPresence(was?.seenAtMs ?? this.now(), clientIdle(was?.clientIdle)));
     }
     const saved = startOptions.room;
     if (saved) {
@@ -829,7 +864,7 @@ export class RoomCore<S = any> {
       },
       broadcast: (message, broadcastOptions) => this.broadcast(message, broadcastOptions?.exceptPlayerId),
       send: (playerId, message) => {
-        if (this.players.has(playerId)) this.transport.send(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage));
+        if (this.players.has(playerId)) this.sendText(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage));
       },
       end: (message) => this.end(message ?? "The match is over."),
       get endsAt() {
@@ -861,6 +896,8 @@ export class RoomCore<S = any> {
       secrets: transport.secrets ?? NO_SECRETS,
       hasBlockBetween: (firstPlayerId, secondPlayerId) => this.hasBlockBetween(firstPlayerId, secondPlayerId),
       areFriends: (firstPlayerId, secondPlayerId) => this.areFriends(firstPlayerId, secondPlayerId),
+      pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,
+      serverTimeMs: () => this.now(),
     };
   }
 
@@ -955,7 +992,7 @@ export class RoomCore<S = any> {
       const told = JSON.stringify(playerIds);
       if ((this.toldBlocks.get(id) ?? "[]") === told) continue;
       this.toldBlocks.set(id, told);
-      this.transport.send(id, JSON.stringify({ type: "blocks", playerIds } satisfies ServerMessage));
+      this.sendText(id, JSON.stringify({ type: "blocks", playerIds } satisfies ServerMessage));
     }
   }
 
@@ -1129,8 +1166,11 @@ export class RoomCore<S = any> {
     }
     this.players.set(player.id, player);
     this.remember(player.id);
-    this.presence.set(player.id, { seenAtMs: this.now(), clientIdle: joinOptions.clientIdle === undefined ? (this.presence.get(player.id)?.clientIdle ?? {}) : clientIdle(joinOptions.clientIdle) });
-    this.transport.send(player.id, JSON.stringify({ type: "welcome", me: player, players: this.list(), room: this.settings(), hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt } satisfies ServerMessage));
+    this.presence.set(player.id, newPresence(this.now(), joinOptions.clientIdle === undefined ? (this.presence.get(player.id)?.clientIdle ?? {}) : clientIdle(joinOptions.clientIdle)));
+    const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
+    this.sendText(player.id, JSON.stringify({ type: "welcome", me: player, players: this.list(), room: this.settings(), hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage));
+    // Every room gets a first ping and clock sample right away, ticking or not.
+    this.probe(player.id);
     // A new connection hears its blocks afresh, and everyone else before the game or the player list says they're here.
     this.toldBlocks.delete(player.id);
     this.tellBlocks();
@@ -1219,7 +1259,7 @@ export class RoomCore<S = any> {
     }
     this.out(playerId);
     const seatHoldDurationSec = this.hold(player, reason);
-    this.transport.send(playerId, JSON.stringify({ type: "away", reason, seatHoldDurationSec } satisfies ServerMessage));
+    this.sendText(playerId, JSON.stringify({ type: "away", reason, seatHoldDurationSec } satisfies ServerMessage));
     this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }));
     this.broadcastPlayers();
     if (this.server.awayMode === "lobby" && this.lobbyRoomCode && this.transport.moveTo) {
@@ -1260,6 +1300,8 @@ export class RoomCore<S = any> {
       if (idleTimeoutSec !== null && nowMs - presence.seenAtMs >= idleTimeoutSec * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
       else if (this.ticking && presence.hiddenAtMs !== undefined && nowMs - presence.hiddenAtMs >= ROOM_LIMITS.hiddenTimeoutSec * 1000) this.walkAway(id, "hidden");
     }
+    // Rooms that don't tick check their probes here.
+    for (const id of [...this.presence.keys()]) this.checkAnswers(id);
     for (const [id, held] of [...this.held]) {
       if (held.untilMs > nowMs) continue;
       this.held.delete(id);
@@ -1274,16 +1316,24 @@ export class RoomCore<S = any> {
     const player = this.players.get(playerId);
     const isHeld = !player && this.held.has(playerId);
     if ((!player && !isHeld) || this.ended) return "ended";
-    this.messageCount++;
-    if (text.length > ROOM_LIMITS.maximumGameMessageSizeBytes || new TextEncoder().encode(text).length > ROOM_LIMITS.maximumGameMessageSizeBytes) return "too_big";
-    if (!this.take(playerId)) return "too_fast";
+    const isTooBig = text.length > ROOM_LIMITS.maximumGameMessageSizeBytes || utf8ByteCount(text) > ROOM_LIMITS.maximumGameMessageSizeBytes;
     let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return "bad_message";
+    let isParsed = false;
+    if (!isTooBig) {
+      try {
+        parsed = JSON.parse(text);
+        isParsed = true;
+      } catch {
+        // Refused below, once it's counted.
+      }
     }
     const message = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+    // A probe answer is automatic, not the player's input: it isn't counted, takes no token and doesn't count as seen.
+    if (message.type === "probe_answer" && this.answer(playerId, message.probeNumber)) return null;
+    this.messageCount++;
+    if (isTooBig) return "too_big";
+    if (!this.take(playerId)) return "too_fast";
+    if (!isParsed) return "bad_message";
     // Out of the match with their seat held, a player can only come back; anything else waits.
     if (isHeld) return message.type === "back" ? this.back(playerId, message.joinData, message as ClientIdle) : null;
     const presence = this.presence.get(playerId);
@@ -1294,6 +1344,9 @@ export class RoomCore<S = any> {
       case "kick":
         return this.hostKick(playerId, message);
       case "here":
+        return null;
+      case "probe_answer":
+        // It answers no probe: counted and limited like any message, so answers can't dodge the limit.
         return null;
       case "idle":
         this.walkAway(playerId, "idle");
@@ -1361,8 +1414,7 @@ export class RoomCore<S = any> {
     this.name = next.name;
     this.labels = next.labels;
     this.listingChanged = true;
-    const text = JSON.stringify({ type: "room", room: next } satisfies ServerMessage);
-    for (const id of this.players.keys()) this.transport.send(id, text);
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "room", room: next } satisfies ServerMessage));
   }
 
   /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
@@ -1444,7 +1496,7 @@ export class RoomCore<S = any> {
     const isKeptOut = given.keepOut === true;
     this.known.delete(playerId);
     if (isKeptOut) this.keepOut({ [playerId]: message });
-    this.transport.send(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
+    this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
     this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
     this.held.delete(playerId);
     this.out(playerId);
@@ -1484,8 +1536,10 @@ export class RoomCore<S = any> {
   }
 
   tick(tickDurationSec: number): void {
+    if (this.ended) return;
+    this.probeDue();
     // A room where everyone walked away stops running until someone's back.
-    if (this.ended || !this.server.onTick || this.playingCount === 0) return;
+    if (!this.server.onTick || this.playingCount === 0) return;
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
     this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
@@ -1499,8 +1553,7 @@ export class RoomCore<S = any> {
     if (this.ended || this.endsAt !== null) return;
     this.endsAt = endsAt;
     this.dirty = true;
-    const text = JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage);
-    for (const id of this.players.keys()) this.transport.send(id, text);
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage));
     if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api));
   }
 
@@ -1510,7 +1563,7 @@ export class RoomCore<S = any> {
     this.listingChanged = true;
     const text = JSON.stringify({ type: "ended", message } satisfies ServerMessage);
     for (const id of [...this.players.keys(), ...this.held.keys()]) {
-      this.transport.send(id, text);
+      this.sendText(id, text);
       this.transport.close(id, ENDED_CLOSE_CODE, "Match ended");
     }
     this.players.clear();
@@ -1525,12 +1578,95 @@ export class RoomCore<S = any> {
 
   private broadcast(message: unknown, exceptPlayerId?: string): void {
     const text = JSON.stringify({ type: "message", data: message } satisfies ServerMessage);
-    for (const id of this.players.keys()) if (id !== exceptPlayerId) this.transport.send(id, text);
+    this.sendEach([...this.players.keys()].filter((id) => id !== exceptPlayerId), text);
   }
 
   private broadcastPlayers(): void {
-    const text = JSON.stringify({ type: "players", players: this.list(), hostPlayerId: this.hostPlayerId } satisfies ServerMessage);
-    for (const id of this.players.keys()) this.transport.send(id, text);
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "players", players: this.list(), hostPlayerId: this.hostPlayerId } satisfies ServerMessage));
+  }
+
+  /**
+   * Send one text to several players, counting its bytes once. A player it drops for falling behind
+   * leaves once everyone has it, so nobody hears of the leave before the rest of this text.
+   */
+  private sendEach(playerIds: Iterable<string>, text: string): void {
+    const byteCount = utf8ByteCount(text);
+    this.depth++;
+    try {
+      for (const id of [...playerIds]) this.sendText(id, text, byteCount);
+    } finally {
+      this.depth--;
+      this.flush();
+    }
+  }
+
+  /**
+   * Send a player a text, counting the bytes that went out to them: past
+   * ROOM_LIMITS.maximumUnansweredSentBytes since the last probe they answered, they're dropped;
+   * every ROOM_LIMITS.sentBytesPerProbe, they're probed, so a backed-up connection shows as a late answer.
+   */
+  private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text)): void {
+    this.transport.send(playerId, text);
+    const presence = this.presence.get(playerId);
+    if (!presence) return;
+    presence.sentByteCount += byteCount;
+    if (presence.sentByteCount - presence.answeredSentByteCount > ROOM_LIMITS.maximumUnansweredSentBytes) this.dropBehind(playerId);
+    else if (presence.sentByteCount - presence.lastProbeSentByteCount >= ROOM_LIMITS.sentBytesPerProbe) this.probe(playerId);
+  }
+
+  /** Probe a player for their ping and a clock sample. Probes aren't counted as bytes sent, so a probe never sets off another. */
+  private probe(playerId: string): void {
+    const presence = this.presence.get(playerId);
+    if (!presence) return;
+    const probeNumber = ++this.probeCount;
+    const nowMs = this.now();
+    presence.unansweredProbes.set(probeNumber, { sentAtMs: nowMs, sentByteCount: presence.sentByteCount });
+    if (presence.unansweredProbes.size > ROOM_LIMITS.maximumUnansweredProbeCount) presence.unansweredProbes.delete(presence.unansweredProbes.keys().next().value!);
+    presence.lastProbeAtMs = nowMs;
+    presence.lastProbeSentByteCount = presence.sentByteCount;
+    this.transport.send(playerId, JSON.stringify({ type: "probe", probeNumber, serverTimeMs: nowMs, pingDurationMs: presence.pingDurationMs } satisfies ServerMessage));
+  }
+
+  /** A ticking room probes each player in the match every ROOM_LIMITS.probeIntervalSec, and drops those who stopped answering. */
+  private probeDue(): void {
+    const nowMs = this.now();
+    for (const id of [...this.players.keys()]) {
+      const presence = this.presence.get(id);
+      if (presence && !this.kept.has(id) && nowMs - presence.lastProbeAtMs >= ROOM_LIMITS.probeIntervalSec * 1000) this.probe(id);
+    }
+    for (const id of [...this.presence.keys()]) this.checkAnswers(id);
+  }
+
+  /** A player whose oldest unanswered probe is ROOM_LIMITS.probeAnswerTimeoutSec old is dropped. */
+  private checkAnswers(playerId: string): void {
+    const oldest = this.presence.get(playerId)?.unansweredProbes.values().next().value;
+    if (oldest && this.now() - oldest.sentAtMs >= ROOM_LIMITS.probeAnswerTimeoutSec * 1000) this.dropBehind(playerId);
+  }
+
+  /** A probe answer: the player's ping moves a quarter of the way to this sample. False if it answers no probe of theirs. */
+  private answer(playerId: string, probeNumber: unknown): boolean {
+    const presence = this.presence.get(playerId);
+    const probe = typeof probeNumber === "number" ? presence?.unansweredProbes.get(probeNumber) : undefined;
+    if (!presence || !probe) return false;
+    const sampleMs = this.now() - probe.sentAtMs;
+    const previousMs = presence.pingDurationMs;
+    presence.pingDurationMs = Math.round(previousMs === null ? sampleMs : previousMs * 0.75 + sampleMs * 0.25);
+    presence.answeredSentByteCount = probe.sentByteCount;
+    for (const number of [...presence.unansweredProbes.keys()]) if (number <= (probeNumber as number)) presence.unansweredProbes.delete(number);
+    // The first measurement: probe again at once, so the player's game hears its ping too, even in a room that doesn't tick.
+    if (previousMs === null) this.probe(playerId);
+    return true;
+  }
+
+  /**
+   * A player whose connection can't keep up: closed at once, so the room holds no growing backlog for
+   * them, and out of the match like any lost connection, once the handler running now is done. Their
+   * game reconnects by itself. The runtime's close event comes later and finds them gone.
+   */
+  private dropBehind(playerId: string): void {
+    if (!this.presence.delete(playerId)) return;
+    this.transport.close(playerId, NO_ANSWER_CLOSE_CODE, "Connection too far behind");
+    this.soon(() => this.leave(playerId, "lost"));
   }
 
   /** Token bucket per player: a short burst is fine, a flood is dropped. */
@@ -1593,12 +1729,33 @@ function isPromise<T>(given: unknown): given is Promise<T> {
 
 /** What the room knows about a player in the match, for the away checks. */
 interface Presence {
-  /** When the room last heard from them (any message but a ping). */
+  /** When the room last heard from them (any message but a ping or a probe answer). */
   seenAtMs: number;
   /** Since when their game has been hidden, as their game said. */
   hiddenAtMs?: number;
   /** The idle check their game asked for, for idleCheck "client". */
   clientIdle: ClientIdle;
+  /** UTF-8 bytes the room has sent them since they joined, probes aside. */
+  sentByteCount: number;
+  /** What sentByteCount was when the last probe they answered went out. */
+  answeredSentByteCount: number;
+  /** What sentByteCount was when their last probe went out. */
+  lastProbeSentByteCount: number;
+  lastProbeAtMs: number;
+  /** Probes they haven't answered yet, by probe number, oldest first. */
+  unansweredProbes: Map<number, { sentAtMs: number; sentByteCount: number }>;
+  /** Their smoothed round trip in milliseconds (room.pingDurationMs), or null until they answer a probe. */
+  pingDurationMs: number | null;
+}
+
+/** A player's presence as they come in: nothing sent and nothing measured yet. A room waking from sleep starts its probes afresh. */
+function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
+  return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null };
+}
+
+/** How many bytes a text takes on the wire. */
+function utf8ByteCount(text: string): number {
+  return new TextEncoder().encode(text).length;
 }
 
 /** The idle check a player's game asked for, from its hello or back message: a timeout within the limits, and whether to check at all. */

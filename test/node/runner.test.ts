@@ -21,9 +21,17 @@ function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
   const ws = new WebSocket(`ws://localhost:${on}${path}`, { origin });
   const inbox: any[] = [];
   const waiters: ((message: any) => void)[] = [];
+  // Probes are answered at once, as the SDK does, and kept apart with what came before each.
+  const probes: { probe: any; afterTypes: string[] }[] = [];
+  const types: string[] = [];
   ws.on("message", (raw) => {
     const text = raw.toString();
     const message = text === "pong" ? { type: "pong" } : JSON.parse(text);
+    if (message.type === "probe") {
+      probes.push({ probe: message, afterTypes: [...types] });
+      return ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
+    }
+    types.push(message.type);
     const waiter = waiters.shift();
     waiter ? waiter(message) : inbox.push(message);
   });
@@ -31,7 +39,7 @@ function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
   const closed = new Promise<number>((r) => ws.on("close", (code) => r(code)));
   const open = new Promise((r) => ws.on("open", r));
   const say = (message: object) => ws.send(JSON.stringify(message));
-  return { ws, next, closed, open, say };
+  return { ws, next, closed, open, say, probes };
 }
 
 const until = async (client: { next: () => Promise<any> }, type: string) => {
@@ -64,6 +72,41 @@ describe("Node runner", () => {
     expect(await b.next()).toEqual({ type: "message", data: { fromPlayerId: "a", data: "hi" } });
     a.ws.close();
     b.ws.close();
+  });
+
+  it("probes each player right after welcome, and the game server reads their ping and the room's clock", async () => {
+    const pinging = defineGameServer({
+      setup: () => ({}),
+      onMessage: (_s, player, _data, room) => room.send(player.id, { pingDurationMs: room.pingDurationMs(player.id), serverTimeMs: room.serverTimeMs() }),
+    });
+    const { own, at } = await serve(pinging);
+    const a = connect(ORIGIN, "/v1/rooms/arena/PNGCLK", at);
+    await a.open;
+    a.say({ type: "hello", pass: await pass("a") });
+    expect((await a.next()).type).toBe("welcome");
+    while (a.probes.length < 2) await new Promise((r) => setTimeout(r, 10));
+    expect(a.probes[0]).toMatchObject({ probe: { type: "probe", probeNumber: 1, pingDurationMs: null }, afterTypes: ["welcome"] });
+    // The answer to the first probe brings another, carrying the ping the room measured.
+    expect(typeof a.probes[1]!.probe.pingDurationMs).toBe("number");
+    a.say({ type: "message", data: "ping?" });
+    const answer = await until(a, "message");
+    expect(typeof answer.data.pingDurationMs).toBe("number");
+    expect(Math.abs(answer.data.serverTimeMs - Date.now())).toBeLessThan(1000);
+    a.ws.close();
+    await own.close();
+  });
+
+  it("frees a connection that falls too far behind at once", async () => {
+    // About 2 MB a second to a player who never answers a probe.
+    const flooding = defineGameServer({ ticksPerSec: 20, setup: () => ({}), onTick: (_s, _tickDurationSec, room) => room.broadcast("x".repeat(100 * 1024)) });
+    const { own, at } = await serve(flooding);
+    const ws = new WebSocket(`ws://localhost:${at}/v1/rooms/arena/SLWCNX`, { origin: ORIGIN });
+    const closed = new Promise<number>((r) => ws.on("close", (code) => r(code)));
+    await new Promise((r) => ws.on("open", r));
+    ws.send(JSON.stringify({ type: "hello", pass: await pass("a") }));
+    // Closed with 4003, then terminate(): behind a real backlog the client sees an abnormal close (1006); either way the SDK reconnects.
+    expect([1006, 4003]).toContain(await closed);
+    await own.close();
   });
 
   it("starts a room with friends' Join off when its maker asks, as Zaisma rooms do", async () => {

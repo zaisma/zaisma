@@ -658,7 +658,29 @@ declare namespace Zaisma {
      * multiplayer time, an hour ahead (the "ending" event). Never set in a room on your own server.
      */
     readonly endsAt: string | null;
+    /**
+     * This player's round trip to the room in milliseconds, smoothed and measured by the room; null until
+     * the first measurement, right after joining. The game server reads the same number with
+     * room.pingDurationMs(playerId).
+     *
+     * @example
+     * // A ping readout in the corner
+     * pingText.textContent = room.pingDurationMs === null ? "" : room.pingDurationMs + " ms";
+     */
+    readonly pingDurationMs: number | null;
 
+    /**
+     * The room's clock now, in epoch milliseconds, estimated from the room's probes (Date.now() until the
+     * first one): the same clock as the game server's room.serverTimeMs(), so a time it sends means the
+     * same moment for every player.
+     *
+     * @example
+     * // The game server sent { type: "countdown", startsAtMs: room.serverTimeMs() + 3000 }
+     * room.on("message", (message) => {
+     *   if (message.type === "countdown") startsInMs = message.startsAtMs - room.serverTimeMs();
+     * });
+     */
+    serverTimeMs(): number;
     /**
      * Send a message to the game server: plain JSON, up to 16 KB, about 30 a second at most. Send input
      * when it changes, not every frame. Nothing is sent while the player is away.

@@ -32,6 +32,16 @@ function pairsOf(room: Room, isPair: (firstPlayerId: string, secondPlayerId: str
   for (let i = 0; i < players.length; i++) for (const other of players.slice(i + 1)) if (isPair(players[i]!.id, other.id)) pairs.push([players[i]!.id, other.id]);
   return pairs;
 }
+/** The ping of each player in a room the room has measured, as room.pingDurationMs would answer. */
+function pingsOf(room: Room): Record<string, number> {
+  const pings: Record<string, number> = {};
+  for (const player of room.players) {
+    const pingDurationMs = room.pingDurationMs(player.id);
+    if (pingDurationMs !== null) pings[player.id] = pingDurationMs;
+  }
+  return pings;
+}
+
 /**
  * CPU per call into the sandbox. Cloudflare stops a call that runs on, but in practice only after
  * about 2 seconds whatever this says (tested Oct 13, 2026), so the room also gives up on a game
@@ -66,6 +76,10 @@ interface Snapshot {
   blockPairs: [string, string][];
   /** The pairs of players in the room who are friends, for room.areFriends. */
   friendPairs: [string, string][];
+  /** Each measured player's ping, for room.pingDurationMs. */
+  pingDurationsMs: Record<string, number>;
+  /** The room's clock when the call was made, for room.serverTimeMs. */
+  serverTimeMs: number;
 }
 
 interface Answer {
@@ -148,6 +162,7 @@ function gameDatabase(binding) {
 }
 
 function recorder(snapshot, effects, database, secrets) {
+  const clockOffsetMs = (snapshot.serverTimeMs ?? Date.now()) - Date.now();
   return {
     database,
     secrets,
@@ -170,6 +185,8 @@ function recorder(snapshot, effects, database, secrets) {
     moveTo(roomCode, moveOptions) { effects.push({ do: "moveTo", roomCode, moveOptions }); },
     hasBlockBetween(firstPlayerId, secondPlayerId) { return (snapshot.blockPairs || []).some((pair) => (pair[0] === firstPlayerId && pair[1] === secondPlayerId) || (pair[0] === secondPlayerId && pair[1] === firstPlayerId)); },
     areFriends(firstPlayerId, secondPlayerId) { return (snapshot.friendPairs || []).some((pair) => (pair[0] === firstPlayerId && pair[1] === secondPlayerId) || (pair[0] === secondPlayerId && pair[1] === firstPlayerId)); },
+    pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
+    serverTimeMs() { return Date.now() + clockOffsetMs; },
   };
 }
 
@@ -542,7 +559,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
     return answer.state;
   };
-  const snapshot = (room: Room): Snapshot => ({ players: [...room.players], isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt, blockPairs: pairsOf(room, (first, second) => room.hasBlockBetween(first, second)), friendPairs: pairsOf(room, (first, second) => room.areFriends(first, second)) });
+  const snapshot = (room: Room): Snapshot => ({ players: [...room.players], isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt, blockPairs: pairsOf(room, (first, second) => room.hasBlockBetween(first, second)), friendPairs: pairsOf(room, (first, second) => room.areFriends(first, second)), pingDurationsMs: pingsOf(room), serverTimeMs: room.serverTimeMs() });
   const call = (hook: string, state: unknown, handlerArguments: unknown[], room: Room) => ask(() => session.call(hook, state, handlerArguments, snapshot(room)), room);
 
   // The options pass through as the game gave them, so defineGameServer checks them like any game server's.

@@ -19,7 +19,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ERROR_TEXT, DATABASE_LIMITS, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, WEBHOOK_LIMITS, RoomCore, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, WEBHOOK_LIMITS, RoomCore, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
@@ -289,7 +289,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         database,
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),
-        close: (id, code, reason) => sockets.get(id)?.close(code, reason),
+        close: (id, code, reason) => {
+          const ws = sockets.get(id);
+          ws?.close(code, reason);
+          // A connection too far behind: its close frame would wait behind the backlog it can't read, so free it now (the game sees 1006 and reconnects).
+          if (code === NO_ANSWER_CLOSE_CODE) ws?.terminate();
+        },
         reserve: (next, how) => {
           // It waits for its players, then goes like any room once it's empty. It knows where it came from (awayMode "lobby").
           wait(next, roomFor(next, { ...how, lobbyRoomCode: code }), RESERVED_MS);

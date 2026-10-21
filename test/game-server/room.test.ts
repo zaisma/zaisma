@@ -25,6 +25,20 @@ const counter = defineGameServer({
 });
 
 const msg = (data: unknown) => JSON.stringify({ type: "message", data });
+
+/** Answer every probe the room has sent, as players' games do at once, and the probes those answers bring. */
+function answerProbes(room: RoomCore, sent: Record<string, any[]>) {
+  for (let isAnswering = true; isAnswering; ) {
+    isAnswering = false;
+    for (const [id, messages] of Object.entries(sent)) {
+      for (const message of messages) {
+        if (message.type !== "probe" || message.isAnswered) continue;
+        message.isAnswered = isAnswering = true;
+        room.receive(id, JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
+      }
+    }
+  }
+}
 const nobodyJoined = { fromRoomCode: null, isReturning: false };
 
 describe("RoomCore", () => {
@@ -41,6 +55,7 @@ describe("RoomCore", () => {
       hostPlayerId: null,
       awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null },
       endsAt: null,
+      probeIntervalSec: null,
     });
     expect(sent.a!.at(-1)).toEqual({ type: "players", players: [{ id: "a", name: "A", kind: "guest" }, { id: "b", name: "B", kind: "guest" }], hostPlayerId: null });
 
@@ -657,6 +672,7 @@ describe("players who walk away", () => {
     const room = new RoomCore(hosted({ idleTimeoutSec: 60 }), t, { now });
     room.join({ id: "a", name: "A", kind: "guest" });
     room.join({ id: "b", name: "B", kind: "guest" });
+    answerProbes(room, sent);
     // "Still there?" takes 30 seconds, and the room gives the game a minute more to say.
     c.now += 60_000 + 30_000 + 59_000;
     room.receive("b", say("here"));
@@ -675,6 +691,7 @@ describe("players who walk away", () => {
     room.join({ id: "a", name: "A", kind: "guest" }, { clientIdle: { idleCheckEnabled: false } });
     room.join({ id: "b", name: "B", kind: "guest" }, { clientIdle: { idleTimeoutSec: 45 } });
     room.join({ id: "c", name: "C", kind: "guest" });
+    answerProbes(room, sent);
     expect([sent.a![0].awayChecks.idleTimeoutSec, sent.b![0].awayChecks.idleTimeoutSec, sent.c![0].awayChecks.idleTimeoutSec]).toEqual([null, 45, 600]);
     c.now += 24 * 3600_000;
     room.sweep();
@@ -695,6 +712,7 @@ describe("players who walk away", () => {
     const room = new RoomCore(hosted({ ticksPerSec: 10 }), t, { now });
     room.join({ id: "a", name: "A", kind: "guest" });
     room.join({ id: "b", name: "B", kind: "guest" });
+    answerProbes(room, sent);
     room.receive("a", say("hidden"));
     room.receive("b", say("hidden"));
     c.now += 60_000;
@@ -707,6 +725,7 @@ describe("players who walk away", () => {
     const turns = transport();
     const slow = new RoomCore(hosted(), turns.t, { now });
     slow.join({ id: "a", name: "A", kind: "guest" });
+    answerProbes(slow, turns.sent);
     slow.receive("a", say("hidden"));
     c.now += 9 * 60_000;
     slow.sweep();
@@ -910,5 +929,187 @@ describe("blocks between players", () => {
     // A new connection hears its blocks afresh: none now, so nothing is said.
     expect(blocks(sent, "b")).toEqual([["a"]]);
     expect(blocks(sent, "a")).toEqual([["b"], []]);
+  });
+});
+
+describe("ping and the room's clock", () => {
+  const game = (overrides: Partial<GameServer> = {}) =>
+    defineGameServer({
+      setup: () => ({ left: [] as any[] }),
+      onLeave: (s, p, _room, leaveInfo) => void s.left.push([p.id, leaveInfo.reason]),
+      ...overrides,
+    } as GameServer);
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const closed: [string, number][] = [];
+    const t: Transport = { send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: (id, closeCode) => closed.push([id, closeCode]) };
+    return { t, sent, closed };
+  };
+  const probes = (messages: any[] | undefined) => (messages ?? []).filter((message) => message.type === "probe");
+  const answer = (room: RoomCore, id: string, probeNumber: number) => room.receive(id, JSON.stringify({ type: "probe_answer", probeNumber }));
+  /** Answer the probes a player hasn't answered yet, as their game does. */
+  const answerAll = (room: RoomCore, sent: Record<string, any[]>, id: string) => {
+    for (const probe of probes(sent[id])) if (!probe.isAnswered) (probe.isAnswered = true), answer(room, id, probe.probeNumber);
+  };
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+
+  it("probes a player right after welcome, saying how often a ticking room probes", () => {
+    const now = 1_000_000;
+    const turns = recording();
+    new RoomCore(game(), turns.t, { now: () => now }).join(player("a"));
+    expect(turns.sent.a![0]).toMatchObject({ type: "welcome", probeIntervalSec: null });
+    expect(turns.sent.a![1]).toEqual({ type: "probe", probeNumber: 1, serverTimeMs: now, pingDurationMs: null });
+    const ticking = recording();
+    new RoomCore(game({ ticksPerSec: 20, onTick: () => {} }), ticking.t, { now: () => now }).join(player("a"));
+    expect(ticking.sent.a![0]).toMatchObject({ type: "welcome", probeIntervalSec: ROOM_LIMITS.probeIntervalSec });
+    expect(ticking.sent.a![1]).toMatchObject({ type: "probe", probeNumber: 1 });
+  });
+
+  it("measures ping from the answers, smoothed, and tells the player the same number", () => {
+    let now = 1_000_000;
+    const { t, sent } = recording();
+    const room = new RoomCore(game({ ticksPerSec: 20, onTick: () => {} }), t, { now: () => now });
+    room.join(player("a"));
+    now += 80;
+    expect(answer(room, "a", 1)).toBeNull();
+    expect((room as any).api.pingDurationMs("a")).toBe(80);
+    // The first measurement brings a probe at once, so the player's game hears its ping too.
+    expect(probes(sent.a).at(-1)).toEqual({ type: "probe", probeNumber: 2, serverTimeMs: now, pingDurationMs: 80 });
+    now += 40;
+    answer(room, "a", 2);
+    expect((room as any).api.pingDurationMs("a")).toBe(70);
+    now += ROOM_LIMITS.probeIntervalSec * 1000;
+    room.tick(0.05);
+    expect(probes(sent.a).at(-1)).toMatchObject({ probeNumber: 3, pingDurationMs: 70 });
+  });
+
+  it("probes a ticking room's players every probeIntervalSec, and not before", () => {
+    let now = 1_000_000;
+    const { t, sent } = recording();
+    const room = new RoomCore(game({ ticksPerSec: 20, onTick: () => {} }), t, { now: () => now });
+    room.join(player("a"));
+    expect(probes(sent.a)).toHaveLength(1);
+    now += ROOM_LIMITS.probeIntervalSec * 1000 - 50;
+    room.tick(0.05);
+    expect(probes(sent.a)).toHaveLength(1);
+    now += 50;
+    room.tick(0.05);
+    expect(probes(sent.a)).toHaveLength(2);
+    // A room that doesn't tick doesn't probe on a timer: it sleeps between moves.
+    const turns = recording();
+    const slow = new RoomCore(game(), turns.t, { now: () => now });
+    slow.join(player("a"));
+    answer(slow, "a", 1);
+    now += 60_000;
+    slow.sweep();
+    expect(probes(turns.sent.a)).toHaveLength(2);
+  });
+
+  it("doesn't count probe answers as messages or input, but limits answers that match no probe", () => {
+    let now = 1_000_000;
+    const { t } = recording();
+    const room = new RoomCore(game({ idleTimeoutSec: 60 }), t, { now: () => now });
+    room.join(player("a"));
+    expect(answer(room, "a", 1)).toBeNull();
+    expect(answer(room, "a", 2)).toBeNull();
+    expect(room.messageCount).toBe(0);
+    // Unknown answers are counted and take from the 30 a second.
+    expect(answer(room, "a", 999)).toBeNull();
+    expect(room.messageCount).toBe(1);
+    let refused = 0;
+    for (let i = 0; i < ROOM_LIMITS.gameMessageBurstCount + 1; i++) if (answer(room, "a", 999) === "too_fast") refused++;
+    expect(refused).toBeGreaterThan(0);
+    expect(room.receive("a", msg("hit"))).toBe("too_fast");
+    // A player who answers probes but gives no input still goes idle.
+    const later = recording();
+    const watched = new RoomCore(game({ idleTimeoutSec: 60 }), later.t, { now: () => now });
+    watched.join(player("b"));
+    for (let i = 0; i < 20; i++) {
+      now += 10_000;
+      answerAll(watched, later.sent, "b");
+      watched.sweep();
+    }
+    expect(watched.players.has("b")).toBe(false);
+    expect(watched.held.get("b")?.reason).toBe("idle");
+  });
+
+  it("drops a player whose probe goes unanswered for probeAnswerTimeoutSec, at the next tick or sweep", () => {
+    let now = 1_000_000;
+    const { t, closed } = recording();
+    const room = new RoomCore(game({ ticksPerSec: 20, onTick: () => {} }), t, { now: () => now });
+    room.join(player("a"));
+    room.join(player("b"));
+    now += ROOM_LIMITS.probeAnswerTimeoutSec * 1000 - 1;
+    // b answers; a doesn't.
+    answer(room, "b", 2);
+    room.tick(0.05);
+    expect(closed).toEqual([]);
+    now += 1;
+    room.tick(0.05);
+    expect(closed).toEqual([["a", 4003]]);
+    expect(room.state.left).toEqual([["a", "lost"]]);
+    expect(room.held.get("a")?.reason).toBe("lost");
+    // The runtime's close event comes later and finds them gone.
+    room.leave("a", "lost");
+    expect(room.state.left).toEqual([["a", "lost"]]);
+    expect(room.players.has("b")).toBe(true);
+
+    const turns = recording();
+    const slow = new RoomCore(game(), turns.t, { now: () => now });
+    slow.join(player("a"));
+    now += ROOM_LIMITS.probeAnswerTimeoutSec * 1000;
+    slow.sweep();
+    expect(turns.closed).toEqual([["a", 4003]]);
+    expect(slow.state.left).toEqual([["a", "lost"]]);
+  });
+
+  it("probes every sentBytesPerProbe sent, and drops a player maximumUnansweredSentBytes behind", () => {
+    const now = 1_000_000;
+    const big = "x".repeat(100 * 1024);
+    const pushing = game({ onMessage: (_s: any, _p: any, data: any, room: any) => room.broadcast(data === "big" ? big : data) });
+    const { t, sent, closed } = recording();
+    const room = new RoomCore(pushing, t, { now: () => now });
+    room.join(player("a"));
+    room.join(player("b"));
+    // b sends messages that push about 100 KB to everyone; b answers its probes, a doesn't.
+    for (let i = 0; i < 3; i++) {
+      room.receive("b", msg("big"));
+      answerAll(room, sent, "b");
+    }
+    expect(probes(sent.a)).toHaveLength(2);
+    expect(probes(sent.a)[1].probeNumber).toBeGreaterThan(1);
+    let count = 3;
+    while (!closed.length && count < 40) {
+      room.receive("b", msg("big"));
+      answerAll(room, sent, "b");
+      count++;
+    }
+    expect(closed).toEqual([["a", 4003]]);
+    // Dropped on the send that took them past 2 MB.
+    expect(count * (big.length + 30)).toBeGreaterThan(ROOM_LIMITS.maximumUnansweredSentBytes);
+    expect((count - 1) * big.length).toBeLessThanOrEqual(ROOM_LIMITS.maximumUnansweredSentBytes);
+    expect(room.state.left).toEqual([["a", "lost"]]);
+    // b, who answers, gets the players list once a is out, after the message that dropped a.
+    expect(sent.b!.at(-1)).toMatchObject({ type: "players", players: [{ id: "b" }] });
+
+    // Answering the probes in between keeps a player in.
+    const kept = recording();
+    const steady = new RoomCore(pushing, kept.t, { now: () => now });
+    steady.join(player("a"));
+    steady.join(player("b"));
+    for (let i = 0; i < 60; i++) {
+      steady.receive("b", msg("big"));
+      answerAll(steady, kept.sent, "a");
+      answerAll(steady, kept.sent, "b");
+    }
+    expect(kept.closed).toEqual([]);
+    expect(steady.players.has("a")).toBe(true);
+  });
+
+  it("reads the room's clock and a missing player's ping", () => {
+    const now = 1_234_567;
+    const room = new RoomCore(game(), recording().t, { now: () => now });
+    expect((room as any).api.serverTimeMs()).toBe(now);
+    expect((room as any).api.pingDurationMs("nobody")).toBeNull();
   });
 });
