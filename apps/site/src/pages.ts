@@ -1030,7 +1030,9 @@ const deviceNotes = [];
 const chromium = navigator.userAgentData?.brands?.find((b) => b.brand === "Chromium");
 const canIsolateFrame = Boolean(chromium && Number(chromium.version) >= 137 && !/iPhone|iPad/.test(navigator.userAgent));
 const needsOtherBrowser = gamePage.has_threads && !canIsolateFrame;
-if (needsOtherBrowser) deviceNotes.push("This game needs Chrome or Edge on a computer or Android.");
+// The note names the browser that can't, so players know why it's there. Every browser on iPhone is Safari inside.
+const browserName = /iPhone/.test(navigator.userAgent) ? "on iPhone" : /iPad/.test(navigator.userAgent) ? "on iPad" : /Firefox\//.test(navigator.userAgent) ? "in Firefox" : !chromium && /Safari\//.test(navigator.userAgent) ? "in Safari" : "in this browser";
+if (needsOtherBrowser) deviceNotes.push("This game doesn't work " + browserName + ". Play it in Chrome or Edge on a computer or Android.");
 if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
 // Controls and screen only come up when they don't fit this device.
 const CONTROLS = gamePage.controls;
