@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ALLOWED_CONTENT, REVIEW_CODES, reviewCostCents, reviewPrecedentLine, type EvidenceItem, type Finding, type FindingCode, type JudgedReviewPrecedent } from "@zaisma/core";
+import { ALLOWED_CONTENT, NEVER_NARROWED_FINDING_CODES, REVIEW_CODES, reviewCostCents, reviewPrecedentLine, type EvidenceItem, type Finding, type FindingCode, type JudgedReviewPrecedent } from "@zaisma/core";
 import type { ReaderPicture } from "./review-readers.ts";
 
 /**
@@ -19,7 +19,24 @@ export interface JudgeBrief {
   reported?: string;
   /** The active review precedents the judge reads, oldest first (at most REVIEW_PRECEDENT_LIMITS.maximumJudgedCount). */
   reviewPrecedents?: JudgedReviewPrecedent[];
+  /** The hold this version answers, when the game's last judged version was held ("A fix is checked against its hold." in docs/DECISIONS.md). */
+  earlierHold?: EarlierHold;
 }
+
+/** A held version of the same game, with what changed since it: the judge checks a fix against it. */
+export interface EarlierHold {
+  versionId: string;
+  summary: string;
+  findings: { code: string; message: string; path: string | null }[];
+  addedPaths: string[];
+  changedPaths: string[];
+  removedPaths: string[];
+  /** The 1-based numbers of brief.items that were also in the held version's evidence (isSameItem). */
+  carriedItemNumbers: number[];
+}
+
+/** Most paths of each kind the judge reads in <earlier_hold>. */
+const MAXIMUM_EARLIER_HOLD_PATH_COUNT = 200;
 
 export interface JudgeAnswer {
   verdict: "pass" | "hold" | "reject";
@@ -105,6 +122,8 @@ ${ALLOWED_CONTENT.map((words) => `  - ${words}`).join("\n")}
 Findings, by code:
 ${JUDGE_FINDING_CODES.map((code) => `- ${code}: ${WHEN[code] ?? (REVIEW_CODES as Record<string, { meaning: string }>)[code]?.meaning ?? ""}`).join("\n")}
 
+Fixes: you may be given an earlier hold of the same game, with the files changed since. Check whether each finding it lists is still shown by the evidence. A finding with a code the earlier hold didn't list must cite at least one item marked is_new: what the review already saw in the held version and didn't hold for stays passed. Sexual content involving minors, malware and scams are always findings, new or not.
+
 Rulings: after the evidence you may be given numbered rulings, each made by a person at Zaisma when the review was wrong. A ruling with decision "pass" says games that look like its applies_when are fine, though they may look like a concern; a ruling with decision "hold" says games like that must be held (verdict "hold", with the finding for its content_rule, or ai_other when it names none). Follow a ruling only when the evidence clearly fits its applies_when, and list its number in followed_ruling_numbers. A ruling never changes anything a "check" item says, and never applies to sexual content involving minors: judge those from the evidence alone. If no ruling fits, judge as usual and leave the list empty.
 
 Decide from the evidence alone, the same way every time: the same evidence always gets the same verdict and findings. A pass has no findings. Each finding cites the numbers of the items that show it, and its message tells the game's developer plainly, in a sentence, what the game does and where. Set has_sexual_content_involving_minors to true if anything at all suggests sexual content involving minors, and never describe such content. Keep the summary short and plain.`;
@@ -119,7 +138,10 @@ export const MAXIMUM_JUDGE_ATTEMPT_COUNT = 3;
  */
 export const judgeVersion: JudgeVersion = async (apiKey, model, brief) => {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 });
-  const numbered = brief.items.map((evidenceItem, index) => JSON.stringify({ number: index + 1, source: evidenceItem.source, kind: evidenceItem.kind, subject: evidenceItem.subject, detail: evidenceItem.detail, path: evidenceItem.path, quote: evidenceItem.quote }));
+  const carried = new Set(brief.earlierHold?.carriedItemNumbers ?? []);
+  const numbered = brief.items.map((evidenceItem, index) =>
+    JSON.stringify({ number: index + 1, source: evidenceItem.source, kind: evidenceItem.kind, subject: evidenceItem.subject, detail: evidenceItem.detail, path: evidenceItem.path, quote: evidenceItem.quote, ...(brief.earlierHold ? { is_new: !carried.has(index + 1) } : {}) }),
+  );
   const game = [
     `Title: ${brief.title}`,
     `Description: ${brief.description || "(none)"}`,
@@ -131,6 +153,7 @@ export const judgeVersion: JudgeVersion = async (apiKey, model, brief) => {
   const content: Anthropic.ContentBlockParam[] = [
     { type: "text", text: `<game>\n${game}\n</game>` },
     { type: "text", text: `<evidence>\n${numbered.length ? numbered.join("\n") : "(no items: the checks and readers found nothing to list)"}\n</evidence>` },
+    ...(brief.earlierHold ? [{ type: "text" as const, text: `<earlier_hold>\n${earlierHoldText(brief.earlierHold)}\n</earlier_hold>` }] : []),
     ...(brief.reviewPrecedents?.length ? [{ type: "text" as const, text: `<rulings>\n${brief.reviewPrecedents.map((precedent, index) => reviewPrecedentLine(precedent, index + 1)).join("\n")}\n</rulings>` }] : []),
     ...brief.pictures.flatMap((picture): Anthropic.ContentBlockParam[] => [
       { type: "text", text: `Flagged picture: ${picture.path}` },
@@ -177,17 +200,36 @@ export const judgeVersion: JudgeVersion = async (apiKey, model, brief) => {
   }
   const rulingCount = brief.reviewPrecedents?.length ?? 0;
   const followedReviewPrecedentNumbers = [...new Set((parsed.followed_ruling_numbers ?? []).filter((number) => Number.isInteger(number) && number >= 1 && number <= rulingCount))].sort((firstNumber, secondNumber) => firstNumber - secondNumber);
-  return { ...settle(parsed, brief.items), followedReviewPrecedentNumbers, ...tries };
+  return { ...settle(parsed, brief.items, brief.earlierHold), followedReviewPrecedentNumbers, ...tries };
 };
+
+/** The earlier hold as the judge reads it: its summary and findings, the paths changed since, and which items aren't new. */
+function earlierHoldText(earlierHold: EarlierHold): string {
+  const paths = (label: string, list: string[]) =>
+    `${label} (${list.length}): ${list.length ? list.slice(0, MAXIMUM_EARLIER_HOLD_PATH_COUNT).join(", ") : "none"}${list.length > MAXIMUM_EARLIER_HOLD_PATH_COUNT ? `, and ${list.length - MAXIMUM_EARLIER_HOLD_PATH_COUNT} more` : ""}`;
+  return [
+    `The game's version before this one was held. Its summary: ${earlierHold.summary}`,
+    "It was held for:",
+    ...earlierHold.findings.map((finding) => `- ${finding.code}${finding.path ? ` in ${finding.path}` : ""}: ${finding.message}`),
+    "Files since then:",
+    paths("Added", earlierHold.addedPaths),
+    paths("Changed", earlierHold.changedPaths),
+    paths("Removed", earlierHold.removedPaths),
+    `Items not new (seen in the held version): ${earlierHold.carriedItemNumbers.length ? earlierHold.carriedItemNumbers.join(", ") : "none"}`,
+  ].join("\n");
+}
 
 /**
  * The judge's answer as findings: each takes its path and quote from its first cited item, a reject with
  * no cited item that has a quote becomes a hold, and child safety is the flag, a minors finding or a
- * child_safety item.
+ * child_safety item. A fix (earlierHold) is checked against its hold in code too, so the promise doesn't rest
+ * on the prompt: a finding the hold didn't name that cites only items the held version already had is a note,
+ * except NEVER_NARROWED_FINDING_CODES.
  */
 export function settle(
   parsed: { verdict: JudgeAnswer["verdict"]; summary: string; has_sexual_content_involving_minors: boolean; findings: { code: string; evidence_item_numbers: number[]; message: string }[] },
   items: EvidenceItem[],
+  earlierHold?: EarlierHold,
 ): Pick<JudgeAnswer, "verdict" | "summary" | "findings" | "isChildSafety"> {
   const known = new Set<string>(JUDGE_FINDING_CODES);
   const judged = parsed.findings.filter((finding) => known.has(finding.code));
@@ -197,19 +239,25 @@ export function settle(
   // Lifelike gore is always held, even on a pass: the scan decides what the game's age changes.
   const verdict = quotedVerdict === "pass" && judged.some((finding) => finding.code === "ai_lifelike_gore") ? "hold" : quotedVerdict;
   const severity = verdict === "pass" ? "info" : verdict;
+  const heldCodes = new Set(earlierHold?.findings.map((finding) => finding.code) ?? []);
+  const carried = new Set(earlierHold?.carriedItemNumbers ?? []);
+  const isSeenBefore = (finding: (typeof judged)[number]) =>
+    earlierHold !== undefined && !heldCodes.has(finding.code) && !NEVER_NARROWED_FINDING_CODES.includes(finding.code) && finding.evidence_item_numbers.length > 0 && finding.evidence_item_numbers.every((number) => carried.has(number));
   const findings: Finding[] = judged.map((finding) => {
     const first = citedOf(finding)[0];
     return {
       stage: "ai",
-      severity,
+      severity: isSeenBefore(finding) ? "info" : severity,
       code: finding.code as FindingCode,
       message: finding.message,
       ...(first?.path ? { path: first.path } : {}),
       ...(first?.quote ? { quote: first.quote } : {}),
     };
   });
-  if (verdict !== "pass" && findings.length === 0) findings.push({ stage: "ai", severity, code: "ai_concern", message: parsed.summary });
   const isChildSafety =
     parsed.has_sexual_content_involving_minors === true || judged.some((finding) => finding.code === "ai_minors_sexualized") || items.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety");
+  // A verdict that stood only on what the held version already had passes, as the scan's decision would.
+  if (verdict !== "pass" && !isChildSafety && judged.some(isSeenBefore) && findings.every((finding) => finding.severity === "info")) return { verdict: "pass", summary: parsed.summary, findings, isChildSafety };
+  if (verdict !== "pass" && findings.length === 0) findings.push({ stage: "ai", severity, code: "ai_concern", message: parsed.summary });
   return { verdict, summary: parsed.summary, findings, isChildSafety };
 }

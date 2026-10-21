@@ -157,7 +157,7 @@ import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
-import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions, replaceWaitingVersions } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 
@@ -1247,6 +1247,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await logCallerEvent(env, caller, "version_uploaded", { gameId: game.id, versionId });
     await queueCompression(env, manifest, files);
+    await replaceWaitingVersions(env, game.id, versionId);
     await env.SCAN_QUEUE.send({ versionId });
     const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
     return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
@@ -1998,6 +1999,7 @@ export function versionJson(env: Env, game: Game, version: Version) {
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
     findings: findingsFor(version),
+    replaced_by_version_id: version.replaced_by_version_id,
   };
 }
 
@@ -2179,7 +2181,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
-        "SELECT game_id, id, scan_status, report_held_at_ms, created_at_ms, created_at_ms = (SELECT MAX(newer.created_at_ms) FROM versions AS newer WHERE newer.game_id = versions.game_id) AS is_newest FROM versions WHERE game_id IN (SELECT value FROM json_each(?)) AND scan_status IN ('held', 'rejected') ORDER BY created_at_ms DESC",
+        "SELECT game_id, id, scan_status, report_held_at_ms, created_at_ms, created_at_ms = (SELECT MAX(newer.created_at_ms) FROM versions AS newer WHERE newer.game_id = versions.game_id) AS is_newest FROM versions WHERE game_id IN (SELECT value FROM json_each(?)) AND scan_status IN ('held', 'rejected') AND replaced_by_version_id IS NULL ORDER BY created_at_ms DESC",
       )
       .bind(gameIds)
       .all<{ game_id: string; id: string; scan_status: "held" | "rejected"; report_held_at_ms: number | null; created_at_ms: number; is_newest: number }>(),

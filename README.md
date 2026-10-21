@@ -23,6 +23,10 @@ Pre-beta. Open source (MIT): all the code and developer docs are public.
 | 4. Discover | Quality-ranked front page, real ratings, player lists, follows |
 | 5. Create together | Remixes, teams, mods, the Tools tab |
 
+## Design
+
+[zaisma.com/design](https://zaisma.com/design): every component of Zaisma's look, live, rendered from the site's own code. The rules are in [`docs/DESIGN.md`](docs/DESIGN.md).
+
 ## License
 
 [MIT](LICENSE). Zaisma is free and open. Copy it, fork it, run your own.

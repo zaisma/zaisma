@@ -118,6 +118,9 @@ const IF_THE_CHECK_IS_WRONG = "If the check got it wrong: message_zaisma with th
 /** What follows a listing line: the game is back on the lists once it's fixed. */
 const BACK_ON_LISTS = "The game plays by its link meanwhile, and is back in lists about a minute after the fix.";
 
+/** What a hold tells the developer a fixed version is checked for ("A fix is checked against its hold." in docs/DECISIONS.md). */
+const FIXED_VERSION_CHECKED = "Upload a fixed version: it's checked for what this hold names and for anything you added. What we already passed stays passed.";
+
 /** What follows an AI review's concern, whatever the developer changes. */
 const IF_THE_AI_IS_WRONG = "If the AI got it wrong: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.";
 
@@ -203,50 +206,60 @@ export const REVIEW_CODES = {
   ai_review_budget_used: { meaning: "This month's AI reviews are used up, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", contentRule: null, fix: PERSON_LOOKS },
-  daily_reviews_used: {
-    meaning: "This developer's 5 judged reviews for today are used, so this version waits for the next one to free up.",
+  daily_large_reviews_used: {
+    meaning: "This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up.",
     contentRule: null,
-    fix: "Nothing to do: it's checked by itself within a day, as soon as one of your 5 daily reviews frees up. Changes that only tweak a game that already passed (levels, sprites, balance) don't use one.",
+    fix: "Nothing to do: it's checked by itself within a day, as soon as one of your 5 large reviews frees up. A tweak of a game that already passed (levels, sprites, balance) uses a small review instead.",
+  },
+  daily_small_reviews_used: {
+    meaning: "This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up.",
+    contentRule: null,
+    fix: "Nothing to do: it's read by itself within a day, as soon as one of your 30 small reviews frees up.",
+  },
+  version_replaced: {
+    meaning: "A newer version of this game came in while this one waited, so this one isn't reviewed.",
+    contentRule: null,
+    fix: "Nothing to do: the newest version is reviewed. To have this one reviewed, upload it again.",
   },
   scan_failed: { meaning: "The scan didn't finish after three tries, so a person at Zaisma looks.", contentRule: null, fix: `${PERSON_LOOKS} Uploading the version again scans it again.` },
 
   // The AI review's concerns, in the AI's words
-  ai_malware: { meaning: "The AI review found what looks like malware.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
-  ai_phishing_or_scam: { meaning: "The AI review found what looks like phishing or a scam.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_malware: { meaning: "The AI review found what looks like malware.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_phishing_or_scam: { meaning: "The AI review found what looks like phishing or a scam.", contentRule: "malware", fix: `If the game does that, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_data_collection: {
     meaning: "The AI review found the game asking players for personal details, like emails, real names, birthdays or location.",
     contentRule: "personal_details",
-    fix: `Stop asking players for personal details (Zaisma gives each player an ID and a name) and upload a new version. ${IF_THE_AI_IS_WRONG}`,
+    fix: `Stop asking players for personal details (Zaisma gives each player an ID and a name) and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
-  ai_sexual_content: { meaning: "The AI review found sexual content or nudity.", contentRule: "sexual", fix: `If the game has it, take it out and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_sexual_content: { meaning: "The AI review found sexual content or nudity.", contentRule: "sexual", fix: `If the game has it, take it out and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_private_details_or_threats: {
     meaning: "The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one.",
     contentRule: "real_people",
-    fix: `Take out what lets players find or reach that person, or the threat, and upload a new version. Names, faces, mocking and satire are fine. ${IF_THE_AI_IS_WRONG}`,
+    fix: `Take out what lets players find or reach that person, or the threat, and upload a new version. Names, faces, mocking and satire are fine. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
   ai_protection_dodged: {
     meaning: "The AI review found code that tries to get around one of Zaisma's protections: the page outside the game's frame, the relay between players, registered links or the list of servers.",
     contentRule: "malware",
-    fix: `Take out the code that does it and upload a new version: open sites with Zaisma.links.open from a tap, and connect only to Zaisma rooms and your own servers. A version that only removes it passes by itself. ${IF_THE_AI_IS_WRONG}`,
+    fix: `Take out the code that does it and upload a new version: open sites with Zaisma.links.open from a tap, and connect only to Zaisma rooms and your own servers. A version that only removes it passes by itself. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
   ai_lifelike_gore: {
     meaning: "The AI review found lifelike gore (photo-real or lifelike injury shown up close), which plays only in games for 16 and up.",
     contentRule: null,
-    fix: `Pick one: set the game for 16 and up (update_game with minimum_player_age_years 16; the whole game then needs a Zaisma account, since only accounts have an age) and the version passes by itself, or make the gore stylized (cartoon, pixel or less detailed) and upload a new version to keep guests. ${IF_THE_AI_IS_WRONG}`,
+    fix: `Pick one: set the game for 16 and up (update_game with minimum_player_age_years 16; the whole game then needs a Zaisma account, since only accounts have an age) and the version passes by itself, or make the gore stylized (cartoon, pixel or less detailed) and upload a new version to keep guests. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
-  ai_real_money_gambling: { meaning: "The AI review found real-money gambling.", contentRule: "illegal", fix: `Take out betting with real money or anything bought with it, and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
-  ai_free_text_chat: { meaning: "The AI review found free-text chat between players.", contentRule: "chat", fix: `Swap typed chat for preset phrases or emotes, and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_real_money_gambling: { meaning: "The AI review found real-money gambling.", contentRule: "illegal", fix: `Take out betting with real money or anything bought with it, and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_free_text_chat: { meaning: "The AI review found free-text chat between players.", contentRule: "chat", fix: `Swap typed chat for preset phrases or emotes, and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_disallowed_crypto: {
     meaning: "The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access.",
     contentRule: "crypto",
-    fix: `Take it out and upload a new version. Bitcoin itself is welcome, and so is a story that mentions another coin. ${IF_THE_AI_IS_WRONG}`,
+    fix: `Take it out and upload a new version. Bitcoin itself is welcome, and so is a story that mentions another coin. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
-  ai_other: { meaning: "The AI review found something else for a person at Zaisma to look at.", contentRule: null, fix: `If the message is right, change it and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_other: { meaning: "The AI review found something else for a person at Zaisma to look at.", contentRule: null, fix: `If the message is right, change it and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_concern: { meaning: "The AI review held or rejected the version without naming one concern; the message is its summary.", contentRule: null, fix: `If the message is right, change it and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
 
   // People and reports

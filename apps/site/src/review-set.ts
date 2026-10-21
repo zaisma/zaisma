@@ -135,8 +135,8 @@ export function checkCase(caseFile: unknown, filePaths: string[]): string[] {
 /**
  * The review on one case, as the scan runs it (inspectVersion in scan.ts, steps 2, 4 and 5) with nothing
  * stored or matched: the rule-based checks, the readers, the judge and the decision. Image matching,
- * VirusTotal, the budget, tweaks, daily reviews and the 40 MB cap are left out, since they don't depend on
- * the review's prompts or models: every case is a first upload, judged in full.
+ * VirusTotal, the budget, tweaks, daily reviews, replaced versions and the 40 MB cap are left out, since they don't
+ * depend on the review's prompts or models: every case is a first upload, judged in full, with no earlier hold.
  */
 export async function reviewCase(
   env: Pick<Env, "ANTHROPIC_API_KEY" | "REVIEW_READER_MODEL" | "REVIEW_JUDGE_MODEL">,

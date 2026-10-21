@@ -15,6 +15,7 @@ import {
   isSlugRetired,
 } from "@zaisma/core";
 import type { Env } from "./env.ts";
+import { replaceWaitingVersions } from "./scan.ts";
 
 export interface UploadResult {
   game: Game;
@@ -67,6 +68,7 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
 
   await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: prefix, fileCount: entries.length, sizeBytes });
   await audit(env.DB, game.id, "upload", `${versionId}, ${entries.length} files`, actor);
+  await replaceWaitingVersions(env, game.id, versionId);
   await env.SCAN_QUEUE.send({ versionId });
   return { game: { ...game, title, description }, versionId, fileCount: entries.length, sizeBytes };
 }
