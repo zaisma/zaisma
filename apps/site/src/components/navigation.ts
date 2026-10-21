@@ -306,8 +306,33 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
         if (isPage) window.scrollTo({ top: spot(part), behavior: behavior }); else scroller.scrollTo(isSide ? { left: spot(part), behavior: behavior } : { top: spot(part), behavior: behavior });
       });
-      return { part: part, mark: mark };
+      return { part: part, mark: mark, name: name };
     });
+    // Names whose marks sit close would lie over each other: each keeps at least its own size (and a gap) from the last, along the rail,
+    // pulled back in where the last would run past the rail's end. --label-shift moves a name from its mark.
+    var LABEL_GAP_PX = 4;
+    function spread(track) {
+      // Sideways, only one name shows at a time (the nearest, below): each sits over its own mark, kept inside the rail's ends.
+      if (isSide) {
+        marks.forEach(function (m) {
+          if (m.mark.hidden) return;
+          var at = parseFloat(m.mark.style.left) || 0, half = m.name.offsetWidth / 2, center = Math.max(half, Math.min(track - half, at));
+          m.name.style.setProperty("--label-shift", (center - at).toFixed(1) + "px");
+        });
+        return;
+      }
+      var placed = marks.filter(function (m) { return !m.mark.hidden; }).map(function (m) {
+        return { m: m, at: parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, size: isSide ? m.name.offsetWidth : m.name.offsetHeight };
+      }).sort(function (one, other) { return one.at - other.at; });
+      placed.forEach(function (p, i) { p.center = i ? Math.max(p.at, placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX) : p.at; });
+      for (var i = placed.length - 1; i >= 0; i--) {
+        var p = placed[i], most = i === placed.length - 1 ? Math.max(p.at, track - p.size / 2) : placed[i + 1].center - (placed[i + 1].size + p.size) / 2 - LABEL_GAP_PX;
+        if (p.center > most) p.center = most;
+      }
+      // …and never before the rail's start: where they can't all fit, the last ones run past its end instead.
+      placed.forEach(function (p, i) { var least = i ? placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX : Math.min(p.at, p.size / 2); if (p.center < least) p.center = least; });
+      placed.forEach(function (p) { p.m.name.style.setProperty("--label-shift", (p.center - p.at).toFixed(1) + "px"); });
+    }
     // Sideways, everything below runs along x instead of y: the box's left edge, its width, the pointer's x.
     function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
@@ -333,6 +358,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var top = Math.max(0, Math.min(max, spot(m.part)));
         m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
       });
+      spread(track);
     }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
@@ -353,10 +379,22 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     line.addEventListener("pointerdown", function (event) { start(event, true); });
     bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (along(event) - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
     function end() { drag = null; bar.classList.remove("dragging"); }
+    // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
+    function near(event) {
+      if (!isSide || !marks.length) return;
+      var spotPx = drag ? (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2 : event.clientX - bar.getBoundingClientRect().left, best = null, gap = Infinity;
+      marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style.left) - spotPx); if (away < gap) { gap = away; best = m; } });
+      marks.forEach(function (m) { m.mark.classList.toggle("is-near", m === best); });
+    }
+    function farAway() { marks.forEach(function (m) { m.mark.classList.remove("is-near"); }); }
+    bar.addEventListener("pointermove", near);
+    bar.addEventListener("pointerdown", near);
+    bar.addEventListener("pointerleave", function () { if (!drag) farAway(); });
     // By touch, letting go of the thumb near a mark goes to its part, as a click on the mark does with a mouse.
     var SNAP_PX = 18;
     function release(event) {
       var wasDragging = Boolean(drag); end();
+      if (event.pointerType !== "mouse") farAway();
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
       var middle = (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
@@ -581,7 +619,7 @@ component({
 .rail-mark:hover::before { --face-color: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
-.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); pointer-events: none;
+.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, calc(-50% + var(--label-shift, 0px))); pointer-events: none;
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
@@ -589,16 +627,21 @@ component({
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
 /* In a box, the words under a label are close by and a pane's glass can't blur them again, so its glass is denser. */
 .rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
-/* Along a sideways rail, a mark is a short upright tick, and its name opens above it, wiped up from the rail. */
+/* Along a sideways rail, a mark is a short upright tick across the line, and its name opens above it, wiped up from the rail. */
 .rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
-.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 2px; bottom: 13px; width: 2px; height: auto; transition: --face-color 0.2s, top 0.2s; }
-.rail.sideways .rail-mark:hover::before { left: 11px; top: -2px; }
-.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(-50%);
+/* Its tick crosses the line as a down rail's does (3px to 12px across the rail), reaching further toward the box when pointed at. */
+.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 13px; bottom: 4px; width: 2px; height: auto; transition: --face-color 0.2s, top 0.2s; }
+.rail.sideways .rail-mark:hover::before { left: 11px; top: 7px; }
+.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(calc(-50% + var(--label-shift, 0px)));
   clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 .rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
-/* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
+/* A sideways rail has room for one name at a time: the nearest mark's (is-near); the rest stay shut. */
+.rail.sideways .rail-mark:not(.is-near) span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); visibility: hidden;
+  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+/* In the narrow layout (a phone, or a small window), the page's bar fits in the gutter beside the glass, centered in it, clear of the
+   screen's edge, and starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { width: 10px; top: 132px; bottom: 10px; }
+  .rail[data-rail="page"] { width: 10px; right: calc((var(--pad-pane) - 10px) / 2); top: 132px; bottom: 10px; }
   .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
   .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
   .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
@@ -614,11 +657,13 @@ component({
   .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
 }
 /* By touch, a mark is only a faint tick: a tap or a drag lands on the rail itself (letting go near a tick goes to its part), and the marks'
-   names and full ticks show only while a finger drags the thumb, never on a tap's leftover hover. */
+   names and full ticks show only while a finger drags the thumb, wiping open and shut with the drag, never on a tap's leftover hover. */
 @media (hover: none) {
   .rail .rail-mark { pointer-events: none; }
   .rail:not(.dragging) .rail-mark::before { opacity: 0.4; }
-  .rail:not(.dragging) .rail-mark span { visibility: hidden; }
+  .rail:not(.dragging) .rail-mark span { clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+    transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+  .rail.sideways:not(.dragging) .rail-mark span { clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
 }
 @media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
   .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }

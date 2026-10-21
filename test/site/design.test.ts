@@ -443,6 +443,7 @@ const HAND_CUT = new Set<string>([
   ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
   ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
   ".rail.sideways .rail-mark span", ".rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span",
+  ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
