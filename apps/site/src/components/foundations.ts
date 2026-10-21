@@ -117,6 +117,8 @@ export const TOKEN_STYLES = `
 /* A box that scrolls keeps a swipe to itself: reaching its end never carries on into the page, so the page never nudges under it. */
 /* Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. */
 .is-scrollable { overscroll-behavior-y: contain; }
+/* The page scrolls only up and down: a sideways drag or swipe never rubber-bands it. */
+html, body { overscroll-behavior-x: none; }
 .is-scrollable-sideways { overscroll-behavior-x: contain; }
 [data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
@@ -352,7 +354,7 @@ export const logo = (kind: "wordmark" | "mark"): Raw =>
 export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
-export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
+export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
 
 /** A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated), "count" the buttons' face (unread topics, or plain words), "warning" amber (Held, Over the limit), "glass" a sliver of the menus' glass (the rail's labels). data.ts's Tag shows it. */
 export type TagTone = "new" | "count" | "warning" | "glass";

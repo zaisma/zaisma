@@ -628,7 +628,7 @@ component({
 .chart-last.is-bar { width: 0; height: 0; margin: 0; box-shadow: none; }
 .chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity 0.15s; }
 .chart-last.is-bar .chart-last-words { right: auto; left: 0; bottom: 6px; transform: translateX(-50%); }
-.chart-body > .side-rail { grid-column: 2; }
+.chart-body > .rail { grid-column: 2; }
 .chart-axis { display: flex; justify-content: space-between; padding-top: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
 .chart-hit { position: absolute; top: 0; bottom: 0; z-index: 2; }
 .chart-inner.is-bars .chart-hit:hover { background: var(--row-hover); }

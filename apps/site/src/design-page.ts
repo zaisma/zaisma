@@ -148,6 +148,9 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 /* The rail's example: a pane held short, so what's in it scrolls on its rail. */
 .rail-box { display: flex; height: 220px; }
+.rail-side-box p { margin: 0; white-space: nowrap; }
+.rail-example-part { margin: 0; font: var(--type-label); color: var(--ink); }
+.rail-side-box { padding-top: var(--gap-block-block); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }

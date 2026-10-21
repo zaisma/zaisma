@@ -242,8 +242,11 @@ export function footer(): Raw {
 </footer>`;
 }
 
-/** Zaisma's own scrollbar, for a mouse or trackpad: "page" for the page, "box" for a box that scrolls (put it just after that box). */
-export function rail(scrollKind: "box" | "page"): Raw {
+/**
+ * Zaisma's own scrollbar: "page" for the page, "box" for a box that scrolls up and down, "side" for one that scrolls sideways (put it just
+ * after that box; a box marked data-side-rail gets one by itself).
+ */
+export function rail(scrollKind: "box" | "page" | "side"): Raw {
   return railMarkup(scrollKind);
 }
 
@@ -266,23 +269,49 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
     box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
+  // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
+  // phones too, whose own sideways scrollbars hide.
+  document.querySelectorAll("[data-side-rail]").forEach(function (box) {
+    if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
+    box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+  });
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
-    var isPage = bar.getAttribute("data-rail") === "page", scroller = isPage ? null : bar.previousElementSibling;
+    var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     bar.classList.add("is-on");
     // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
-    var marks = !isPage ? [] : Array.prototype.map.call(document.querySelectorAll("[data-rail-mark]"), function (part) {
+    // A box's rail marks the parts inside the box, down it or along it; the page's, those in no box of their own.
+    var parts = isPage
+      ? Array.prototype.filter.call(document.querySelectorAll("[data-rail-mark]"), function (part) { return !part.closest("[data-rail-marks-own]"); })
+      : Array.prototype.filter.call(scroller.querySelectorAll("[data-rail-mark]"), function (part) {
+          // A part inside a box of its own in this one (a sideways row in a pane) is that box's rail's to mark.
+          var own = part.parentElement.closest("[data-side-rail], [data-rail-marks-own]");
+          return !own || own === scroller || !scroller.contains(own);
+        });
+    if (!isPage && parts.length) scroller.setAttribute("data-rail-marks-own", "");
+    // Where a part sits along the box (or the page), from its start, as the box would scroll to show it.
+    function spot(part) {
+      if (isPage) return part.getBoundingClientRect().top + window.scrollY - offset();
+      var box = scroller.getBoundingClientRect(), r = part.getBoundingClientRect();
+      return isSide ? r.left - box.left + scroller.scrollLeft : r.top - box.top + scroller.scrollTop;
+    }
+    var marks = parts.map(function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
       mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag glass"; name.textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
-      mark.addEventListener("click", function () { window.scrollTo({ top: part.getBoundingClientRect().top + window.scrollY - offset(), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+      mark.addEventListener("click", function () {
+        var behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+        if (isPage) window.scrollTo({ top: spot(part), behavior: behavior }); else scroller.scrollTo(isSide ? { left: spot(part), behavior: behavior } : { top: spot(part), behavior: behavior });
+      });
       return { part: part, mark: mark };
     });
-    function at() { return isPage ? window.scrollY : scroller.scrollTop; }
-    function to(y) { if (isPage) window.scrollTo(0, y); else scroller.scrollTop = y; }
+    // Sideways, everything below runs along x instead of y: the box's left edge, its width, the pointer's x.
+    function at() { return isPage ? window.scrollY : isSide ? scroller.scrollLeft : scroller.scrollTop; }
+    function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
+    function along(event) { return isSide ? event.clientX : event.clientY; }
     var size = { track: 0, thumb: 0, max: 1 };
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
@@ -293,21 +322,21 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         bar.style.top = scroller.offsetTop + 8 + "px"; bar.style.bottom = "auto"; bar.style.height = Math.max(0, scroller.offsetHeight - 16) + "px";
         bar.style.right = "auto"; bar.style.left = scroller.offsetLeft + scroller.offsetWidth - 22 + "px";
       }
-      var whole = isPage ? document.documentElement.scrollHeight : scroller.scrollHeight, view = isPage ? window.innerHeight : scroller.clientHeight, max = whole - view;
+      var whole = isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view = isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight, max = whole - view;
       bar.hidden = max <= 4; if (bar.hidden) return;
-      var track = bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
+      var track = isSide ? bar.clientWidth : bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
       size = { track: track, thumb: height, max: max };
-      thumb.style.height = height + "px";
+      thumb.style[isSide ? "width" : "height"] = height + "px";
       move();
       marks.forEach(function (m) {
         var shown = Boolean(m.part.offsetParent); m.mark.hidden = !shown; if (!shown) return;
-        var top = Math.max(0, Math.min(max, m.part.getBoundingClientRect().top + window.scrollY - offset()));
-        m.mark.style.top = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+        var top = Math.max(0, Math.min(max, spot(m.part)));
+        m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
       });
     }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move() { if (!bar.hidden) thumb.style.transform = "translateY(" + ((size.track - size.thumb) * Math.min(1, at() / size.max)).toFixed(1) + "px)"; }
+    function move() { if (!bar.hidden) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, at() / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
@@ -316,15 +345,24 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var drag = null;
     function start(event, jump) {
       event.preventDefault();
-      if (jump) { var y = event.clientY - bar.getBoundingClientRect().top - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
-      drag = { y: event.clientY, from: at() }; bar.classList.add("dragging");
+      if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
+      drag = { y: along(event), from: at() }; bar.classList.add("dragging");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     line.addEventListener("pointerdown", function (event) { start(event, true); });
-    bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (event.clientY - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
+    bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (along(event) - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
     function end() { drag = null; bar.classList.remove("dragging"); }
-    bar.addEventListener("pointerup", end); bar.addEventListener("pointercancel", end);
+    // By touch, letting go of the thumb near a mark goes to its part, as a click on the mark does with a mouse.
+    var SNAP_PX = 18;
+    function release(event) {
+      var wasDragging = Boolean(drag); end();
+      if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
+      var middle = (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
+      marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
+      if (nearest) nearest.mark.click();
+    }
+    bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end);
     layout(); wake();
   });
 })();
@@ -377,37 +415,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
     if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
-    // A row with a sideways rail (data-side-rail: a table, a chart) shows one under it whenever it can scroll, on phones too, whose own
-    // scrollbars hide: a thumb of glass on a hairline, dragged or tapped like the rail down a pane's side.
-    var rail = null, thumb = null, size = { track: 0, thumb: 0, max: 1 };
-    if (row.hasAttribute("data-side-rail")) {
-      row.insertAdjacentHTML("afterend", '<div class="side-rail" aria-hidden="true" hidden><div class="side-rail-line"></div><div class="side-rail-thumb glass"></div></div>');
-      rail = row.nextElementSibling; thumb = rail.querySelector(".side-rail-thumb");
-      var drag = null;
-      var start = function (event, isJump) {
-        event.preventDefault();
-        if (isJump) { var x = event.clientX - rail.getBoundingClientRect().left - size.thumb / 2; row.scrollLeft = Math.max(0, Math.min(1, x / Math.max(1, size.track - size.thumb))) * size.max; }
-        drag = { x: event.clientX, from: row.scrollLeft }; rail.classList.add("dragging");
-        try { rail.setPointerCapture(event.pointerId); } catch (error) {}
-      };
-      thumb.addEventListener("pointerdown", function (event) { start(event, false); });
-      rail.querySelector(".side-rail-line").addEventListener("pointerdown", function (event) { start(event, true); });
-      rail.addEventListener("pointermove", function (event) { if (drag) row.scrollLeft = drag.from + (event.clientX - drag.x) * size.max / Math.max(1, size.track - size.thumb); });
-      var end = function () { drag = null; rail.classList.remove("dragging"); };
-      rail.addEventListener("pointerup", end); rail.addEventListener("pointercancel", end);
-    }
-    function moveThumb() { if (rail && !rail.hidden) thumb.style.transform = "translateX(" + ((size.track - size.thumb) * Math.min(1, row.scrollLeft / size.max)).toFixed(1) + "px)"; }
     function ends() {
       var max = row.scrollWidth - row.clientWidth;
       row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
       row.classList.toggle("is-scrollable-sideways", max > 1);
-      if (rail) {
-        rail.hidden = max <= 1; if (rail.hidden) return;
-        var track = rail.clientWidth, width = Math.max(36, Math.round(track * row.clientWidth / row.scrollWidth));
-        size = { track: track, thumb: width, max: max }; thumb.style.width = width + "px"; moveThumb();
-      }
     }
-    row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); moveThumb(); }, { passive: true });
+    row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }, { passive: true });
     if (window.ResizeObserver) { var watch = new ResizeObserver(ends); watch.observe(row); if (row.firstElementChild) watch.observe(row.firstElementChild); } else window.addEventListener("resize", ends);
     ends();
   });
@@ -540,19 +553,11 @@ component({
   summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
-   In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter. */
+   In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter; sideways, under the box. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
 .rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity 0.35s; }
 .rail.is-on { display: block; }
-/* The sideways rail, under a table or a chart that scrolls sideways: the rail laid on its side, always shown while there's more. */
-.side-rail { position: relative; height: 14px; user-select: none; -webkit-user-select: none; }
-.side-rail[hidden] { display: none; }
-.side-rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.side-rail-thumb { position: absolute; left: 0; top: 4px; height: 5px; cursor: grab; touch-action: none; --glass-tint: var(--rail-thumb); box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
-  transition: var(--glass-transition), top 0.2s, height 0.2s; }
-.side-rail:hover .side-rail-thumb, .side-rail.dragging .side-rail-thumb { top: 2px; height: 9px; }
-.side-rail.dragging .side-rail-thumb { cursor: grabbing; }
 .glass > .rail { position: absolute; z-index: 6; }
 .rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
 .rail[hidden] { display: none; }
@@ -563,6 +568,12 @@ component({
   transition: var(--glass-transition), left 0.2s, width 0.2s; }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
+/* Sideways (a table, a chart): the same rail laid on its side, under the box. */
+.rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; }
+.rail.sideways .rail-line { background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
+.rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top 0.2s, height 0.2s; }
+.rail.sideways:hover .rail-thumb, .rail.sideways.dragging .rail-thumb { top: 2px; left: 0; width: auto; height: 9px; }
+.rail.sideways.dragging .rail-thumb { box-shadow: inset 0 2px 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
@@ -576,19 +587,35 @@ component({
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 /* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
+/* In a box, the words under a label are close by and a pane's glass can't blur them again, so its glass is denser. */
+.rail:not([data-rail="page"]) .rail-mark span { --glass-tint: var(--table-row-head); }
+/* Along a sideways rail, a mark is a short upright tick, and its name opens above it, wiped up from the rail. */
+.rail.sideways .rail-mark { left: auto; top: -10px; width: 24px; height: 26px; margin: 0 0 0 -12px; }
+.rail.sideways .rail-mark::before { left: 11px; right: auto; top: 2px; bottom: 13px; width: 2px; height: auto; transition: --face-color 0.2s, top 0.2s; }
+.rail.sideways .rail-mark:hover::before { left: 11px; top: -2px; }
+.rail.sideways .rail-mark span { right: auto; top: auto; left: 50%; bottom: 26px; transform: translateX(-50%);
+  clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%); }
+.rail.sideways:hover .rail-mark span, .rail.sideways.dragging .rail-mark span { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
 /* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: 132px; bottom: 10px; }
   .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
   .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
   .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
-  /* …and no marks. */
-  .rail-mark, .rail-mark[hidden] { display: none; }
+  /* …its marks' ticks across that slimmer line. */
+  .rail[data-rail="page"] .rail-mark { left: -14px; width: 24px; }
+  .rail[data-rail="page"] .rail-mark::before { left: 16px; right: 0; }
+  .rail[data-rail="page"] .rail-mark:hover::before { left: 12px; }
 }
 /* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page. */
 @media (hover: none), (pointer: coarse) {
   .rail { touch-action: none; }
   .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+  .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
+}
+/* By touch, the marks' names show only while a finger drags the thumb, never on a tap's leftover hover. */
+@media (hover: none) {
+  .rail:not(.dragging) .rail-mark span { visibility: hidden; }
 }
 @media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
   .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }
@@ -597,8 +624,24 @@ component({
   render: rail,
   examples: [
     {
-      label: "In a box",
+      label: "Down a box",
       markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+    },
+    {
+      label: "Sideways, under a box (a table, a chart)",
+      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
+    },
+    {
+      label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
+      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
+        (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
+      )}` })}</div>`,
+    },
+    {
+      label: "Sideways, its parts marked",
+      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
+        (day) => html`<span data-rail-mark="${day}">${day}: 1,204 players, 3,906 hours. </span>`,
+      )}</p></div>` }),
     },
   ],
 });
