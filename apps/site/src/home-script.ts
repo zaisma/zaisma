@@ -123,31 +123,40 @@ function measureStage() {
   const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
   const stagedPx = isPhone() ? pane.box.offsetWidth : Math.min(520, home.clientWidth);
   const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
-  // On a wide screen "More games" sits under the staged pane, so it's kept on screen too.
-  const cue = home.querySelector(".home-cue"), cuePx = cue ? cue.offsetHeight : 0;
-  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx + cuePx) + "px");
+  // On a wide screen the tray with "More games" sits under the staged pane, so it's kept on screen too (measured from what's on it,
+  // since a docked pane's tray is tucked away).
+  const trayPx = isPhone() ? 0 : cue.offsetHeight + 2 * (parseFloat(getComputedStyle(home).getPropertyValue("--pad-tray")) || 16);
+  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - stageTray.offsetHeight - openPx - pane.head.offsetHeight + coverPx + trayPx) + "px");
+}
+// Staged on a wide screen, the pane is a tray's head: square at its foot, the tray running on under it. Docked, or on a phone, the tray
+// tucks away and the head is a whole pane again, cut at its foot.
+const stageHead = pane.box.querySelector(".tray-head"), stageTray = pane.box.querySelector(".tray"), cue = pane.box.querySelector(".home-cue");
+function showTray() {
+  const isOn = "homeStaged" in root.dataset && !isPhone();
+  home.classList.toggle("is-staged-wide", isOn);
+  stageHead.setAttribute("data-glass-corners", isOn ? "24 20 0 0" : "24 20 24 20");
 }
 // "More games" takes the page to where the shelf docks beside the pane: the top of the shelf just under the header.
-const cueLink = home.querySelector(".home-cue a");
+const cueLink = cue.querySelector("a");
 if (cueLink) cueLink.addEventListener("click", (event) => {
   event.preventDefault();
   const headerRoomPx = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
   scrollTo({ top: home.querySelector(".home-window").getBoundingClientRect().bottom + scrollY - headerRoomPx, behavior: isReduced ? "auto" : "smooth" });
 });
-addEventListener("resize", measureStage);
+addEventListener("resize", () => { showTray(); measureStage(); });
 
 /* The pane opens when the page scrolls (wanting more) and shuts again back at the top, where Play and Details sit on the art. */
 function openPane(shouldReveal) {
   const wasOpen = pane.box.classList.contains("is-pane-open");
   pane.box.classList.add("is-pane-open");
-  delete root.dataset.homeStaged;
+  delete root.dataset.homeStaged; showTray();
   if (!shouldReveal || isPhone()) return;
   const box = pane.box.getBoundingClientRect(), extra = wasOpen ? 0 : pane.moreIn.offsetHeight, over = box.bottom + extra + 16 - innerHeight;
   if (over > 0) scrollBy({ top: over, behavior: isReduced ? "auto" : "smooth" });
 }
 addEventListener("scroll", () => {
   if (scrollY > 24) openPane(false);
-  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; }
+  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; showTray(); }
 }, { passive: true });
 pane.box.addEventListener("focusin", (event) => { if (pane.moreIn.contains(event.target)) openPane(false); });
 
@@ -396,6 +405,7 @@ if (guest && !isSignedIn) guest.hidden = false;
 fillContinue();
 // The opening script chose it in the page's head, before the first paint.
 setFocus(bySlug[root.dataset.homeStart] ? root.dataset.homeStart : GAMES[0].slug);
+showTray();
 measureStage();
 // The opening script staged it; a page that opens scrolled down (a reload) starts docked instead.
 if (scrollY > 24) openPane(false);

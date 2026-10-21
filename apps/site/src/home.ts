@@ -4,9 +4,9 @@ import { currentSession } from "./auth.ts";
 import type { ShownTone } from "./background-tone.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
-import { cutButton, glassButton, runButton, textButton, textLink } from "./components/actions.ts";
+import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
-import { glassPane, icon, tag } from "./components/foundations.ts";
+import { glassPane, icon, tag, tray } from "./components/foundations.ts";
 import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
@@ -211,13 +211,13 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const body = first
     ? html`<div class="home">
 <div class="home-window" aria-hidden="true"></div>
-<div class="home-pane" id="home-pane">${glassPane({
-        paneSize: "medium",
+<div class="home-pane" id="home-pane">${tray({
         label: "The game in focus",
-        body: html`<div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
+        head: html`<div class="home-stage-in"><div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
 <div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
-<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div>`,
-      })}<div class="home-cue">${glassButton("More games", { href: "#home-games", icon: "chevron-down" })}</div></div>
+<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div></div>`,
+        body: html`<div class="home-cue">${textButton("More games", { href: "#home-games", icon: "chevron-down" })}</div>`,
+      })}</div>
 <div class="home-shelf" id="home-games">${glassPane({
         paneSize: "full",
         label: "Games",
@@ -234,7 +234,7 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
 <div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
       })}</div>
 </div>
-<noscript><style>.home-pane .pane-in { opacity: 1 !important; }</style></noscript>`
+<noscript><style>.home-stage-in { opacity: 1 !important; }</style></noscript>`
     : html`<div class="home"><div class="home-window" aria-hidden="true"></div>${glassPane({ paneSize: "medium", body: html`<h1>Every kind of game. One link away.</h1><p>The first games are on their way.</p>` })}</div>`;
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
@@ -340,10 +340,12 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
   transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
-.home-pane > .glass-pane.medium { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
+/* The pane is a tray's head: staged, "More games" sits on the tray under it; docked, the tray tucks away and the head is a whole pane. */
+.home-pane > .tray-group { width: 100%; }
+.home-pane .tray-head { max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
 /* The pane never scrolls: compact it's the cover and Play, and open its details are clamped to fit, so it gets no scrollbar. */
-.home-pane > .glass-pane > .pane-in { gap: 0; overflow: hidden; opacity: 0; transition: opacity 0.25s; }
-.is-home-ready .home-pane .pane-in { opacity: 1; }
+.home-stage-in { overflow: hidden; opacity: 0; transition: opacity 0.25s; }
+.is-home-ready .home-stage-in { opacity: 1; }
 /* The game's cover is its face here: its title and studio are on it, as the studio drew them, over a background that stays a background.
    The title is still the page's heading, for screen readers; a game without a cover shows it in words instead. */
 .home-head h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font: var(--type-title); text-wrap: balance; }
@@ -366,17 +368,14 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
    shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
    top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
    simply opens docked. */
-/* Staged, a small "More games" glass button under the pane says there's more below; it takes the page down to the shelf, and fades as the pane docks. */
-.home-cue { display: none; }
+/* Staged, the tray under the pane says there's more below: "More games", its arrow drifting down. It takes the page down to the shelf,
+   and tucks away as the pane docks. */
+.home-cue { display: flex; justify-content: center; }
+.home-cue .text-words > svg { order: 2; animation: home-cue-drift 1.6s ease-in-out infinite; }
+@keyframes home-cue-drift { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
+.home-pane .tray { padding-block: var(--pad-tray); }
+.home:not(.is-staged-wide) .home-pane .tray { height: 0; padding-block: 0; border: 0; overflow: hidden; visibility: hidden; }
 @media (min-width: 761px) {
-  .home-cue { position: absolute; top: 100%; left: 0; right: 0; display: flex; justify-content: center; padding-top: var(--gap-words-words);
-    opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0s 0.3s; }
-  html[data-home-staged] .home-cue { opacity: 1; visibility: visible; transition: opacity 0.3s 0.2s, visibility 0s; }
-  .home-cue > .glass-btn { width: auto; }
-  /* A glass button takes its light or dark from what holds it, and this one sits on the world with no pane under it, so it takes the
-     glass the pane over that world has: smoked or light, never the page's theme. */
-  html[data-home-glass="smoked"] .home-cue, .home-pane:has(> .glass-pane.smoke) .home-cue { ${SMOKED_GLASS} }
-  html[data-home-glass="light"] .home-cue, .home-pane:has(> .glass-pane[data-theme-choice="light"]) .home-cue { ${LIGHT_GLASS} }
   html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
   html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--pad-pane))); }
 }
@@ -421,5 +420,6 @@ canvas.backdrop.is-shown { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .home-pane, .home-more, .home-more-in, .home-shelf, .home-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
+  .home-cue .text-words > svg { animation: none; }
 }
 `);
