@@ -23,6 +23,7 @@ import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
+import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
@@ -162,6 +163,8 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
+    // Versions to open in Chrome have a queue of their own (zaisma-performance, or its stand-in in tests).
+    if (batch.queue.startsWith("zaisma-performance")) return handlePerformanceBatch(batch as MessageBatch<PerformanceJob>, env);
     const scans: Message<ScanJob>[] = [];
     for (const message of batch.messages) {
       const body = message.body;

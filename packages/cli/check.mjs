@@ -1,7 +1,9 @@
 // The game check behind `zaisma check`, the MCP's check_game and POST /api/dev/check: what Zaisma would
-// refuse in a game, and what won't work inside its game frame, each with how to fix it. Plain JavaScript
-// with no imports, so the upload command runs it in Node and the site imports it as it is.
+// refuse in a game, and what won't work inside its game frame, each with how to fix it, and the notes on
+// files that could be much smaller (performance.mjs). Plain JavaScript with no imports but its neighbour, so
+// the upload command runs it in Node and the site imports it as it is.
 // Docs: https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md#checking-a-game
+import { findAssetNotes } from "./performance.mjs";
 
 /** Every file type a game may contain: the extensions in CONTENT_TYPES (packages/core/src/mime.ts), in its order. */
 export const GAME_FILE_EXTENSIONS = [
@@ -301,11 +303,12 @@ function dialogOf(code) {
 const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i, /\b__wbindgen_thread_destroy\b/, /\binitThreadPool\b/];
 
 /**
- * Checks a game's files: [{ path, sizeBytes, contentText }], contentText a string for the checked text files
- * (CHECKED_TEXT_EXTENSIONS) and null for the rest. slug names the game in the fixes; ownServerUrls are its
- * own servers, which the code may connect to (null when they aren't known). Answers the API's answer, snake_case: { file_count,
- * size_bytes, problems, omitted_problem_count }, each problem { code, problem_kind,
- * is_fixed_by_upload_command, message, path, quote, fix }.
+ * Checks a game's files: [{ path, sizeBytes, contentText, headBytes }], contentText a string for the checked text
+ * files (CHECKED_TEXT_EXTENSIONS) and null for the rest, headBytes the first bytes performance.mjs's assetHeadSizes
+ * asks for (left out, its notes skip the file). slug names the game in the fixes; ownServerUrls are its own
+ * servers, which the code may connect to (null when they aren't known). Answers the API's answer, snake_case:
+ * { file_count, size_bytes, problems, omitted_problem_count, performance_notes }, each problem { code,
+ * problem_kind, is_fixed_by_upload_command, message, path, quote, fix }; performance_notes never stop an upload.
  */
 export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}) {
   const game = slug ?? "<slug>";
@@ -421,5 +424,5 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
       if ((match = found(feature.pattern))) add("blocked_feature", { message: `${path} uses ${feature.name}, which games on Zaisma can't use.`, path, quote: lineAround(text, match.index), sameAs: feature.name, fix: "Leave it out, or make the game work without it when the browser says no." });
     }
   }
-  return { file_count: files.length, size_bytes: sizeBytes, problems, omitted_problem_count: omittedProblemCount };
+  return { file_count: files.length, size_bytes: sizeBytes, problems, omitted_problem_count: omittedProblemCount, performance_notes: findAssetNotes(files) };
 }

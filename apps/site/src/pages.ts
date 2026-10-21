@@ -529,6 +529,8 @@ ${pageData("game-page-data", {
       room_code: inRoom ? code : "",
       is_multiplayer: multiplayer,
       frame_url: frameUrl,
+      // Game files start before Play, on the game's own address: never for tester links or accounts-only games, which need a cookie first.
+      warm_url: tester || isAccountsOnly || isClosed ? null : `${gameUrl(env, game.slug)}_zaisma/warm`,
       is_accounts_only: isAccountsOnly,
       frame_query: roomQuery,
       devices,
@@ -836,6 +838,8 @@ function play() {
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
   document.body.classList.add("playing");
+  // The warm-up's downloads are the game's by now: the game's own requests share what's still coming.
+  if (warming) setTimeout(() => { warming.remove(); warming = null; }, 30000);
   // Friends see what the player is playing (friends-now.ts), but not a tester link's game.
   if (!gamePage.tester_token) document.body.dataset.presenceGame = gamePage.slug;
   scrollTo(0, 0);
@@ -857,6 +861,26 @@ if (gamePage.is_accounts_only) {
 }
 const playStart = document.getElementById("play");
 if (playStart) playStart.onclick = play;
+// Game files start before Play: while the player reads the page, the files the game needs first download, up to
+// 100 MB, in a hidden frame on the game's own address (the browser keeps each site's cache apart). On computers, and
+// on Android phones and tablets that say they're on Wi-Fi; never on other phones and tablets, or with Data Saver.
+let warming = null;
+function warmUp() {
+  const connection = navigator.connection;
+  const isComputer = !matchMedia("(pointer: coarse)").matches;
+  const isAndroidOnWifi = /Android/.test(navigator.userAgent) && connection && (connection.type === "wifi" || connection.type === "ethernet");
+  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi)) return;
+  warming = document.createElement("iframe");
+  warming.src = gamePage.warm_url;
+  warming.setAttribute("sandbox", "allow-scripts allow-same-origin");
+  warming.hidden = true;
+  warming.setAttribute("aria-hidden", "true");
+  warming.tabIndex = -1;
+  warming.title = "";
+  document.body.appendChild(warming);
+}
+if (document.readyState === "complete") setTimeout(warmUp, 1000);
+else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {
