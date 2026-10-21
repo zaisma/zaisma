@@ -127,15 +127,17 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
   document.querySelectorAll(".tab-switch").forEach(function (sw) {
     var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll("a, button");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
-    function put(el, tab) {
+    // isGliding: the slab is moving there, so its shape blends from the old place's to the new one's over the move.
+    function put(el, tab, isGliding) {
       if (!tab) { el.style.width = "0px"; return; }
+      var from = { beside: el.getAttribute("data-cut-beside"), ends: el.getAttribute("data-cut-ends") || "" };
       el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)";
       // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
       var isFirst = tab === tabs[0], isLast = tab === tabs[tabs.length - 1];
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut();
+      if (el.redrawCut) el.redrawCut(isGliding && from.beside !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
     }
     function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
@@ -146,7 +148,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       tab.addEventListener("click", function () {
         sw.classList.remove("pointing");
         if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
-        put(slab, tab); put(ghost, tab);
+        put(slab, tab, true); put(ghost, tab, true);
       });
     });
     sw.addEventListener("pointerleave", function () { sw.classList.remove("pointing"); });

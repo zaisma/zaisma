@@ -374,7 +374,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var short = Math.min(w, h), band = Number(el.getAttribute("data-glass-band")) || Math.max(2, Math.min(4, short * 0.04)), at, lights;
       if (!parts) build();
       if (isControl) {
-        var shape = controlOutline(el, w, h), key = w + "x" + h + ":" + pointList(shape);
+        var shape = distinct(controlOutline(el, w, h)), key = w + "x" + h + ":" + pointList(shape);
         if (key === lastCorners) return;
         lastCorners = key;
         el.style.setProperty("--cut-shape", cssPolygon(shape)); el.style.clipPath = cssPolygon(shape);
@@ -446,14 +446,15 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
-  function fitCuts(el, w, h) {
+  // as: { beside, ends } stands in for data-cut-beside and data-cut-ends, for the shape a part had before it moved (a glide).
+  function fitCuts(el, w, h, as) {
     var holder = holderOf(el);
     if (!holder) {
       var stack = stacked(el);
       return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.min(cut, Math.round(Math.min(w, h) * 0.25)); });
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
-    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = el.getAttribute("data-cut-ends") || "";
+    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom;
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
@@ -463,8 +464,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's
   // slab: the tabs beside it aren't controls of their own).
-  function besides(el) {
-    var declared = el.getAttribute("data-cut-beside");
+  function besides(el, as) {
+    var declared = as ? as.beside : el.getAttribute("data-cut-beside");
     if (declared !== null) return { start: /start/.test(declared), end: /end/.test(declared) };
     var holder = holderOf(el), r = el.getBoundingClientRect(), found = { start: false, end: false };
     (holder || document).querySelectorAll("[data-cut-line]").forEach(function (other) {
@@ -492,21 +493,24 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   // The outline, clockwise from the top left.
   function controlShape(w, h, slant, cuts, beside) {
-    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h / 2); }), points = [];
-    if (beside.start) points.push([s, 0]); else if (c[0] > 0.5) points.push([0, c[0]], [c[0], 0]); else points.push([0, 0]);
-    if (beside.end) points.push([w, 0], [w - s, h]);
-    else {
-      if (c[1] > 0.5) points.push([w - c[1], 0], [w, c[1]]); else points.push([w, 0]);
-      if (c[2] > 0.5) points.push([w, h - c[2]], [w - c[2], h]); else points.push([w, h]);
-    }
-    if (beside.start) points.push([0, h]); else if (c[3] > 0.5) points.push([c[3], h], [0, h - c[3]]); else points.push([0, h]);
-    return points;
+    // Always two points a corner, the same one twice where it's square or slanted, so any two shapes blend point for point (a glide).
+    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h / 2); });
+    var corner = function (cut, a, b, sharp) { return cut > 0.5 ? [a, b] : [sharp, sharp]; };
+    return [].concat(
+      beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
+      beside.end ? [[w, 0], [w, 0]] : corner(c[1], [w - c[1], 0], [w, c[1]], [w, 0]),
+      beside.end ? [[w - s, h], [w - s, h]] : corner(c[2], [w, h - c[2]], [w - c[2], h], [w, h]),
+      beside.start ? [[0, h], [0, h]] : corner(c[3], [c[3], h], [0, h - c[3]], [0, h]));
   }
-  function controlOutline(el, w, h) {
-    var beside = besides(el), cuts = fitCuts(el, w, h);
+  function controlOutline(el, w, h, as) {
+    var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
     el.cutCorners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h / 2); });
     // A control's own parts (a switch's slab, data-cut-beside) keep their own slant; controls beside each other share --control-slant.
     return controlShape(w, h, el.hasAttribute("data-cut-beside") ? Number(el.getAttribute("data-cut-line")) || SLANT_PX : SLANT_PX, cuts, beside);
+  }
+  // The shape drawn: repeated points dropped, so every side drawn has a length.
+  function distinct(points) {
+    return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > 0.01 || Math.abs(p[1] - q[1]) > 0.01; });
   }
   function cssPolygon(points) { return "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")"; }
   // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbours.
@@ -531,9 +535,19 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (!svg) { svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "cut-line"); svg.setAttribute("aria-hidden", "true"); svg.appendChild(document.createElementNS(SVG, "polygon")); el.insertBefore(svg, el.firstChild); }
     var poly = svg.querySelector("polygon"), bands = [], last = "";
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
+    // A glide: a part moving to another place (a switch's slab) blends from the shape it had there to its new one as it goes,
+    // over the same time as its move, instead of taking the new shape before it has left.
+    var glide = null;
     function draw() {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
-      var shape = controlOutline(el, w, h), key = w + "x" + h + ":" + list(shape);
+      var shape = controlOutline(el, w, h);
+      if (glide) {
+        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = 1 - Math.pow(1 - t, 3), from = controlOutline(el, w, h, glide.from);
+        shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
+        if (t < 1) requestAnimationFrame(draw); else glide = null;
+      }
+      shape = distinct(shape);
+      var key = w + "x" + h + ":" + list(shape);
       if (key === last) return;
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
@@ -550,7 +564,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
-    el.redrawCut = draw;
+    // redrawCut() draws it again; redrawCut({ from: { beside, ends }, ms }) glides there from the shape those attributes gave.
+    el.redrawCut = function (move) {
+      if (move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) glide = { from: move.from, ms: move.ms, startMs: performance.now() };
+      draw();
+    };
     if (window.ResizeObserver) {
       var watch = new ResizeObserver(draw); watch.observe(el);
       var holder = el.parentElement && el.parentElement.closest("[data-glass]"); if (holder) watch.observe(holder);
