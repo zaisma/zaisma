@@ -10,10 +10,10 @@ import { runButton } from "./actions.ts";
  * it's tapped. Signing in and making an account sit on it (docs/DECISIONS.md, "Signing in happens in the city, on every device"),
  * and the developer front door can reuse it: nothing here is the sign-in's.
  *
- * cityStage() is the canvas and, under it, a still of the same city, so the first frame is never empty. CITY_SCRIPT draws the city
- * into the canvas and shows it in place of the still from its first frame, with no fade: the still and the moving city never
- * show at once. The canvas never starts, and the still stays, under reduced motion, without WebGL 2, or on a device that can't
- * keep it smooth even at its lowest step (then the still comes back and it stops).
+ * cityStage() is the city's sky, a still of the same city and the canvas. CITY_SCRIPT draws the city into the canvas, hidden while
+ * its first frames compile and settle, then fades it in from the sky, so nothing half-made or stuttering ever shows. The canvas never
+ * starts under reduced motion or without WebGL 2, and stops on a device that can't keep it smooth even at its lowest step: the still
+ * stands in then, loaded only then and faded in once it has wholly loaded.
  *
  * The stills are renders of the city itself (brand/sign-in/, served at /sign-in/): its first live frame, the camera at
  * [430, 120, 300] looking at [0, 20, 0] with the city's seed 7274, unshifted, at midday for light and at night for dark. Wide ones
@@ -30,7 +30,7 @@ export interface CityStageOptions {
 }
 
 /**
- * The city's stage: its still and its canvas, under everything else on the page. A pane over it carries data-city-pane, so the city
+ * The city's stage: its sky, its still (only where the city can't run) and its canvas, under everything else on the page. A pane over it carries data-city-pane, so the city
  * keeps itself centred in the part of the screen the pane doesn't cover (and, on a phone, the pane starts low, below the city).
  */
 export function cityStage(options: CityStageOptions = {}): Raw {
@@ -93,9 +93,19 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  /* Where the city can't run, the still stands in: loaded only then, and faded in once it has wholly loaded, so it never shows half-drawn. */
+  function showStill() {
+    stage.classList.add("is-still");
+    var stills = Array.prototype.slice.call(stage.querySelectorAll(".city-still")), shown = stills.find(function (el) { return getComputedStyle(el).display !== "none"; });
+    var url = shown && (getComputedStyle(shown).backgroundImage.match(/url\("?([^")]+)"?\)/) || [])[1];
+    function reveal() { stills.forEach(function (el) { el.classList.add("is-shown"); }); }
+    if (!url) { reveal(); return; }
+    var image = new Image(); image.src = url;
+    (image.decode ? image.decode() : new Promise(function (done) { image.onload = image.onerror = done; })).then(reveal, reveal);
+  }
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { showStill(); return; }
   var gl = canvas.getContext("webgl2", { antialias: false, alpha: false, depth: false, powerPreference: "high-performance" });
-  if (!gl) return;
+  if (!gl) { showStill(); return; }
   // The phone layout's city: fewer flyers, a smaller shadow map and a wider view (the still for phones is rendered the same way).
   var small = isNarrow();
   var coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -105,7 +115,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function isNight() { return /dark/.test(getComputedStyle(canvas).colorScheme || ""); }
   var running = false, stopped = false;
   // Too slow even at the lowest step: back to the still, for good.
-  function giveUp() { stopped = true; running = false; canvas.classList.remove("on"); }
+  function giveUp() { stopped = true; running = false; canvas.classList.remove("on"); showStill(); }
 
   function run() {
     // Small seeded random, so the city is the same city on every visit.
@@ -1103,7 +1113,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     function shiftTarget() { return shiftFor(); }
     var shift = shiftTarget();
 
-    var clock = 40, camTime = 0, last = performance.now();
+    var clock = 40, camTime = 0, last = performance.now(), isShown = false, warmFrameCount = 0;
     running = true;
     var ripples = [], rippleData = new Float32Array(48), seen = null;
     function projectW(m, p) {
@@ -1311,7 +1321,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         bindTex(4, targets.seen.tex); gl.uniform1i(UX.uSeen, 4);
       });
 
-      if (!canvas.classList.contains("on")) canvas.classList.add("on");
+      // It shows once it runs smoothly: its first frames compile shaders and fill caches, and would stutter. Then it fades in from the sky.
+      if (!isShown) { warmFrameCount++; if ((warmFrameCount >= 12 && raw < 0.034) || warmFrameCount >= 120) { isShown = true; canvas.classList.add("on"); } }
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
@@ -1323,23 +1334,27 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 `);
 
 const CITY_STYLES = `
-/* The city's stage: under everything on the page, filling the window. The still shows at once; the live city takes its place on its
-   first frame, with no fade (a still and a moving city seen through each other look doubled), and gives it back if the device can't keep up. */
+/* The city's stage: under everything on the page, filling the window. Its sky shows at once, and nothing half-made shows over it: the
+   live city fades in once it runs smoothly, and where it can't run (reduced motion, no WebGL, a device that can't keep up) the still
+   fades in instead, once it has wholly loaded. The still is loaded only then, so a slow connection never spends time on it. */
 .city-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
 .city-stage.is-framed { position: absolute; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is (CITY_SCRIPT sets
    --still-x and --still-y; until then, half the pane's width to the left). Its box reaches past the screen, so moving it leaves no edge. */
-.city-stage .city-still { position: absolute; inset: -50%; display: block; background: center / auto 50% no-repeat; transform: translate(var(--still-x, calc(min(440px, 100vw - 2 * var(--pad-inner-pane)) / -2)), var(--still-y, 0px)); }
-.city-stage .city-still.is-day { background-image: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { background-image: url(/sign-in/city-night.webp); }
+.city-stage .city-still { position: absolute; inset: -50%; display: block; background: center / auto 50% no-repeat; transform: translate(var(--still-x, calc(min(440px, 100vw - 2 * var(--pad-inner-pane)) / -2)), var(--still-y, 0px));
+  opacity: 0; transition: opacity 0.9s ease; }
+.city-stage.is-still .city-still.is-day { background-image: url(/sign-in/city-day.webp); }
+.city-stage.is-still .city-still.is-night { background-image: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { background-image: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { background-image: url(/sign-in/city-night-phone.webp); }
+  .city-stage.is-still .city-still.is-day { background-image: url(/sign-in/city-day-phone.webp); }
+  .city-stage.is-still .city-still.is-night { background-image: url(/sign-in/city-night-phone.webp); }
 }
-.city-stage .city { opacity: 0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.city-stage.is-still .city-still.is-shown { opacity: 1; }
+.city-stage .city { opacity: 0; transition: opacity 0.9s ease; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .city-stage .city.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .city-stage .city-still, .city-stage .city { transition: none; } }
 /* Day for light, night for dark: only the one showing is loaded. */
 .city-stage .city-still.is-night { display: none; }
 @media (prefers-color-scheme: dark) {
