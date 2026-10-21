@@ -90,6 +90,25 @@ describe("a run's report", () => {
     expect(report.start_files).toEqual([]);
   });
 
+  it("reads files at the version's own address, where the game's pages open, as the game's own paths", () => {
+    const VERSION = "_zaisma/versions/version_1c2r6z4i462017691t6s/";
+    const report = reportFromObservations(
+      observed({
+        firstDrawAtMs: OPENED_AT_MS + 3000,
+        requests: [
+          request("", 0, 20, { fetchDestination: "document", fetchMode: "navigate", httpStatus: 302 }),
+          request(VERSION, 25, 50, { fetchDestination: "document", fetchMode: "navigate" }),
+          request("_zaisma/relay.js?v=6", 60, 80),
+          request(`${VERSION}Build/build.loader.js`, 70, 200),
+          request(`${VERSION}Build/missing.data`, 80, 210, { httpStatus: 404, fetchDestination: "empty", fetchMode: "cors" }),
+        ],
+      }),
+      [],
+    );
+    expect(report.start_files).toEqual([{ path: "Build/build.loader.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 1000 }]);
+    expect(report.notes.map((note) => note.path)).toEqual(["Build/missing.data"]);
+  });
+
   it("gives errors with their file and line, up to 5", () => {
     const errors = Array.from({ length: 7 }, (_, i) => ({ message: `TypeError: player ${i} is undefined\n    at start (game.js:12)`, url: `${BASE}game.js`, lineNumber: 12 }));
     const report = reportFromObservations(observed({ firstDrawAtMs: OPENED_AT_MS + 1000, errors }), []);

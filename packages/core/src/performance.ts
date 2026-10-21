@@ -1,4 +1,5 @@
 import { ASSET_NOTE_CODES, type PerformanceNote } from "../../cli/performance.mjs";
+import { readVersionAddress } from "./uploads.ts";
 
 /**
  * How a version started in headless Chrome (docs/DECISIONS.md, "Every version is started in Chrome, and what it
@@ -122,7 +123,7 @@ export interface PerformanceObservations {
 
 const START_FILE_DESTINATIONS: Record<string, StartFile["destination"]> = { script: "script", empty: "fetch", style: "style", image: "image", font: "font" };
 
-/** The path of a URL inside the game, decoded, with its query; null when it's not one of the game's files (another site, or Zaisma's own _zaisma/ scripts). */
+/** The path of a URL inside the game, decoded, with its query, at the game's address or its version's; null when it's not one of the game's files (another site, or Zaisma's own _zaisma/ scripts). */
 function gamePathOf(url: string, gameBaseUrl: string): string | null {
   if (!url.startsWith(gameBaseUrl)) return null;
   const rest = url.slice(gameBaseUrl.length).split("#")[0]!;
@@ -134,7 +135,10 @@ function gamePathOf(url: string, gameBaseUrl: string): string | null {
   } catch {
     return null;
   }
-  if (path.startsWith("_zaisma/")) return null;
+  // A file at its version's own address (where the game's pages open) is the same file of the game.
+  const versionAddress = readVersionAddress(path);
+  if (versionAddress) path = versionAddress.path;
+  else if (path.startsWith("_zaisma/")) return null;
   return path + (queryIndex === -1 ? "" : rest.slice(queryIndex));
 }
 
