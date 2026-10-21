@@ -543,6 +543,8 @@ const NOT_TYPE = new Set<string>([
 const NOT_SPACING = new Set<string>([
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
+  // A pane that scrolls: room for its rail beside what's in it.
+  ".glass-pane > .pane-in.own-scroll | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.

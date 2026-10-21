@@ -368,6 +368,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
     window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
+    // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
+    if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
     var drag = null;
     function start(event, jump) {
       event.preventDefault();

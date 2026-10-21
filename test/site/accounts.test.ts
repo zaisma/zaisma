@@ -14,6 +14,7 @@ import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
 import { ACTIVITY, SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageDataOf, pageScriptNames, pageScriptText, strictScriptProblems } from "../strict-scripts.ts";
+import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
 
@@ -268,7 +269,12 @@ class Browser {
       else this.jar.set(k, v);
     }
     // Every page it opens runs only the site's own script files (Strict scripts on zaisma.com, test/strict-scripts.ts).
-    if ((res.headers.get("content-type") ?? "").startsWith("text/html")) expect(strictScriptProblems(await res.clone().text(), res.headers.get("content-security-policy")), path).toEqual([]);
+    if ((res.headers.get("content-type") ?? "").startsWith("text/html")) {
+      const page = await res.clone().text();
+      expect(strictScriptProblems(page, res.headers.get("content-security-policy")), path).toEqual([]);
+      // …and Zaisma's own scrollbar, never the browser's (test/own-scrollbars.ts).
+      expect(defaultScrollbarProblems(page), path).toEqual([]);
+    }
     return res;
   }
 }

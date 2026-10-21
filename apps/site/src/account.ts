@@ -111,7 +111,7 @@ import { cityStage, CITY_SCRIPT } from "./components/city.ts";
 import { glassPane } from "./components/foundations.ts";
 import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
-import { header } from "./components/navigation.ts";
+import { header, rail } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
 import { pageScript } from "./page-scripts.ts";
 import { foundWords } from "./leaked-keys.ts";
@@ -856,7 +856,7 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     isPrivate: true,
     hasTurnstileCheck: options.hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isLogoOnly: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div></div>
+    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isLogoOnly: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}</div>
 ${scriptTags(CITY_SCRIPT, BACK_TO_GAME_SCRIPT, ...(options.hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}`,
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });

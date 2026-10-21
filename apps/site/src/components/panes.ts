@@ -162,6 +162,8 @@ const PANE_STYLES = `
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). */
 .glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); }
+/* With its rail, the pane keeps room for it along its right edge, so the rail never sits against what's in it. */
+.glass-pane > .pane-in.own-scroll { padding-right: calc(var(--pad-pane) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */

@@ -4,6 +4,7 @@ import { addTesterLink, createAccount, createApiKey, createGame, personOwner } f
 import "../../apps/site/src/index.ts";
 import { pageScripts } from "../../apps/site/src/page-scripts.ts";
 import { pageScriptPaths, strictScriptProblems } from "../strict-scripts.ts";
+import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 
 /**
  * Strict scripts on zaisma.com (docs/DECISIONS.md): every page runs only the site's own script files.
@@ -27,6 +28,8 @@ async function checkPage(url: string): Promise<{ status: number; page: string }>
   expect(response.status, url).toBeLessThan(500);
   if (!(response.headers.get("content-type") ?? "").startsWith("text/html")) return { status: response.status, page };
   expect(strictScriptProblems(page, response.headers.get("content-security-policy")), url).toEqual([]);
+  // And Zaisma's own scrollbar, never the browser's.
+  expect(defaultScrollbarProblems(page), url).toEqual([]);
   for (const path of pageScriptPaths(page)) loaded.add(path);
   return { status: response.status, page };
 }
@@ -145,5 +148,24 @@ describe("zaisma.com's transport", () => {
     const response = await SELF.fetch(`${LOCAL}/`, { redirect: "manual" });
     expect(response.status).not.toBe(308);
     expect(response.headers.get("strict-transport-security")).toBeNull();
+  });
+});
+
+describe("Zaisma's own scrollbar, never the browser's", () => {
+  it("is checked on every page above: the check finds a page without the page's rail, the components' script or with a scrollbar shown", () => {
+    const script = '<script src="/js/components.0123456789abcdef.js" defer blocking="render"></script>';
+    expect(defaultScrollbarProblems(`<!doctype html><html><head>${script}</head><body><div class="rail" data-rail="page"></div></body></html>`)).toEqual([]);
+    expect(defaultScrollbarProblems(`<!doctype html><html><head>${script}</head><body></body></html>`)).toHaveLength(1);
+    expect(defaultScrollbarProblems('<!doctype html><html><body><div data-rail="page"></div></body></html>')).toHaveLength(1);
+    expect(defaultScrollbarProblems(`<!doctype html><html><head>${script}<style>.list { scrollbar-width: thin; }</style></head><body><div data-rail="page"></div></body></html>`)).toEqual(["shows the browser's scrollbar: scrollbar-width: thin"]);
+    // A part of a page is inside one that has them.
+    expect(defaultScrollbarProblems("<ul><li>Room 1</li></ul>")).toEqual([]);
+  });
+
+  it("is hidden wherever Zaisma's rail takes its place", async () => {
+    const page = await (await SELF.fetch(`${SITE}/signin`)).text();
+    const styles = await (await SELF.fetch(`${SITE}${page.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
+    expect(styles).toMatch(/\.own-scroll(:where\([^)]*\)[^{]*)?\{ ?scrollbar-width: none; ?\}/);
+    expect(styles).toMatch(/\.own-scroll(:where\([^)]*\))?[^{]*::-webkit-scrollbar[^{]*\{ ?display: none; ?\}/);
   });
 });

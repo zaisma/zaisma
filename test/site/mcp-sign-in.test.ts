@@ -7,6 +7,7 @@ import { API_KEYS } from "../../apps/site/src/schemas.ts";
 import { letPublish } from "../helpers.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageScriptNames, strictScriptProblems } from "../strict-scripts.ts";
+import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 
 /** AI apps connect to the MCP by signing in (docs/DECISIONS.md, "AI apps connect to the MCP by signing in."). */
 
@@ -76,7 +77,11 @@ class Browser {
       if (attributes.includes("Max-Age=0")) this.jar.delete(name);
       else this.jar.set(name, pair!.slice(pair!.indexOf("=") + 1));
     }
-    if ((response.headers.get("content-type") ?? "").startsWith("text/html")) expect(strictScriptProblems(await response.clone().text(), response.headers.get("content-security-policy")), path).toEqual([]);
+    if ((response.headers.get("content-type") ?? "").startsWith("text/html")) {
+      const page = await response.clone().text();
+      expect(strictScriptProblems(page, response.headers.get("content-security-policy")), path).toEqual([]);
+      expect(defaultScrollbarProblems(page), path).toEqual([]);
+    }
     return response;
   }
 }

@@ -39,7 +39,10 @@ export function cityStage(options: CityStageOptions = {}): Raw {
 /*
  * The city script. From the draft's "Small seeded random" to its end, unchanged in look. What's new:
  * - It finds its canvas and the pane over it on the page, and works in the canvas's own box (the gallery frames it).
- * - Phones (a coarse pointer, or narrower than 760px) start at 1 pixel per CSS pixel instead of 1.5.
+ * - Phones (a coarse pointer, or narrower than 760px) start at 1 pixel per CSS pixel instead of 1.5, and any screen draws at most
+ *   about 3.2 million pixels, sharpened lightly where that's fewer than the screen has. It steps back up after a slow spell passes.
+ * - A tropical haze over everything, thick at the sea and thinning with height, warm toward the sun by day and dark blue at night.
+ * - It's built once the page has loaded, so the still and the pane never wait for it.
  * - Below the draft's lowest resolution, two cheaper steps: bloom and depth of field off, then the god rays, the lens glint and
  *   half the flyers off. Slow even then, the still comes back and it stops.
  * - Taps work by touch as clicks do: a touch that didn't move is a tap; a drag scrolls the page.
@@ -149,6 +152,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
     function locations(p, names) { var o = {}; names.forEach(function (n) { o[n] = gl.getUniformLocation(p, n); }); return o; }
 
+    // The air: a tropical haze, thick over the sea and thinning with height, so distance reads at a glance. How much of it lies
+    // between the eye and a point is the integral of a density falling off with height (exact for an exponential), and toward
+    // the sun it glows warm with the light it scatters. Thinner and dark blue at night.
+    var FOG_GLSL = "uniform vec3 uFog; uniform float uFogDensity; uniform float uFogFalloff;\n" +
+      "float hazeAt(vec3 cam, vec3 at){ vec3 ray = at - cam; float d = length(ray); float dy = ray.y / max(d, 1e-3) * uFogFalloff * d;\n" +
+      " float along = abs(dy) < 1e-4 ? d : d * (1.0 - exp(-dy)) / dy;\n" +
+      " return 1.0 - exp(-uFogDensity * exp(-max(cam.y, 0.0) * uFogFalloff) * along); }\n" +
+      "vec3 hazeColor(vec3 cam, vec3 at, vec3 sun, float night){ vec3 dir = normalize(at - cam); float toward = pow(max(dot(dir, sun), 0.0), 6.0);\n" +
+      " return mix(uFog, mix(vec3(1.0, 0.93, 0.8), vec3(0.3, 0.38, 0.6), night), toward * mix(0.5, 0.3, night)); }\n";
     var BOX_VS = "#version 300 es\n" +
       "layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor;\n" +
       "layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=4) in vec4 iCol; layout(location=5) in vec4 iFade; layout(location=6) in vec2 iRot;\n" +
@@ -165,8 +177,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // Matte low-poly light: sky light from above, a warm sun with crisp shadows, light bouncing off the white ground.
     var BOX_FS = "#version 300 es\nprecision highp float; precision highp sampler2DShadow;\n" +
       "in vec3 vNor; in vec4 vCol; in vec3 vWorld; in vec4 vLight; in float vFade; in vec3 vLocal; in vec3 vSize; in vec3 vFace;\n" +
-      "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform vec3 uFog; uniform vec2 uFogRange; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight;\n" +
-      "out vec4 outColor;\n" +
+      "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight;\n" +
+      "out vec4 outColor;\n" + FOG_GLSL +
       "float shadowAt(){ vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5; if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;\n" +
       " return texture(uShadow, vec3(p.xy, p.z - 0.0004)); }\n" +
       "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb;\n" +
@@ -193,8 +205,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       " lit *= 1.0 - line * 0.1 * (1.0 - smoothstep(220.0, 620.0, distance(vWorld, uCam)));\n" +
       " vec3 col = mix(base * (0.9 + 0.22 * diff) * (1.0 + 0.2 * uNight), lit, uLit);\n" +
       " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.5 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
-      " float f = smoothstep(uFogRange.x, uFogRange.y, distance(vWorld, uCam));\n" +
-      " col = mix(col, uFog, f * mix(0.18, 0.55, uLit));\n" +
+      // The orange shapes keep more of their color through the haze, so they still read from afar.
+      " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld) * mix(0.7, 1.0, uLit));\n" +
       " outColor = vec4(col, uOpaque > 0.5 ? 0.0 : vCol.a * vFade); }";
     var DEPTH_VS = "#version 300 es\nlayout(location=0) in vec3 aPos; layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale;\n" +
       "uniform mat4 uLightViewProj; void main(){ gl_Position = uLightViewProj * vec4(iOff + aPos * iScale, 1.0); }";
@@ -220,7 +232,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       " float y = amp * (0.75 * sin(t * (0.2 + aSeed * 0.2) + aSeed * 6.2832) + 0.3 * sin(p.x * 0.008 + p.y * 0.006 + t * 0.18));\n" +
       " vWorld = vec3(p.x, uY + y * shore, p.y); gl_Position = uViewProj * vec4(vWorld, 1.0); }";
     var WATER_FS = "#version 300 es\nprecision highp float; in vec3 vWorld; in float vShallow;\n" +
-      "uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight; out vec4 o;\n" +
+      "uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight; out vec4 o;\n" + FOG_GLSL +
       "void main(){ vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld))); if (n.y < 0.0) n = -n;\n" +
       " float d = distance(vWorld, uCam); vec3 v = normalize(uCam - vWorld); vec3 r = reflect(-v, n);\n" +
       " float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
@@ -239,7 +251,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       "   float foam = exp(-k1 * k1 / (w1 * w1)) * exp(-age * 1.1) + 0.6 * exp(-k2 * k2 / (w1 * w1 * 0.6)) * exp(-age * 1.4) * step(0.4, age)\n" +
       "     + 0.8 * exp(-dd * dd / (1.2 + age * 5.0)) * exp(-age * 3.5);\n" +
       "   c = mix(c, mix(vec3(1.08, 1.12, 1.14), vec3(0.5, 0.6, 0.75), uNight) * (0.88 + 0.16 * facet), clamp(foam * 0.6, 0.0, 0.6)); } }\n" +
-      " c = mix(c, uHorizon, smoothstep(1800.0, 5200.0, d));\n" +
+      // The haze, and far out the sea meets the sky's horizon, so there's no edge to the world.
+      " c = mix(c, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld));\n" +
+      " c = mix(c, uHorizon, smoothstep(2600.0, 7000.0, d));\n" +
       " o = vec4(c, 0.0); }";
     // Bright parts of the picture, for the bloom.
     var BRIGHT_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform float uThreshold; out vec4 o;\n" +
@@ -264,10 +278,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       " o = vec4(c, 1.0); }";
     // Final picture: depth of field toward the near and far edges, bloom, a gentle grade and vignette.
     var COMPOSITE_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
-      "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform sampler2D uRays; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect;\n" +
+      "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform sampler2D uRays; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect; uniform float uSharpen;\n" +
       "uniform vec2 uSunUv; uniform float uSunIn; uniform sampler2D uSeen; out vec4 o;\n" +
       "float hex(vec2 p, float r){ p = abs(p); return max(p.x * 0.866 + p.y * 0.5, p.y) - r; }\n" +
+      // Where the picture is drawn with fewer pixels than the screen has, a light sharpen against its four neighbours brings the edges back.
       "void main(){ vec3 sharp = texture(uScene, vUv).rgb; vec3 soft = texture(uSoft, vUv).rgb;\n" +
+      " if (uSharpen > 0.0) { ivec2 at = ivec2(gl_FragCoord.xy); vec3 around = texelFetch(uScene, at + ivec2(1, 0), 0).rgb + texelFetch(uScene, at - ivec2(1, 0), 0).rgb + texelFetch(uScene, at + ivec2(0, 1), 0).rgb + texelFetch(uScene, at - ivec2(0, 1), 0).rgb;\n" +
+      "  sharp = clamp(sharp + (sharp - around * 0.25) * uSharpen, 0.0, 1.0); }\n" +
       " float coc = smoothstep(0.16, 0.62, abs(vUv.y - uFocusY));\n" +
       " vec3 c = mix(sharp, soft, coc * 0.9);\n" +
       " c += texture(uBloom, vUv).rgb * uBloomStrength;\n" +
@@ -290,17 +307,17 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 
     var boxProgram = program(BOX_VS, BOX_FS), depthProgram = program(DEPTH_VS, DEPTH_FS), skyProgram = program(FULL_VS, SKY_FS);
     var brightProgram = program(FULL_VS, BRIGHT_FS), copyProgram = program(FULL_VS, COPY_FS), blurProgram = program(FULL_VS, BLUR_FS), compositeProgram = program(FULL_VS, COMPOSITE_FS);
-    var U = locations(boxProgram, ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogRange", "uLit", "uOpaque", "uEdge", "uNight"]);
+    var U = locations(boxProgram, ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight"]);
     var UD = locations(depthProgram, ["uLightViewProj"]);
     var US = locations(skyProgram, ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight"]);
     var UB = locations(brightProgram, ["uTex", "uThreshold"]);
     var UC = locations(copyProgram, ["uTex"]);
     var UBL = locations(blurProgram, ["uTex", "uStep"]);
-    var UX = locations(compositeProgram, ["uScene", "uSoft", "uBloom", "uRays", "uFocusY", "uBloomStrength", "uAspect", "uSunUv", "uSunIn", "uSeen"]);
+    var UX = locations(compositeProgram, ["uScene", "uSoft", "uBloom", "uRays", "uFocusY", "uBloomStrength", "uAspect", "uSunUv", "uSunIn", "uSeen", "uSharpen"]);
     var raysProgram = program(FULL_VS, RAYS_FS), UR = locations(raysProgram, ["uTex", "uSunUv", "uAspect"]);
     var seenProgram = program(FULL_VS, SEEN_FS), USN = locations(seenProgram, ["uTex", "uSunUv", "uAspect"]);
     var waterProgram = program(WATER_VS, WATER_FS);
-    var UW = locations(waterProgram, ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight"]);
+    var UW = locations(waterProgram, ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff"]);
     // The sea's facets: rings of triangles that grow with distance, so they look the same size on screen out to the horizon.
     var waterVao = gl.createVertexArray(); gl.bindVertexArray(waterVao);
     var waterVerts = [], RINGS = 34, SEGMENTS = 64, R0 = 200, GROW = Math.pow(9000 / R0, 1 / RINGS);
@@ -961,19 +978,26 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
 
     // Sharp enough at 1.5 pixels per CSS pixel with the anti-aliasing and soft focus (1 on a phone, where the screen is small and the pixels
-    // dense); a device that keeps missing frames steps down further, then turns the costliest light off (quality 1, then 2).
-    var width = 0, height = 0, renderScale = 1, slowFor = 0, frameAvg = 1 / 60, quality = 0;
+    // dense), within a budget of pixels a mid-range laptop draws smoothly: a big screen gets fewer per CSS pixel instead of more work.
+    // A device that keeps missing frames steps down further, then turns the costliest light off (quality 1, then 2); once frames
+    // come easily again it steps back up, twice at most, so it never keeps swinging between the two.
+    var PIXEL_BUDGET = 3.2e6;
+    var sharpen = 0, width = 0, height = 0, renderScale = 1, slowFor = 0, fastFor = 0, frameAvg = 1 / 60, quality = 0, upsLeft = 2, isSteppedDown = false;
     var sharpness = coarse || isNarrow() ? 1 : 1.5;
     function resize() {
-      var ratio = Math.min(window.devicePixelRatio || 1, sharpness) * renderScale;
+      var ratio = Math.min(window.devicePixelRatio || 1, sharpness, Math.sqrt(PIXEL_BUDGET / Math.max(1, canvas.clientWidth * canvas.clientHeight))) * renderScale;
       width = Math.max(1, Math.floor(canvas.clientWidth * ratio)); height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
       canvas.width = width; canvas.height = height;
+      // How much fewer pixels than the screen's: none sharpens nothing, half sharpens most.
+      sharpen = Math.min(0.5, Math.max(0, 1 - ratio / Math.min(window.devicePixelRatio || 1, sharpness)) * 0.9);
       makeTargets(width, height);
     }
     window.addEventListener("resize", resize); resize();
 
     /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea, over the districts, under the tallest tower looking up into the sun as it slips in and out behind the crown, up and out, low over the water, and a high sweep back round. */
-    var FOG_DAY = [0.64, 0.83, 1.0], ZENITH_DAY = [0.2, 0.53, 0.97], FOG_NIGHT = [0.055, 0.075, 0.14], ZENITH_NIGHT = [0.008, 0.014, 0.04];
+    // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
+    var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
+    var FOG_DAY = [0.66, 0.84, 0.98], ZENITH_DAY = [0.2, 0.53, 0.97], FOG_NIGHT = [0.055, 0.075, 0.14], ZENITH_NIGHT = [0.008, 0.014, 0.04];
     var FOG = FOG_DAY.slice(), ZENITH = ZENITH_DAY.slice();
     var nightTarget = isNight() ? 1 : 0, night = nightTarget;
     // The theme can change in place (a setting, or the system's), and the city eases to day or night with it.
@@ -1034,7 +1058,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var raw = new Float32Array(LIFT_STEPS);
       for (var i = 0; i < LIFT_STEPS; i++) {
         var e = rawShot(i / LIFT_STEPS * LOOP_SEC).eye, y = e[1] + lift[i], near = 1e9;
-        for (var dx = -90; dx <= 90; dx += 6) for (var dz = -90; dz <= 90; dz += 6) {
+        for (var dx = -90; dx <= 90; dx += 10) for (var dz = -90; dz <= 90; dz += 10) {
           var h = heightUnder(e[0] + dx, e[2] + dz); if (h < STREET_Y + 3) continue;
           near = Math.min(near, Math.hypot(dx, dz, Math.max(0, y - h)));
         }
@@ -1149,10 +1173,17 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 
     // The steps below the lowest resolution: bloom and depth of field off, then the god rays, the glint and half the flyers.
     function stepDown() {
+      isSteppedDown = true;
       if (renderScale > 0.55) { renderScale = Math.max(0.55, renderScale - 0.15); resize(); return; }
       if (quality === 2) { giveUp(); return; }
       quality++;
       if (quality === 2) flyers = flyers.filter(function (m, i) { return i % 2 === 0; });
+    }
+    function stepUp() {
+      upsLeft--;
+      if (quality > 0) quality--;
+      else { renderScale = Math.min(1, renderScale + 0.15); resize(); }
+      if (renderScale === 1 && quality === 0) isSteppedDown = false;
     }
 
     function frame(now) {
@@ -1162,11 +1193,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       if (clock > 43 && raw < 0.25) {
         frameAvg = frameAvg * 0.95 + raw * 0.05;
         slowFor = frameAvg > 0.024 ? slowFor + raw : 0;
-        if (slowFor > 2) { slowFor = 0; frameAvg = 1 / 60; stepDown(); if (stopped) return; }
+        fastFor = frameAvg < 0.0175 ? fastFor + raw : 0;
+        if (slowFor > 2) { slowFor = 0; fastFor = 0; frameAvg = 1 / 60; stepDown(); if (stopped) return; }
+        else if (fastFor > 5 && isSteppedDown && upsLeft > 0) { fastFor = 0; stepUp(); }
       }
       clock += dt;
       night += (nightTarget - night) * Math.min(1, dt * 1.6); if (Math.abs(nightTarget - night) < 0.002) night = nightTarget;
       for (var ci = 0; ci < 3; ci++) { FOG[ci] = lerp(FOG_DAY[ci], FOG_NIGHT[ci], night); ZENITH[ci] = lerp(ZENITH_DAY[ci], ZENITH_NIGHT[ci], night); }
+      fogDensity = lerp(FOG_DENSITY_DAY, FOG_DENSITY_NIGHT, night);
       updateMovers(dt);
       camTime += dt * paceAt(camTime);
       var view = shot(camTime);
@@ -1204,13 +1238,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       gl.uniformMatrix4fv(UW.uViewProj, false, viewProj); gl.uniform1f(UW.uY, WATER_Y);
       gl.uniform3fv(UW.uCam, view.eye); gl.uniform3fv(UW.uSun, SUN);
       gl.uniform3fv(UW.uHorizon, FOG); gl.uniform3fv(UW.uZenith, ZENITH); gl.uniform1f(UW.uTime, clock); gl.uniform4fv(UW.uRipples, rippleData); gl.uniform1i(UW.uRippleCount, ripples.length); gl.uniform1f(UW.uNight, night);
+      gl.uniform3fv(UW.uFog, FOG); gl.uniform1f(UW.uFogDensity, fogDensity); gl.uniform1f(UW.uFogFalloff, FOG_FALLOFF);
       gl.bindVertexArray(waterVao); gl.drawArrays(gl.TRIANGLES, 0, WATER_COUNT);
       gl.useProgram(boxProgram);
       gl.uniformMatrix4fv(U.uViewProj, false, viewProj);
       gl.uniformMatrix4fv(U.uLightViewProj, false, lightViewProj);
       bindTex(0, shadowTex); gl.uniform1i(U.uShadow, 0);
       gl.uniform3fv(U.uSun, SUN); gl.uniform3fv(U.uCam, view.eye); gl.uniform3fv(U.uFog, FOG);
-      gl.uniform2f(U.uFogRange, 220, 1500); gl.uniform1f(U.uNight, night);
+      gl.uniform1f(U.uFogDensity, fogDensity); gl.uniform1f(U.uFogFalloff, FOG_FALLOFF); gl.uniform1f(U.uNight, night);
       gl.uniform1f(U.uLit, 1); gl.uniform1f(U.uOpaque, 1); gl.uniform1f(U.uEdge, 1);
       gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
       gl.bindVertexArray(city.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, city.count);
@@ -1232,7 +1267,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         pass(copyProgram, targets.halfA, function () { bindTex(0, targets.scene.tex); gl.uniform1i(UC.uTex, 0); });
         pass(brightProgram, targets.quarterA, function () { bindTex(0, targets.halfA.tex); gl.uniform1i(UB.uTex, 0); gl.uniform1f(UB.uThreshold, 0.97); });
         blur(blurProgram, targets.halfA, targets.halfB, 1, 1.5);
-        blur(blurProgram, targets.quarterA, targets.quarterB, 3);
+        blur(blurProgram, targets.quarterA, targets.quarterB, 2, 1.6);
       }
 
       // The sun on screen: where it is, and how much it's in view (fading out as it leaves the frame).
@@ -1255,6 +1290,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         bindTex(1, isSoft ? targets.halfA.tex : targets.scene.tex); gl.uniform1i(UX.uSoft, 1);
         bindTex(2, targets.quarterA.tex); gl.uniform1i(UX.uBloom, 2);
         gl.uniform1f(UX.uFocusY, focus[1] * 0.5 + 0.5);
+        gl.uniform1f(UX.uSharpen, sharpen);
         gl.uniform1f(UX.uBloomStrength, isSoft ? 0.16 + 0.14 * night : 0);
         gl.uniform2f(UX.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect));
         bindTex(3, targets.rays.tex); gl.uniform1i(UX.uRays, 3); gl.uniform2f(UX.uSunUv, sunUv[0], sunUv[1]); gl.uniform1f(UX.uSunIn, sunIn);
@@ -1266,7 +1302,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
     requestAnimationFrame(frame);
   }
-  try { run(); } catch (error) { giveUp(); }
+  function start() { try { run(); } catch (error) { giveUp(); } }
+  function whenIdle() { if (window.requestIdleCallback) requestIdleCallback(start, { timeout: 700 }); else setTimeout(start, 50); }
+  if (document.readyState === "complete") whenIdle(); else window.addEventListener("load", whenIdle);
 })();
 `);
 
@@ -1320,6 +1358,8 @@ html:has(.city-page) { height: 100%; }
   .city-page { display: flow-root; min-height: 0; padding-bottom: calc(var(--pad-inner-pane) + env(safe-area-inset-bottom)); }
   .city-page .city-pane { position: relative; top: auto; bottom: auto; right: auto; width: auto; margin: 60vh var(--pad-inner-pane) 0; }
   .city-page .city-pane > .glass-pane > .pane-in { overflow: visible; }
+  /* The page's rail runs down the gutter beside the pane. */
+  .city-page .rail[data-rail="page"] { right: 1px; }
 }
 /* The gallery's example: the stage in its own box, with a pane on its right. */
 .city-frame { position: relative; width: 100%; height: 420px; overflow: hidden; display: flex; justify-content: flex-end; padding: var(--pad-inner-pane); }
