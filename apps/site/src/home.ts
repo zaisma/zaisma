@@ -1,10 +1,11 @@
-import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, accountById, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
+import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
-import { currentSession, readCookie, realEmail } from "./auth.ts";
+import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { shelfPlayers } from "./plays.ts";
+import { viewerOf } from "./viewer.ts";
 
 /**
  * The home page and what it needs. The page is the same for everyone (so it caches); the player's own
@@ -28,19 +29,6 @@ export interface ShowGame {
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
-}
-
-/**
- * The age the viewer can find games for (docs/DECISIONS.md, "Games can keep out younger age bands"): their
- * band's youngest age, or 18 signed out, who see every listed game (one for older players asks them for an
- * account). The session is read only when the zaisma_in cookie says they're signed in, so signed-out pages
- * cost nothing extra.
- */
-export async function viewerOf(request: Request, env: Env): Promise<{ ageFloorYears: number; account: Account | null; email: string | null; cookies: string[] }> {
-  if (!readCookie(request, env, "zaisma_in")) return { ageFloorYears: 18, account: null, email: null, cookies: [] };
-  const session = await currentSession(request, env).catch(() => null);
-  const account = session ? await accountById(env.DB, session.userId) : null;
-  return { ageFloorYears: account ? AGE_BAND_FLOOR_YEARS[account.age_band] : 18, account, email: account && session ? realEmail(session.email) : null, cookies: session?.cookies ?? [] };
 }
 
 /** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears and games the listing check keeps off lists ("No slop"). */
@@ -176,6 +164,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     isPrivate: Boolean(viewer.account),
     art: featured?.cover ?? null,
     nav: "home",
+    viewer,
     body: html`<style>${raw(HOME_STYLES)}</style>
 ${env.SUPABASE_URL
       ? html`<section class="guest note" id="guest" hidden><span><strong>You're playing as a guest.</strong> Your progress stays on this device. Make an account to keep it everywhere.</span><a class="btn" href="/join">Make an account</a></section>`

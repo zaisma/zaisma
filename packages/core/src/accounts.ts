@@ -6,6 +6,10 @@ import { SOCIAL_SETTINGS, SOCIAL_SETTING_CHOICES, defaultSocialMode, isWithinAge
 
 export type AgeBand = "13-15" | "16-17" | "18+";
 
+/** Light or dark for the player's pages on zaisma.com: "system" follows their device. */
+export type ColorTheme = "system" | "light" | "dark";
+export const COLOR_THEMES: readonly ColorTheme[] = ["system", "light", "dark"];
+
 /** An account, with its social settings (social-settings.ts). */
 export interface Account extends SocialSettings {
   /** The Supabase user ID. Stays inside Zaisma. */
@@ -23,6 +27,8 @@ export interface Account extends SocialSettings {
   is_appearing_offline: number;
   /** Streamer mode: game pages hide room codes until the player shows them (0 or 1). */
   is_streamer_mode_on: number;
+  /** Light or dark for their pages on zaisma.com. */
+  color_theme: ColorTheme;
   /** What the owner wrote on their profile (profiles.ts): others see it once profile_check_status is passed. */
   display_name: string | null;
   bio: string | null;
@@ -279,6 +285,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     password_changed_at_ms: newAccount.hasPassword ? createdAtMs : null,
     is_appearing_offline: 0,
     is_streamer_mode_on: 0,
+    color_theme: "system",
     display_name: null,
     bio: null,
     link_urls: "",
@@ -583,4 +590,9 @@ export async function recentlyPlayed(database: D1Database, accountId: string, ma
 /** Turns streamer mode on or off: game pages hide room codes until the player shows them. */
 export async function setStreamerMode(database: D1Database, accountId: string, isOn: boolean): Promise<void> {
   await database.prepare("UPDATE accounts SET is_streamer_mode_on = ?, updated_at_ms = ? WHERE id = ?").bind(isOn ? 1 : 0, Date.now(), accountId).run();
+}
+
+/** Fixes the player's pages to light or dark, or lets them follow the device ("system"). */
+export async function setColorTheme(database: D1Database, accountId: string, colorTheme: ColorTheme): Promise<void> {
+  await database.prepare("UPDATE accounts SET color_theme = ?, updated_at_ms = ? WHERE id = ?").bind(colorTheme, Date.now(), accountId).run();
 }

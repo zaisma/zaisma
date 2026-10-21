@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_HOUR_CPU_DURATION_SEC, PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC, PLAYER_HOUR_RELAYED_SIZE_BYTES, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_HOUR_CPU_DURATION_SEC, PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC, PLAYER_HOUR_RELAYED_SIZE_BYTES, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -140,12 +140,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const done = (response: Response) => withCookies(response, session.cookies);
   const url = new URL(request.url);
 
-  // The games page also shows security alerts no email told them about, and asks for an email once there's something to lose.
-  const isAskingForEmail = async () => {
-    const account = await accountById(env.DB, caller.accountId);
-    return account ? isEmailAskDue(env, account, realEmail(session.email)) : false;
-  };
-  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
+  // The header shows the account; the games page also shows security alerts no email told them about, and asks for an email once there's something to lose.
+  const account = await accountById(env.DB, caller.accountId);
+  const isAskingForEmail = async () => (account ? isEmailAskDue(env, account, realEmail(session.email)) : false);
+  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
@@ -156,7 +154,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
     } catch (error) {
-      if (error instanceof ApiError) return done(await gamesPage(env, call, error.messageWithFix, String(form.get("title") ?? ""), await isAskingForEmail()));
+      if (error instanceof ApiError) return done(await gamesPage(env, call, account, error.messageWithFix, String(form.get("title") ?? ""), await isAskingForEmail()));
       throw error;
     }
   }
@@ -175,7 +173,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       exported.headers.append("Set-Cookie", downloadStartedCookie(env));
       return done(exported);
     } catch (error) {
-      if (error instanceof ApiError) return done(await managerPage(env, call, slug, "details", { error: error.messageWithFix }, error.httpStatus));
+      if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, "details", { error: error.messageWithFix }, error.httpStatus));
       throw error;
     }
   }
@@ -183,7 +181,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   if (!post) {
     const section = SECTIONS.find((each) => (each.path ? `/${each.path}` : "") === action);
     if (!section) return done(redirect(`/dashboard/${slug}`));
-    return done(await managerPage(env, call, slug, section.id, { done: DONE[url.searchParams.get("done") ?? ""] }));
+    return done(await managerPage(env, call, account, slug, section.id, { done: DONE[url.searchParams.get("done") ?? ""] }));
   }
 
   const form = await request.formData();
@@ -233,7 +231,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const visibility = field("visibility");
       const { game } = (await call("GET", `/games/${slug}`)) as { game: GameJson };
       const hiding = (visibility === "private" || visibility === "draft") && (game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live";
-      if (hiding && field("confirm") !== "yes") return done(await managerPage(env, call, slug, sectionOfAction, { confirmHide: visibility as GameJson["visibility"] }));
+      if (hiding && field("confirm") !== "yes") return done(await managerPage(env, call, account, slug, sectionOfAction, { confirmHide: visibility as GameJson["visibility"] }));
       await call("PATCH", `/games/${slug}`, { visibility });
       return back(sectionOfAction, "visibility");
     }
@@ -276,7 +274,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
     }
   } catch (error) {
-    if (error instanceof ApiError) return done(await managerPage(env, call, slug, sectionOfAction, { error: error.messageWithFix }, error.httpStatus));
+    if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, sectionOfAction, { error: error.messageWithFix }, error.httpStatus));
     throw error;
   }
   return done(redirect(`/dashboard/${slug}`));
@@ -315,8 +313,8 @@ function withCookies(response: Response, cookies: string[]): Response {
   return withAll;
 }
 
-export function page(env: Env, title: string, body: Raw, httpStatus = 200, art: string | null = null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "dashboard", art });
+export function page(env: Env, title: string, body: Raw, httpStatus = 200, art: string | null = null, account?: Account | null): Response {
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", art, viewer: account === undefined ? undefined : { account } });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 
@@ -335,7 +333,7 @@ function coverOf(images: ImageJson[]): ImageJson | undefined {
 
 // --- Your games ---
 
-async function gamesPage(env: Env, call: Call, error?: string, title = "", isAskingForEmail = false): Promise<Response> {
+async function gamesPage(env: Env, call: Call, account: Account | null, error?: string, title = "", isAskingForEmail = false): Promise<Response> {
   const [{ games: listedGames, unread_topic_count: unreadTopicCount }, { can_publish: canPublish }, { unseen_security_alerts: unseenSecurityAlerts }] = (await Promise.all([call("GET", "/games"), call("GET", "/access"), call("GET", "/activity")])) as [
     { games: (GameJson & { alerts: GameAlertJson[] })[]; unread_topic_count: number },
     { can_publish: boolean },
@@ -387,6 +385,9 @@ ${canPublish
 </div>
 <p class="muted">Both need an API key: <a href="/account#developer">make one on your account page</a> and set it as ZAISMA_KEY.</p>`
       : ""}`,
+    200,
+    null,
+    account,
   );
 }
 
@@ -447,6 +448,7 @@ type Loaded = { game: GameJson; alerts: GameAlertJson[]; images: ImageJson[]; ve
 async function managerPage(
   env: Env,
   call: Call,
+  account: Account | null,
   slug: string,
   section: Section,
   options: { done?: string; error?: string; confirmHide?: GameJson["visibility"] },
@@ -456,7 +458,7 @@ async function managerPage(
   try {
     loaded = (await call("GET", `/games/${slug}`)) as Loaded;
   } catch (error) {
-    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404);
+    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, null, account);
     throw error;
   }
   const { game, images } = loaded;
@@ -518,6 +520,7 @@ ${body}
 </div>`,
     httpStatus,
     cover?.image_url ?? null,
+    account,
   );
 }
 

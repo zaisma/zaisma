@@ -1,44 +1,83 @@
-# Design: Steel
+# Design: Glass
 
-Every component, in every state, is on [zaisma.com/design](https://zaisma.com/design), rendered from the site's own code (`apps/site/src/components/`).
+Every component, in every state, is on [zaisma.com/design](https://zaisma.com/design), rendered from the site's own code (`apps/site/src/components/`). Change a component there and it changes on every page at once.
 
-How Zaisma looks and behaves until the redesign at the end of Phase 1, when Julius and Claude settle a new look, voice, logo and wordmark from what Zaisma stands for (`docs/PLAN.md`) and every page is rebuilt in it (Look and voice in `docs/ROADMAP.md`). The styles live in `apps/site/src/html.ts` (`STYLES`, `METAL_SCRIPT`, `AMBIENT_SCRIPT`, `metalButton`, `ambient`).
-
-Steel is a theme, not a flat UI: like a console's big-screen mode, every page is made of materials and lit by the game on it. Three materials, and nothing else:
-
-- **The ground:** deep steel with a fine grain, lit from the top left. The current game's art, heavily blurred, fills the screen behind everything (`ambient`), and pointing at any game card fades the screen to that game's colors.
-- **Gunmetal plates:** every surface (cards, panels, notes, the header, buttons). A brushed face (`--brush`), a lit top-left rim and a dark bottom-right rim (`--rim`), a drop shadow, and the Z's cut corner with its edge catching the light (`.bevel`, `.bevel-l`, `.bevel-s`).
-- **Chrome:** only what matters most: the main action (`metalButton`, `.btn.light`), the focus frame on a game card, and the rail under the current page or tab. The approved mockups (home for returning players, first visit, phone, the queue, the game page and an update page) are on the design canvas: https://claude.ai/artifact/CWDh8huHJ5A3CaMBBrtTYV
+Zaisma is the glass, and the game is not. Zaisma's interface is a layer of glass over the page: the header, panes, menus and controls are glass, and behind them is the game's own background or Zaisma's. The game's art, its covers and its screen are never glass and never ours to restyle.
 
 ## Rules
 
-- **Players first.** Show what helps a player decide or act. No feature flexes ("progress saved to your account!") and no jargon ("Connects to", "Purchases").
-- **No eyebrows and no ALL CAPS.** Headings are sentences; small print is plain text under the title.
-- **Game pictures are only the developer's image.** We draw no text, badges or gradients over covers, screenshots or update images (the one exception: the small Updated flag on Continue playing cards). The cover is the whole card, so developers put their game's name or logo on it themselves; titles and buttons we draw sit beside a picture, never on it.
-- **Say game developers**, never creators.
-- **Nothing animates on its own.** Motion only answers the player (hover, press, a state change).
-- **Not flat.** Every surface is one of the three materials; no plain grey boxes, no hairline-only cards.
-- **Cover-less games get the engraved Z**, never an empty box.
-- **Layouts only Zaisma would have.** No hero + call-to-action + feature grid + banner. The home page is the player's own: friends, the game they played last, Continue playing, then games for everyone.
+- **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat colour.
+- **Orange only on what you act on.** The runner button (the one main action), the line under the tab you're on, keyboard focus. Never on words, headings or decoration.
+- **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened.
+- **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing.
+- **Buttons move only when pointed at or pressed.** They lift and lean toward the pointer and sink when pressed; at rest they're still. A scene behind the glass may move on its own.
+- **No hotkey hints.** "/" jumps to search, and nothing on the page says so.
+- **The main action shows without scrolling.**
+- **Players first.** Show what helps a player decide or act. Say game developers, never creators.
+- **Game pictures are only the developer's image.** Nothing drawn over covers or screenshots: titles and buttons sit beside a picture, never on it.
+- **No eyebrows and no ALL CAPS.** Headings are sentences.
+
+## Voice
+
+Plain, open and clear. Say what happens, in whole sentences, as one person would to another. Verbose enough to leave no question, and no more. Never claim more than is true.
+
+- Write what the player gets and what it costs them: what's saved, who sees it, what happens next.
+- Don't write marketing words (unlock, seamless, exclusive, powerful, next-level), corporate or startup talk (leverage, ecosystem, empower), or exclamation marks.
+- Don't promise what isn't built, and don't hedge what is.
+
+| Not this | This |
+| --- | --- |
+| Unlock cloud saves and sync seamlessly across all your devices! | Your progress stays on this device. Make an account to keep it everywhere. |
+| Join the community to unlock exclusive features. | Keep your progress, play with friends and get your own username. |
+| We take your privacy seriously. | Your birthday is never shown to anyone. |
 
 ## Tokens
 
+Defined once in `apps/site/src/components/foundations.ts` (`TOKEN_STYLES`). Light glass has dark words; smoked glass has light words.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--page` | `#EEF2F7` | `#0D1015` | Under the backdrop, before it draws |
+| `--ink` | `#14171C` | `#F7F9FC` | Words |
+| `--ink-2` | `#3D444E` | 86% white | Second words, tabs at rest |
+| `--muted` | `#59606A` | 70% white | Notes, the footer |
+| `--line` | 14% ink | 20% white | Dividers (`--divider`) |
+| `--glass-tint` | 50% white | 55% `#0E1118` | A pane's glass |
+| `--glass-top` | 56% white | 50% `#12151B` | The header's glass |
+| `--field` | 62% white | 8% white | A field's face |
+| `--backdrop-*` | pale blue, teal, violet | night blue, teal, violet | Zaisma's own backdrop |
+
+The same in both:
+
 | Token | Value | Use |
 | --- | --- | --- |
-| `--bg` | `#0b0d10` | The ground under everything |
-| `--face` / `--face-hi` | gunmetal gradients | Plates / buttons and raised plates |
-| `--chrome` | light-to-dark steel gradient | Main action, focus frame, current rail |
-| `--brush` / `--grain` | generated textures | Brushed plates / the ground and empty pictures |
-| `--rim` / `--drop` | inset light and dark edges / shadow | Every plate |
-| `--text` / `--text-2` / `--muted` | `#eceef0` / `#c6c9ce` / `#969ba4` | Text, body copy, secondary |
-| `--ok` / `--ok-text` / `--ok-bg` | `#5fd38d` / `#b9e7a6` / `#1f2b1c` | Live, playing now, Updated (with a soft glow) |
-| `--danger` / `--warn` | `#ff6b6b` / `#f2c14e` | Errors / held and warnings |
+| `--run` / `--run-hi` / `--run-lo` | `#F7931A` / `#FFB24A` / `#A85A06` | The runner, the current tab's line, focus |
+| `--danger` | `#D93A2B` | Only a delete's confirm step |
+| `--display` | Jost (self-hosted) | Headings and everything you press or read at a glance |
+| `--body` | the system font | Paragraphs |
+| `--spring` | `cubic-bezier(.3, 1.2, .4, 1)` | Slabs that slide |
 
-Type: **Jost** (`--display`; self-hosted, close to the Futura the Z is drawn from) for headings and every label you press or read at a glance: buttons, tabs, nav, chips, game titles. Headings are engraved (a dark shadow below, a faint light above). The system font is for body copy. Touch targets are at least 44 px.
+Fields are 16px on phones, so a phone never zooms in on them.
+
+## Theme
+
+Light or dark, and nothing else to set. It follows the device unless a signed-in player fixes it on their account page (Settings, Theme: System, Light or Dark). The server writes the choice on the page as `data-theme-choice` on `<html>` (`system`, `light` or `dark`; guests always get `system`), and CSS follows it with media queries, so there's no flash. `THEME_SCRIPT` (`html.ts`) sets `data-theme` to what's showing and tells scripts through `window.zaismaTheme` (`now()`, `choice()`, `onChange(fn)`).
+
+The theme changes only Zaisma's own backgrounds, and so the glass over them. A game's own background keeps its own glass whatever the theme: a dark game smokes the glass over it (`.smoke`) in light mode too.
+
+## Glass
+
+One glass, defined once in `foundations.ts`, at any size from a button's face to the header.
+
+- **A slab** (`class="glass"`): a tint, the page's hue, a sheen brightest at the top left, a blur and saturation of what's behind.
+- **The drawn rim** (`data-glass`, with `data-glass-corners`): `GLASS_SCRIPT` draws an `svg.edge` sized to the slab: a dark hairline, a polished edge, a bevel band and bright cut facets.
+- **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind.
+- **The hue** (`--glass-hue`): a studio's colour can tint every piece of glass under where it's set; glass tinted for a brand keeps its own colour.
+- **A component only sets the glass's variables** (its tint, a layer); it never paints glass of its own. `test/site/design.test.ts` checks it.
 
 ## Shapes
 
-- **The bevel.** The Z's cut corner, top right: `.bevel-s` (8 px, avatars and small buttons), `.bevel` (14 px, buttons), `.bevel-l` (36 px, the big game picture). No rounded corners.
+- **Cut corners, never rounded.** Panes are cut 24 and 20, the header 20 and 14, menus 18 and 14. Fields and buttons slant 10px where they meet another (`--control-slant`).
 - **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own: 24 and 20, the header and the gallery's bar 20 and 14, menus 18 and 14. Everything inside, whether a control or a colour swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
   - **In a pane's middle, it's square.** A swatch in the middle of the colour pane.
   - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the colour pane's top left is cut only there.
@@ -47,18 +86,6 @@ Type: **Jost** (`--display`; self-hosted, close to the Futura the Z is drawn fro
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
   Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
-- **The metal edge.** `.edge`: a black line outside and a white one top-left, like the Z's edges. Marks the selected thing (the game on the stage, an invite).
-
-## Metal
-
-The primary action on a page is a metal plate: `metalButton(label, { href | id, big, block, play })`. Only one or two per screen.
-
-- On hover it tilts toward the cursor, less the bigger it is (up to about 13° for a small button).
-- The glint is the reflection of a fixed light above and to the left. It slides across the tilted plate, the opposite way to the cursor and faster, and dims as the plate turns away; at steep angles it slides off the edge.
-- The label and icon take no light: they look exactly the same on hover, so only the plate moves.
-- Game cards (`.tile`) tilt a little; their picture (`.pic`) reflects like glass, a sharp line plus a soft haze.
-- The hover area is a wrapper that never tilts (`.hit`), so tilting can't push the cursor out and back in.
-- Phones (no hover) get the still plate. Reduced motion keeps the glint and drops the tilt.
 
 ## Spacing
 
@@ -134,20 +161,22 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 
 ## Components
 
-- **Buttons:** `.btn` (gunmetal plate with the cut corner), `.btn.light` (chrome), `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; the tilting metal plate for the main action. Any button that sends a form or opens a page shows the loader, the Z building itself (`.spin`, `brand/loader/zaisma-loader.svg`), and can't be pressed twice.
-- **Game card:** `a.tile` around `.pic`, the developer's cover alone: no nameplate, title or Play button, since a studio's art carries its own name and logo. It opens the game's page; only a Play button starts a game. The title is the link's `aria-label`. A game without a cover gets `.named`, its title engraved over a faint Z. `.flag` is the one note allowed on the art (Updated, on Continue playing). Wrapped in `.hit.block` with `data-art` (the cover): pointing at it or tabbing to it lifts the card into a chrome frame and fades the screen to its art. On phones players' cards are square: the square cover when the game has one (`<picture>`), otherwise the landscape cover whole over a blurred copy of itself (`.wide`, `.fill`), never cropped. The dashboard's own cards add a nameplate (`.body`) for status.
-- **Stage:** the home page's game in a machined bezel, its details on a plate beside it (never on top of the art).
-- **Spec plate:** on the game page, `dl.spec` rows (Players, Works on, Controls) with icons and words, divided by engraved lines.
-- **Section heading:** `.sec-head h2` or `h2.rule-h`, engraved, with a metal rule running to the edge.
-- **Tabs and nav:** text on an engraved line; the current one gets the chrome rail.
-- **Updated badge:** `.badge`, a green square and the word "Updated". Updates never get their own cards on the home page.
-- **Segmented toggle:** `.seg`, a track cut into the metal; the chosen option is a raised plate on a chrome rail (`aria-pressed` or `aria-current`). In a form, `.seg.picks` holds radio buttons the same way, so a few choices show side by side instead of in a dropdown (an API key's access per area).
-- **Wizard:** `dialog.wizard`, one plate in the middle of the screen for a task with steps (making an API key): a title and a line saying what this step is for, a body that scrolls on its own, and Back, Next and the final action at the bottom. It keeps one height from step to step.
-- **Fields:** cut into the metal (recessed, dark), with a light ring on focus.
-- **Notes:** `.note` for plain information, like the guest note on a first visit.
-- **Brand links** on game pages carry their own logo and colors (Discord, Steam, itch.io, YouTube); a plain website link is an outline with a globe.
-- **Scrollbars:** thin and dark, no track.
-- **Header search and action:** a page with its own search and main action puts them in the site header (`layout`'s `search` and `action`), never in a second bar under it. The forum does.
-- **Account pictures:** `.av` (`xs`, `sm`, `md`), the account's initials on a plate in its own color with the cut corner, until uploaded pictures come with profiles. An AI's post shows its developer's picture with the AI mark (`.ai-mark`, a small spark) and `.mark.ai` beside the name; Zaisma's posts show the Z on chrome and `.mark.team`. Never "Your AI" in place of a name.
-- **A game's dashboard** (`apps/site/src/dashboard.ts`): every section shares the head (cover, title, status and the Who can play toggle), then the sections sit in a rail on the left like the forum's (`.sections`, the current one on the chrome rail), and on phones in one row of tabs along an engraved line. Each section has its own page and layout: Overview (alerts on a warning edge, upload, the latest upload, the live version, plays and recent history beside them), Versions, Details (the form, with cover and screenshots beside it), Players and stats (plays, then Free hosting: the month's player-hours, and requests to its game server, as meters against the free tier, then reports and multiplayer use), Database (the month's use as meters, the tables down the left, and the main column for running SQL).
-- **Forum** (`apps/site/src/forum-pages.ts`): the topic list is one plate of dense rows (`.trow`: type icon, title and flags, category, tags and author, the people in it, replies, votes, last activity), with open known issues pinned above it. A rail on the left holds the places and the categories (the current one opens its sub-categories, marked by the chrome rail) and tags; on phones it folds into one row. A topic is posts on plates with a side panel of facts; Zaisma's posts carry a light edge, the answer a green one, and bare status changes are lines in the thread. A known issue shows its phases as a track (`.phases`), the current one lit in chrome. A busy topic's row shows three pictures and how many more. Post text is markdown (`forum-markdown.ts`): code sits in a recessed `figure.code` with its language, Wrap and Copy; mentions are a soft blue chip; links out of Zaisma carry a small ↗ and open through Leaving Zaisma; videos play inline at up to 640 px. Images sit in the text where they were placed; ones an AI sends as media sit in a grid after it. Writing a post has a slim bar over the box: Write and Preview (the post as it will look, from the same renderer), Insert (images, uploaded as you go and placed at the cursor; a link; a video; a code block) and formatting (bold, italic, strikethrough, code, link, heading, bulleted, dashed and numbered lists, quote; ⌘B, ⌘I, ⌘K). The same formatting floats over any text selected in the box, links are added and edited in a small panel, and images can be dropped or pasted straight into the text. Selecting words in any post brings up a chrome Quote button by the selection, and each post has Quote in its footer; quotes go in where the cursor was, as "Name wrote:" linked back to the post, as many as you like.
+- **Header** (`header`, `navigation.ts`): a floating slab of glass, inset from every edge, that slims as the page scrolls. The logo, the tabs (a framed Switch: Home, and Your games once its page is built), the page's own search when it has one, and you: Sign in (the runner), or your picture and name opening the account menu (Your profile, Friends, Developer, Settings, Sign out). On a developer page (the dashboard, the forum, `/developers`) the Developer and Forum tabs open out of the end of the tabs; leaving folds them away. Pages are separate loads, so the header remembers whether they were open (`sessionStorage` `zaisma-nav`) and opens or folds them from there. On a phone it's two rows: the logo, search and you on top, the tabs below.
+- **Runner button** (`runButton`, `actions.ts`): the one orange slab, for the page's main action.
+- **Cut button** (`cutButton`): every other button, clear glass with cut ends.
+- **Switch** (`tabSwitch`, `inputs.ts`): a carved well with a white slab and the orange line under the one you're on.
+- **Cut field** (`cutField`): a field carved into the glass, its label above and its error under it.
+- **Birthday wheels**: month, day and year on wheels you scroll, swipe or type.
+- **Rail** (`rail`): Zaisma's own scrollbar for a mouse or trackpad, a slim glass thumb on a hairline. Phones keep their own.
+- **Footer** (`footer`): the mark, the links (for game developers, the forum, the source code and the rules) and "Zaisma is open source, under the MIT license."
+- **The shell** (`layout`, `html.ts`): the backdrop, the header, the page and the footer. A page body built before this look sits in `main.steel`, which keeps its old styles inside it and the components' out of it; a component placed in one goes in an element of class `not-steel`. Each page's own rebuild sets `isRebuilt` and drops it.
+
+## Motion
+
+- Slabs slide on the spring, `cubic-bezier(.3, 1.2, .4, 1)`, in 0.55s; a size change (the header slimming) takes 0.45s; anything leaving goes faster than it came.
+- Moving between pages crossfades, and the header's slab slides from the last page's tab to this one's.
+- Under reduced motion nothing moves; the glass still changes colour.
+
+## Backgrounds
+
+Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colours, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).

@@ -1,4 +1,4 @@
-import { accountPicture, html, raw, type Raw } from "../html.ts";
+import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { textLink } from "./actions.ts";
 import { MINUTE_MS, ago, glassPane, icon, tag, type TagTone } from "./foundations.ts";

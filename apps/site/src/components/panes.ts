@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../html.ts";
+import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";

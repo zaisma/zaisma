@@ -5,6 +5,7 @@ import { sendAlert } from "./email.ts";
 import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
 import { html, layout, metalButton, raw, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
+import type { Viewer } from "./viewer.ts";
 
 /**
  * Reporting a game or a player. On the game page it's a plate that slides in beside the game (up
@@ -297,10 +298,12 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
 const isPublic = (game: Game) => game.review_status !== "pending" && game.visibility !== "draft" && game.visibility !== "private";
 
 /** The form without JavaScript. */
-export async function reportForm(env: Env, slug: string, error = "", httpStatus = 200): Promise<Response> {
+/** viewer: who is looking, for the header only (the report never records who sent it). */
+export async function reportForm(env: Env, slug: string, error = "", httpStatus = 200, viewer?: Viewer): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
   const named = game && isPublic(game);
   const response = layout(env, {
+    viewer,
     title: named ? `Report ${game.title}` : "Report a game",
     body: html`<h1>${named ? html`Report “${game.title}”` : "Report a game"}</h1>
 <p class="lead">Tell us what's wrong. We don't record who you are.</p>
@@ -319,7 +322,9 @@ ${error ? html`<p class="note">${error}</p>` : ""}
   <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${slug}">Cancel</a></div>
 </form>`,
   });
-  return new Response(response.body, { status: httpStatus, headers: response.headers });
+  const page = new Response(response.body, { status: httpStatus, headers: response.headers });
+  for (const cookie of viewer?.cookies ?? []) page.headers.append("Set-Cookie", cookie);
+  return page;
 }
 
 /**
