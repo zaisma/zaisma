@@ -38,10 +38,19 @@ async function getPass(game: string): Promise<{ pass: string; player: { id: stri
   return res.json();
 }
 
+/** Answer a probe at once, as the SDK does; a connection the test already closed has nothing to answer. */
+function answerProbe(ws: WebSocket, probeNumber: number) {
+  try {
+    ws.send(JSON.stringify({ type: "probe_answer", probeNumber }));
+  } catch {
+    // Closed.
+  }
+}
+
 /** A connected test client that collects what the room sends. */
-async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }) {
+async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }, answersProbes = true) {
   const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin, "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(from ? { cf: from } : {}) });
-  if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0), pongs: [] as number[] };
+  if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0), pongs: [] as number[], probes: [] as any[] };
   const ws = res.webSocket;
   ws.accept();
   const inbox: any[] = [];
@@ -49,15 +58,23 @@ async function connect(game: string, code: string, origin = ORIGIN, from?: { cou
   const pongs: number[] = [];
   let closedResolve: (code: number) => void;
   const closed = new Promise<number>((r) => (closedResolve = r));
+  // Probes are answered at once, as the SDK does (unless the test says not to), and kept apart with what came before each.
+  const probes: { probe: any; afterTypes: string[] }[] = [];
+  const types: string[] = [];
   ws.addEventListener("message", (ev) => {
     if (ev.data === "pong") return void pongs.push(Date.now());
     const m = JSON.parse(ev.data as string);
+    if (m.type === "probe") {
+      probes.push({ probe: m, afterTypes: [...types] });
+      return answersProbes ? answerProbe(ws, m.probeNumber) : undefined;
+    }
+    types.push(m.type);
     const w = waiters.shift();
     w ? w(m) : inbox.push(m);
   });
   ws.addEventListener("close", (ev) => closedResolve(ev.code));
   const next = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise<any>((r) => waiters.push(r)));
-  return { res, ws, inbox, next, closed, pongs };
+  return { res, ws, inbox, next, closed, pongs, probes };
 }
 
 /** The next message a client gets that matches, skipping others. */
@@ -68,9 +85,9 @@ async function until(c: { next: () => Promise<any> }, want: (m: any) => boolean)
   }
 }
 
-async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string } } = {}) {
+async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string }; answersProbes?: false } = {}) {
   const { pass, player } = await getPass(game);
-  const c = await connect(game, code, ORIGIN, opts.from);
+  const c = await connect(game, code, ORIGIN, opts.from, opts.answersProbes !== false);
   c.ws.send(JSON.stringify({ type: "hello", pass, room: opts.listed === false ? { isListed: false } : undefined }));
   const welcome = await c.next();
   expect(welcome.type).toBe("welcome");
@@ -571,6 +588,40 @@ describe("rooms", () => {
     b.ws.close(1000);
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
   });
+
+  it("probes each player right after welcome", async () => {
+    await addGame("arena");
+    const a = await join("arena", "PRBWLC");
+    for (let i = 0; i < 50 && a.probes.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(a.probes[0]).toMatchObject({ probe: { type: "probe", probeNumber: 1, pingDurationMs: null }, afterTypes: ["welcome"] });
+    expect(Math.abs(a.probes[0]!.probe.serverTimeMs - Date.now())).toBeLessThan(5000);
+    // Its answer brings another, carrying the ping the room measured.
+    expect(typeof a.probes[1]!.probe.pingDurationMs).toBe("number");
+    a.ws.close(1000);
+  });
+
+  it("drops a player who falls too far behind, with 4003, and the room carries on", async () => {
+    await addGame("arena");
+    const slow = await join("arena", "BHNDRM", { answersProbes: false });
+    const quick = await join("arena", "BHNDRM");
+    const big = "x".repeat(15 * 1024);
+    // The relay passes quick's messages to slow, who never answers a probe: 2 MB later, slow is dropped.
+    let sentCount = 0;
+    const closedCode = await Promise.race([
+      slow.closed,
+      (async () => {
+        for (; sentCount < 400; sentCount++) {
+          quick.ws.send(JSON.stringify({ type: "message", data: big }));
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        return 0;
+      })(),
+    ]);
+    expect(closedCode).toBe(4003);
+    expect(sentCount).toBeGreaterThan(100);
+    expect((await until(quick, (m) => m.type === "players" && m.players.length === 1)).players[0].id).toBe(quick.player.id);
+    quick.ws.close(1000);
+  }, 20_000);
 
   it("needs a valid pass first, from the game's origin", async () => {
     await addGame("arena");
