@@ -159,7 +159,6 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
 .header-frame.tall { height: 470px; }
-.header-frame.logo-frame { height: 110px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
 .stand-in-page { padding: 100px 18px 160px; }
@@ -196,7 +195,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .header-frame { height: 320px; }
   .header-frame.tall { height: 560px; }
   /* A header example is narrower than a phone's screen: it keeps a closer inset in its frame, so its first row has a phone's room. */
-  .header-frame .top:not(.is-logo-only) { width: calc(100% - 2 * var(--gap-words-control)); }
+  .header-frame .top { width: calc(100% - 2 * var(--gap-words-control)); }
 }
 `;
 

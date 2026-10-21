@@ -856,7 +856,7 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     isPrivate: true,
     hasTurnstileCheck: options.hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isLogoOnly: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}</div>
+    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}</div>
 ${scriptTags(CITY_SCRIPT, BACK_TO_GAME_SCRIPT, ...(options.hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}`,
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });

@@ -469,7 +469,7 @@ const GALLERY_ONLY = new Set<string>([
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "logo-frame", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
+  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
 ]);
 
 // Classes a script or a screen reader uses, with no look of their own.

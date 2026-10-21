@@ -234,7 +234,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Navigation
 
 - **Header** (`header(options: HeaderOptions)`, `navigation.ts`): The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.
-  - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isLogoOnly?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `id?: string`
+  - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `id?: string`
 - **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.
   - `options`: `username: string`, `pictureMarkup: Raw`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-focused"`
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.
@@ -296,7 +296,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 How the larger ones behave:
 
-- **Header** (`header`): a floating slab of glass, inset from every edge, that slims as the page scrolls. The logo, the tabs (a framed Switch: Home, and Your games once its page is built), the page's own search when it has one, and you: Sign in (the runner), or your picture and name opening the account menu (Your profile, Friends, Developer, Settings, Sign out). On a developer page (the dashboard, the forum, `/developers`) the Developer and Forum tabs open out of the end of the tabs; leaving folds them away. Pages are separate loads, so the header remembers whether they were open (`sessionStorage` `zaisma-nav`) and opens or folds them from there. On a phone it's two rows: the logo, search and you on top, the tabs below.
+- **Header** (`header`): a floating slab of glass, inset from every edge, that slims as the page scrolls. The logo, the tabs (a framed Switch: Home, and Your games once its page is built), the page's own search when it has one, and you: Sign in (the runner), or your picture and name opening the account menu (Your profile, Friends, Developer, Settings, Sign out). On a developer page (the dashboard, the forum, `/developers`) the Developer and Forum tabs open out of the end of the tabs; leaving folds them away. Pages are separate loads, so the header remembers whether they were open (`sessionStorage` `zaisma-nav`) and opens or folds them from there. On sign-in's pages it has no end, since you're signing in already. On a phone it's two rows: the logo, search and you on top, the tabs below.
 - **Runner button** (`runButton`): the one orange slab, for the page's main action. Every other button is a Cut button, clear glass with cut ends.
 - **Switch** (`tabSwitch`): a carved well with a white slab and the orange line under the one you're on.
 - **Rail** (`rail`): Zaisma's own scrollbar, a slim glass thumb on a hairline, for a scrolling box, the page, or a row that scrolls sideways. On a phone the page's rail clears the screen's edge.

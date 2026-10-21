@@ -1369,17 +1369,17 @@ const CITY_STYLES = `
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
-/* A pane on the city: glass in front, never resting in the scene. On a wide screen it stands on the right, level with the logo, full height;
-   on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
+/* A pane on the city: glass in front, never resting in the scene. On a wide screen it stands on the right under the header, its edge in line
+   with the header's, down to the same inset from the bottom; on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
 .city-page { min-height: 100vh; }
-/* The city is there to play with: a press anywhere but on the pane, the logo or the rail goes through the page (and the body it
+/* The city is there to play with: a press anywhere but on the pane, the header or the rail goes through the page (and the body it
    lies behind) to it. */
 body:has(> .city-page), .city-page { pointer-events: none; }
 .city-page > *, .city-stage { pointer-events: auto; }
-/* The pane is the page: no room kept for a floating header, whose logo sits on the city. */
+/* The pane places itself under the header, so the page keeps no room for it. */
 body:has(> .city-page) { padding-top: 0; }
 html:has(.city-page) { height: 100%; }
-.city-page .city-pane { position: fixed; z-index: 1; top: var(--pad-inner-pane); bottom: var(--pad-inner-pane); right: max(var(--pad-inner-pane), calc((100% - 1240px) / 2)); width: min(440px, calc(100% - 2 * var(--pad-inner-pane))); display: flex; }
+.city-page .city-pane { position: fixed; z-index: 1; top: calc(var(--pad-pane) + 68px + var(--pad-inner-pane)); bottom: var(--pad-pane); right: max(var(--pad-pane), calc((100% - 1240px) / 2)); width: min(440px, calc(100% - 2 * var(--pad-pane))); display: flex; }
 .city-page .city-pane > .glass-pane { flex: 1; min-height: 0; }
 /* The other ways in: stacked, cut only at the stack's ends. */
 .city-pane .ways { display: grid; gap: var(--gap-control-stack); }
