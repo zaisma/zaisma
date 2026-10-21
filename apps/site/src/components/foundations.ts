@@ -772,8 +772,44 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       rects.set([(r.left - box.left) * scale, (box.bottom - r.bottom) * scale, (r.right - box.left) * scale, (box.bottom - r.top) * scale], i * 4);
       cuts.set([c[0] * scale, c[1] * scale, c[2] * scale, c[3] * scale + (pane.el.glassIsSmoked ? 4096 : 0)], i * 4);
     });
-    layer.glass = { rects: rects, cuts: cuts, count: found.length, scale: scale, box: box };
+    layer.glass = { rects: rects, cuts: cuts, count: found.length, scale: scale, box: box, els: found.map(function (pane) { return pane.el; }) };
     layer.isDrawn = false;
+  }
+  /*
+   * Glass that adapts to a page's own shader (data-adapts-glass): after the shader's first frame, the colors behind each pane are read,
+   * and the pane takes light glass (dark words) or smoked glass (light words), whichever can be thinner while every word keeps its
+   * contrast (4.5:1 for the quietest, 6:1 for the main ones) against the harsh side of what's behind (its darker quarter under light glass,
+   * its brighter quarter under smoked), tinted a little with what's behind. Read again when the canvas changes size or the theme turns.
+   */
+  function luminance(c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
+  function contrast(a, b) { var la = luminance(a), lb = luminance(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); }
+  function blend(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function thinnest(kind, colors) {
+    var sorted = colors.slice().sort(function (a, b) { return luminance(a) - luminance(b); });
+    var harsh = kind.isSmoked ? sorted[Math.floor(sorted.length * 0.75)] : sorted[Math.floor(sorted.length * 0.25)];
+    for (var share = 0.3; share <= 0.95; share += 0.02) {
+      var seen = blend(harsh, kind.base, share), ink = kind.isSmoked ? [247, 249, 252] : [20, 23, 28], quiet = kind.isSmoked ? blend(seen, ink, 0.7) : [89, 96, 106];
+      if (contrast(seen, quiet) >= 4.5 && contrast(seen, ink) >= 6) return share;
+    }
+    return 0.95;
+  }
+  function adaptGlass(gl, layer) {
+    var glass = layer.glass; if (!glass) return;
+    glass.els.forEach(function (el, i) {
+      var x = Math.max(0, Math.round(glass.rects[i * 4])), y = Math.max(0, Math.round(glass.rects[i * 4 + 1]));
+      var w = Math.min(gl.drawingBufferWidth - x, Math.round(glass.rects[i * 4 + 2]) - x), h = Math.min(gl.drawingBufferHeight - y, Math.round(glass.rects[i * 4 + 3]) - y);
+      if (w < 2 || h < 2) return;
+      var pixels = new Uint8Array(w * h * 4), colors = [], step = 4 * Math.max(1, Math.floor(w * h / 600));
+      gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
+      var sum = colors.reduce(function (s, c) { return [s[0] + c[0], s[1] + c[1], s[2] + c[2]]; }, [0, 0, 0]), average = sum.map(function (v) { return v / colors.length; });
+      var light = { isSmoked: false, base: blend([255, 255, 255], average, 0.1) }, smoked = { isSmoked: true, base: blend([12, 15, 20], average, 0.3) };
+      var lightShare = thinnest(light, colors), smokedShare = thinnest(smoked, colors), pick = lightShare <= smokedShare ? light : smoked;
+      // Its own kind of glass, whatever the page's theme: smoked, or fixed light.
+      el.classList.toggle("smoke", pick.isSmoked);
+      if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else el.setAttribute("data-theme-choice", "light");
+      el.style.setProperty("--glass-tint", "rgba(" + pick.base.map(Math.round).join(", ") + ", " + Math.min(lightShare, smokedShare).toFixed(2) + ")");
+    });
   }
   function shaderDrawer(canvas) {
     var gl = canvas.getContext("webgl", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
@@ -805,8 +841,11 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       gl.uniform3f(at.iResolution, canvas.width, canvas.height, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
       if (!hasPass) { gl.drawArrays(gl.TRIANGLES, 0, 3); return; }
       var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
-      gl.uniform4fv(at.zaismaPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
+      gl.uniform4fv(at.zaismaPanes, glass.rects);
+      var isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0; gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      // Read straight after the frame is drawn, while it's still in the buffer.
+      if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer); }
     };
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
@@ -829,7 +868,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   function frame(nowMs) {
     requestAnimationFrame(frame);
-    if (document.hidden || nowMs - lastMs < 33) return;
+    // At most 30 frames a second, but at once when the glass over it has moved (a scroll), so what's under a pane never trails it.
+    if (document.hidden || (nowMs - lastMs < 33 && !isPlaceStale)) return;
     var gapMs = nowMs - lastMs; lastMs = nowMs;
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
@@ -852,7 +892,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layers.forEach(function (layer) {
       var next = readColors(layer.canvas);
       if (JSON.stringify(next) === JSON.stringify(layer.target)) return;
-      layer.from = layer.colors; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false;
+      layer.from = layer.colors; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false; layer.isGlassAdapted = false;
       if (layer.isInView) draw(layer, nowMs);
     });
   }
@@ -867,7 +907,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.size = function () {
       var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
       if (width === canvas.width && height === canvas.height) return;
-      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
+      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null; layer.isGlassAdapted = false;
       if (canvas.backdropLayer) draw(layer, performance.now());
     };
     layer.size();
@@ -1005,8 +1045,8 @@ export function pageSettingsAttributes(settings: PageSettings): Raw {
 }
 
 /** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */
-const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; isSmoked?: boolean; cards: [string, string][] }) =>
-  html`<div class="backdrop-frame is-tall${options.isSmoked ? " smoke" : ""}"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
+const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; cards: [string, string][] }) =>
+  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, adaptsGlass: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
 
@@ -1061,7 +1101,7 @@ component({
     },
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
-    { label: "Over a busy shader, the words keep their contrast", isWide: true, markup: lightFrame({ shader: NEON_DRIFT_SHADER, isSmoked: true, cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
+    { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ shader: NEON_DRIFT_SHADER, cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
     {
       label: "Thin to thick",
       isWide: true,
@@ -1073,6 +1113,8 @@ component({
 export interface BackdropOptions {
   /** A page's own shader background: a mainImage function (shaders.ts). Left out, the page gets Zaisma's. */
   fragmentShader?: string;
+  /** The glass over it takes light or smoked glass, and a tint, from what the shader draws behind it (a game's or a page's own background). */
+  adaptsGlass?: boolean;
   /** The page draws its own 3D scene into the canvas on each backdrop-frame event, instead of a shader. */
   isScene?: boolean;
   /** Fills its own box (position: relative) instead of the window: for a backdrop shown inside something, like the gallery's examples. */
@@ -1081,7 +1123,7 @@ export interface BackdropOptions {
 
 /** What's behind the glass on a page: the first thing in the page's body or stage, under everything else. */
 export function backdrop(options: BackdropOptions = {}): Raw {
-  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""} aria-hidden="true"></canvas>`;
+  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.adaptsGlass ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
 const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
@@ -1111,7 +1153,7 @@ component({
 `,
   examples: [
     { label: "Zaisma's own: behind every page, pearl on light and graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
-    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER })) },
+    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, adaptsGlass: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
 });
@@ -1127,13 +1169,13 @@ component({
   background: var(--well); box-shadow: var(--well-shade); }
 `,
   examples: [
-    { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER }), "Dusk", "Four lines.") },
-    { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER }), "Clouds", "fbm, from the helpers.") },
+    { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER, adaptsGlass: true }), "Dusk", "Four lines.") },
+    { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, adaptsGlass: true }), "Clouds", "fbm, from the helpers.") },
     { label: "The dusk sky's whole source", markup: html`<pre class="shader-code">${DUSK_SHADER.trim()}</pre>`, isWide: true },
-    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER }), "Neon Drift", "Skyline, neon windows, rain.") },
-    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER }), "Frostline", "Aurora, stars, falling snow.") },
-    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER }), "Starward", "Nebula, twinkling stars, a planet.") },
-    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER }), "Emberfall", "Lava, a lit ridge, embers.") },
+    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER, adaptsGlass: true }), "Neon Drift", "Skyline, neon windows, rain.") },
+    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER, adaptsGlass: true }), "Frostline", "Aurora, stars, falling snow.") },
+    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER, adaptsGlass: true }), "Starward", "Nebula, twinkling stars, a planet.") },
+    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER, adaptsGlass: true }), "Emberfall", "Lava, a lit ridge, embers.") },
   ],
 });
 
