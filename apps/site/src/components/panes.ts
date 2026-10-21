@@ -15,14 +15,14 @@ const PANE_SIZES = { small: 320, medium: 480, large: 720 } as const;
 export interface GlassPaneOptions {
   paneSize: "small" | "medium" | "large" | "full";
   body: Raw;
-  /** Cut corners: top left, top right, bottom right, bottom left. Panes are 18 and 9. */
+  /** Cut corners: top left, top right, bottom right, bottom left. Panes are 24 and 20. */
   corners?: [number, number, number, number];
   label?: string;
 }
 
 /** A pane of Zaisma's glass: cut corners, a drawn rim, clear glass. Long content scrolls inside it, so nothing in it shrinks. */
 export function glassPane(options: GlassPaneOptions): Raw {
-  const corners = (options.corners ?? [18, 9, 18, 9]).join(" ");
+  const corners = (options.corners ?? [24, 20, 24, 20]).join(" ");
   const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
   return pane;
 }
@@ -43,7 +43,7 @@ export interface MenuOptions {
 
 /** A menu: a pane of the glass that hangs from any button (aria-controls its id), holding places like a sidebar's, the same ones. */
 export function menu(options: MenuOptions): Raw {
-  return html`<div class="menu glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="14 4 14 4">${EDGE}${options.head ? html`<div class="menu-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
+  return html`<div class="menu glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="menu-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
     "kind" in menuItem ? raw('<hr role="separator">') : placeMarkup(menuItem, { isMenuItem: true }),
   )}</div>`;
 }
@@ -292,7 +292,7 @@ component({
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
-const spacingPane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9">${body}</div>`;
+const spacingPane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
 component({
   name: "Spacing",
   slug: "spacing",
@@ -325,11 +325,11 @@ component({
     },
     {
       label: "Two blocks, here two labelled fields in a pane: 24px",
-      markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
+      markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
     },
     {
       label: "A pane's edge and what's in it, and the page's edge: 24px (18px on a phone)",
-      markup: spacingExample("--pad-pane", html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9" data-spacing-show="pad">${runButton("Sign in", { type: "button", isFullWidth: true })}</div>`),
+      markup: spacingExample("--pad-pane", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="pad">${runButton("Sign in", { type: "button", isFullWidth: true })}</div>`),
     },
     {
       label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",

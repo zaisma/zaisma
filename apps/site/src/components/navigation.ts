@@ -56,7 +56,7 @@ export function header(options: HeaderOptions): Raw {
         { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
-  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${logo}
   <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<div class="nav-row" data-fades-sideways><span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</div></nav>
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
@@ -76,7 +76,7 @@ const HEADER_STYLES = `
   width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
-  clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px));
+  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
 }
 .top.is-compact { height: 58px; top: 8px; }
@@ -503,7 +503,7 @@ component({
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,
   render: footer,
-  examples: [{ label: "On glass", isWide: true, markup: html`<div class="glass example-wide" data-glass data-glass-corners="18 9 18 9">${footer()}</div>` }],
+  examples: [{ label: "On glass", isWide: true, markup: html`<div class="glass example-wide" data-glass data-glass-corners="24 20 24 20">${footer()}</div>` }],
 });
 
 component({
@@ -563,7 +563,7 @@ component({
   examples: [
     {
       label: "In a box",
-      markup: html`<div class="glass rail-box" data-glass data-glass-corners="18 9 18 9"><div class="rail-box-in"><p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p></div>${rail("box")}</div>`,
+      markup: html`<div class="glass rail-box" data-glass data-glass-corners="24 20 24 20"><div class="rail-box-in"><p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p></div>${rail("box")}</div>`,
     },
   ],
 });
@@ -605,7 +605,7 @@ component({
     {
       label: "A row, at its start",
       isWide: true,
-      markup: html`<div class="glass example-wide" data-glass data-glass-corners="18 9 18 9"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section></div>`,
+      markup: html`<div class="glass example-wide" data-glass data-glass-corners="24 20 24 20"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section></div>`,
     },
   ],
 });
@@ -628,7 +628,7 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => html`<li>${placeMarkup(each, { isCollapsed: options.isCollapsed })}</li>`;
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul class="sidebar-list">${group.items.map(link)}</ul></div>`);
-  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
+  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="24 20 24 20"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
 }
 
 const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [

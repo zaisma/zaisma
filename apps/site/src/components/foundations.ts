@@ -140,9 +140,6 @@ export const TOKEN_STYLES = `
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
      boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
   --control-slant: 10px;
-  /* The least a 44px-tall control's corner is cut where it sits at a pane's corner (or on no pane), so its bevel always shows;
-     a shorter or taller one in proportion (a 36px tab frame, 8px). */
-  --control-bevel: 10px;
   --gap-control-row: 4px;
   --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
   --gap-control-stack: 8px;
@@ -320,7 +317,7 @@ export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
 /**
  * glass(el, corners) and cutLine(el), from the header draft, as window.zaismaGlass and window.zaismaCutLine.
  * On load, and for elements added later, they're applied to every [data-glass] (corners from data-glass-corners,
- * like "16 6 16 6") and every [data-cut-line] (a control: its slant, where it has one, in its value).
+ * like "20 14 20 14") and every [data-cut-line] (a control: its slant, where it has one, in its value).
  */
 export const GLASS_SCRIPT = `/* glass */(function () {
   var SVG = "http://www.w3.org/2000/svg";
@@ -438,11 +435,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    */
   // Half a pixel over the token, for gaps a layout rounds.
   var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
-  var BEVEL_PX = token("--control-bevel", 10), CORNER_REACH_PX = token("--pad-pane", 24) + 1, SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
+  var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbours side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
-  var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [18, 9, 18, 9];
+  var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   function glassCorners(pane) {
-    var cuts = (pane.getAttribute("data-glass-corners") || "16 6 16 6").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
+    var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
   function holderOf(el) { return el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line]"); }
@@ -451,21 +448,17 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
   function fitCuts(el, w, h) {
     var holder = holderOf(el);
-    var bevel = BEVEL_PX * Math.min(1.3, h / 44);
     if (!holder) {
       var stack = stacked(el);
-      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.max(bevel, Math.min(cut, Math.round(Math.min(w, h) * 0.3))); });
+      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.min(cut, Math.round(Math.min(w, h) * 0.25)); });
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
     var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom;
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
-    // A control at a pane's corner (no further from both its edges than a pane's padding) is cut at least --control-bevel there,
-    // even where the pane's own cut, moved in by the gap, would come to less. A control's own parts follow the control instead.
-    var isPart = holder.hasAttribute("data-cut-line");
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
-      var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]), fitted = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
-      return !isPart && gaps[0] <= CORNER_REACH_PX && gaps[1] <= CORNER_REACH_PX ? Math.max(bevel, fitted) : fitted;
+      var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
+      return Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's
@@ -591,7 +584,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (root.matches && root.matches("[data-cut-line]")) lines.push(root);
     slabs.forEach(function (el) {
       if (done.has(el)) return; done.add(el);
-      var corners = (el.getAttribute("data-glass-corners") || "18 9 18 9").split(/\\s+/).map(Number);
+      var corners = (el.getAttribute("data-glass-corners") || "24 20 24 20").split(/\\s+/).map(Number);
       glass(el, function () { return corners; });
     });
     // A control made of glass is drawn by glass, from the same edge rule.
@@ -762,7 +755,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  html`<div class="glass swatch-pane" data-glass data-glass-corners="18 9 18 9">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
+  html`<div class="glass swatch-pane" data-glass data-glass-corners="24 20 24 20">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
 
 component({
   name: "Colour",
@@ -891,7 +884,7 @@ component({
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
    What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */
 .glass-play { position: relative; width: 100%; height: 360px; overflow: hidden; touch-action: none; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
+  clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
 .glass-play > i { position: absolute; display: block; }
 .glass-play .sun { left: 8%; top: 40px; width: 150px; height: 150px; border-radius: 50%; background: #F7931A; animation: glass-drift-a 14s ease-in-out infinite alternate; }
 .glass-play .bar { left: 34%; top: 150px; width: 260px; height: 70px; background: #3B6FD0; transform: rotate(-14deg); animation: glass-drift-b 18s ease-in-out infinite alternate; }
@@ -920,12 +913,12 @@ component({
     {
       label: "Any size: drag it, pull its corner, or use the arrow keys (Shift to resize)",
       isWide: true,
-      markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="18 9 18 9" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
+      markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="24 20 24 20" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
     },
     {
       label: "Thin to thick",
       isWide: true,
-      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="18 9 18 9" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
+      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
     },
   ],
 });
@@ -954,7 +947,7 @@ void main() {
   gl_FragColor = vec4(mix(mix(u_base, u_a, ring * 0.7), u_c, band * 0.35), 1.0);
 }`;
 
-const backdropFrame = (layer: Raw) => html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="18 9 18 9"><strong>Glass</strong><span>Always over something.</span></div></div>`;
+const backdropFrame = (layer: Raw) => html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>Glass</strong><span>Always over something.</span></div></div>`;
 
 component({
   name: "Backdrop",
@@ -970,7 +963,7 @@ component({
 .backdrop.is-framed { position: absolute; }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
-  clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
+  clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
 .backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: 500 14px/1.4 var(--display); color: var(--ink-2); }
 .backdrop-frame .glass strong { font: 600 17px var(--display); color: var(--ink); }
 `,
