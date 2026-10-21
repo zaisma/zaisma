@@ -11,3 +11,5 @@ Rebuild it after changing `source/`, with the Web export templates for the edito
 godot --headless --path test/engines/godot/source --import
 godot --headless --path test/engines/godot/source --export-release Web ../build/index.html
 ```
+
+`debug-loader.js` is the loader (`index.js`) of the same project exported with Export With Debug ticked (`--export-debug Web`), kept on its own for the asset notes' `development_build` test (`test/node/performance-notes.test.ts`); its engine file isn't kept.

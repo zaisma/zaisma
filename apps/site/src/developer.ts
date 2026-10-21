@@ -75,6 +75,8 @@ import {
   versionById,
   type ScanReport,
   type UploadFile,
+  type PerformanceCheckRow,
+  type PerformanceReport,
   type Version,
   REPORT_REASONS,
   MAXIMUM_TESTER_LINK_COUNT,
@@ -920,6 +922,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       playingNowCounts(env),
       game.multiplayer_mode !== "none" ? listRooms(env.DB, game.id) : null,
     ]);
+    const performanceChecks = await performanceChecksFor(env, versions.map((version) => version.id));
     return answer({
       game: gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
@@ -928,7 +931,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       images: images.map((image) => imageJson(env, image)),
       backgrounds,
       shaders: shaders.map((shader) => shaderJson(env, shader)),
-      versions: versions.map((version) => versionJson(env, game, version)),
+      versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null)),
       testers: testers.map((link) => testerJson(env, link)),
     });
   }
@@ -1292,7 +1295,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await replaceWaitingVersions(env, game.id, versionId);
     await env.SCAN_QUEUE.send({ versionId });
     const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
-    return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
+    return [{ version: await versionAnswer(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
   }
 
   const versionFix = "get_game lists the game's versions with their IDs, newest first.";
@@ -1300,7 +1303,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   const version = id ? await versionById(env.DB, id) : null;
   if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: versionFix });
 
-  if (version && !isPublish && method === "GET") return [{ version: versionJson(env, game, version) }];
+  if (version && !isPublish && method === "GET") return [{ version: await versionAnswer(env, game, version) }];
 
   // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
   if (version && isPublish && method === "POST" && body.scheduled_publish_at !== undefined) {
@@ -1320,13 +1323,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
       version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
@@ -1353,7 +1356,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const nextSteps: NextStep[] = isHidden
       ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
       : [];
-    return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
 
   throw badMethod(method, new URL(request.url).pathname);
@@ -1863,7 +1866,7 @@ async function endPreviewLinks(env: Env, game: Game, id: string, caller: Caller)
   }
   await audit(env.DB, game.id, "preview-links-ended", version.id, caller.actor);
   await logCallerEvent(env, caller, "preview_links_ended", { gameId: game.id, versionId: version.id });
-  return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+  return [{ version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
 }
 
 /**
@@ -2120,7 +2123,36 @@ function testerJson(env: Env, link: TesterLink) {
   };
 }
 
-export function versionJson(env: Env, game: Game, version: Version) {
+/** The versions' Chrome runs, by version ID, in one query. */
+export async function performanceChecksFor(env: Env, versionIds: string[]): Promise<Map<string, PerformanceCheckRow>> {
+  if (!versionIds.length) return new Map();
+  const { results } = await env.DB.prepare("SELECT * FROM performance_checks WHERE version_id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(versionIds)).all<PerformanceCheckRow>();
+  return new Map(results.map((row) => [row.version_id, row]));
+}
+
+/** A version's answer with its Chrome run, for one version. */
+export async function versionAnswer(env: Env, game: Game, version: Version) {
+  return versionJson(env, game, version, (await performanceChecksFor(env, [version.id])).get(version.id) ?? null);
+}
+
+/** How a version started in Chrome: null for zip versions and versions from before it ran. */
+function performanceCheckJson(row: PerformanceCheckRow | null) {
+  if (!row) return null;
+  const report: Omit<PerformanceReport, "start_files"> | null = row.report ? JSON.parse(row.report) : null;
+  return {
+    check_status: row.check_status,
+    checked_at: iso(row.checked_at_ms),
+    browser_description: report?.browser_description ?? "Chrome on a computer with no graphics card",
+    loading_duration_sec: report?.loading_duration_sec ?? null,
+    start_download_size_bytes: report?.start_download_size_bytes ?? null,
+    start_file_count: report?.start_file_count ?? null,
+    start_memory_size_bytes: report?.start_memory_size_bytes ?? null,
+    longest_start_task_duration_ms: report?.longest_start_task_duration_ms ?? null,
+    notes: report?.notes ?? [],
+  };
+}
+
+export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
   const preview = previewLinkToken(version);
   return {
     id: version.id,
@@ -2138,6 +2170,7 @@ export function versionJson(env: Env, game: Game, version: Version) {
     review_reason: versionReviewReason(version),
     findings: findingsFor(version),
     replaced_by_version_id: version.replaced_by_version_id,
+    performance_check: performanceCheckJson(performanceCheck),
   };
 }
 

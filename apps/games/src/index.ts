@@ -1,6 +1,7 @@
 import {
   accessPassByKey,
   brotliKeyOf,
+  PERFORMANCE_CHECK_LIMITS,
   connectSources,
   contentTypeFor,
   fileKey,
@@ -13,6 +14,7 @@ import {
   ownServerUrlsOf,
   playsOnline,
   readGameAddress,
+  readVersionAddress,
   SAVE_LIMIT_BYTES,
   servableGame,
   testerLinkVersion,
@@ -21,6 +23,7 @@ import {
   type AddressKind,
   type Game,
   type Manifest,
+  type StartFile,
   type TesterLink,
   upgradeToHttps,
   withTransportSecurity,
@@ -28,6 +31,7 @@ import {
 import savesScript from "@zaisma/sdk/saves.js";
 import pictureScript from "@zaisma/sdk/picture.js";
 import relayScript from "@zaisma/sdk/relay.js";
+import warmScript from "@zaisma/sdk/warm.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 import sdkTypes from "@zaisma/sdk/zaisma.d.ts";
 import { serveBackground } from "./background.ts";
@@ -192,6 +196,41 @@ async function enterAccountsOnly(request: Request, url: URL, env: Env, target: T
   return null;
 }
 
+/** The game files a version's run in Chrome downloaded before its first frame, in request order; [] before it ran. */
+async function startFilesOf(env: Env, versionId: string): Promise<StartFile[]> {
+  const row = await env.DB.prepare("SELECT start_files FROM performance_checks WHERE version_id = ?").bind(versionId).first<{ start_files: string | null }>();
+  return row?.start_files ? (JSON.parse(row.start_files) as StartFile[]) : [];
+}
+
+/** A start file's address under the game, as its page asks for it. */
+const startFileUrl = (base: string, file: StartFile) => `${base}${encodeURI(file.path)}`;
+
+/**
+ * First files preloaded: the Link header for a version's page, naming the files its run in Chrome needed before
+ * the first frame that the page doesn't name itself (the browser finds those on its own), up to 20, so an
+ * engine's loader doesn't fetch them one after another. crossorigin exactly where the request was CORS, or the
+ * preload wouldn't match it and the file would download twice.
+ */
+export function preloadLinkHeader(page: string, base: string, startFiles: StartFile[]): string | null {
+  const named = new Set<string>();
+  for (const match of page.matchAll(/\b(?:src|href)\s*=\s*["']?([^"'\s>]+)/gi)) {
+    const reference = match[1]!.replace(/^\.\//, "").split(/[?#]/)[0]!;
+    try {
+      named.add(decodeURIComponent(reference));
+    } catch {
+      named.add(reference);
+    }
+  }
+  const links = startFiles
+    .filter((file) => !named.has(file.path.split("?")[0]!))
+    .slice(0, PERFORMANCE_CHECK_LIMITS.maximumPreloadFileCount)
+    .map((file) => `<${startFileUrl(base, file)}>; rel=preload; as=${file.destination}${file.is_cors_request ? "; crossorigin" : ""}`);
+  return links.length ? links.join(", ") : null;
+}
+
+/** The warm-up page: nothing to show, just its script, on the game's own address so it fills this game's cache. */
+const WARM_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><script src="warm.js?v=1"></script>`;
+
 /** The host names of a game's own servers, where its own relay may be. */
 const ownHostnames = (ownServerUrls: string[]): string[] => ownServerUrls.map((origin) => new URL(origin).hostname);
 
@@ -222,20 +261,8 @@ function ifNoneMatchTags(request: Request): string[] {
   return (request.headers.get("if-none-match") ?? "").split(",").map((tag) => tag.trim().replace(/^W\//, "")).filter(Boolean);
 }
 
-/**
- * Returning players skip file checks: a version's files also have an address of their own,
- * <base>_zaisma/versions/<version_id>/<path>, and its pages are served there, so the files they name by a
- * relative path never change at their address and the browser keeps them for good. Pages are still checked on
- * every load, so a takedown or a new version applies at once.
- */
-const VERSION_ADDRESS_PATTERN = /^_zaisma\/versions\/([^/]+)\/(.*)$/s;
+/** How long a player's browser keeps a file at its version's own address (readVersionAddress): for good. */
 const VERSION_FILE_CACHE_DURATION_SEC = 365 * 24 * 3600;
-
-/** The version and the path inside it, when a path is under a version's own address. */
-export function readVersionAddress(path: string): { versionId: string; path: string } | null {
-  const match = VERSION_ADDRESS_PATTERN.exec(path);
-  return match ? { versionId: match[1]!, path: match[2]! } : null;
-}
 
 /** How long the cache near players keeps a file: for good under its own key, an hour when it stands in for a copy not made yet. */
 const CACHED_FILE_DURATION_SEC = 30 * 24 * 3600;
@@ -423,6 +450,8 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
 
     const ownServerUrls = ownServerUrlsOf(game);
     const connectOrigins = connectSources(env.ROOMS_ORIGIN, ownServerUrls);
+    // Where this address's version lives: what its start files are preloaded and warmed up from, so they match the page's own requests.
+    const versionBase = `${target.base}_zaisma/versions/${version.id}/`;
 
     // The SDK, served from the game's own site so its sandbox allows it, set up for this game.
     if (filePath === "_zaisma/v1.js") {
@@ -469,12 +498,38 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       return new Response(request.method === "HEAD" ? null : RESTORE_PAGE, { headers });
     }
 
+    // Game files start before Play: the warm-up page, its script and the live version's start files, only on the
+    // game's public address. Tester, preview and accounts-only games need a cookie before Play, so they don't warm up.
+    if (filePath === "_zaisma/warm" || filePath === "_zaisma/warm.json" || filePath === "_zaisma/warm.js") {
+      if (address || isAccountsOnly) return page(404, "File not found", "This game is missing a file.", env);
+      if (filePath === "_zaisma/warm.js") {
+        const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
+        headers.set("Cache-Control", "public, max-age=300");
+        return new Response(request.method === "HEAD" ? null : warmScript, { headers });
+      }
+      if (filePath === "_zaisma/warm") {
+        const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
+        headers.set("Cache-Control", "no-cache");
+        return new Response(request.method === "HEAD" ? null : WARM_PAGE, { headers });
+      }
+      const urls: string[] = [];
+      let warmSizeBytes = 0;
+      for (const file of await startFilesOf(env, version.id)) {
+        warmSizeBytes += file.downloaded_size_bytes;
+        if (warmSizeBytes > PERFORMANCE_CHECK_LIMITS.maximumWarmUpSizeBytes) break;
+        urls.push(startFileUrl(versionBase, file));
+      }
+      const headers = gameHeaders("application/json", env.SITE_ORIGIN, connectOrigins);
+      headers.set("Cache-Control", "no-cache");
+      return new Response(request.method === "HEAD" ? null : JSON.stringify(urls), { headers });
+    }
+
     const path = filePath === "" || filePath.endsWith("/") ? `${filePath}index.html` : filePath;
     // A game's own game server runs in our rooms' sandbox; players never get its code.
     if (isServerPath(path)) return page(404, "File not found", "This game is missing a file.", env);
     const isHtml = path.endsWith(".html");
     // A page at the game's own address opens at its version's address, so what it loads is kept for good.
-    if (isHtml && !pinned) return new Response(null, { status: 302, headers: { Location: `${target.base}_zaisma/versions/${version.id}/${sentPath}${url.search}`, "Cache-Control": "no-store" } });
+    if (isHtml && !pinned) return new Response(null, { status: 302, headers: { Location: `${versionBase}${sentPath}${url.search}`, "Cache-Control": "no-store" } });
     const isInjected = isHtml;
     const fileCacheControl = pinned ? `public, max-age=${VERSION_FILE_CACHE_DURATION_SEC}, immutable` : "no-cache";
     const manifest = servedVersion.kind === "files" ? await manifestFor(env, servedVersion.id) : null;
@@ -499,10 +554,15 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
 
     if (isInjected && "body" in object && object.body) {
       headers.delete("Accept-Ranges");
-      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION_NUMBER}${cloudSavesEnabled ? "s" : ""}"`);
+      // The version's own page preloads what its run in Chrome needed first; one cached before the run finished is fetched again.
+      const startFiles = path === "index.html" ? await startFilesOf(env, servedVersion.id) : [];
+      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION_NUMBER}${cloudSavesEnabled ? "s" : ""}${startFiles.length ? "p" : ""}"`);
       if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
       const scripts = [`${target.base}_zaisma/relay.js?v=${SCRIPTS_VERSION_NUMBER}`, ...(cloudSavesEnabled ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION_NUMBER}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION_NUMBER}`];
-      const page = withScripts(await object.text(), scripts);
+      const text = await object.text();
+      const preloads = preloadLinkHeader(text, `${target.base}_zaisma/versions/${servedVersion.id}/`, startFiles);
+      if (preloads) headers.set("Link", preloads);
+      const page = withScripts(text, scripts);
       return new Response(request.method === "HEAD" ? null : page, { headers });
     }
 

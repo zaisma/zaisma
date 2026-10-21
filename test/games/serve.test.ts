@@ -22,7 +22,7 @@ async function addGame(slug: string, status: string, withVersion = true) {
 
 describe("game server", () => {
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM performance_checks; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
   afterAll(async () => {
     await env.DB.exec("DELETE FROM tester_links;");
@@ -481,6 +481,49 @@ describe("game server", () => {
       expect(file.headers.get("cache-control")).toBe(IMMUTABLE);
       expect((await SELF.fetch(`${G}/zipped/sfx/beep.mp3`)).headers.get("cache-control")).toBe("public, max-age=60");
     });
+  });
+
+  it("preloads the files its run in Chrome needed first, besides the ones the page names, up to 20", async () => {
+    await addGame("live-one", "live");
+    await env.GAMES.put("games/gliveone/vgliveone/index.html", '<!doctype html><script src="Build/loader.js"></script><p>game</p>');
+    const before = await SELF.fetch(`${G}/live-one/`);
+    expect(before.headers.get("link")).toBeNull();
+    const startFiles = [
+      { path: "Build/loader.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 30_000 },
+      { path: "Build/framework.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 600_000 },
+      { path: "Build/game data.data", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 9_000_000 },
+      ...Array.from({ length: 25 }, (_, i) => ({ path: `chunks/${i}.js`, destination: "script", is_cors_request: true, downloaded_size_bytes: 1000 })),
+    ];
+    await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vgliveone', 'owner', 'checked', ?, 0)").bind(JSON.stringify(startFiles)).run();
+    const after = await SELF.fetch(`${G}/live-one/`);
+    const links = after.headers.get("link")!.split(", ");
+    // The loader the page names itself is found by the browser on its own.
+    expect(links.slice(0, 2)).toEqual(["</live-one/_zaisma/versions/vgliveone/Build/framework.js>; rel=preload; as=script", "</live-one/_zaisma/versions/vgliveone/Build/game%20data.data>; rel=preload; as=fetch; crossorigin"]);
+    expect(links).toHaveLength(20);
+    expect(links[2]).toBe("</live-one/_zaisma/versions/vgliveone/chunks/0.js>; rel=preload; as=script; crossorigin");
+    // A page cached before the run gets fetched again.
+    expect(after.headers.get("etag")).not.toBe(before.headers.get("etag"));
+    expect((await SELF.fetch(`${G}/live-one/_zaisma/versions/vgliveone/`, { headers: { "if-none-match": after.headers.get("etag")! } })).status).toBe(304);
+  });
+
+  it("warms up the live version's first files, up to 100 MB, only on the game's public address", async () => {
+    const id = await addGame("live-one", "live");
+    const startFiles = [
+      { path: "Build/framework.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 600_000 },
+      { path: "Build/game.data", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 90 * 1024 * 1024 },
+      { path: "Build/game.wasm", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 20 * 1024 * 1024 },
+    ];
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual([]);
+    await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vgliveone', 'owner', 'checked', ?, 0)").bind(JSON.stringify(startFiles)).run();
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual(["/live-one/_zaisma/versions/vgliveone/Build/framework.js", "/live-one/_zaisma/versions/vgliveone/Build/game.data"]);
+    const page = await SELF.fetch(`${G}/live-one/_zaisma/warm`);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain('src="warm.js?v=1"');
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.js`)).text()).toContain('fetch("warm.json"');
+    // Tester and preview addresses, and accounts-only games, need a cookie before Play: no warm-up.
+    expect((await SELF.fetch(`${G}/live-one--tester/_zaisma/warm.json`)).status).toBe(404);
+    await env.DB.prepare("UPDATE games SET account_requirement = 'whole_game' WHERE id = ?").bind(id).run();
+    expect((await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).status).toBe(404);
   });
 
   it("only allows reading", async () => {

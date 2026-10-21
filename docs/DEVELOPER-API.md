@@ -950,7 +950,7 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | `POST /games/:slug/uploads` | Send the file list, `{"files": [{"path", "sha256", "size_bytes"}]}`. Answers `file_count`, `size_bytes` and the hashes you haven't sent yet (`missing_file_hashes`). |
 | `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. Answers `storage_status`: `stored_now`, or `already_stored` when you sent it before. |
 | `POST /games/:slug/versions` | Make the version from the same list, plus `patch_notes` (up to 2,000 characters) and optionally `"publish_when_approved": true`, which needs `version_access` `publish` (an upload key gets `key_not_allowed`). |
-| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), and `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`. |
+| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`, and `performance_check`: how it started in Chrome (see How it started in Chrome, below). |
 | `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"scheduled_publish_at": "2026-11-01T17:00:00Z"}` (an ISO time; numbers are refused) it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/preview-links` | Turn off every preview link handed out so far for this version, and every browser that opened one. The next `preview_url` works again. Answers with the `version`. |
@@ -964,13 +964,43 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 - Drafts nobody publishes are deleted after 30 days, and files no version uses after a day. Held and rejected versions are kept.
 - Publishing doesn't change visibility: a draft game stays hidden until you set it to `listed` or `unlisted`.
 
+### How it started in Chrome
+
+A minute after a version passes the scan, Zaisma has opened it in headless Chrome through its own preview link and says how it started, and what would make it much smaller, as the version's `performance_check` (in `get_version`, `get_game`, the upload command and the dashboard). They're notes: they never hold a version, and there's no score. Chrome there runs on a computer with no graphics card, so loading, memory and errors are like a player's, and frame rate isn't measured.
+
+| Field | What it holds |
+| --- | --- |
+| `check_status` | `waiting` (it passed and waits for Chrome, usually under a minute), `checking`, `checked`, `over_daily_limit` (not measured: your 20 runs today are used; versions are measured again from midnight UTC) or `could_not_run` (Chrome couldn't run it on Zaisma's side; nothing for you to fix). |
+| `checked_at` | When the run finished, or `null`. |
+| `browser_description` | Where it ran, like `Chrome 141 on a computer with no graphics card`. |
+| `loading_duration_sec` | Seconds from opening the game until it drew its first frame (the first draw on a canvas the page shows: WebGL, WebGL 2, 2D or WebGPU); `null` when nothing was drawn. A game that hasn't drawn after 10 seconds, with nothing downloading, gets one click, since many wait for one. |
+| `start_download_size_bytes`, `start_file_count` | What was downloaded before the first frame, as sent (compressed), and how many files. |
+| `start_memory_size_bytes` | JavaScript and WebAssembly memory 5 seconds after the first frame; graphics memory isn't counted. |
+| `longest_start_task_duration_ms` | The longest the page froze in one go while starting. |
+| `notes` | Each `{ code, message, path, saved_size_bytes, fix }`: `saved_size_bytes` is about how much smaller the download gets with the fix, `null` when it isn't about size or can't be told. Run notes first, then asset notes; `[]` when there's nothing to say. |
+
+`performance_check` is `null` for versions from before it ran. Every version is measured, free, up to 20 runs a day per developer; past that a version just isn't, and nothing waits. There's no call to run it again: the next upload is measured.
+
+| Code | Meaning |
+| --- | --- |
+| `error_at_start` | The game threw an error while starting (up to 5, with the file and line). |
+| `missing_file_at_start` | The game asked for a file that isn't in the version while starting. |
+| `blocked_at_start` | An address the game loaded or connected to was blocked while starting. |
+| `no_frame_drawn` | Nothing was drawn in 120 seconds, even after a click. A game that waits for something only a player does is fine. |
+| `big_download_at_start` | Players download 200 MB or more before the first frame. |
+| `long_freeze_at_start` | The page froze for 2 seconds or more in one go while starting. |
+| `images_could_be_ktx2` | A WebGL or WebGPU game's PNG, JPEG and WebP textures of 1 MB or more, 16 MB or more in all, would be about 8 MB or more smaller as KTX2 (Basis Universal ETC1S, about 2 bits a pixel with mipmaps), and take about a quarter of the graphics memory. |
+| `audio_could_be_opus` | 8 MB or more of WAV and AIFF audio, which would be much smaller compressed (estimated as Ogg Opus at 96 kbps). |
+| `models_could_be_smaller` | 8 MB or more of glTF models with no mesh compression (meshopt or Draco). |
+| `development_build` | An engine's development or debug build, bigger and slower for players: Godot exported with Export With Debug. |
+
 ### Checking a game
 
 Before uploading, the check says everything in a game that Zaisma would refuse, or that won't work inside Zaisma's game frame, each with how to fix it. It's the same check everywhere (`packages/cli/check.mjs`): `zaisma check <folder>` on a folder, with no key and nothing sent; the MCP's `check_game` with the same files as `upload_files`; and this call. `zaisma upload` runs it first.
 
 | Call | What it does |
 | --- | --- |
-| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200) and `omitted_problem_count`. Any key, read included; it changes nothing. |
+| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200), `omitted_problem_count` and `performance_notes`. Any key, read included; it changes nothing. |
 
 Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path, quote, fix }`: `problem_kind` is `refused` (Zaisma refuses the upload as it is) or `broken` (it uploads, but that part won't work on Zaisma); `is_fixed_by_upload_command` says `zaisma upload` fixes it itself, in what it sends (`upload_files` and the API send files as they are); `quote` is the text it's about, up to 120 characters, to search the file for. The file-list codes are the API's own error codes.
 
@@ -996,6 +1026,8 @@ Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path
 | `outside_frame` | broken | no | A frame of another site, which games can't show. |
 | `blocked_feature` | broken | no | Camera, microphone, screen capture, location, payments, USB, serial, Bluetooth or HID, which games on Zaisma can't use. |
 
+`performance_notes` are the asset notes of How it started in Chrome (`images_could_be_ktx2`, `audio_could_be_opus`, `models_could_be_smaller`, `development_build`), each `{ code, message, path, saved_size_bytes, fix }`. They never stop an upload, and `zaisma check` prints them under "Could be smaller" without changing its exit code. Image sizes, sound lengths and models are read from the files' first bytes, so the API, which gets only sizes for them, gives only `development_build`; `zaisma check` gives them all.
+
 - **Threaded engine builds** (Godot with Thread Support, Unity with Native C/C++ Multithreading, Rust built with `atomics`) need cross-origin isolation, which game pages don't have, so they don't start: export without threads, the default in Godot 4.3 and newer and in Unity.
 - **Outside addresses** found while the code runs can be a file or the game's own server, so the check doesn't guess: a server goes in `own_server_urls` (`zaisma own-servers`, or `update_game`), a file in the game. The check never adds a server by itself.
 - What a game's code is checked for skips engine and library output (Unity's `.framework.js` and `.loader.js`, a `.js` beside a `.wasm` of the same name or its `_bg.wasm` (wasm-bindgen and Trunk), macroquad's `mq_js_bundle.js`, `*.min.js`), which mentions dialogs or cameras without the game using them, and comments, which say what code could do rather than what it does. A dialog shown only when the game fails to load, like the one in Unity's page template, isn't a problem: the game itself works.
@@ -1012,6 +1044,8 @@ Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
 Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.
 
 Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Your game's pages open at their version's own address, `/_zaisma/versions/<version_id>/`, so the files they load by a relative path are kept by the player's browser for good and a returning player's game starts without asking about them; a file named by its full path (`/Build/game.data`) still works and is checked on each visit. Read the room code and other settings from the query (`location.search`), which is kept, not from the path. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+
+The files a version needed before its first frame in its run in Chrome are preloaded with its page (up to 20, besides the ones the page names itself), so an engine's loader doesn't fetch them one after another. And on its zaisma.com page they start downloading before Play, up to 100 MB, on computers and on Android phones and tablets on Wi-Fi; never on other phones and tablets, with Data Saver, or for tester links and accounts-only games.
 
 ## The upload command
 
