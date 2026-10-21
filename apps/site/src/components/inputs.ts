@@ -100,8 +100,9 @@ export interface DateTimeFieldOptions {
 }
 
 /**
- * A date and time field, for scheduling (a version going live later): the birthday field's look, opening four wheels under the lit band, the
- * day ("Today", "Tomorrow", "Fri, Oct 23"), the hour, the minute in fives, and AM or PM, all in the viewer's own time zone, said under it.
+ * A date and time field, for scheduling (a version going live later): the birthday field's look, opening three wheels under the lit band, the
+ * day ("Today", "Tomorrow", "Fri, Oct 23"), the hour with its AM or PM ("3 PM": every hour of the day on one wheel, so none hides), and
+ * the minute in fives, all in the viewer's own time zone, said under it.
  * It submits ISO 8601 with the viewer's offset (DATE_TIME_SCRIPT fills it in).
  */
 export function dateTimeField(options: DateTimeFieldOptions): Raw {
@@ -113,7 +114,7 @@ export function dateTimeField(options: DateTimeFieldOptions): Raw {
 <button type="button" class="bday-field cut-carved" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-zone">${CUT_LINE}${icon("clock")}<span class="bday-value">Choose a time</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 <p class="date-time-zone" id="${id}-zone"></p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels date-time-wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span>${wheel("day", "Day")}${wheel("hour", "Hour")}${wheel("minute", "Minute")}${wheel("half", "AM or PM")}</div>
+<div class="wheels date-time-wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span>${wheel("day", "Day")}${wheel("hour", "Hour")}${wheel("minute", "Minute")}</div>
 <span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.pickedAt ?? ""}" data-id="${id}">
@@ -282,14 +283,15 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
 `;
 
 /**
- * The date and time picker: four wheels in the viewer's time zone, the day a year ahead from the earliest it takes. It starts on the time
+ * The date and time picker: three wheels in the viewer's time zone, the day a year ahead from the earliest it takes. It starts on the time
  * given, or, when nothing is, the next whole hour once it opens. A pick earlier than the earliest moves up to it. Scroll, tap, or use the
  * keys (arrows, Page Up and Down, Home and End). It writes ISO 8601 with the viewer's offset into the hidden input.
  */
 export const DATE_TIME_SCRIPT = `/* date and time */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var ROW = 40, DAY_MS = 86400000, FIVE_MS = 300000;
-  var HOURS = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"], MINUTES = [], HALVES = ["AM", "PM"];
+  var HOURS = [], MINUTES = [];
+  for (var h = 0; h < 24; h++) HOURS.push((h % 12 || 12) + (h < 12 ? " AM" : " PM"));
   for (var m = 0; m < 60; m += 5) MINUTES.push(String(m).padStart(2, "0"));
   function two(n) { return String(n).padStart(2, "0"); }
   function startOfDay(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
@@ -314,21 +316,21 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
       var gap = Math.round((day.getTime() - today) / DAY_MS);
       if (gap === 0) return "Today";
       if (gap === 1) return "Tomorrow";
-      return day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { weekday: "short", month: "short", day: "numeric" } : { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      // Next year's days say their year instead of their weekday, so they fit the wheel.
+      return day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { weekday: "short", month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
     }
-    var picked = { day: 0, hour: 0, minute: 0, half: 0 }, isSet = false;
-    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.hour + at.half * 12, at.minute * 5); }
+    var picked = { day: 0, hour: 0, minute: 0 }, isSet = false;
+    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.hour, at.minute * 5); }
     function pickedOf(date) {
       var dayIndex = Math.max(0, Math.min(days.length - 1, Math.round((startOfDay(date).getTime() - firstDay.getTime()) / DAY_MS)));
-      return { day: dayIndex, hour: date.getHours() % 12, minute: Math.floor(date.getMinutes() / 5), half: date.getHours() >= 12 ? 1 : 0 };
+      return { day: dayIndex, hour: date.getHours(), minute: Math.floor(date.getMinutes() / 5) };
     }
     var given = hidden.value ? new Date(hidden.value) : null;
     if (given && !isNaN(given)) { picked = pickedOf(given < minimum ? minimum : given); isSet = true; }
     var wheels = {
       day: { el: root.querySelector('[data-part="day"]'), items: days.map(dayWords) },
       hour: { el: root.querySelector('[data-part="hour"]'), items: HOURS },
-      minute: { el: root.querySelector('[data-part="minute"]'), items: MINUTES },
-      half: { el: root.querySelector('[data-part="half"]'), items: HALVES }
+      minute: { el: root.querySelector('[data-part="minute"]'), items: MINUTES }
     };
     function mark(part) {
       var w = wheels[part], at = picked[part];
@@ -364,7 +366,10 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
       zone.textContent = "Your time" + (zoneName(at) ? ": " + zoneName(at) : "");
       if (!isSet) { shown.textContent = "Choose a time"; field.classList.remove("set"); hidden.value = ""; read.textContent = ""; return; }
       var timeWords = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      shown.textContent = dayWords(days[picked.day]) + ", " + timeWords; field.classList.add("set");
+      // The field says it short (Today, 10/23, or 1/15/2027 in another year), so it fits a phone; the wheels and the screen reader say it whole.
+      var day = days[picked.day], gap = Math.round((day.getTime() - today) / DAY_MS);
+      var shortDay = gap === 0 ? "Today" : gap === 1 ? "Tomorrow" : (day.getMonth() + 1) + "/" + day.getDate() + (day.getFullYear() === thisYear ? "" : "/" + day.getFullYear());
+      shown.textContent = shortDay + ", " + timeWords; field.classList.add("set");
       read.textContent = at.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords;
       hidden.value = iso(at);
     }
@@ -655,13 +660,16 @@ component({
   name: "Date and time field",
   slug: "date-time-field",
   group: "inputs",
-  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, hour, minute and AM or PM, in your own time zone, which it says.",
+  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, the hour (with its AM or PM) and the minute, in your own time zone, which it says.",
   styles: `
-/* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Wed, Oct 23" needs. */
+/* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Jan 15, 2027" needs,
+   the hour "12 PM". */
 .date-time-zone { margin: 0; font: var(--type-facts); color: var(--muted); }
 .date-time-zone:empty { display: none; }
-.date-time-wheels { grid-template-columns: 2.3fr 0.8fr 0.8fr 0.9fr; }
+.date-time-wheels { grid-template-columns: 2.5fr 1.1fr 0.7fr; }
+/* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */
 .date-time-wheels [role="option"] { white-space: nowrap; }
+.date-time-wheels [role="option"][aria-selected="true"] { font-size: 16px; }
 `,
   render: dateTimeField,
   examples: [
@@ -1454,7 +1462,7 @@ component({
 /* A file drop: a carved field the size of a pane, its outline dashed. Pointing at it clears it a little; a file held over it whitens it and
    turns the dashes orange, and keyboard focus draws the outline whole, in orange. The file input lies across all of it, unseen. */
 .file-drop-wrap { display: grid; gap: var(--gap-words-control); }
-.file-drop { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
+.file-drop { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
   padding: var(--pad-pane); text-align: center; color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .file-drop:hover { --face-color: var(--field-hover); }
@@ -1529,12 +1537,12 @@ component({
   group: "inputs",
   summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.",
   styles: `
-/* A code field: the cut field holding code in code's letters, all of it, wrapping onto more lines rather than hiding any. Copy is the small
-   cut button at its end; once it's copied, "Copied" shows beside it for a moment. */
+/* A code field: code set into the glass, a carved well like a switch's (nothing to type, so it isn't a field's lighter face), all of it in
+   code's letters, wrapping onto more lines rather than hiding any. Copy is the small raised cut button at its end, standing out from the well; once it's copied, "Copied" shows beside it for a moment. */
 .code-label { font: var(--type-label); color: var(--ink-2); }
 .field.code { height: auto; min-height: 52px; align-items: stretch; }
 .code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 15px 104px 15px 16px; font: 500 15px/1.45 ui-monospace, Menlo, monospace; color: var(--ink);
-  overflow-wrap: anywhere; cursor: text; --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); }
+  overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .code-text:focus-visible { outline: none; }
 .field.code:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .code-copied { position: absolute; z-index: 5; right: 56px; top: 17px; font: var(--type-facts); color: var(--ink-2); opacity: 0; transition: opacity 0.2s; pointer-events: none; }

@@ -379,14 +379,17 @@ describe("components", () => {
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
     const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
-    expect(markup).toContain('<caption>Versions</caption>');
-    expect(markup).toContain('<th scope="col">Version</th><th scope="col" class="num">Files</th>');
+    expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
+    expect(markup).toContain('aria-labelledby="table-versions-caption"');
+    expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
+    // A first column that names the rows is each row's head.
+    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
     const markup = data.chart({ label: "Plays a day", points: [{ label: "Oct 20", amountNumber: 1205 }, { label: "Oct 21", amountNumber: 1712.5 }], unit: "plays" }).html;
-    expect(markup).toContain('<div class="chart-plot" aria-hidden="true">');
+    expect(markup).toContain('<div class="chart-body" aria-hidden="true">');
     expect(markup).toContain('<div class="sr"><table><caption>Plays a day</caption>');
     expect(markup).toContain('<tr><th scope="row">Oct 20</th><td>1,205 plays</td></tr><tr><th scope="row">Oct 21</th><td>1,712.5 plays</td></tr>');
   });
@@ -475,6 +478,7 @@ const OWN_SVG = new Map<string, string>([
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
+  ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
@@ -515,8 +519,8 @@ const NOT_TYPE = new Set<string>([
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
-  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size", ".me | font",
+  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
   ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
@@ -526,9 +530,11 @@ const NOT_TYPE = new Set<string>([
 
 const NOT_SPACING = new Set<string>([
   // A table's cells: room round a cell's words, set by the table's size.
-  ".data-table th | padding", ".data-table td | padding", ".data-table.compact th | padding", ".data-table.compact td | padding",
+  ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
-  ".chart-last | margin", ".usage-track | padding",
+  ".chart-last | margin", ".chart-dot | margin", ".usage-track | padding",
+  // A chart's number where you point: a small label's own room round its words.
+  ".chart-tip | padding",
   // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
@@ -538,7 +544,7 @@ const NOT_SPACING = new Set<string>([
   ".field.with-toggle input | padding-right", '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
   ".tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-start",
-  ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left", ".me | gap",
+  ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
   ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",

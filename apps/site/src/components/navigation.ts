@@ -71,7 +71,7 @@ export function header(options: HeaderOptions): Raw {
 
 export interface AccountButtonOptions {
   username: string;
-  /** Your picture: a Picture frame (data.ts), online. */
+  /** Your picture: a Picture frame (data.ts), cut (isCut) so it fits the header's corner, and online. */
   pictureMarkup: Raw;
   /** The id of the account menu it opens. */
   menuId: string;
@@ -79,9 +79,12 @@ export interface AccountButtonOptions {
   state?: "is-focused";
 }
 
-/** You, signed in: your picture in its frame with your name and an arrow; it opens the account menu, a pane of the same glass. */
+/**
+ * You, signed in: your picture in its frame is the button itself, with no name or arrow beside it (a picture at a header's end reads as you,
+ * and as something to press). It opens the account menu, a pane of the same glass, which names you.
+ */
 export function accountButton(options: AccountButtonOptions): Raw {
-  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}<span class="name">${options.username}</span>${icon("chevron-down")}</button>`;
+  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}</button>`;
 }
 
 const HEADER_STYLES = `
@@ -97,13 +100,13 @@ const HEADER_STYLES = `
 }
 .top.is-compact { height: 58px; top: 8px; }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .find, .top .find input, .top .run, .top .me { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
+.top .find, .top .find input, .top .run { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
 /* Your picture is glass, so its changes start with the glass's. */
 .top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
 .top.is-compact .nav { --switch-height: 38px; }
-.top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
+.top.is-compact .find, .top.is-compact .run { height: 38px; }
 .top.is-compact .run { font-size: 15px; }
-.top.is-compact .me .frame { --frame: 32px; }
+.top.is-compact .me { --frame: 38px; }
 
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
 .top > .logo { margin-right: var(--gap-block-block); }
@@ -138,8 +141,7 @@ const HEADER_STYLES = `
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  /* The grid's free column spaces it from search, so it keeps no gap of its own after it. */
-  .top > .logo { margin-left: 6px; margin-right: 0; }
+  .top > .logo { margin-left: 6px; }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
   .top.searching .find { display: block; }
@@ -149,7 +151,11 @@ const HEADER_STYLES = `
   .top .nav { order: 4; flex-basis: 100%; --switch-height: 42px; }
   /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
   .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
-  .top .me .name { display: none; }
+  /* The picture is as tall as the search button beside it, at rest or compact. */
+  .top .me, .top.is-compact .me { --frame: 36px; }
+  /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
+  .top > .find + .cut-btn:has(~ .end > .run-wrap) { margin-right: var(--gap-control-row-boxes); }
+  .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 
 /* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
@@ -427,7 +433,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
-const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online" }) };
+const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
 
 component({
@@ -451,13 +457,19 @@ component({
   name: "Account button",
   slug: "account-button",
   group: "navigation",
-  summary: "You, at the header's end once you're signed in: your picture, online, with your name. It opens the account menu.",
+  summary: "You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
-/* Your picture in a cut frame, with your name and an arrow that turns as the menu opens. */
-.me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
-.me:focus-visible, .me.is-focused { outline: 2px solid var(--focus); outline-offset: 2px; }
-.me > .ico { width: 12px; height: 8px; stroke-width: 2.4; transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
-.me[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+/* Your picture in its frame, as tall as the controls beside it and cut by the edge rule like them (Picture frame's isCut), so it fits the
+   header's corner. Pointing brightens it, pressing sinks it a little, and with the menu open or by keyboard its rim turns orange. Online,
+   its green line runs inside the frame's foot, so nothing sits outside the button to crowd the header's edge or what's below it. */
+.me { --frame: 44px; position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.me .frame { --frame: inherit; transition: var(--glass-transition), width 0.45s cubic-bezier(.2,.8,.2,1), height 0.45s cubic-bezier(.2,.8,.2,1), scale 0.15s; }
+.me .frame-picture { transition: filter 0.2s; }
+.me:hover .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
+.me:active .frame { scale: 0.95; }
+.me:focus-visible { outline: none; }
+.me:focus-visible .frame > .edge, .me.is-focused .frame > .edge, .me[aria-expanded="true"] .frame > .edge { opacity: 1; }
+.me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: 2; }
 `,
   render: accountButton,
   examples: [

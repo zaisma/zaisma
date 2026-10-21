@@ -294,6 +294,9 @@ component({
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
+/* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
+.cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
+.cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
 .cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }

@@ -14,11 +14,17 @@ export type PictureSize = "xs" | "sm" | "md";
  * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Pictures are the
  * one thing never cut or slanted: always square, alone or in a row, wherever they sit.
  */
-export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing" } = {}): Raw {
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing"; isCut?: boolean } = {}): Raw {
+  const presenceMarks = (presence: "online" | "playing") => html`<span class="presence-line" aria-hidden="true"></span>${presence === "playing" ? html`<span class="presence-play" aria-hidden="true">${icon("play")}</span>` : ""}`;
+  // Cut: where it stands as a control in a pane's corner (your picture at the header's end), it's cut by the edge rule like one, and its
+  // presence marks sit inside it, along its foot, so the cut trims them and nothing hangs outside it.
+  if (options.isCut) {
+    return html`<span class="frame ${pictureSize} glass is-cut" data-glass data-cut-line="10" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${accountPicture(username, pictureSize, { title: "" })}</span>${options.presence ? presenceMarks(options.presence) : ""}</span>`;
+  }
   const frame = html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${accountPicture(username, pictureSize, { title: "" })}</span></span>`;
   // The glass is clipped to its edge, so the presence marks sit outside it: a green line along its foot, and for playing a green tab with a play mark at the line's end.
   return options.presence
-    ? html`<span class="frame-presence ${pictureSize}">${frame}<span class="presence-line" aria-hidden="true"></span>${options.presence === "playing" ? html`<span class="presence-play" aria-hidden="true">${icon("play")}</span>` : ""}</span>`
+    ? html`<span class="frame-presence ${pictureSize}">${frame}${presenceMarks(options.presence)}</span>`
     : frame;
 }
 
@@ -94,6 +100,9 @@ component({
 .presence-play > .play { width: 6px; height: 7px; transform: translateX(0.5px); }
 .frame-presence.xs > .presence-play { right: -4px; width: 14px; height: 10px; bottom: calc(-1 * (var(--presence-gap) + 6px)); }
 .frame-presence.xs > .presence-play > .play { width: 5px; height: 6px; }
+/* A cut frame (your picture at the header's end) holds its presence inside, along its foot, under its rim. */
+.frame.is-cut > .presence-line { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 3px; clip-path: none; }
+.frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 50%; right: auto; bottom: 0; transform: translateX(-50%); }
 /* The smallest shows only the first letter. */
 .frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
@@ -336,31 +345,41 @@ export interface TableColumn {
 }
 
 export interface TableOptions {
-  /** What the table is, said above it and to screen readers. */
+  /** What the table is, said above it (it stays put as the table scrolls sideways) and to screen readers. */
   caption: string;
   columns: TableColumn[];
   /** One list of cells a row, in the columns' order. */
   rows: (Raw | string)[][];
+  /** The first column names each row (a version, a player): it's the row's head, and stays put as the table scrolls sideways. */
+  hasRowHeads?: boolean;
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
+  /** Unique on the page. Defaults to a slug of its caption. */
+  id?: string;
 }
 
 /**
- * A table on glass: a header row that stays while its rows scroll under it, hairlines between rows, numbers right-aligned in figures of one
- * width. On a phone it scrolls sideways inside its pane, fading at its edges: a row never folds into a card, since developers compare rows.
+ * A table on glass: a header row of clearer glass that stays while its rows scroll under it, hairlines between rows, numbers right-aligned in
+ * figures of one width, and, when the first column names the rows, that column staying put as it scrolls sideways. On a phone it scrolls
+ * sideways inside its pane, fading at its edges, under a caption that stays: a row never folds into a card, since developers compare rows.
+ * Its box is cut by the edge rule, so its corners follow the pane's where it sits in one.
  */
 export function table(options: TableOptions): Raw {
+  const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
-  return html`<div class="table-scroll" data-fades-sideways data-scroll-box><table class="data-table${options.isCompact ? " compact" : ""}"><caption>${options.caption}</caption><thead><tr>${options.columns.map(
-    (column, columnIndex) => html`<th scope="col"${numeric(columnIndex)}>${column.label}</th>`,
-  )}</tr></thead><tbody>${options.rows.map((row) => html`<tr>${row.map((cell, columnIndex) => html`<td${numeric(columnIndex)}>${cell}</td>`)}</tr>`)}</tbody></table></div>`;
+  const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.label}</th>`,
+  )}</tr></thead><tbody>${options.rows.map(
+    (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
+  )}</tbody></table></div></div>`;
 }
 
 const VERSION_ROWS: (Raw | string)[][] = [
-  [html`<b>Version 15</b>`, tag("Held", "warning"), "314", "49.2 MB", "An hour ago"],
-  [html`<b>Version 14</b>`, tag("Live", "new"), "312", "48.1 MB", "Oct 19"],
-  [html`<b>Version 13</b>`, "Replaced", "309", "47.6 MB", "Oct 16"],
-  [html`<b>Version 12</b>`, "Replaced", "296", "45.3 MB", "Oct 11"],
+  ["Version 15", tag("Held", "warning"), "314", "49.2 MB", "An hour ago"],
+  ["Version 14", tag("Live", "new"), "312", "48.1 MB", "Oct 19"],
+  ["Version 13", "Replaced", "309", "47.6 MB", "Oct 16"],
+  ["Version 12", "Replaced", "296", "45.3 MB", "Oct 11"],
 ];
 
 component({
@@ -369,29 +388,36 @@ component({
   group: "data",
   summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
   styles: `
-/* A table: its caption in a label's words, a header row in quiet facts, hairlines between rows. The header row stays at the top while a long
-   table's rows scroll under it, over a near-solid band of the glass. A row under the pointer brightens a little, like a list row. */
-.table-scroll { max-width: 100%; }
+/* A table: its caption in a label's words over a box that scrolls sideways under it, cut by the edge rule. Its header row is clearer glass
+   that stays at the top while a long table's rows scroll under it, taking the glass's hue and light or dark as all glass does; a first
+   column that names the rows is the same glass and stays at the left. A row under the pointer brightens a little, like a list row. */
+.table { display: grid; gap: var(--gap-words-control); min-width: 0; }
+.table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
+.table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
 .table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(640px, 75dvh); }
-.data-table { width: 100%; min-width: max-content; border-collapse: collapse; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.data-table caption { padding-bottom: var(--gap-words-control); text-align: left; font: var(--type-label); color: var(--ink); }
-.data-table th { position: sticky; top: 0; z-index: 1; padding: 10px 16px; text-align: left; font: var(--type-facts); color: var(--muted); white-space: nowrap; background: var(--table-head); box-shadow: inset 0 -1px 0 var(--line); }
-.data-table td { padding: 14px 16px; border-top: var(--divider); white-space: nowrap; }
-.data-table tbody tr:first-child td { border-top: 0; }
+.data-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.data-table th, .data-table td { white-space: nowrap; text-align: left; }
+.data-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px 16px; font: var(--type-facts); color: var(--muted);
+  --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
+.data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
+.data-table tbody tr:first-child > * { border-top: 0; }
+/* The rows' heads are clearer glass too, but denser: the rest of each row slides under them sideways, so their words must win. */
+.data-table tbody th { position: sticky; left: 0; z-index: 1; font: var(--type-label); color: var(--ink);
+  --glass-tint: var(--table-row-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset -1px 0 0 var(--line); }
+.data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; --glass-tint: var(--table-row-head); box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line); }
 .data-table td:first-child { color: var(--ink); }
-.data-table b { font-weight: 600; }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
-.data-table tbody tr:hover td { background: var(--row-hover); }
-.data-table.compact th { padding: 8px 12px; }
-.data-table.compact td { padding: 8px 12px; font: var(--type-facts); }
+.data-table tbody tr:hover > td { background: var(--row-hover); }
+.data-table.compact thead th { padding: 8px 12px; }
+.data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; font: var(--type-facts); }
 `,
   render: table,
   examples: [
     {
       label: "Versions",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
+      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
     },
     {
       label: "Compact, for long lists",
@@ -464,7 +490,7 @@ component({
 });
 
 export interface ChartPoint {
-  /** What the point is, said under the chart and to screen readers: "Oct 14". */
+  /** What the point is, said under the chart and to screen readers: "Oct 14", or a share's name: "Chrome". */
   label: string;
   amountNumber: number;
 }
@@ -473,10 +499,10 @@ export interface ChartOptions {
   /** What it shows: "Plays a day". */
   label: string;
   points: ChartPoint[];
-  /** What the numbers count, said with each one to screen readers: "plays". */
+  /** What the numbers count, said with each one: "plays". */
   unit: string;
-  /** A line (the default), or bars, one a point. */
-  chartKind?: "line" | "bars";
+  /** A line over time (the default), bars over time, one a point, or a ring of shares of a whole. */
+  chartKind?: "line" | "bars" | "ring";
 }
 
 /** The top of a chart's scale: the smallest round number at or over the biggest point, so its grid reads in round steps. */
@@ -487,19 +513,26 @@ function chartTopNumber(biggestNumber: number): number {
   return 10 * stepNumber;
 }
 const chartWords = (amountNumber: number) => amountNumber.toLocaleString("en-US", { maximumFractionDigits: 1 });
+/** A scale's numbers, short from ten thousand up (12K, 1.5M), so the scale's column stays narrow. */
+const scaleWords = (amountNumber: number) => (amountNumber >= 10000 ? amountNumber.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 }) : chartWords(amountNumber));
 
 /**
- * A chart, drawn here as SVG, so there's nothing to wait for: a hairline grid in round steps, the line (or bars) in ink, the last point in
- * orange with its number. The drawing stretches to its width while its lines keep their thickness. A table with the same numbers sits
- * behind it for screen readers (in a hidden box: a table never shrinks to one).
+ * A chart, drawn here as SVG, so there's nothing to wait for. Over time, a line or bars on a hairline grid in round steps, its numbers in a
+ * column of their own at the left so nothing drawn crosses them, the line (or bars) in ink and the last point in orange with its number.
+ * Pointing at a point shows its number. On a narrow screen every point keeps its room and the chart scrolls sideways, starting at the latest.
+ * A table with the same numbers sits behind it for screen readers (in a hidden box: a table never shrinks to one).
+ * A ring shows shares of a whole: each share a part of the ring, the biggest darkest, with a key of names, shares and numbers beside it.
  */
 export function chart(options: ChartOptions): Raw {
+  if (options.chartKind === "ring") return ringChart(options);
   const widthNumber = 1000, heightNumber = 300, points = options.points;
   const topNumber = chartTopNumber(Math.max(...points.map((point) => point.amountNumber), 0));
   const isBars = options.chartKind === "bars";
   const slotNumber = widthNumber / Math.max(points.length, 1);
   const acrossNumber = (pointIndex: number) => (isBars ? slotNumber * (pointIndex + 0.5) : points.length > 1 ? (pointIndex / (points.length - 1)) * widthNumber : widthNumber / 2);
   const downNumber = (amountNumber: number) => heightNumber - (amountNumber / topNumber) * heightNumber;
+  const acrossPct = (pointIndex: number) => ((acrossNumber(pointIndex) / widthNumber) * 100).toFixed(2);
+  const downPct = (amountNumber: number) => ((downNumber(amountNumber) / heightNumber) * 100).toFixed(2);
   const line = points.map((point, pointIndex) => `${pointIndex ? "L" : "M"}${acrossNumber(pointIndex).toFixed(1)} ${downNumber(point.amountNumber).toFixed(1)}`).join(" ");
   const drawing = isBars
     ? points.map((point, pointIndex) => {
@@ -509,44 +542,132 @@ export function chart(options: ChartOptions): Raw {
     : raw(`<path class="chart-area" d="${line} L${acrossNumber(points.length - 1).toFixed(1)} ${heightNumber} L${acrossNumber(0).toFixed(1)} ${heightNumber} Z"/><path class="chart-line" d="${line}" vector-effect="non-scaling-stroke"/>`);
   const last = points[points.length - 1];
   const lastMark = last
-    ? html`<span class="chart-last${isBars ? " is-bar" : ""}" style="left:${((acrossNumber(points.length - 1) / widthNumber) * 100).toFixed(2)}%;top:${((downNumber(last.amountNumber) / heightNumber) * 100).toFixed(2)}%"><span class="chart-last-words">${chartWords(last.amountNumber)}</span></span>`
+    ? html`<span class="chart-last${isBars ? " is-bar" : ""}" style="left:${acrossPct(points.length - 1)}%;top:${downPct(last.amountNumber)}%"><span class="chart-last-words">${chartWords(last.amountNumber)}</span></span>`
     : "";
-  return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><div class="chart-plot" aria-hidden="true">${[1, 0.5, 0].map(
-    (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"><span>${chartWords(topNumber * shareNumber)}</span></span>`,
-  )}<svg class="chart-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none">${drawing}</svg>${lastMark}</div><div class="chart-axis" aria-hidden="true"><span>${points[0]?.label ?? ""}</span><span>${last?.label ?? ""}</span></div><div class="sr"><table><caption>${options.label}</caption><tbody>${points.map(
+  // Where the pointer finds each point: a column round it, as wide as the room between points, holding its dot and its number.
+  const hitWidthPct = (100 / Math.max(isBars ? points.length : points.length - 1, 1)).toFixed(2);
+  const hits = points.map((point, pointIndex) => {
+    const place = pointIndex < points.length * 0.2 ? " is-start" : pointIndex >= points.length * 0.8 ? " is-end" : "";
+    return html`<span class="chart-hit${place}" style="left:calc(${acrossPct(pointIndex)}% - ${hitWidthPct}% / 2);width:${hitWidthPct}%;--point-top:${downPct(point.amountNumber)}%"><span class="chart-dot"></span><span class="chart-tip"><b>${chartWords(point.amountNumber)}</b> ${options.unit} · ${point.label}</span></span>`;
+  });
+  const grid = [1, 0.5, 0];
+  return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
+    (shareNumber) => html`<span style="top:${((1 - shareNumber) * 100).toFixed(0)}%">${scaleWords(topNumber * shareNumber)}</span>`,
+  )}</div><div class="chart-scroll" data-fades-sideways data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${points.length}"><div class="chart-plot">${grid.map(
+    (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"></span>`,
+  )}<svg class="chart-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none">${drawing}</svg>${lastMark}${hits}</div><div class="chart-axis"><span>${points[0]?.label ?? ""}</span><span>${last?.label ?? ""}</span></div></div></div></div><div class="sr"><table><caption>${options.label}</caption><tbody>${points.map(
     (point) => html`<tr><th scope="row">${point.label}</th><td>${chartWords(point.amountNumber)} ${options.unit}</td></tr>`,
   )}</tbody></table></div></figure>`;
 }
 
+/** A ring of shares: each share a part of the ring, clockwise from the top, biggest first; its key names each with its share and number. */
+function ringChart(options: ChartOptions): Raw {
+  const shares = [...options.points].sort((one, other) => other.amountNumber - one.amountNumber);
+  const totalNumber = shares.reduce((sumNumber, point) => sumNumber + point.amountNumber, 0) || 1;
+  const radiusNumber = 48, roundNumber = 2 * Math.PI * radiusNumber, gapNumber = shares.length > 1 ? 1.6 : 0;
+  let startNumber = 0;
+  const parts = shares.map((point, shareIndex) => {
+    const lengthNumber = (point.amountNumber / totalNumber) * roundNumber;
+    const part = raw(`<circle class="ring-part" data-share="${shareIndex}" cx="60" cy="60" r="${radiusNumber}" stroke-dasharray="${Math.max(lengthNumber - gapNumber, 0.1).toFixed(2)} ${roundNumber.toFixed(2)}" stroke-dashoffset="${(-startNumber).toFixed(2)}" transform="rotate(-90 60 60)"/>`);
+    startNumber += lengthNumber;
+    return part;
+  });
+  const sharePct = (point: ChartPoint) => Math.round((point.amountNumber / totalNumber) * 100);
+  return html`<figure class="chart ring"><figcaption class="chart-label">${options.label}</figcaption><div class="ring-body"><div class="ring-picture"><svg class="ring-drawing" viewBox="0 0 120 120" aria-hidden="true">${parts}</svg><span class="ring-total"><b>${chartWords(totalNumber)}</b>${options.unit}</span></div><ul class="ring-key">${shares.map(
+    (point, shareIndex) => html`<li data-share="${shareIndex}"><span class="ring-swatch" aria-hidden="true"></span><span class="ring-name">${point.label}</span><span class="ring-share">${sharePct(point)}%</span><span class="ring-amount">${chartWords(point.amountNumber)} ${options.unit}</span></li>`,
+  )}</ul></div></figure>`;
+}
+
+/** A chart that scrolls sideways starts at its latest points. */
+export const CHART_SCRIPT = `/* charts */(function () {
+  document.querySelectorAll("[data-chart-scroll]").forEach(function (scroll) { scroll.scrollLeft = scroll.scrollWidth; });
+})();
+`;
+
 const DAILY_PLAYS: ChartPoint[] = [812, 904, 870, 1012, 1190, 1460, 1384, 1102, 1056, 1218, 1305, 1520, 1712, 1655].map((amountNumber, dayIndex) => ({ label: `Oct ${8 + dayIndex}`, amountNumber }));
+const MONTHLY_PLAYERS: ChartPoint[] = [3120, 3480, 4210, 3990, 4620, 5310, 6870, 7420, 6980, 8130, 9760, 11240, 12480, 11920, 13650, 15210, 16880, 18420, 17950, 21300, 23870, 26420, 25110, 28940].map((amountNumber, weekIndex) => ({ label: `Week ${weekIndex + 1}`, amountNumber }));
+const SHARE_RING_CSS = [0, 1, 2, 3, 4, 5, 6, 7]
+  .map((shareIndex) => `.ring:has(.ring-key [data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"], .ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-part[data-share="${shareIndex}"] { stroke: var(--run); }
+.ring:has(.ring-part[data-share="${shareIndex}"]:hover) .ring-key [data-share="${shareIndex}"] { background: var(--row-hover); }`)
+  .join("\n");
 
 component({
   name: "Chart",
   slug: "chart",
   group: "data",
-  summary: "How something moved over time, drawn on the page with nothing to wait for: a hairline grid, the line in ink and the last point in orange with its number. Screen readers get the same numbers as a table.",
+  summary: "How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point in orange with its number, and any point's number where you point. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.",
   styles: `
-/* A chart: its label, then the plot, then the first and last points' labels under it. The grid's hairlines carry their numbers at their
-   left end; the drawing stretches to fill the plot while its line keeps its 2px. The last point is an orange dot with its number over it. */
-.chart { display: grid; gap: var(--gap-words-control); margin: 0; }
+/* A chart over time: its label, then its scale's numbers in a column of their own and the plot beside it, the first and last points' labels
+   under the plot. The drawing stretches to the plot while its line keeps its 2px. On a narrow screen each point keeps at least its room
+   (--point-room) and the plot scrolls sideways under a scale that stays. The last point is an orange dot with its number over it; pointing at
+   any point shows its dot and its number (a bar's column brightens), its words kept inside the plot at the ends. */
+.chart { display: grid; gap: var(--gap-words-control); margin: 0; min-width: 0; }
 .chart-label { font: var(--type-label); color: var(--ink); }
-.chart-plot { position: relative; height: 180px; margin-top: var(--gap-block-block); }
+.chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); margin-top: var(--gap-block-block); }
+.chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.chart-scale > span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
+.chart-scroll { min-width: 0; padding-top: var(--gap-block-block); margin-top: calc(-1 * var(--gap-block-block)); }
+.chart-inner { --point-room: 14px; min-width: calc(var(--point-count) * var(--point-room)); }
+.chart-inner.is-bars { --point-room: 26px; }
+.chart-plot { position: relative; height: 180px; }
 .chart-grid { position: absolute; left: 0; right: 0; height: 0; border-top: var(--divider); }
-.chart-grid > span { position: absolute; left: 0; bottom: 2px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
 .chart-drawing { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .chart-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-area { fill: var(--chart-fill); stroke: none; }
-.chart-bar { fill: var(--ink-2); opacity: 0.7; }
-.chart-bar.last { fill: var(--run); opacity: 1; }
-.chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--run); border-radius: 50%; box-shadow: 0 0 0 3px var(--table-head); }
+.chart-bar { fill: var(--chart-bar); }
+.chart-bar.last { fill: var(--run); }
+.chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--run); border-radius: 50%; box-shadow: 0 0 0 3px var(--chart-ring); pointer-events: none; }
 .chart-last.is-bar { width: 0; height: 0; margin: 0; box-shadow: none; }
-.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.chart-axis { display: flex; justify-content: space-between; font: var(--type-facts); color: var(--muted); }
+.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity 0.15s; }
+.chart-last.is-bar .chart-last-words { right: auto; left: 0; bottom: 6px; transform: translateX(-50%); }
+.chart-axis { display: flex; justify-content: space-between; padding-top: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
+.chart-hit { position: absolute; top: 0; bottom: 0; z-index: 2; }
+.chart-inner.is-bars .chart-hit:hover { background: var(--row-hover); }
+.chart-dot { position: absolute; left: 50%; top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity 0.15s; }
+.chart-inner.is-bars .chart-dot { display: none; }
+.chart-tip { position: absolute; left: 50%; bottom: calc(100% - var(--point-top) + 12px); transform: translateX(-50%); padding: 4px 8px; white-space: nowrap; font: var(--type-facts); color: var(--ink-2);
+  background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.chart-tip b { font-weight: 600; color: var(--ink); }
+.chart-hit.is-start .chart-tip { left: 0; transform: none; }
+.chart-hit.is-end .chart-tip { left: auto; right: 0; transform: none; }
+.chart-hit:hover .chart-dot, .chart-hit:hover .chart-tip { opacity: 1; }
+.chart-plot:has(.chart-hit:last-child:hover) .chart-last-words { opacity: 0; }
+/* A ring: the shares round a ring, biggest first and darkest, each lighter after; the whole in its middle. Its key beside it (under it on a
+   phone) names each with its share and number. Pointing at a part or its line in the key turns that part orange and brightens its line. */
+.ring-body { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gap-block-block); }
+.ring-picture { position: relative; flex: none; width: 168px; height: 168px; }
+.ring-drawing { width: 100%; height: 100%; }
+.ring-part { fill: none; stroke-width: 16; stroke: var(--share-color); transition: stroke 0.15s; cursor: default; }
+.ring-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: var(--type-facts); color: var(--muted); }
+.ring-total b { font: var(--type-section); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ring-key { flex: 1 1 220px; list-style: none; margin: 0; padding: 0; display: grid; }
+.ring-key li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-words-control); padding: var(--gap-words-words) var(--gap-words-words); font: var(--type-words); color: var(--ink); }
+.ring-key li:hover { background: var(--row-hover); }
+.ring-key li + li { border-top: var(--divider); }
+.ring-swatch { width: 12px; height: 12px; background: var(--share-color); }
+.ring-share { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ring-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ring-amount { font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ring [data-share="0"] { --share-color: color-mix(in srgb, var(--ink) 86%, transparent); }
+.ring [data-share="1"] { --share-color: color-mix(in srgb, var(--ink) 62%, transparent); }
+.ring [data-share="2"] { --share-color: color-mix(in srgb, var(--ink) 44%, transparent); }
+.ring [data-share="3"] { --share-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.ring [data-share="4"] { --share-color: color-mix(in srgb, var(--ink) 20%, transparent); }
+.ring [data-share="5"], .ring [data-share="6"], .ring [data-share="7"] { --share-color: color-mix(in srgb, var(--ink) 12%, transparent); }
+${SHARE_RING_CSS}
 `,
   render: chart,
   examples: [
     { label: "A line: plays a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
     { label: "Bars: players a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
+    { label: "Many points: on a phone, it scrolls sideways from the latest", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a week", points: MONTHLY_PLAYERS, unit: "players", chartKind: "bars" }) }) },
+    {
+      label: "A ring: how a whole splits",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: chart({ label: "Players by browser", unit: "players", chartKind: "ring", points: [
+        { label: "Chrome", amountNumber: 6120 }, { label: "Safari", amountNumber: 3480 }, { label: "Edge", amountNumber: 1210 }, { label: "Firefox", amountNumber: 860 }, { label: "Others", amountNumber: 330 },
+      ] }) }),
+    },
   ],
 });
 
@@ -558,12 +679,15 @@ export interface UsageMeterOptions {
   unit: string;
 }
 
-/** A usage meter: a carved track filling in ink, amber from 80%, with the numbers beside it; all used, it says so. */
+/**
+ * A usage meter: a carved track filling in quiet ink, amber from 80%. All used, it's unmistakable: the fill is striped amber across the
+ * whole track, a warning mark leads its label, and its numbers end in "all used".
+ */
 export function usageMeter(options: UsageMeterOptions): Raw {
   const sharePct = Math.min(100, Math.round((options.usedNumber / Math.max(options.limitNumber, 1)) * 100));
   const isAllUsed = options.usedNumber >= options.limitNumber;
   const tone = isAllUsed ? " is-full" : sharePct >= 80 ? " is-near" : "";
-  return html`<div class="usage${tone}"><div class="usage-words"><span class="usage-label">${options.label}</span><span class="usage-numbers">${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)} ${options.unit}${isAllUsed ? html`<b>, all used</b>` : ""}</span></div><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct}%"></span></div></div>`;
+  return html`<div class="usage${tone}"><div class="usage-words"><span class="usage-label">${isAllUsed ? icon("warning") : ""}${options.label}</span><span class="usage-numbers">${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)} ${options.unit}${isAllUsed ? html`<b>, all used</b>` : ""}</span></div><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct}%"></span></div></div>`;
 }
 
 component({
@@ -572,16 +696,18 @@ component({
   group: "data",
   summary: "How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used.",
   styles: `
-/* A usage meter: its label and numbers on one line, the track under it, a carved strip the fill grows along. The fill is ink, amber from
-   80% (and when all used, when the words say so too). */
+/* A usage meter: its label and numbers on one line, the track under it, a carved strip the fill grows along. The fill is a quiet ink,
+   amber from 80%; all used, it's amber striped with a deeper amber, like tape across a door, and a warning mark leads the label. */
 .usage { display: grid; gap: var(--gap-words-words); }
 .usage-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); }
-.usage-label { font: var(--type-label); color: var(--ink); }
+.usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-label); color: var(--ink); }
+.usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
 .usage-numbers { font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.usage-numbers b { font-weight: 600; color: var(--ink); }
+.usage-numbers b { font-weight: 600; color: var(--meter-full-ink); }
 .usage-track { position: relative; height: 12px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .usage-fill { display: block; height: 100%; background: var(--meter-fill); clip-path: var(--cut-shape); transition: width 0.6s var(--spring); }
-.usage.is-near .usage-fill, .usage.is-full .usage-fill { background: var(--meter-near); }
+.usage.is-near .usage-fill { background: var(--meter-near); }
+.usage.is-full .usage-fill { background: repeating-linear-gradient(-45deg, var(--meter-near) 0 6px, var(--meter-full) 6px 12px); }
 `,
   render: usageMeter,
   examples: [

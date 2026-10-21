@@ -634,7 +634,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     current: options.isAdmin ? null : (options.nav ?? null),
     ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
     search: options.search ? { ...options.search, name: "search_text" } : undefined,
-    account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md") } : null,
+    account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
   });
   // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie.

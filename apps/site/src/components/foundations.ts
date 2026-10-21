@@ -39,7 +39,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --divider: 1px solid var(--line);
   --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(232, 150, 20, 0.26); --tag-warning-ink: #6A4300; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   /* Data: a table's header row over the rows scrolling under it, a chart's fill under its line, a meter's fill and its amber past 80%. */
-  --table-head: rgba(240, 243, 248, 0.94); --chart-fill: rgba(20, 23, 28, 0.07); --meter-fill: rgba(20, 23, 28, 0.78); --meter-near: #E39318;
+  --table-head: rgba(250, 252, 255, 0.42); --table-row-head: rgba(246, 248, 252, 0.88); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-fill: rgba(60, 72, 94, 0.42); --meter-near: #E39318; --meter-full: #B86A06; --meter-full-ink: #9A5800;
   /* A file drop's dashed outline, waiting for a file. */
   --drop-dash: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
@@ -73,7 +73,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
   --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(200, 130, 20, 0.3); --tag-warning-ink: #F8D68C; --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
-  --table-head: rgba(28, 32, 40, 0.94); --chart-fill: rgba(255, 255, 255, 0.08); --meter-fill: rgba(255, 255, 255, 0.82); --meter-near: #F0A93A; --drop-dash: rgba(255, 255, 255, 0.34);
+  --table-head: rgba(14, 17, 24, 0.38); --table-row-head: rgba(22, 26, 34, 0.9); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #F0A93A; --meter-full: #B87412; --meter-full-ink: #F6C46E; --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
@@ -651,6 +651,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
     el.cutCorners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h / 2); });
+    // Which ends slant, for CSS (data-slanted): an icon alone in a control centers in what shows of it, clear of a slant. Not for a glide's step.
+    if (!as) { var slanted = ((beside.start ? "start " : "") + (beside.end ? "end" : "")).trim(); if ((el.getAttribute("data-slanted") || "") !== slanted) { if (slanted) el.setAttribute("data-slanted", slanted); else el.removeAttribute("data-slanted"); } }
     // A control's own parts (a switch's slab, data-cut-beside) keep their own slant; controls beside each other share --control-slant.
     return controlShape(w, h, el.hasAttribute("data-cut-beside") ? Number(el.getAttribute("data-cut-line")) || SLANT_PX : SLANT_PX, cuts, beside);
   }
