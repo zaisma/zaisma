@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_HOUR_CPU_DURATION_SEC, PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC, PLAYER_HOUR_RELAYED_SIZE_BYTES, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -647,12 +647,18 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   if (game.multiplayer_mode === "none" && !use.counted_play_duration_hours && !use.has_reached_free_hours && !showsRequests) return "";
   const resetDay = nextMonthStart();
   const percent = (usedNumber: number, freeNumber: number) => Math.min(100, Math.round((usedNumber / Math.max(freeNumber, 1)) * 100));
-  const relayHours = Math.round((use.counted_play_duration_hours - use.room_play_duration_hours) * 10) / 10;
-  const parts = use.relayed_size_bytes > 0
-    ? html`<small>${formatted(use.room_play_duration_hours)} in Zaisma rooms, ${formatted(relayHours)} from ${formatted(Math.round(use.relayed_size_bytes / 1_000_000))} MB through Zaisma's relay</small>`
+  const relayHours = Math.round((use.relayed_size_bytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 10) / 10;
+  // What the game server's CPU adds is what's left once room time and the relay are counted.
+  const cpuHours = Math.max(0, Math.round((use.counted_play_duration_hours - use.room_play_duration_hours - use.relayed_size_bytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 10) / 10);
+  const parts = use.relayed_size_bytes > 0 || cpuHours > 0
+    ? html`<small>${[
+        `${formatted(use.room_play_duration_hours)} in Zaisma rooms`,
+        ...(use.relayed_size_bytes > 0 ? [`${formatted(relayHours)} from ${formatted(Math.round(use.relayed_size_bytes / 1_000_000))} MB through Zaisma's relay`] : []),
+        ...(cpuHours > 0 ? [`${formatted(cpuHours)} from ${formatted(use.game_server_cpu_duration_sec)} CPU-seconds of your game server`] : []),
+      ].join(", ")}</small>`
     : "";
   return html`<h2 class="rule-h" id="hosting">Free hosting <span class="muted">This month</span></h2>
-<p class="hosting-lead">Your game is on Zaisma's free tier. Hosting is counted in player-hours: one player in a Zaisma room for an hour is one, and so is every 20 MB Zaisma's relay sends your players when they connect to each other. The first ${formatted(use.free_room_play_duration_hours)} each month are free.</p>
+<p class="hosting-lead">Your game is on Zaisma's free tier. Hosting is counted in player-hours: one player in a Zaisma room for an hour is one, and so is every 20 MB Zaisma's relay sends your players when they connect to each other, and every ${PLAYER_HOUR_CPU_DURATION_SEC} CPU-seconds your game server runs past the ${PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC} each player-hour includes. The first ${formatted(use.free_room_play_duration_hours)} each month are free.</p>
 <div class="numbers hosting">
 <div class="num plate${use.has_reached_free_hours ? " reached" : ""}"><strong>${formatted(use.counted_play_duration_hours)}</strong><span>player-hours used</span><small>${use.has_reached_free_hours ? html`All ${formatted(use.free_room_play_duration_hours)} free ones used: new rooms and connections between players open again on ${resetDay}` : html`of ${formatted(use.free_room_play_duration_hours)} free`}</small><span class="meter"><span style="width:${percent(use.counted_play_duration_hours, use.free_room_play_duration_hours)}%"></span></span>${parts}</div>
 ${showsRequests
@@ -1064,9 +1070,18 @@ interface Stats {
     room_count: number;
     room_play_duration_min: number;
     message_count: number;
+    game_server_cpu_duration_sec: number;
     game_server: { call_count: number; request_count: number; scheduled_run_count: number; crash_count: number; stopped_count: number; ended_match_count: number } | null;
   }[];
-  room_use_this_month: { room_play_duration_hours: number; relayed_size_bytes: number; counted_play_duration_hours: number; free_room_play_duration_hours: number; has_reached_free_hours: boolean };
+  room_use_this_month: { room_play_duration_hours: number; relayed_size_bytes: number; game_server_cpu_duration_sec: number; counted_play_duration_hours: number; free_room_play_duration_hours: number; has_reached_free_hours: boolean };
+  room_traffic: {
+    inbound_messages_per_player_sec: number;
+    inbound_size_bytes_per_player_sec: number;
+    outbound_messages_per_player_sec: number;
+    outbound_size_bytes_per_player_sec: number;
+    message_types: { message_type: string; direction: "inbound" | "outbound"; message_count: number; size_bytes: number; largest_size_bytes: number; average_size_bytes: number }[];
+    traffic_hints: { code: string; message: string }[];
+  };
   request_use_this_month: { request_count: number; free_request_count: number; has_reached_free_requests: boolean };
   schedules: { schedule_name: string; cron: string; version_id: string; next_run_at: string; last_run_at: string | null }[];
   game_server_errors: { kind: "crash" | "stopped"; message: string; occurrence_count: number; version_id: string; last_at: string }[];
@@ -1098,6 +1113,30 @@ ${back("Back a week later", playStats.came_back.after_7_days)}
   )}</tbody></table></details>${how}`;
 }
 
+/**
+ * This month's room traffic: messages and data each way per player a second, the biggest message types
+ * and what to change. Nothing when the game had no room play this month.
+ */
+function trafficPanel(traffic: Stats["room_traffic"]): Raw | "" {
+  if (!traffic.message_types.length && !traffic.inbound_messages_per_player_sec && !traffic.outbound_messages_per_player_sec) return "";
+  const kilobytes = (sizeBytes: number) => `${formatted(Math.round((sizeBytes / 1024) * 10) / 10)} KB`;
+  const shownSize = (sizeBytes: number) => (sizeBytes < 1024 ? `${formatted(sizeBytes)} bytes` : kilobytes(sizeBytes));
+  return html`<h3>Room traffic this month</h3>
+<div class="numbers">
+<div class="num plate"><strong>${formatted(traffic.inbound_messages_per_player_sec)}</strong><span>messages in</span><small>per player a second</small></div>
+<div class="num plate"><strong>${kilobytes(traffic.inbound_size_bytes_per_player_sec)}</strong><span>in</span><small>per player a second</small></div>
+<div class="num plate"><strong>${formatted(traffic.outbound_messages_per_player_sec)}</strong><span>messages out</span><small>per player a second</small></div>
+<div class="num plate"><strong>${kilobytes(traffic.outbound_size_bytes_per_player_sec)}</strong><span>out</span><small>per player a second</small></div>
+</div>
+${traffic.traffic_hints.map((hint) => html`<p class="note">${hint.message}</p>`)}
+${traffic.message_types.length
+    ? html`<table><thead><tr><th>Message type</th><th>Way</th><th>Messages</th><th>Average</th><th>Largest</th></tr></thead><tbody>${traffic.message_types.map(
+        (type) => html`<tr><td><code>${type.message_type}</code></td><td>${type.direction === "inbound" ? "In" : "Out"}</td><td>${formatted(type.message_count)}</td><td>${shownSize(type.average_size_bytes)}</td><td>${shownSize(type.largest_size_bytes)}</td></tr>`,
+      )}</tbody></table>`
+    : ""}
+<p class="hint">Counted in Zaisma rooms, each message out once per player it reached. Your message types are their <code>type</code> field; (zaisma) is Zaisma's own, like player lists and pings. Your AI reads the same with get_stats.</p>`;
+}
+
 function statsPanel(slug: string, stats: Stats, own: boolean): Raw {
   const days = stats.multiplayer_days;
   if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
@@ -1106,7 +1145,7 @@ function statsPanel(slug: string, stats: Stats, own: boolean): Raw {
     (day) => html`<tr><td class="nowrap">${day.date}</td><td>${day.room_count}</td><td><span class="bar" style="width:${Math.round((day.room_play_duration_min / topDurationMin) * 100)}%"></span>${day.room_play_duration_min}</td>${
       own ? html`<td>${formatted(day.game_server?.request_count ?? 0)}</td><td>${formatted(day.game_server?.scheduled_run_count ?? 0)}</td><td>${day.game_server?.crash_count ?? 0}</td><td>${day.game_server?.stopped_count ?? 0}</td><td>${day.game_server?.ended_match_count ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
+  )}</tbody></table>${trafficPanel(stats.room_traffic)}${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
 }
 
 /** The live version's schedules, so its developer sees they were read and when they run. */

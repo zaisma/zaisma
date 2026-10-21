@@ -797,6 +797,22 @@ describe("the SDK's types say what the SDK does", () => {
     expect(Math.abs(room.serverTimeMs() - (Date.now() + 5000))).toBeLessThan(100);
   });
 
+  it("sends bytes as a binary frame, and hands the game bytes with whose they are", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    socket.sent.length = 0;
+    room.sendBytes(new Uint8Array([1, 2, 3]));
+    room.sendBytes(new Float32Array([1]).buffer);
+    expect((socket.sent as unknown[]).map((sent) => [...new Uint8Array(ArrayBuffer.isView(sent) ? sent.buffer : (sent as ArrayBuffer))])).toEqual([[1, 2, 3], [0, 0, 128, 63]]);
+    expect(await failureCode(() => room.sendBytes("text"))).toBe("bad_bytes");
+    const got: [number[], string | null][] = [];
+    room.on("bytes", (bytes: Uint8Array, fromPlayerId: string | null) => got.push([[...bytes], fromPlayerId]));
+    const from = new TextEncoder().encode("player_bo");
+    socket.onmessage!({ data: new Uint8Array([from.length, ...from, 7, 8]).buffer as never });
+    socket.onmessage!({ data: new Uint8Array([0, 9]).buffer as never });
+    expect(got).toEqual([[[7, 8], "player_bo"], [[9], null]]);
+  });
+
   it("reconnects after 8 seconds without a word from a ticking room", async () => {
     const sdk = loadSdk();
     const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
