@@ -230,7 +230,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_game",
     title: "Get a game",
-    description: "One game: its details (and review_reason when Zaisma holds it or took it down; its registered links, each with who_can_open), its alerts (what needs your attention, as in list_games), covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links.",
+    description: "One game: its details (and review_reason when Zaisma holds it or took it down; its registered links, each with who_can_open), its alerts (what needs your attention, as in list_games), covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links. performance_check says how the version started in headless Chrome (no graphics card, so no frame rate) and what would make it smaller; its notes never hold a version.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: answer({ game: GAME, alerts: GAME_ALERTS, playing_now_player_count: countOf("People playing now: browsers that pressed Play and still have the game on screen, plus players in your Zaisma rooms. Counted from the last 6 minutes."), images: list(IMAGE), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
     annotations: read,
@@ -348,7 +348,7 @@ export const TOOLS: Tool[] = [
     name: "check_game",
     title: "Check a game before uploading",
     description:
-      `Check a game's files before uploading them: what Zaisma would refuse (no index.html at the top, file types games can't have, pre-compressed files, hidden files, sizes) and what won't work inside Zaisma's game frame (files or scripts loaded from other sites, connections to servers that aren't the game's own, threaded engine builds, alert/confirm/prompt, forms, downloads, links that open other sites, frames of other sites, camera, location and the like), each with the fix. Send the same files as upload_files, up to ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB; with slug, the game's own servers count and the fixes name it. It changes nothing and needs any key. upload_files fixes nothing itself, so fix what it lists first; is_fixed_by_upload_command says what the upload command (\`npx @zaisma/cli upload <folder> --game <slug>\`) would fix by itself. In a terminal, \`npx @zaisma/cli check <folder>\` runs the same check on a folder, with no key.\n\n` +
+      `Check a game's files before uploading them: what Zaisma would refuse (no index.html at the top, file types games can't have, pre-compressed files, hidden files, sizes) and what won't work inside Zaisma's game frame (files or scripts loaded from other sites, connections to servers that aren't the game's own, threaded engine builds, alert/confirm/prompt, forms, downloads, links that open other sites, frames of other sites, camera, location and the like), each with the fix; and in performance_notes, files that could be much smaller (textures as KTX2, WAV audio, models without compression, development builds), which never stop an upload. Send the same files as upload_files, up to ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB; with slug, the game's own servers count and the fixes name it. It changes nothing and needs any key. upload_files fixes nothing itself, so fix what it lists first; is_fixed_by_upload_command says what the upload command (\`npx @zaisma/cli upload <folder> --game <slug>\`) would fix by itself. In a terminal, \`npx @zaisma/cli check <folder>\` runs the same check on a folder, with no key.\n\n` +
       'Not: { "folder": "./build" } (send the files: { "files": [{ "path": "index.html", "content_text": "…" }] }, or run npx @zaisma/cli check ./build in a terminal)\n' +
       'Not: { "files": [{ "path": "index.html", "content": "<!doctype html>…" }] } (text goes in content_text, other files base64 in content_base64)',
     inputSchema: {
@@ -388,7 +388,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_version",
     title: "Check a version",
-    description: "A version's scan_status (scanning, held, approved or rejected), why it's held or rejected (review_reason when a person or a report decided, and findings: what the scan found, each with the rule and the fix), and its private preview link once it passes.",
+    description: "A version's scan_status (scanning, held, approved or rejected), why it's held or rejected (review_reason when a person or a report decided, and findings: what the scan found, each with the rule and the fix), and its private preview link once it passes. performance_check says how the version started in headless Chrome (no graphics card, so no frame rate) and what would make it smaller; its notes never hold a version.",
     inputSchema: object({ slug, version_id: versionId }, ["slug", "version_id"]),
     outputSchema: answer({ version: VERSION }),
     annotations: read,

@@ -27,6 +27,8 @@
     "zaisma.mjs",
     "check.mjs",
     "check.d.mts",
+    "performance.mjs",
+    "performance.d.mts",
     "README.md",
     "LICENSE"
   ],

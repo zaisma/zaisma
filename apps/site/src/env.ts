@@ -1,4 +1,5 @@
 import type { CompressJob, ListingCheckJob, ScanJob } from "@zaisma/core";
+import type { PerformanceJob } from "./performance-check.ts";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
@@ -16,6 +17,10 @@ export interface Env {
   SCAN_QUEUE: Queue<ScanJob | ListingCheckJob>;
   /** Brotli copies of game files to make (compress.ts). */
   COMPRESS_QUEUE: Queue<CompressJob>;
+  /** Versions to open in headless Chrome once they pass (performance-check.ts). */
+  PERFORMANCE_QUEUE: Queue<PerformanceJob>;
+  /** Cloudflare's headless Chrome (Browser Rendering), for those runs. */
+  BROWSER: Fetcher;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
   /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */

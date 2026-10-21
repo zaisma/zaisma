@@ -51,6 +51,8 @@
   ],
   // Share cards: each game picture made once into a JPEG chat apps take (apps/site/src/developer.ts, serveImage).
   "images": { "binding": "IMAGES" },
+  // Cloudflare's headless Chrome, which opens every version once it passes the scan (performance-check.ts).
+  "browser": { "binding": "BROWSER" },
   // Games' own databases, in the rooms Worker (apps/rooms/src/database.ts), for the developer API. Rooms deploys first.
   // And PhotoDNA image matching, in the photodna Worker (apps/photodna), which deploys before the site.
   "services": [
@@ -65,9 +67,14 @@
     // the compress Worker (apps/compress) reads it.
     "producers": [
       { "binding": "SCAN_QUEUE", "queue": "zaisma-scan" },
-      { "binding": "COMPRESS_QUEUE", "queue": "zaisma-compress" }
+      { "binding": "COMPRESS_QUEUE", "queue": "zaisma-compress" },
+      // Versions to open in headless Chrome once they pass, one at a time, three at once at most.
+      { "binding": "PERFORMANCE_QUEUE", "queue": "zaisma-performance" }
     ],
-    "consumers": [{ "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 }]
+    "consumers": [
+      { "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 },
+      { "queue": "zaisma-performance", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 3 }
+    ]
   },
   // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files.
   "triggers": { "crons": ["*/5 * * * *", "17 3 * * *"] },

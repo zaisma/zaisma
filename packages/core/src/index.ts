@@ -42,3 +42,4 @@ export * from "./links.ts";
 export * from "./logs.ts";
 export * from "./qr-code.ts";
 export * from "./health.ts";
+export * from "./performance.ts";

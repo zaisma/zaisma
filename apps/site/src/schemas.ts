@@ -1,4 +1,5 @@
 import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
 /**
@@ -174,6 +175,36 @@ export const FINDING = object({
   fix: text("What to do about it."),
 });
 
+/** A note on how a version started in Chrome, or on files that could be much smaller. Notes never hold a version. */
+export const PERFORMANCE_NOTE = object({
+  code: choice(Object.fromEntries(Object.entries(PERFORMANCE_NOTE_CODES).map(([code, { meaning }]) => [code, meaning]))),
+  message: text("What it found, with its numbers."),
+  path: nullable(text("The file it's about, if one.")),
+  saved_size_bytes: nullable(countOf("About how much smaller the download gets with the fix; null when it isn't about size or can't be told.")),
+  fix: text("What to do about it."),
+});
+
+export const PERFORMANCE_CHECK = object(
+  {
+    check_status: choice({
+      waiting: "the version passed and waits for Chrome, usually under a minute",
+      checking: "running in Chrome now",
+      checked: "done; see the numbers and notes",
+      over_daily_limit: `not measured: the developer's ${PERFORMANCE_CHECK_LIMITS.maximumDailyCheckCount} checks today are used; versions are measured again from midnight UTC`,
+      could_not_run: "Chrome couldn't run it on Zaisma's side; nothing for the developer to fix",
+    }),
+    checked_at: nullable(isoTime("When the run finished; null until it has.")),
+    browser_description: text('Where it ran, like "Chrome 141 on a computer with no graphics card": loading, memory and errors are like a player\'s; frame rate isn\'t measured here.'),
+    loading_duration_sec: nullable(number("Seconds from opening the game until it drew its first frame; null when nothing was drawn or it hasn't run.")),
+    start_download_size_bytes: nullable(countOf("Bytes downloaded before the first frame, as sent (compressed).")),
+    start_file_count: nullable(countOf("Files downloaded before the first frame.")),
+    start_memory_size_bytes: nullable(countOf("JavaScript and WebAssembly memory 5 seconds after the first frame; graphics memory isn't counted.")),
+    longest_start_task_duration_ms: nullable(countOf("The longest the page froze in one go while starting.")),
+    notes: list(PERFORMANCE_NOTE, "Run notes first, then asset notes; [] when there's nothing to say. Notes never hold a version."),
+  },
+  "How the version started in headless Chrome once it passed the scan, and what would make it much smaller.",
+);
+
 const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma, or for the developer's next free review (see findings)", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" });
 
 export const VERSION = object({
@@ -189,8 +220,9 @@ export const VERSION = object({
   scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
   created_at: isoTime(),
   review_reason: nullable(reviewReason("A person's or a report's decision: why a person rejected it, or a report paused it. null otherwise.")),
-  findings: list(FINDING, "What the scan found that holds or rejects it."),
+  findings: list(FINDING, "What the scan found: what holds or rejects it, and notes that don't."),
   replaced_by_version_id: nullable(idOf("version", "The newer version that replaced this one while it waited; null when none did.")),
+  performance_check: nullable(PERFORMANCE_CHECK),
 });
 
 /** What the game check finds (packages/cli/check.mjs): the same answer from check_game, POST /check and zaisma check --json. */
@@ -208,6 +240,7 @@ export const GAME_CHECK_FIELDS = {
   size_bytes: countOf("Their size together."),
   problems: list(CHECK_PROBLEM, `In file order; [] when nothing would stop the game working on Zaisma. Up to ${MAXIMUM_PROBLEM_COUNT}.`),
   omitted_problem_count: countOf("Problems past the first 200, left out; 0 almost always."),
+  performance_notes: list(PERFORMANCE_NOTE, "Files that could be much smaller (textures as KTX2, WAV audio, models without compression, development builds), each with about what it saves and the fix; [] when none. They never stop an upload."),
 };
 export const GAME_CHECK = object(GAME_CHECK_FIELDS);
 

@@ -46,6 +46,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   webhooks: { file_path: "developer.json", reason: "Webhooks, never their signing secrets." },
   sign_in_apps: { file_path: "developer.json", reason: "Sign-in apps, never their secrets." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
+  performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
   owned_blobs: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
   blob_owners: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
   reports: { file_path: null, reason: "Reports about the player, written by other players." },
