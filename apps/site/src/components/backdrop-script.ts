@@ -240,12 +240,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
     if (kind === "frame") window.addEventListener("message", function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } });
-    var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
-    if (el.hasAttribute("data-adapts-glass") && stillUrl) {
+    // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
+    function loadStill() {
+      var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
+      if (!el.hasAttribute("data-adapts-glass") || !stillUrl) return;
       var picture = new Image();
-      picture.onload = function () { layer.still = picture; layer.isGlassAdapted = false; isPlaceStale = true; };
+      picture.onload = function () { if (el.getAttribute("data-backdrop-still") !== stillUrl && kind !== "picture") return; layer.still = picture; layer.isGlassAdapted = false; isPlaceStale = true; };
       picture.src = stillUrl;
     }
+    loadStill();
+    new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src"] });
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(el);
     if (!running) { running = true; requestAnimationFrame(frame); }
   }

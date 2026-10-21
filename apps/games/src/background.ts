@@ -51,10 +51,16 @@ const RUNNER_SCRIPT = `(function () {
     at = {}; ["iResolution", "iTime", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaPixel", "zaismaViewOffset"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
     canvas.hidden = false; still.hidden = true; isHeld = false; slowS = 0;
     size(); draw(); tell({ isRunning: true });
+    // The developer's own preview has no saved still yet, so it's handed one to measure its glass from: the frame at the still's time.
+    if (config.isPreview) {
+      draw(config.stillTimeSec);
+      tell({ stillDataUrl: canvas.toDataURL("image/jpeg", 0.8) });
+      draw();
+    }
   }
-  function draw() {
+  function draw(atTimeS) {
     // The wall clock: moving from page to page, the background carries on where it was instead of starting over.
-    var timeS = reduced.matches ? config.stillTimeSec : (Date.now() / 1000) % 3600;
+    var timeS = atTimeS !== undefined ? atTimeS : reduced.matches ? config.stillTimeSec : (Date.now() / 1000) % 3600;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.uniform3f(at.iResolution, canvas.width, canvas.height, 1); gl.uniform1f(at.iTime, timeS);
     gl.uniform4fv(at.zaismaPanes, panes.rects); gl.uniform4fv(at.zaismaPaneCuts, panes.cuts); gl.uniform1f(at.zaismaPaneCount, panes.count);

@@ -7,6 +7,7 @@ import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
+import { EDGE } from "./components/foundations.ts";
 
 /**
  * The developer dashboard: your games, and a manager for each one. Every read and every change is a
@@ -1141,10 +1142,10 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 </div>`;
   };
   return html`<div class="bg-panel" data-game-address="${gameAddress}">
-<div class="bg-preview bevel" aria-label="Live preview">
-<iframe src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
-<img alt="" hidden>
-<div class="bg-glass" data-sample-glass${game.glass_tint_color ? raw(` style="--tint:${game.glass_tint_color}"`) : ""}><strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
+<div class="bg-preview not-steel" aria-label="Live preview"${game.glass_tint_color ? raw(` style="--glass-hue:${game.glass_tint_color}"`) : ""}>
+<iframe class="backdrop is-framed" data-backdrop="frame" data-adapts-glass src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
+<img class="bg-picture" alt="" hidden>
+<div class="glass bg-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
 <p class="bg-note" role="status" hidden></p>
 </div>
 <p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>
@@ -1399,12 +1400,12 @@ input[type=file]::file-selector-button{background:var(--raised);color:var(--text
 /** Each game's sections: a rail on the left, tabs along the top on phones. */
 const GAME_STYLES = `
 .bg-preview{position:relative;aspect-ratio:16/9;overflow:hidden;background:#05070a;margin-bottom:8px}
-.bg-preview iframe,.bg-preview img{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;display:block}
+.bg-preview .backdrop{border:0}
+.bg-preview .bg-picture{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:0}
 .bg-preview [hidden]{display:none}
-.bg-glass{position:absolute;left:6%;top:50%;transform:translateY(-50%);width:52%;padding:14px 16px;display:grid;gap:4px;color:#14171c;background:color-mix(in srgb,var(--tint,#ffffff) 18%,rgba(255,255,255,.6));backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);clip-path:polygon(20px 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%,0 16px)}
-.bg-glass strong{font-family:var(--display);font-size:17px}
-.bg-glass span{font-size:12px;color:#3c434d}
-.bg-note{position:absolute;left:8px;right:8px;bottom:8px;margin:0;padding:6px 10px;font-size:13px;background:rgba(10,12,16,.82);color:#f3f5f8}
+.bg-preview .bg-sample{position:absolute;z-index:1;left:6%;top:24%;width:56%;padding:var(--pad-pane);display:flex;flex-direction:column;gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)}
+.bg-preview .bg-sample strong{font:var(--type-name);color:var(--ink)}
+.bg-note{position:absolute;z-index:2;left:8px;right:8px;bottom:8px;margin:0;padding:6px 10px;font-size:13px;background:rgba(10,12,16,.82);color:#f3f5f8}
 .bg-screen h3{margin:18px 0 4px;font-size:15px}
 .bg-now{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin:0 0 10px;font-size:14px}
 .bg-now span{margin-right:auto}
@@ -1471,23 +1472,25 @@ const GAME_STYLES = `
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
 // The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.
 /**
- * The Background section's live preview (backgroundPanel): a shader runs in a frame on the game's own site (apps/games/src/background.ts),
- * posted its source by this page, which tells it where the sample pane of glass is. Pictures show as they are. It starts with what wide
- * screens show now, or Zaisma's own.
+ * The Background section's live preview (backgroundPanel), built as the home and game page build theirs: a shader runs in a frame on the
+ * game's own site (apps/games/src/background.ts), posted its source by this page; the backdrop script (BACKDROP_SCRIPT) tells the frame
+ * where the real pane of glass is, and picks the pane's glass from a still. Pictures show over the frame. It starts with what wide screens
+ * show now, or Zaisma's own.
  */
 const BACKGROUND_PREVIEW_SCRIPT = pageScript(
   "background-preview",
   `(()=>{const panel=document.querySelector(".bg-panel");if(!panel)return;
-const frame=panel.querySelector(".bg-preview iframe"),picture=panel.querySelector(".bg-preview img"),glass=panel.querySelector("[data-sample-glass]"),note=panel.querySelector(".bg-note");
-const origin=new URL(frame.src).origin,ZAISMA=${JSON.stringify(`uniform float iDark;
-${SHADER_HELPERS}${ZAISMA_SHADER}`)};let ready=false,waiting=null,isChosen=false;
+const frame=panel.querySelector(".bg-preview iframe"),picture=panel.querySelector(".bg-picture"),note=panel.querySelector(".bg-note");
+const origin=new URL(frame.src).origin,ZAISMA=${JSON.stringify(`uniform float iDark;\n${SHADER_HELPERS}${ZAISMA_SHADER}`)};let ready=false,waiting=null,isChosen=false;
 const say=text=>{note.textContent=text||"";note.hidden=!text};
-const tellPanes=()=>{const box=frame.getBoundingClientRect(),pane=glass.getBoundingClientRect();frame.contentWindow.postMessage({panes:[{rect:[pane.left-box.left,box.bottom-pane.bottom,pane.right-box.left,box.bottom-pane.top],cuts:[20,0,16,0],isSmoked:false}]},origin)};
-const run=source=>{isChosen=true;picture.hidden=true;frame.hidden=false;say("");if(!ready){waiting=source;return}frame.contentWindow.postMessage({source},origin);tellPanes()};
-const show=url=>{isChosen=true;waiting=null;frame.hidden=true;picture.src=url;picture.hidden=false;say("")};
+// The glass over it is measured from a still: the picture, or the frame the shader hands back (the backdrop script reads data-backdrop-still).
+const measureFrom=url=>{if(url)frame.setAttribute("data-backdrop-still",url)};
+const run=source=>{isChosen=true;picture.hidden=true;say("");if(!ready){waiting=source;return}frame.contentWindow.postMessage({source},origin)};
+const show=url=>{isChosen=true;waiting=null;picture.src=url;picture.hidden=false;measureFrom(url);say("")};
 addEventListener("message",event=>{if(event.source!==frame.contentWindow||!event.data||!event.data.zaismaBackground)return;
 // Ready: what was chosen while it loaded, or Zaisma's own when nothing was.
 if(event.data.isReady){ready=true;if(waiting)run(waiting);else if(!isChosen){run(ZAISMA);isChosen=false}waiting=null}
+if(typeof event.data.stillDataUrl==="string"&&event.data.stillDataUrl.startsWith("data:image/")&&picture.hidden)measureFrom(event.data.stillDataUrl);
 if(event.data.compileError)say("It doesn't compile: "+event.data.compileError);
 if(event.data.error==="no_webgl")say("This browser can't run shaders here; players see its still frame instead.")});
 panel.addEventListener("click",event=>{const button=event.target.closest("[data-preview-source],[data-preview-picture]");if(!button)return;
@@ -1495,7 +1498,6 @@ if(button.dataset.previewPicture)show(button.dataset.previewPicture);
 else fetch(button.dataset.previewSource,{credentials:"same-origin"}).then(response=>response.ok?response.text():Promise.reject()).then(run,()=>say("That shader couldn't be loaded."))});
 panel.querySelectorAll("[data-preview-file]").forEach(input=>input.addEventListener("change",()=>{const file=input.files[0];if(!file)return;const reader=new FileReader();
 if(/\\.(glsl|frag|txt)$/i.test(file.name)||file.type.startsWith("text/")){reader.onload=()=>run(String(reader.result));reader.readAsText(file)}else{reader.onload=()=>show(String(reader.result));reader.readAsDataURL(file)}}));
-addEventListener("resize",()=>{if(ready)tellPanes()});
 const shown=panel.querySelector('.bg-screen[data-screen="wide"] .pill.live');if(shown){const button=shown.closest("figure").querySelector("[data-preview-source],[data-preview-picture]");if(button)button.click()}})();`,
 );
 
