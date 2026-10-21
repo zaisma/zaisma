@@ -31,7 +31,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSyn
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkState, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
+import { applyEnginesProof, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
 import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
@@ -179,7 +179,13 @@ const sameCodeShas = sameCodeCommits(runShipCopyGit, commitSha);
 function readCheckedCode() {
   const commitStates = sameCodeShas.map(readCheckState);
   const problem = commitStates.find((commitState) => commitState.problem);
-  return problem ? { verdict: "unreadable", ...problem } : judgeCheckedCode(commitStates);
+  if (problem) return { verdict: "unreadable", ...problem };
+  const checked = judgeCheckedCode(commitStates);
+  // A pull request's run that skipped Engine exports (none of its code changed) stands on the engines' pass before it.
+  if (checked.verdict !== "passed" || checked.engines !== "skipped") return checked;
+  const baseStates = enginesBaseCommits(runShipCopyGit, sameCodeShas, checked.commitSha).map(readCheckState);
+  const baseProblem = baseStates.find((baseState) => baseState.problem);
+  return baseProblem ? { verdict: "unreadable", ...baseProblem } : applyEnginesProof(checked, baseStates);
 }
 say("Reading GitHub's check…");
 let checkedCode = readCheckedCode();
@@ -190,9 +196,9 @@ for (let waitedSec = 0; !isDryRun && checkedCode.verdict === "running" && waited
 }
 const checkedCommitNote = checkedCode.commitSha && checkedCode.commitSha !== commitSha ? ` on ${checkedCode.commitSha.slice(0, 7)}, which has exactly this code` : "";
 let githubCheckNote;
-if (checkedCode.verdict === "passed") githubCheckNote = `GitHub's check passed${checkedCommitNote}`;
+if (checkedCode.verdict === "passed") githubCheckNote = `GitHub's check passed${checkedCommitNote}${checkedCode.enginesProofSha ? `, its pull request changed none of the code Engine exports plays, and they passed on ${checkedCode.enginesProofSha.slice(0, 7)} before it` : ""}`;
 else if (checkedCode.verdict === "unreadable") githubCheckNote = `couldn't read GitHub's check (${checkedCode.problem})`;
-else if (checkedCode.verdict === "none") githubCheckNote = "no full GitHub check on this code";
+else if (checkedCode.verdict === "none") githubCheckNote = checkedCode.enginesNote ? `no Engine exports pass on this code (${checkedCode.enginesNote})` : "no full GitHub check on this code";
 else if (checkedCode.verdict === "running") githubCheckNote = `GitHub's check still running (${checkedCode.url})`;
 else githubCheckNote = `GitHub's check failed${checkedCommitNote} (${checkedCode.url})`;
 if (!isDryRun && checkedCode.verdict === "running") finish("FAIL", `${shortSha}: GitHub's check didn't finish in ${GITHUB_CHECK_WAIT_SEC / 60} minutes (${checkedCode.url}); nothing deployed. Run npm run ship again once it has.`, 1);
