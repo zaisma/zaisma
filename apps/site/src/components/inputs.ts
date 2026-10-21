@@ -611,10 +611,11 @@ component({
 .color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; }
 /* Pointed at: a light rim inside its cut. */
 .color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
-/* Picked: the swatch keeps its whole color, and an orange bar floats under its bottom edge in the well's bottom, slanting with it.
+/* Picked: the swatch keeps its whole color, and an orange bar floats under it in the well's bottom, slanting with it: as wide as its
+   bottom edge and half the gap on either side, so the bars of swatches side by side would meet.
    It glides to the next pick like the switch's slab (--picked-index, set by COLOR_PICKER_SCRIPT). */
-.color-mark { position: absolute; left: 0; bottom: 4px; width: calc(var(--swatch-size) - var(--control-slant) - 4px); height: 4px; background: var(--run); pointer-events: none;
-  transform-origin: 0 0; transform: translateX(calc(4.5px + var(--picked-index) * (var(--swatch-size) + var(--gap-control-row-boxes)))) skewX(-17deg);
+.color-mark { position: absolute; left: 0; bottom: 4px; width: calc(var(--swatch-size) - var(--control-slant) + var(--gap-control-row)); height: 4px; background: var(--run); pointer-events: none;
+  transform-origin: 0 0; transform: translateX(calc(0.5px + var(--picked-index) * (var(--swatch-size) + var(--gap-control-row-boxes)))) skewX(-17deg);
   transition: transform 0.45s var(--spring); }
 /* Keyboard focus: the orange line round its cut, like every control's. */
 .color-pick:focus-visible { outline: none; }
