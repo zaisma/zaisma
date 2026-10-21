@@ -694,7 +694,7 @@ describe("the SDK's types say what the SDK does", () => {
     // Which room on the game's own servers, and that the player left it.
     await sdk.Zaisma.friends.setRoom({ serverUrl: "wss://play.example.com/", roomCode: "k7q2mx" });
     expect(asked.at(-1)).toEqual({ url: "/v1/friends/room", body: { gameSlug: "test-game", pass: "account-pass", serverUrl: "wss://play.example.com", roomCode: "K7Q2MX", friendJoinsEnabled: true } });
-    // A private room: friends' Join greys it.
+    // A private room: friends' Join grays it.
     await sdk.Zaisma.friends.setRoom({ serverUrl: "wss://play.example.com", roomCode: "K7Q2MX", friendJoinsEnabled: false });
     expect(asked.at(-1)!.body).toMatchObject({ roomCode: "K7Q2MX", friendJoinsEnabled: false });
     await sdk.Zaisma.friends.setRoom(null);

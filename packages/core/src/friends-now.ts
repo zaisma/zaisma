@@ -23,7 +23,7 @@ export const OWN_SERVER_ROOM_CHECK_IN_MS = 2 * 60_000;
 export const OWN_SERVER_ROOM_FRESH_MS = 5 * 60_000;
 
 /**
- * Why Join won't work, for the greyed button's reason: the game turned Join off, none of the friends in
+ * Why Join won't work, for the grayed button's reason: the game turned Join off, none of the friends in
  * the room takes this player, the game turned Join off for the room, the room is closed, or it's full.
  */
 export type JoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "match_in_progress" | "room_full";
@@ -374,7 +374,7 @@ export async function setOwnServerRoom(
   ]);
 }
 
-/** What a Join refusal says, on the greyed button's hover or tap. */
+/** What a Join refusal says, on the grayed button's hover or tap. */
 export function joinRefusalText(join: NonNullable<FriendsInGame["join"]>): string {
   if (join.refusal === "game_not_taking_joins") return "This game doesn't take joins";
   if (join.refusal === "private_room") return "Private room";

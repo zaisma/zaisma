@@ -937,7 +937,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "list_blocked_scripts",
     title: "Blocked scripts",
     description:
-      "What zaisma.com's script policy blocked in the last 7 days, from the reports browsers send, most reported first: the directive, what was blocked (inline, eval, or a script's origin) and the page. Browser extensions' reports are dropped. A script from an origin Zaisma doesn't use, on many pages, may be an injection to look into; a few inline ones are usually a browser add-on that wasn't recognised.",
+      "What zaisma.com's script policy blocked in the last 7 days, from the reports browsers send, most reported first: the directive, what was blocked (inline, eval, or a script's origin) and the page. Browser extensions' reports are dropped. A script from an origin Zaisma doesn't use, on many pages, may be an injection to look into; a few inline ones are usually a browser add-on that wasn't recognized.",
     inputSchema: object({}),
     outputSchema: BLOCKED_SCRIPT_LIST,
     annotations: read,

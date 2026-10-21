@@ -142,10 +142,10 @@ const DROPDOWN_STYLES = `
 .dropdown-form { margin: 0; }
 .dropdown-choice { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 14px; margin: 0; border: 0; cursor: pointer;
   font: var(--type-words); color: var(--ink-2); text-align: left; text-decoration: none;
-  --face-colour: transparent; background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s; }
+  --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > .tag { margin-left: auto; }
-.dropdown-choice:hover, .dropdown-choice:focus-visible { --face-colour: var(--ghost); color: var(--ink); }
+.dropdown-choice:hover, .dropdown-choice:focus-visible { --face-color: var(--ghost); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .dropdown-choice:focus-visible { outline: none; }
 .dropdown-choice:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -268,7 +268,7 @@ component({
   styles: `
 /* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
    the same glass, light or smoked, only thinner and muted, so the pane stands out and the tray stays in the background: a clearer
-   tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colours behind it less lifted, and a fainter rim, its bevel as wide. */
+   tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colors behind it less lifted, and a fainter rim, its bevel as wide. */
 .tray-group { display: flex; flex-direction: column; }
 .tray-head { padding: var(--pad-pane); }
 /* Thinner glass, closer padding: a tray sits its pieces nearer its edge than a pane does (--pad-tray, not --pad-pane), still clear of its cut foot. */
@@ -379,7 +379,7 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 
 const SHEET_STYLES = `
 /* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
-   little as it opens, and drops away as it closes; nothing in it waits for that. Centred on a wide screen; on a phone it rises from the
+   little as it opens, and drops away as it closes; nothing in it waits for that. Centered on a wide screen; on a phone it rises from the
    foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
 .sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
@@ -475,7 +475,7 @@ component({
   summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.",
   styles: `
 /* A notice: a small slab of the header's glass floating just under the header, in the middle. It comes down a little as it arrives
-   and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked colour and a close button. */
+   and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close button. */
 .notice { position: fixed; z-index: 30; top: var(--under-header, 96px); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
   display: flex; align-items: center; gap: var(--gap-words-words); min-height: 52px; padding: var(--pad-inner-pane) var(--pad-tray); --glass-tint: var(--glass-top);
   font: var(--type-words); color: var(--ink);
@@ -610,7 +610,7 @@ component({
 `,
   examples: [
     {
-      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbour distance: 4px",
+      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
       markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
     },
     {
@@ -626,7 +626,7 @@ component({
       markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }] })}</div>`)),
     },
     {
-      label: "Two blocks, here two labelled fields in a pane: 24px",
+      label: "Two blocks, here two labeled fields in a pane: 24px",
       markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
     },
     {

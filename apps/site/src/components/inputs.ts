@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, glassPane, icon, tag, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colorPicker, glassPane, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES, cutButton } from "./actions.ts";
 
 /*
@@ -345,10 +345,10 @@ const FIELD_STYLES = `
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
   font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
-  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
-.field:hover input { --face-colour: var(--field-hover); }
-.field input:focus, .field.is-focused input { outline: none; --face-colour: var(--field-focus); border: 0; }
+  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.field:hover input { --face-color: var(--field-hover); }
+.field input:focus, .field.is-focused input { outline: none; --face-color: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field .ico { position: absolute; z-index: 3; left: 18px; width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
@@ -393,13 +393,13 @@ component({
 .find input[type="search"] {
   width: 100%; height: 100%; padding: 0 16px 0 44px;
   font: 500 16px var(--display); color: var(--ink); text-overflow: ellipsis;
-  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0;
+  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
   clip-path: var(--cut-shape);
-  transition: --face-colour 0.3s;
+  transition: --face-color 0.3s;
 }
 .find input::placeholder { color: var(--muted); }
-.find input:focus, .find.is-focused input { outline: none; --face-colour: var(--field-focus); }
+.find input:focus, .find.is-focused input { outline: none; --face-color: var(--field-focus); }
 .find:focus-within .cut-line polygon, .find.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find .glass-icon { position: absolute; z-index: 2; left: 16px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-2); pointer-events: none; }
@@ -422,10 +422,10 @@ component({
 /* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
 .bday legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 52px; border: 0; cursor: pointer; text-align: left;
-  font: 500 18px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
-.bday-field:hover { --face-colour: var(--field-hover); }
-.bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; --face-colour: var(--field-focus); }
+  font: 500 18px var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.bday-field:hover { --face-color: var(--field-hover); }
+.bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; --face-color: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
 .bday-field > .ico { position: absolute; left: 18px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
 .bday-field[aria-expanded="true"] > .ico, .bday-field.set > .ico { color: var(--ink); }
@@ -560,37 +560,37 @@ component({
 
 
 component({
-  name: "Colour picker",
-  slug: "colour-picker",
+  name: "Color picker",
+  slug: "color-picker",
   group: "inputs",
-  summary: "Pick one colour from a few: a glass button's tint, the glass's hue. Swatches in a row slant toward each other like any controls; the picked one is outlined in ink and named beside them.",
+  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Swatches in a row slant toward each other like any controls; the picked one is outlined in ink and named beside them.",
   styles: `
-/* A colour picker: a .control-row of swatches. A swatch is a control like any other, cut by the edge rule; its outline is its cut line. */
-.colour-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-.colour-picker .colour-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
-.colour-picker-name { margin-left: var(--gap-words-control); }
-.colour-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
-.colour-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
-.colour-pick:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
-.colour-pick:focus-visible { outline: none; }
-.colour-pick:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.colour-pick[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
+/* A color picker: a .control-row of swatches. A swatch is a control like any other, cut by the edge rule; its outline is its cut line. */
+.color-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+.color-picker .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
+.color-picker-name { margin-left: var(--gap-words-control); }
+.color-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
+.color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
+.color-pick:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
+.color-pick:focus-visible { outline: none; }
+.color-pick:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.color-pick[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
 `,
-  render: colourPicker,
+  render: colorPicker,
   examples: [
-    { label: "Picked", markup: colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" }) },
-    { label: "Clear picked: a checker, the usual sign for see-through", markup: colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "clear" }) },
+    { label: "Picked", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" }) },
+    { label: "Clear picked: a checker, the usual sign for see-through", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "clear" }) },
   ],
 });
 
-// Page settings sits with the switch and the colour picker, which it uses (foundations.ts can't import this file).
-/** Game-like colours for the gallery's hue example. */
-const HUE_CHOICES: ColourChoice[] = [
-  { name: "None", colourValue: "", swatch: "clear" },
-  { name: "Crimson", colourValue: "#C8384A", swatch: "#C8384A" },
-  { name: "Emerald", colourValue: "#2E9E6B", swatch: "#2E9E6B" },
-  { name: "Violet", colourValue: "#7A4FD8", swatch: "#7A4FD8" },
-  { name: "Gold", colourValue: "#D9A520", swatch: "#D9A520" },
+// Page settings sits with the switch and the color picker, which it uses (foundations.ts can't import this file).
+/** Game-like colors for the gallery's hue example. */
+const HUE_CHOICES: ColorChoice[] = [
+  { name: "None", colorValue: "", swatch: "clear" },
+  { name: "Crimson", colorValue: "#C8384A", swatch: "#C8384A" },
+  { name: "Emerald", colorValue: "#2E9E6B", swatch: "#2E9E6B" },
+  { name: "Violet", colorValue: "#7A4FD8", swatch: "#7A4FD8" },
+  { name: "Gold", colorValue: "#D9A520", swatch: "#D9A520" },
 ];
 
 
@@ -609,7 +609,7 @@ component({
     {
       label: "Glass: its hue, on every piece of glass in the gallery at once",
       isWide: true,
-      markup: html`<div data-setting-hue>${colourPicker({ label: "The glass's hue", choices: HUE_CHOICES, pickedValue: "" })}</div>`,
+      markup: html`<div data-setting-hue>${colorPicker({ label: "The glass's hue", choices: HUE_CHOICES, pickedValue: "" })}</div>`,
     },
   ],
 });
@@ -688,10 +688,10 @@ const LONG_STYLES = `
 .field.long { height: auto; align-items: stretch; }
 .field.long textarea { position: relative; z-index: 2; display: block; flex: 1; min-width: 0; width: 100%; padding: 14px 16px; resize: none; overflow-y: auto;
   font: 400 16px/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
-  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
-.field.long:hover textarea { --face-colour: var(--field-hover); }
-.field.long textarea:focus, .field.long.is-focused textarea { outline: none; --face-colour: var(--field-focus); }
+  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.field.long:hover textarea { --face-color: var(--field-hover); }
+.field.long textarea:focus, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
 .field.long textarea::placeholder { color: var(--muted); }
 .field.long.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .long-count { margin: 0; align-self: flex-end; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -760,11 +760,11 @@ component({
 /* A select field: the cut field, holding the system's own select with its arrow hidden; the birthday field's chevron sits at its end. */
 .field.select select { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 48px 0 52px; appearance: none; -webkit-appearance: none; cursor: pointer;
   font: 500 18px var(--display); color: var(--ink); text-overflow: ellipsis;
-  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
+  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.select.no-icon select { padding-left: 18px; }
-.field.select:hover select { --face-colour: var(--field-hover); }
-.field.select select:focus, .field.select.is-focused select { outline: none; --face-colour: var(--field-focus); }
+.field.select:hover select { --face-color: var(--field-hover); }
+.field.select select:focus, .field.select.is-focused select { outline: none; --face-color: var(--field-focus); }
 .field.select option { color: #14171C; background: #fff; }
 .select-chev { position: absolute; z-index: 3; right: 18px; display: inline-flex; color: var(--ink); pointer-events: none; }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
@@ -820,11 +820,11 @@ component({
    the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
-  --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
+  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, color 0.2s; }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
-.check:hover .check-box, .check.is-pointed .check-box { --face-colour: var(--field-hover); }
-.check-box:has(.check-input:checked) { --face-colour: #fff; color: var(--run); }
+.check:hover .check-box, .check.is-pointed .check-box { --face-color: var(--field-hover); }
+.check-box:has(.check-input:checked) { --face-color: #fff; color: var(--run); }
 .check-box:has(.check-input:checked) > .ico { transform: scale(1); }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 .check:active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
@@ -891,15 +891,15 @@ component({
 .choices > legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-control-stack); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
-  color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s; }
+  color: var(--ink-2); --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s; }
 .choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
 .choice-words { display: grid; gap: var(--gap-words-words); }
 .choice-label { font: var(--type-label); color: var(--ink); }
 .choice-text { font: var(--type-note); color: var(--muted); }
-.choice-card:hover, .choice-card.is-pointed { --face-colour: var(--btn-hover); }
-.choice-card:active, .choice-card.is-pressed { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.choice-card:hover, .choice-card.is-pointed { --face-color: var(--btn-hover); }
+.choice-card:active, .choice-card.is-pressed { --face-color: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
 .choice-card:active > .cut-line, .choice-card.is-pressed > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 /* Picked: the switch's slab, white with the orange line along its foot, its words and icon in full ink. */
 .choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); color: var(--ink); }
@@ -943,12 +943,12 @@ component({
 .toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
-.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-colour: var(--well); background: var(--face-colour); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-colour 0.3s; }
+.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab is solid, so the orange behind it never tints it. */
 .toggle-slab { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape);
   transition: transform 0.4s var(--spring), filter 0.2s; }
-.toggle-slot:has(.toggle-input:checked) { --face-colour: var(--run); }
+.toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-slab { transform: translateX(24px); }
 .toggle:hover .toggle-slab, .toggle.is-pointed .toggle-slab { filter: brightness(1.06); }
 .toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { filter: brightness(0.94); box-shadow: var(--press-shade); }

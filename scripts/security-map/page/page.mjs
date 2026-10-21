@@ -848,7 +848,7 @@ function drawLabels(context) {
       context.shadowColor = COLORS.accent;
       context.shadowBlur = 8;
       const nameWidth = context.measureText(node.label).width;
-      // Under the node when its neighbours are far enough apart; along its own spoke, outward, when they aren't.
+      // Under the node when its neighbors are far enough apart; along its own spoke, outward, when they aren't.
       if (nameWidth + 12 <= sectorSpacingPx()) {
         context.textAlign = "center";
         context.fillStyle = COLORS.fg;
@@ -1192,7 +1192,7 @@ function focusNode(nodeId, minimumScale = 1.4) {
   moveView(viewKeeping(position.x, position.y, centerX, centerY, scale), true);
 }
 
-/** Opens whatever hides the node, centres it and selects it. */
+/** Opens whatever hides the node, centers it and selects it. */
 function revealNode(nodeId) {
   if (!state.graph.nodesById.has(nodeId)) return;
   const toExpand = expandedIdsToReveal(state.graph, nodeId).filter((id) => !state.expandedIds.has(id));

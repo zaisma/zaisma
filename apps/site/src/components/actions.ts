@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, glassPane, icon, loader, sheetMarkup, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
 
 /*
- * Actions, loudest to quietest: the runner button (the one coloured thing you press), the cut button beside it,
+ * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it,
  * the glass buttons for the other ways in, and the guest button below them. Each answers the pointer, the press
  * and the keyboard in its own way, so none of them feels dead.
  */
@@ -87,12 +87,12 @@ const GOOGLE = raw(
   '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>',
 );
 const DISCORD = raw(
-  '<svg class="one-colour" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
+  '<svg class="one-color" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25 19.74 19.74 0 0 0-4.88 1.52C.53 9.050-.32 13.58.1 18.06a19.9 19.9 0 0 0 5.99 3.03c.46-.63.87-1.3 1.23-1.99a13.1 13.1 0 0 1-1.870-.9l.37-.29c3.93 1.79 8.18 1.79 12.06 0l.37.29c-.6.35-1.22.65-1.87.9.36.7.77 1.36 1.22 1.99a19.84 19.84 0 0 0 6-3.03c.5-5.18-.84-9.68-3.55-13.66zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.420 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.420 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
 );
-/** The other ways in, with the marks their owners ask for. A mark that may also be one colour (Discord's) is class one-colour. */
+/** The other ways in, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
 const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey) } as const;
 
-/** A glass button's tint: clear glass, or glass tinted the colour of the way in. Each way has its own unless the page picks one. */
+/** A glass button's tint: clear glass, or glass tinted the color of the way in. Each way has its own unless the page picks one. */
 export type GlassTint = "clear" | "white" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
 
@@ -177,7 +177,7 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
 const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 
 const RUN_STYLES = `
-/* The runner button: the one coloured thing you can press. A raised orange slab, the same height as every other button,
+/* The runner button: the one colored thing you can press. A raised orange slab, the same height as every other button,
    lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
    a glint crosses it as you arrive; a press sinks it into the glass, its light turning round, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
@@ -284,8 +284,8 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
-  --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape);
-  transition: --face-colour 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
+  --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
+  transition: --face-color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
 .cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
 .cut-btn.small > .face { height: 36px; padding: 0 14px; }
@@ -294,26 +294,26 @@ component({
 .cut-btn.small.icon-only > .face { width: 42px; }
 .cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
-.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-colour: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
+.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-color: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
 /* A toggle that's on stays sunk, the same as a press. */
-.cut-btn[aria-pressed="true"] > .face { --face-colour: var(--btn-press); }
+.cut-btn[aria-pressed="true"] > .face { --face-color: var(--btn-press); }
 .cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line, .cut-btn[aria-pressed="true"] > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
-.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-colour: var(--btn-hover); }
+.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-color: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
 /* Can't press: it lies flat, faded, and answers nothing. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; }
-.cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-colour: transparent; opacity: 0.35; box-shadow: none; transform: none; }
+.cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-color: transparent; opacity: 0.35; box-shadow: none; transform: none; }
 .cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 /* Waiting: the loader before its words, in the icon's place. */
 .cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
 .cut-btn .face > .loader { position: relative; z-index: 2; }
 @media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
-@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-colour 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s; } }
 `,
   render: cutButton,
   examples: [
@@ -332,15 +332,15 @@ component({
 
 const PICTURE = "display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane);background-position:center;background-size:cover;";
 const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
-/** A glass button's tints, for a colour picker (inputs.ts's Colour picker, the gallery's tint palette). */
-export const TINT_CHOICES: (ColourChoice & { colourValue: GlassTint })[] = [
-  { name: "Clear", colourValue: "clear", swatch: "clear" },
-  { name: "White", colourValue: "white", swatch: "#fff" },
-  { name: "Blue", colourValue: "blue", swatch: "#2A75E8" },
-  { name: "Indigo", colourValue: "indigo", swatch: "#5865F2" },
-  { name: "Black", colourValue: "black", swatch: "#14171C" },
+/** A glass button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
+export const TINT_CHOICES: (ColorChoice & { colorValue: GlassTint })[] = [
+  { name: "Clear", colorValue: "clear", swatch: "clear" },
+  { name: "White", colorValue: "white", swatch: "#fff" },
+  { name: "Blue", colorValue: "blue", swatch: "#2A75E8" },
+  { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
+  { name: "Black", colorValue: "black", swatch: "#14171C" },
 ];
-const tintPalette = () => html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}${colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
+const tintPalette = () => html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}${colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" })}</div>`;
 const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
 
 component({
@@ -388,37 +388,37 @@ component({
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
 /* A dark tint is a solid slab: no dark hairline, white facets or white top highlight (those read as a glitchy frame), only a
-   rim in a lighter shade of its own colour, and a lift shadow that stays in its colour. */
+   rim in a lighter shade of its own color, and a lift shadow that stays in its color. */
 .glass-btn[data-tint="blue"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="indigo"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band), .glass-btn[data-tint="black"] .edge :is(.hair, .fringe, .facet, .inner, .spec-line, .dense, .rim-band) { opacity: 0; }
-.glass-btn[data-tint="blue"] .edge .rim, .glass-btn[data-tint="indigo"] .edge .rim, .glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 58%, white); stroke-width: 1.6; opacity: 1; }
-.glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 70%, white); }
+.glass-btn[data-tint="blue"] .edge .rim, .glass-btn[data-tint="indigo"] .edge .rim, .glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-color) 58%, white); stroke-width: 1.6; opacity: 1; }
+.glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-color) 70%, white); }
 .glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
 .glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
 .glass-btn[data-tint="blue"]:focus-visible .edge .rim, .glass-btn[data-tint="indigo"]:focus-visible .edge .rim, .glass-btn[data-tint="black"]:focus-visible .edge .rim,
 .glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; }
-/* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
-   follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
+/* Tinted: the way's own color, nearly solid, in either theme (a brand's color is how you recognize it, so it doesn't
+   follow light or dark): white glass with dark words, the colored and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
-.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)); }
-/* A brand's glass keeps its own colour: the page's hue never reaches it. */
+.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-color) var(--tint-pct), transparent)); }
+/* A brand's glass keeps its own color: the page's hue never reaches it. */
 .glass-btn[data-tint]:not([data-tint="clear"]) > .face { --glass-wash: linear-gradient(transparent, transparent); }
-.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-colour 0.3s, --tint-pct 0.3s; }
+.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-color 0.3s, --tint-pct 0.3s; }
 .glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
 .glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
 .glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
-.glass-btn[data-tint="white"] > .face { --tint-colour: #fff; color: #14171C; }
+.glass-btn[data-tint="white"] > .face { --tint-color: #fff; color: #14171C; }
 .glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; }
 .glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --pointer-glow: rgba(255,255,255,0.35); }
 .glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
-.glass-btn[data-tint="blue"] > .face { --tint-colour: #2A75E8; }
-.glass-btn[data-tint="indigo"] > .face { --tint-colour: #5865F2; }
-.glass-btn[data-tint="black"] > .face { --tint-colour: #14171C; }
-/* On a coloured or black tint a coloured mark would sink into it, so a mark that may be one colour turns white with the words.
-   Google's G stays in its colours, which only ever sit on white or clear glass. */
-.glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
+.glass-btn[data-tint="blue"] > .face { --tint-color: #2A75E8; }
+.glass-btn[data-tint="indigo"] > .face { --tint-color: #5865F2; }
+.glass-btn[data-tint="black"] > .face { --tint-color: #14171C; }
+/* On a colored or black tint a colored mark would sink into it, so a mark that may be one color turns white with the words.
+   Google's G stays in its colors, which only ever sit on white or clear glass. */
+.glass-btn[data-tint="blue"] .one-color path, .glass-btn[data-tint="indigo"] .one-color path, .glass-btn[data-tint="black"] .one-color path { fill: currentColor; transition: fill 0.3s; }
 /* On clear glass it's white over smoked glass, and its own blue over light (the fallback, since light glass leaves --clear-glass-mark unset). */
-.glass-btn[data-tint="clear"] .one-colour path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
-/* The gallery's tint palette: a Colour picker; pick one and the button above takes it (GALLERY_SCRIPT). */
+.glass-btn[data-tint="clear"] .one-color path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
+/* The gallery's tint palette: a Color picker; pick one and the button above takes it (GALLERY_SCRIPT). */
 .tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 @media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: var(--glass-transition); } }
 `,
@@ -446,9 +446,9 @@ component({
 .guest-btn { display: flex; width: 100%; }
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
-  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-colour: transparent; background-color: var(--face-colour);
+  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
   clip-path: var(--cut-shape);
-  transition: --face-colour 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }
 .guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
@@ -456,15 +456,15 @@ component({
 /* Waiting: the loader takes the arrow's place. */
 .guest-btn:not([aria-busy="true"]) .loader, .guest-btn[aria-busy="true"] .arrow { display: none; }
 .guest-btn[aria-busy="true"] { cursor: progress; }
-.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-colour: var(--clear-hover); }
+.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-color: var(--clear-hover); }
 .guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
 .guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
-.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-colour: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
+.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 .guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
 .guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
 .guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
 .guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-colour 0.2s, color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-color 0.2s, color 0.2s; } }
 `,
   render: guestButton,
   examples: [
@@ -599,19 +599,19 @@ component({
 .danger-wrap:focus-visible { outline: none; }
 .danger { position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 44px; padding: 0 24px;
   color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 16px var(--display); white-space: nowrap;
-  --face-colour: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-colour);
-  clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  --face-color: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-color);
+  clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
 .danger > :not(.cut-line) { position: relative; z-index: 2; }
-.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-colour: #E44A3B; }
-.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-colour: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transform: translateY(1px); transition-duration: 0.08s; }
+.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-color: #E44A3B; }
+.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-color: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transform: translateY(1px); transition-duration: 0.08s; }
 .danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
 .danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .danger-wrap[aria-busy="true"] { cursor: progress; }
 .danger-wrap:not([aria-busy="true"]) .loader { display: none; }
 [data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
 @media (max-width: 760px) { .danger { padding: 0 20px; font-size: 15px; } }
-@media (prefers-reduced-motion: reduce) { .danger { transition: --face-colour 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .danger { transition: --face-color 0.2s; } }
 `,
   render: deleteButton,
   examples: [

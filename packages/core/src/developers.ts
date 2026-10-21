@@ -629,7 +629,7 @@ export interface DetailsChange {
   account_offer_enabled?: boolean;
   /** Erase a player who deletes their Zaisma account from the game database. Off for games that must keep some of their rows. */
   deleted_account_erase_enabled?: boolean;
-  /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms. Off greys it as "This game doesn't take joins". */
+  /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms. Off grays it as "This game doesn't take joins". */
   friend_joins_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
@@ -697,7 +697,7 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     change.deleted_account_erase_enabled = input.deleted_account_erase_enabled;
   }
   if ("friend_joins_enabled" in input) {
-    const fix = "Send true (the default: friends' Join on zaisma.com takes players into this game's rooms) or false (Join shows greyed as \"This game doesn't take joins\"). One room turns it off with room.setFriendJoinsEnabled(false).";
+    const fix = "Send true (the default: friends' Join on zaisma.com takes players into this game's rooms) or false (Join shows grayed as \"This game doesn't take joins\"). One room turns it off with room.setFriendJoinsEnabled(false).";
     if (typeof input.friend_joins_enabled !== "boolean") return refuse("friend_joins_enabled", "friend_joins_enabled isn't true or false.", fix);
     change.friend_joins_enabled = input.friend_joins_enabled;
   }

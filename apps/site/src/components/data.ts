@@ -69,8 +69,8 @@ component({
   summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, on a profile. ",
   styles: `
 /* An account's picture under a small frame of the panes' glass. Always square: never cut or slanted, alone or in a row. The glass itself
-   is clear (no tint of its own), so the picture runs right to its edges and the drawn rim lies over the picture's own colours, the way a
-   pane's edge takes the colour of what's under it. */
+   is clear (no tint of its own), so the picture runs right to its edges and the drawn rim lies over the picture's own colors, the way a
+   pane's edge takes the color of what's under it. */
 .frame { --frame: 44px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;
   font: var(--type-tag); color: var(--ink); }
 .frame.sm { --frame: 32px; }
@@ -202,7 +202,7 @@ component({
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
 .list-rows > li + li { border-top: var(--divider); }
 .list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px 12px; color: var(--ink); text-decoration: none; }
-.list-row.is-link { --face-colour: transparent; background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s; -webkit-tap-highlight-color: transparent; }
+.list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line):not(.list-row-line) { position: relative; z-index: 2; }
 .list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
 .list-row-title { font: var(--type-label); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -211,11 +211,11 @@ component({
 .list-row-line { position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
 .list-row-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
-.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-colour: var(--ghost); }
+.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--ghost); }
 .list-row.is-link:hover > .list-row-line, .list-row.is-link.is-pointed > .list-row-line, .list-row.is-link:focus-visible > .list-row-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
 .list-row.is-link:hover > .list-row-line::after, .list-row.is-link.is-pointed > .list-row-line::after { animation: row-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes row-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
-.list-row.is-link:active { --face-colour: var(--wash-press); }
+.list-row.is-link:active { --face-color: var(--wash-press); }
 .list-row.is-link:focus-visible { outline: none; }
 .list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 @media (prefers-reduced-motion: reduce) { .list-row-line { transition: none; } .list-row-line::after { animation: none !important; } }

@@ -92,7 +92,7 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 }
 
 export const GALLERY_STYLES = `
-/* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labelled cells. */
+/* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labeled cells. */
 /* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
 html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
@@ -224,7 +224,7 @@ export const GALLERY_SCRIPT = pageScript(
     event.preventDefault();
     var sheet = event.target.closest("dialog.sheet"); if (sheet && sheet.open) sheet.close();
   });
-  // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
+  // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colors.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {
     var gl = canvas.getContext("webgl", { antialias: true });
     if (!gl) return;
@@ -250,13 +250,13 @@ export const GALLERY_SCRIPT = pageScript(
     var turn = gl.getUniformLocation(program, "turn"), aspect = gl.getUniformLocation(program, "aspect"), lit = gl.getUniformLocation(program, "lit"), shade = gl.getUniformLocation(program, "shade");
     gl.enable(gl.DEPTH_TEST);
     canvas.addEventListener("backdrop-frame", function (event) {
-      var frame = event.detail, colours = frame.colours, y = frame.timeS * 0.3, x = 0.35 + 0.15 * Math.sin(frame.timeS * 0.2);
+      var frame = event.detail, colors = frame.colors, y = frame.timeS * 0.3, x = 0.35 + 0.15 * Math.sin(frame.timeS * 0.2);
       var cy = Math.cos(y), sy = Math.sin(y), cx = Math.cos(x), sx = Math.sin(x);
       gl.viewport(0, 0, frame.widthPx, frame.heightPx);
-      gl.clearColor(colours.base[0], colours.base[1], colours.base[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.clearColor(colors.base[0], colors.base[1], colors.base[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix3fv(turn, false, [cy, 0, -sy, sy * sx, cx, cy * sx, sy * cx, -sx, cy * cx]);
       gl.uniform1f(aspect, frame.widthPx / frame.heightPx);
-      gl.uniform3fv(lit, colours.a.map(function (v) { return Math.min(1, v * 1.2 + 0.08); })); gl.uniform3fv(shade, colours.c.map(function (v) { return v * 0.6; }));
+      gl.uniform3fv(lit, colors.a.map(function (v) { return Math.min(1, v * 1.2 + 0.08); })); gl.uniform3fv(shade, colors.c.map(function (v) { return v * 0.6; }));
       gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
     });
   });
@@ -316,8 +316,8 @@ export const GALLERY_SCRIPT = pageScript(
   document.addEventListener("click", function (event) {
     var themePick = event.target.closest && event.target.closest("[data-setting-theme] button");
     if (themePick) { apply(themePick.value); return; }
-    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .colour-pick");
-    if (huePick) window.zaismaSettings.set({ glass: { hueColour: huePick.getAttribute("data-colour-value") || null } }, stage);
+    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .color-pick");
+    if (huePick) window.zaismaSettings.set({ glass: { hueColor: huePick.getAttribute("data-color-value") || null } }, stage);
   });
   pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
@@ -354,8 +354,8 @@ export const GALLERY_SCRIPT = pageScript(
   });
   // The glass button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
-    var swatch = event.target.closest && event.target.closest("[data-tint-try] .colour-pick"); if (!swatch) return;
-    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-colour-value"));
+    var swatch = event.target.closest && event.target.closest("[data-tint-try] .color-pick"); if (!swatch) return;
+    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-color-value"));
   });
 })();
 `,

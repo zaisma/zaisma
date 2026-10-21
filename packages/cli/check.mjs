@@ -79,7 +79,7 @@ const lineAround = (text, index) => {
  * Engine and library output: Unity's framework and loader, a .js beside a .wasm of the same name (Godot,
  * Emscripten), wasm-bindgen's glue (Bevy, Trunk) beside its _bg.wasm, macroquad's and miniquad's loader
  * beside a .wasm, and minified libraries. Their code mentions dialogs, cameras and the like without the game
- * using them, so the behaviour checks skip them.
+ * using them, so the behavior checks skip them.
  */
 export function isEngineOutput(path, lowercasePaths) {
   const lowercasePath = path.toLowerCase();

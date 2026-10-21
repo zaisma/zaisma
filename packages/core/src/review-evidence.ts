@@ -209,7 +209,7 @@ export const itemKey = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">) =>
 export const isSameItem = (first: Pick<EvidenceItem, "kind" | "subject" | "path" | "quote">, second: Pick<EvidenceItem, "kind" | "subject" | "path" | "quote">): boolean =>
   first.kind === second.kind && first.subject === second.subject && first.path === second.path && first.quote === second.quote;
 
-/** Findings a fix's review always keeps, new in the evidence or not: the review's floor, never its judgement calls. */
+/** Findings a fix's review always keeps, new in the evidence or not: the review's floor, never its judgment calls. */
 export const NEVER_NARROWED_FINDING_CODES: readonly string[] = ["ai_minors_sexualized", "ai_malware", "ai_phishing_or_scam"];
 
 /** What a fixable hold stands on: a dodged protection, typed text others read as written, or personal details asked of players. */

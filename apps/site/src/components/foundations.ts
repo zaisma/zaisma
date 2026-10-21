@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 
 /*
- * The foundations of Zaisma's look: the tokens every component takes its colours from, the glass and its
+ * The foundations of Zaisma's look: the tokens every component takes its colors from, the glass and its
  * drawn rim, the cut shapes, the motion and the line icons. From the drafts Julius approved (ops
  * docs/drafts/look-and-voice/). "Zaisma is the glass, and the game is not"; orange only on what you act on.
  */
@@ -28,7 +28,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --glass-btn-face: rgba(255, 255, 255, 0.36); --glass-btn-hover: rgba(255, 255, 255, 0.72); --glass-btn-press: rgba(255, 255, 255, 0.26); --pointer-glow: rgba(255, 255, 255, 1);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(30, 60, 110, 0.2), inset 0 1px 0 #fff; --glass-btn-hair: rgba(26, 44, 80, 0.1); --glass-btn-hair-rest: rgba(26, 44, 80, 0.12);
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
-  /* A one-colour mark on clear glass (Discord's): unset on light glass, so it keeps its own colour; white on smoked. */
+  /* A one-color mark on clear glass (Discord's): unset on light glass, so it keeps its own color; white on smoked. */
   --clear-glass-mark: initial;
   /* What shows only on light glass, and only on smoked (the light-dark icon's sun and moon). */
   --on-light: inline; --on-smoked: none;
@@ -88,16 +88,16 @@ const SMOKED_GLASS = `color-scheme: dark;
 export const TOKEN_STYLES = `
 @font-face { font-family: Jost; src: url(/fonts/jost.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
-@property --tint-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@property --tint-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 /* Registered, so a change of hue eases over half a second, like a change of theme, instead of cutting. */
 @property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
-/* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered colour fades in the page itself, so the browser
+/* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered color fades in the page itself, so the browser
    never lifts the glass onto a layer of its own for the fade and drops it at the end, which flashed blurred glass as a fade finished. */
 @property --glass-shown-tint { syntax: "<color>"; inherits: false; initial-value: transparent; }
-/* A control's face colour, the same way: every control that changes colour (a hover, a press, light to dark) sets --face-colour and
+/* A control's face color, the same way: every control that changes color (a hover, a press, light to dark) sets --face-color and
    fades it, never its background, so no control flashes as a fade ends. design.test.ts checks that nothing fades a background. */
-@property --face-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@property --face-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -137,7 +137,7 @@ export const TOKEN_STYLES = `
   --glass-blur: 24px;
   /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
   --glass-transition: --glass-shown-tint 0.5s ease, color 0.3s ease;
-  /* The glass's hue (PageSettings' glass.hueColour): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own colour. */
+  /* The glass's hue (PageSettings' glass.hueColor): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own color. */
   --glass-hue: transparent;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
@@ -147,7 +147,7 @@ export const TOKEN_STYLES = `
   --focus: var(--run); --focus-on-run: var(--run-lo); --focus-stroke: 4;
   /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
-     boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
+     boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbor distance. */
   --control-slant: 10px;
   --gap-control-row: 4px;
   --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
@@ -189,8 +189,8 @@ export const TOKEN_STYLES = `
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
    nothing else paints it: it's a tint (--glass-tint, which a component may set to its own, like the header's --glass-top),
-   a layer over the tint a component may set (--glass-layer, a glass button's brand colour), the page's hue (--glass-wash),
-   the light on it (--glass-sheen: brightest at its top left, a little shade along its foot), the blur and colour of what's
+   a layer over the tint a component may set (--glass-layer, a glass button's brand color), the page's hue (--glass-wash),
+   the light on it (--glass-sheen: brightest at its top left, a little shade along its foot), the blur and color of what's
    behind (--glass-blur, --glass-saturate), the way it changes (--glass-transition), and on a slab, cut corners with a drawn
    rim (data-glass: the svg.edge GLASS_SCRIPT draws, sizing its corners and bevel to the slab). design.test.ts checks that
    no other rule paints glass. */
@@ -234,7 +234,7 @@ export const TOKEN_STYLES = `
 .cut-line .cut-band.on-bottom-right { fill: color-mix(in srgb, var(--band-bottom, transparent), var(--band-right, transparent)); }
 .cut-line .cut-band.on-bottom-left { fill: color-mix(in srgb, var(--band-bottom, transparent), var(--band-left, transparent)); }
 .cut-line .cut-band.on-top-left { fill: color-mix(in srgb, var(--band-top, transparent), var(--band-left, transparent)); }
-/* Line icons: drawn with the words' colour. */
+/* Line icons: drawn with the words' color. */
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .ico.solid { fill: currentColor; stroke: none; }
 .ico .on-light { display: var(--on-light); }
@@ -243,7 +243,7 @@ export const TOKEN_STYLES = `
 
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
 
-/** Every line icon the drafts use. Each is drawn in the words' colour (.ico). */
+/** Every line icon the drafts use. Each is drawn in the words' color (.ico). */
 export const ICONS = {
   person: stroke("0 0 20 20", '<circle cx="10" cy="6.8" r="3.2"/><path d="M3.8 17.2c0-3.4 2.8-5.9 6.2-5.9s6.2 2.5 6.2 5.9"/>'),
   people: stroke("0 0 16 16", '<circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/>', ' stroke-width="1.5"'),
@@ -294,7 +294,7 @@ export function ago(durationMs: number): string {
   return dayCount === 1 ? "yesterday" : `${dayCount} days ago`;
 }
 
-/** Zaisma's wordmark and mark, drawn in the words' colour (brand/zaisma-wordmark-black.svg, brand/zaisma-mark-black.svg). */
+/** Zaisma's wordmark and mark, drawn in the words' color (brand/zaisma-wordmark-black.svg, brand/zaisma-mark-black.svg). */
 const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
 export const WORDMARK = raw(
   `<svg viewBox="-120 1080 9988 2820" role="img" aria-label="Zaisma"><g fill="currentColor"><g transform="translate(0 3779) scale(0.62132) translate(0 -3779)">${MARK_PATHS}</g><g transform="translate(-1953 0)"><path d="M4957,1879 L5877,1879 L6132,3779 L5212,3779 L4837,3449 L4765,2909 L5051,2579 L5601,2579 L5557,2249 L4677,2249 Z M5140,2949 L5650,2949 L5712,3409 L5202,3409 Z" fill-rule="evenodd"/><path d="M6077,1879 L6447,1879 L6702,3779 L6332,3779 Z M5991,1239 L6541,1239 L6412,1619 L6042,1619 Z" fill-rule="evenodd"/><path d="M6647,1879 L7847,1879 L7667,2249 L7067,2249 L7120,2644 L7950,2644 L8102,3779 L6902,3779 L7082,3409 L7682,3409 L7629,3014 L6799,3014 Z" fill-rule="evenodd"/><path d="M8091,2209 L8377,1879 L9997,1879 L10252,3779 L9882,3779 L9677,2249 L9257,2249 L9462,3779 L9092,3779 L8887,2249 L8467,2249 L8672,3779 L8302,3779 Z" fill-rule="evenodd"/><path d="M10527,1879 L11447,1879 L11702,3779 L10782,3779 L10407,3449 L10335,2909 L10621,2579 L11171,2579 L11127,2249 L10247,2249 Z M10710,2949 L11220,2949 L11282,3409 L10772,3409 Z" fill-rule="evenodd"/></g></g></svg>`,
@@ -334,7 +334,7 @@ export function tray(options: { head: Raw; body: Raw; label?: string }): Raw {
 export const logo = (kind: "wordmark" | "mark"): Raw =>
   html`<a class="logo ${kind}" href="/" aria-label="Zaisma home">${kind === "wordmark" ? WORDMARK : MARK}</a>`;
 
-/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' colour. Shown only once something was pressed. */
+/** The loader: the Z building itself, one loop a second (brand/loader/zaisma-loader.svg), in the words' color. Shown only once something was pressed. */
 export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></span>');
 
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
@@ -344,31 +344,31 @@ export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="
 export type TagTone = "new" | "count" | "warning" | "glass";
 export const tag = (words: string | number, tone: TagTone): Raw => html`<span class="tag ${tone}${tone === "glass" ? " glass" : ""}">${String(words)}</span>`;
 
-export interface ColourChoice {
+export interface ColorChoice {
   /** What it's called, said by a screen reader and shown beside the picker when it's picked. */
   name: string;
-  /** The value a page script reads (data-colour-value). */
-  colourValue: string;
-  /** What the swatch shows: a colour, or "clear" for a checker (see-through, or none). */
+  /** The value a page script reads (data-color-value). */
+  colorValue: string;
+  /** What the swatch shows: a color, or "clear" for a checker (see-through, or none). */
   swatch: string;
 }
 
-/** A colour picker (inputs.ts's Colour picker shows it): a row of cut swatches that slant toward each other, the picked one outlined in ink, its name beside them. */
-export function colourPicker(options: { label: string; choices: ColourChoice[]; pickedValue: string; extra?: Raw }): Raw {
-  const picked = options.choices.find((choice) => choice.colourValue === options.pickedValue);
-  return html`<div class="colour-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}>${options.choices.map(
+/** A color picker (inputs.ts's Color picker shows it): a row of cut swatches that slant toward each other, the picked one outlined in ink, its name beside them. */
+export function colorPicker(options: { label: string; choices: ColorChoice[]; pickedValue: string; extra?: Raw }): Raw {
+  const picked = options.choices.find((choice) => choice.colorValue === options.pickedValue);
+  return html`<div class="color-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}>${options.choices.map(
     (choice) =>
-      html`<button type="button" class="colour-pick" data-cut-line="6" data-colour-value="${choice.colourValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
-  )}<span class="colour-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
+      html`<button type="button" class="color-pick" data-cut-line="6" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
+  )}<span class="color-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
 }
 
-/** A pick moves the outline and the name; what the colour changes is the page's own script's (it reads data-colour-value). */
-export const COLOUR_PICKER_SCRIPT = `/* colour pickers */(function () {
+/** A pick moves the outline and the name; what the color changes is the page's own script's (it reads data-color-value). */
+export const COLOR_PICKER_SCRIPT = `/* color pickers */(function () {
   document.addEventListener("click", function (event) {
-    var pick = event.target.closest && event.target.closest(".colour-pick"); if (!pick) return;
-    var picker = pick.closest(".colour-picker");
-    picker.querySelectorAll(".colour-pick").forEach(function (each) { each.setAttribute("aria-pressed", String(each === pick)); });
-    picker.querySelector(".colour-picker-name").textContent = pick.getAttribute("aria-label");
+    var pick = event.target.closest && event.target.closest(".color-pick"); if (!pick) return;
+    var picker = pick.closest(".color-picker");
+    picker.querySelectorAll(".color-pick").forEach(function (each) { each.setAttribute("aria-pressed", String(each === pick)); });
+    picker.querySelector(".color-picker-name").textContent = pick.getAttribute("aria-label");
   });
 })();
 `;
@@ -411,7 +411,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return [[i, d[0]], [d[0], i], [w - d[1], i], [w - i, d[1]], [w - i, h - d[2]], [w - d[2], h - i], [d[3], h - i], [i, h - d[3]]];
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
-  // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbours always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
+  // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbors always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
   var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
   // A control made of glass takes its sides' light from the way each faces (the same steps, round the same way).
   var FACING_LIGHT = { "top-left": 80, top: 100, "top-right": 70, right: 28, "bottom-right": 12, bottom: 0, "bottom-left": 40, left: 62 };
@@ -443,7 +443,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         bevel: node("g", { "class": "bevel" }), bevelQuads: [],
         hair: node("polygon", { "class": "hair", fill: "none", "stroke-width": "1.2" }),
         rimBand: node("g", { "class": "rim-band" }), rimQuads: [],
-        // A plain line on the rim, unseen until a tinted or focused slab colours it.
+        // A plain line on the rim, unseen until a tinted or focused slab colors it.
         rim: node("polygon", { "class": "rim", fill: "none", "stroke-width": "1.6" }),
         spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
@@ -484,7 +484,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       parts.hair.setAttribute("points", pointList(at(0.6)));
       parts.rim.setAttribute("points", pointList(at(1.6)));
       parts.spec.setAttribute("points", pointList(at(1.6)));
-      // Dispersion: a faint split of colour along the facet's inner edge, where the light bends.
+      // Dispersion: a faint split of color along the facet's inner edge, where the light bends.
       parts.fringe.setAttribute("points", pointList(at(Math.max(2.4, band - 0.8))));
       parts.inner.setAttribute("points", pointList(at(band)));
       // The cut facets: a bright line on each side cut across a corner, the one facing the light brightest.
@@ -522,7 +522,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // Half a pixel over the token, for gaps a layout rounds.
   var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
   var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
-  // Neighbours side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
+  // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   function glassCorners(pane) {
     var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
@@ -604,7 +604,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return points.filter(function (p, i) { var q = points[(i + points.length - 1) % points.length]; return Math.abs(p[0] - q[0]) > 0.01 || Math.abs(p[1] - q[1]) > 0.01; });
   }
   function cssPolygon(points) { return "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")"; }
-  // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbours.
+  // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbors.
   function insetShape(points, d) {
     if (!d) return points;
     var n = points.length, lines = points.map(function (p, i) {
@@ -669,18 +669,18 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   }
   // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
-  // { theme: "light" | "dark" | null } and { glass: { hueColour: "#rrggbb" | null } }, null going back to the default.
+  // { theme: "light" | "dark" | null } and { glass: { hueColor: "#rrggbb" | null } }, null going back to the default.
   window.zaismaSettings = {
     set: function (settings, element) {
       var target = element || document.documentElement;
       target.classList.add("eases-settings");
       if (settings.theme !== undefined) { if (settings.theme === "light" || settings.theme === "dark") target.setAttribute("data-theme-choice", settings.theme); else target.removeAttribute("data-theme-choice"); }
       var glass = settings.glass;
-      if (glass && glass.hueColour !== undefined) { if (typeof glass.hueColour === "string" && /^#[0-9a-fA-F]{6}$/.test(glass.hueColour)) target.style.setProperty("--glass-hue", glass.hueColour); else target.style.removeProperty("--glass-hue"); }
+      if (glass && glass.hueColor !== undefined) { if (typeof glass.hueColor === "string" && /^#[0-9a-fA-F]{6}$/.test(glass.hueColor)) target.style.setProperty("--glass-hue", glass.hueColor); else target.style.removeProperty("--glass-hue"); }
     },
     read: function (element) {
       var target = element || document.documentElement, hue = target.style.getPropertyValue("--glass-hue").trim();
-      return { theme: target.getAttribute("data-theme-choice") || null, glass: { hueColour: hue || null } };
+      return { theme: target.getAttribute("data-theme-choice") || null, glass: { hueColor: hue || null } };
     }
   };
   window.zaismaGlass = glass;
@@ -708,9 +708,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
 `;
 
 /**
- * Zaisma's own backdrop shader: three soft lights in the theme's backdrop colours drifting very slowly, crossed by wide
+ * Zaisma's own backdrop shader: three soft lights in the theme's backdrop colors drifting very slowly, crossed by wide
  * diagonal facets a step brighter or darker, the cut shape at the scale of the page. Any page's own fragment shader gets
- * the same uniforms: u_resolution (pixels), u_time (seconds), u_base, u_a, u_b, u_c (the theme's --backdrop-* colours) and u_dark (1 on dark).
+ * the same uniforms: u_resolution (pixels), u_time (seconds), u_base, u_a, u_b, u_c (the theme's --backdrop-* colors) and u_dark (1 on dark).
  */
 export const BACKDROP_SHADER = `#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
@@ -725,23 +725,23 @@ void main() {
   float aspect = u_resolution.x / u_resolution.y;
   vec2 p = vec2(uv.x * aspect, uv.y);
   float s = u_time * 0.04;
-  vec3 colour = u_base;
-  colour = mix(colour, u_a, 0.9 * light(p, vec2(aspect * (0.22 + 0.12 * sin(s * 1.3)), 0.72 + 0.12 * cos(s * 1.7)), 0.6));
-  colour = mix(colour, u_b, 0.8 * light(p, vec2(aspect * (0.78 + 0.1 * cos(s * 1.1)), 0.32 + 0.15 * sin(s * 0.9)), 0.55));
-  colour = mix(colour, u_c, 0.75 * light(p, vec2(aspect * (0.52 + 0.18 * sin(s * 0.7 + 2.0)), 0.95 + 0.1 * sin(s * 1.5)), 0.5));
+  vec3 color = u_base;
+  color = mix(color, u_a, 0.9 * light(p, vec2(aspect * (0.22 + 0.12 * sin(s * 1.3)), 0.72 + 0.12 * cos(s * 1.7)), 0.6));
+  color = mix(color, u_b, 0.8 * light(p, vec2(aspect * (0.78 + 0.1 * cos(s * 1.1)), 0.32 + 0.15 * sin(s * 0.9)), 0.55));
+  color = mix(color, u_c, 0.75 * light(p, vec2(aspect * (0.52 + 0.18 * sin(s * 0.7 + 2.0)), 0.95 + 0.1 * sin(s * 1.5)), 0.5));
   float facet = floor((p.x * 0.7 + p.y) * 1.4 + s * 0.5);
-  colour += (hash(vec2(facet, 3.0)) - 0.5) * mix(0.045, 0.03, u_dark);
-  colour += (hash(gl_FragCoord.xy + fract(u_time)) - 0.5) / 128.0;
-  gl_FragColor = vec4(colour, 1.0);
+  color += (hash(vec2(facet, 3.0)) - 0.5) * mix(0.045, 0.03, u_dark);
+  color += (hash(gl_FragCoord.xy + fract(u_time)) - 0.5) / 128.0;
+  gl_FragColor = vec4(color, 1.0);
 }`;
 
 /**
  * Backdrops: every canvas[data-backdrop] on a page. "shader" draws a fragment shader (the page's own in data-backdrop-shader,
  * or Zaisma's), "scene" leaves the drawing to the page: each frame the canvas gets a backdrop-frame event whose detail is
- * { timeS, colours: { base, a, b, c, isDark }, widthPx, heightPx }, and the page draws its 3D scene into the canvas then.
+ * { timeS, colors: { base, a, b, c, isDark }, widthPx, heightPx }, and the page draws its 3D scene into the canvas then.
  * Either way this keeps the canvas sized to its box, follows the theme, runs at most 30 frames a second, stops while the page
  * is hidden or the canvas is out of view, and under reduced motion draws one still frame. Without WebGL a shader backdrop
- * keeps its CSS gradient in the same colours.
+ * keeps its CSS gradient in the same colors.
  */
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var ZAISMA_SHADER = ${JSON.stringify(BACKDROP_SHADER)};
@@ -754,7 +754,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var n = parseInt(digits, 16) || 0;
     return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
   }
-  function readColours(el) {
+  function readColors(el) {
     var css = getComputedStyle(el);
     return { base: rgb(css.getPropertyValue("--backdrop-base")), a: rgb(css.getPropertyValue("--backdrop-a")), b: rgb(css.getPropertyValue("--backdrop-b")),
       c: rgb(css.getPropertyValue("--backdrop-c")), isDark: /dark/.test(css.colorScheme || "") };
@@ -776,18 +776,18 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
     var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
     var at = {}; ["u_resolution", "u_time", "u_base", "u_a", "u_b", "u_c", "u_dark"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
-    return function (timeS, colours) {
+    return function (timeS, colors) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(at.u_resolution, canvas.width, canvas.height); gl.uniform1f(at.u_time, timeS);
-      gl.uniform3fv(at.u_base, colours.base); gl.uniform3fv(at.u_a, colours.a); gl.uniform3fv(at.u_b, colours.b); gl.uniform3fv(at.u_c, colours.c);
-      gl.uniform1f(at.u_dark, colours.isDark ? 1 : 0);
+      gl.uniform3fv(at.u_base, colors.base); gl.uniform3fv(at.u_a, colors.a); gl.uniform3fv(at.u_b, colors.b); gl.uniform3fv(at.u_c, colors.c);
+      gl.uniform1f(at.u_dark, colors.isDark ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
   }
-  // A change of theme fades the backdrop's colours over the same half second as the glass's, so the two never part for a frame.
+  // A change of theme fades the backdrop's colors over the same half second as the glass's, so the two never part for a frame.
   var FADE_MS = 500;
   function mix(from, to, t) { return from.map(function (value, i) { return value + (to[i] - value) * t; }); }
-  function shownColours(layer, nowMs) {
+  function shownColors(layer, nowMs) {
     var t = still.matches || !layer.from ? 1 : Math.min(1, (nowMs - layer.fadeStartMs) / FADE_MS);
     if (t >= 1) { layer.from = null; return layer.target; }
     var eased = t * t * (3 - 2 * t), from = layer.from, to = layer.target;
@@ -796,9 +796,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function draw(layer, nowMs) {
     // The wall clock, not the page's own: moving to another page, the backdrop carries on where it was instead of starting over.
     var timeS = still.matches ? 20 : (Date.now() / 1000) % 100000;
-    layer.colours = shownColours(layer, nowMs);
-    if (layer.drawShader) layer.drawShader(timeS, layer.colours);
-    else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colours: layer.colours, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
+    layer.colors = shownColors(layer, nowMs);
+    if (layer.drawShader) layer.drawShader(timeS, layer.colors);
+    else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colors: layer.colors, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
     layer.isDrawn = !layer.from;
   }
   function frame(nowMs) {
@@ -807,13 +807,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     lastMs = nowMs;
     layers.forEach(function (layer) { if (layer.isInView && !(still.matches && layer.isDrawn)) draw(layer, nowMs); });
   }
-  // The colours are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
+  // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {
     var nowMs = performance.now();
     layers.forEach(function (layer) {
-      var next = readColours(layer.canvas);
+      var next = readColors(layer.canvas);
       if (JSON.stringify(next) === JSON.stringify(layer.target)) return;
-      layer.from = layer.colours; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false;
+      layer.from = layer.colors; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false;
       if (layer.isInView) draw(layer, nowMs);
     });
   }
@@ -821,10 +821,10 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (canvas.backdropLayer) return;
     var isScene = canvas.getAttribute("data-backdrop") === "scene";
     // A shader is soft, so it's drawn at one pixel per CSS pixel; a scene gets the screen's sharpness, up to 2x.
-    var layer = { canvas: canvas, isInView: true, isDrawn: false, target: readColours(canvas), from: null, scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
+    var layer = { canvas: canvas, isInView: true, isDrawn: false, target: readColors(canvas), from: null, scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
     canvas.backdropLayer = layer;
-    // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain colour under it.
+    // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
     function size() {
       var width = Math.max(1, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(1, Math.round(canvas.clientHeight * layer.scale));
       if (width === canvas.width && height === canvas.height) return;
@@ -840,7 +840,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
   document.querySelectorAll("canvas[data-backdrop]").forEach(setUp);
-  // The theme can change in place (a data-theme-choice switch, or the system's), and the colours follow it.
+  // The theme can change in place (a data-theme-choice switch, or the system's), and the colors follow it.
   new MutationObserver(refresh).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice"] });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
   still.addEventListener("change", refresh);
@@ -867,12 +867,12 @@ const swatches = () =>
   glassPane({ paneSize: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
 
 component({
-  name: "Colour",
-  slug: "colour",
+  name: "Color",
+  slug: "color",
   group: "foundations",
-  summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
+  summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
-/* Colour: the gallery's swatches. */
+/* Color: the gallery's swatches. */
 .swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: var(--type-facts); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
@@ -940,17 +940,17 @@ export interface PageSettings {
   /** Light or dark. Left out, the system's. */
   theme?: "light" | "dark";
   glass?: {
-    /** Tints every piece of glass, as a #rrggbb colour (like a game's colour on the home). Glass tinted for a brand keeps its own colour. */
-    hueColour?: string;
+    /** Tints every piece of glass, as a #rrggbb color (like a game's color on the home). Glass tinted for a brand keeps its own color. */
+    hueColor?: string;
   };
 }
 
-const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-/** The settings as attributes for <html>. Only a #rrggbb colour is taken as a hue, so a game's colour can't carry anything else into the page. */
+/** The settings as attributes for <html>. Only a #rrggbb color is taken as a hue, so a game's color can't carry anything else into the page. */
 export function pageSettingsAttributes(settings: PageSettings): Raw {
-  const hueColour = settings.glass?.hueColour;
-  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColour && HEX_COLOUR.test(hueColour) ? html` style="--glass-hue:${hueColour}"` : ""}`;
+  const hueColor = settings.glass?.hueColor;
+  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor && HEX_COLOR.test(hueColor) ? html` style="--glass-hue:${hueColor}"` : ""}`;
 }
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
@@ -959,7 +959,7 @@ component({
   name: "Glass",
   slug: "glass",
   group: "foundations",
-  summary: "Zaisma's interface is glass over the game or the page's backdrop, never over a plain colour. It's as thin as the words allow: light with dark words, or smoked with light words.",
+  summary: "Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.",
   styles: `
 /* Glass: shown over a few shapes, so the blur has something to show. */
 .glass-strip { width: 100%; position: relative; display: flex; flex-wrap: wrap; gap: var(--gap-block-block); padding: var(--pad-pane); overflow: hidden; }
@@ -1026,7 +1026,7 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""} aria-hidden="true"></canvas>`;
 }
 
-/** A page's own shader, for the gallery: slow light rippling out from the lower left in the same colours. */
+/** A page's own shader, for the gallery: slow light rippling out from the lower left in the same colors. */
 const RIPPLE_SHADER = `precision mediump float;
 uniform vec2 u_resolution; uniform float u_time; uniform vec3 u_base; uniform vec3 u_a; uniform vec3 u_b; uniform vec3 u_c;
 void main() {
@@ -1042,10 +1042,10 @@ component({
   name: "Backdrop",
   slug: "backdrop",
   group: "foundations",
-  summary: "Glass is never on a plain or solid colour: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have this one, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have this one, or their own shader or 3D scene.",
   styles: `
-/* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own colour and below the rest.
-   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colours. */
+/* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
+   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
 .backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none;
   background: radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%),
     radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base); }
@@ -1067,7 +1067,7 @@ component({
   name: "Icons",
   slug: "icons",
   group: "foundations",
-  summary: "Thin line icons in the words' colour, so a kind of fact can be found without reading. Never decoration.",
+  summary: "Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.",
   styles: `
 /* Icons: the set, with names. */
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
@@ -1082,9 +1082,9 @@ component({
   name: "Logo",
   slug: "logo",
   group: "foundations",
-  summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' colour, never restyled.",
+  summary: "Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.",
   styles: `
-/* The logo: drawn in the words' colour, at --logo-height (a bar sets it as it slims). */
+/* The logo: drawn in the words' color, at --logo-height (a bar sets it as it slims). */
 .logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
 .logo.wordmark { --logo-height: 26px; }
 .logo.mark { --logo-height: 17px; padding: 0; opacity: 0.8; }
@@ -1104,7 +1104,7 @@ component({
   group: "foundations",
   summary: "The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.",
   styles: `
-/* The loader: the brand's Z, masked so it takes the words' colour, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
+/* The loader: the brand's Z, masked so it takes the words' color, --loader-width wide (19px). Under reduced motion, the still mark breathing slowly instead. */
 .loader { display: inline-block; width: var(--loader-width, 19px); height: calc(var(--loader-width, 19px) * 0.737); flex: none; background: currentColor;
   -webkit-mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; mask: url(/loader/zaisma-loader.svg) center / contain no-repeat; }
 @keyframes loader-calm { 50% { opacity: 0.4; } }

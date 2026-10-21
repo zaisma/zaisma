@@ -50,9 +50,9 @@ export function testPlan(precedent: ReviewPrecedent, publicCases: PublicReviewCa
     return [own, ...publicCases.filter((publicCase) => publicCase.is_honest).map((publicCase) => ({ gameCase: toReviewCase(publicCase), runCount: REVIEW_PRECEDENT_LIMITS.honestTestRunCount, isOwnCase: false }))];
   }
   const sameRule = publicCases.filter((publicCase) => !publicCase.is_honest && publicCase.content_rule === precedent.content_rule);
-  const neighbours = precedent.content_rule && sameRule.length ? sameRule : publicCases.filter((publicCase) => !publicCase.is_honest);
+  const neighbors = precedent.content_rule && sameRule.length ? sameRule : publicCases.filter((publicCase) => !publicCase.is_honest);
   const runCount = precedent.content_rule && sameRule.length ? REVIEW_PRECEDENT_LIMITS.testRunCount : REVIEW_PRECEDENT_LIMITS.honestTestRunCount;
-  return [own, ...neighbours.map((publicCase) => ({ gameCase: toReviewCase(publicCase), runCount, isOwnCase: false }))];
+  return [own, ...neighbors.map((publicCase) => ({ gameCase: toReviewCase(publicCase), runCount, isOwnCase: false }))];
 }
 
 /**

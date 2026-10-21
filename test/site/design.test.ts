@@ -119,13 +119,13 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
-  it("fades no background by itself: colours fade through registered colours, so nothing flashes as a fade ends", () => {
-    // A background colour that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
-    // Glass fades --glass-shown-tint and every control fades --face-colour (foundations.ts) instead.
+  it("fades no background by itself: colors fade through registered colors, so nothing flashes as a fade ends", () => {
+    // A background color that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
+    // Glass fades --glass-shown-tint and every control fades --face-color (foundations.ts) instead.
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1] ?? "";
-      if (/autofill/.test(selectors)) continue; // the browser's own autofill colour, held off on purpose
+      if (/autofill/.test(selectors)) continue; // the browser's own autofill color, held off on purpose
       if (/(^|,\s*)background(-color)?\s/.test(transition)) problems.push(`${selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim()}: transition: ${transition.trim()}`);
     }
     expect(problems).toEqual([]);
@@ -211,7 +211,7 @@ describe("the gallery", () => {
   });
 
 
-  it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbour distance) and stacked --gap-control-stack apart", async () => {
+  it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbor distance) and stacked --gap-control-stack apart", async () => {
     const problems: string[] = [];
     const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
       const gap = /(?:^|[;\s])gap:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
@@ -326,10 +326,10 @@ describe("the gallery", () => {
 });
 
 describe("components", () => {
-  it("put a page's settings on it, taking only a #rrggbb colour as the glass's hue", () => {
-    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColour: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
+  it("put a page's settings on it, taking only a #rrggbb color as the glass's hue", () => {
+    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
     expect(pageSettingsAttributes({}).html).toBe("");
-    for (const hueColour of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColour } }).html).toBe("");
+    for (const hueColor of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColor } }).html).toBe("");
   });
 
   it("make the runner a link with an address and a button without one", () => {
@@ -406,7 +406,7 @@ const HAND_CUT = new Set<string>([
 const GALLERY_ONLY = new Set<string>([
   // The page: its body, the stage that carries its settings, the bar, its title and its groups, the layout, the index and the main column.
   "gallery", "stage", "gallery-bar", "gallery-title", "gallery-groups", "gallery-layout", "gallery-index", "gallery-main", "group-name",
-  // A section (a Tray) with its name and summary, and the grid of labelled examples on it.
+  // A section (a Tray) with its name and summary, and the grid of labeled examples on it.
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
@@ -430,7 +430,7 @@ const OWN_SVG = new Map<string, string>([
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
-  ['class="one-colour"', "Discord's mark, as Discord asks it to be shown"],
+  ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
 ]);

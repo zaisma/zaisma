@@ -113,7 +113,7 @@ export const GAME = object({
   account_offer_enabled: yes("Guests with progress get the \"Keep your progress\" card offering an account after 5 minutes of play. Zaisma.player.offerAccount() shows it whenever the game likes, either way, at most once a visit and not for 3 days after Not now."),
   deleted_account_erase_enabled: yes("When a player who played the game deletes their Zaisma account, Zaisma erases their rows from the game database (every table with a player_id column) as well as sending account_deleted to your webhooks. false: you handle account_deleted events yourself."),
   multiplayer_mode: MULTIPLAYER_MODE,
-  friend_joins_enabled: yes("Friends' Join on zaisma.com takes players into this game's rooms. On by default; off greys it as \"This game doesn't take joins\". One room turns it off with room.setFriendJoinsEnabled(false)."),
+  friend_joins_enabled: yes("Friends' Join on zaisma.com takes players into this game's rooms. On by default; off grays it as \"This game doesn't take joins\". One room turns it off with room.setFriendJoinsEnabled(false)."),
   room_browsing: ROOM_BROWSING_CHOICE,
   account_requirement: ACCOUNT_REQUIREMENT_CHOICE,
   minimum_player_age_years: MINIMUM_PLAYER_AGE_CHOICE,

@@ -1060,7 +1060,7 @@ async function seedProfiles(go, form, people) {
   const hoursAgo = (hourCount) => Date.now() - hourCount * 3600_000;
   const playedJson = (played) => JSON.stringify({ played: played.map(([slug, hourCount]) => ({ slug, played_at_ms: hoursAgo(hourCount) })) });
   const links = (urls) => urls.map((url) => `link_url=${encodeURIComponent(url)}`).join("&");
-  await go("/@Preview_Studio/edit", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `display_name=Preview+Studio&bio=${encodeURIComponent("Two people making small games you can play in a minute.\nArena is our favourite.")}&${links(["https://instagram.com/previewstudio", "https://previewstudio.itch.io"])}` });
+  await go("/@Preview_Studio/edit", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `display_name=Preview+Studio&bio=${encodeURIComponent("Two people making small games you can play in a minute.\nArena is our favorite.")}&${links(["https://instagram.com/previewstudio", "https://previewstudio.itch.io"])}` });
   await go("/api/me/played", { method: "POST", body: playedJson([["arena", 2], ["four-in-a-row", 50], ["cave-crew", 24 * 12]]) });
   const moss = people.Moss_Runner;
   await moss("/account/social", { social_mode: "open_and_social" });

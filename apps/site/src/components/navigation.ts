@@ -161,7 +161,7 @@ const HEADER_STYLES = `
 `;
 
 /**
- * The header's own behaviour: it slims once the page scrolls (the gallery's frames scroll a box of their own,
+ * The header's own behavior: it slims once the page scrolls (the gallery's frames scroll a box of their own,
  * [data-scroll-box]), the slab sits under the current page and a faint one follows the pointer, "/" jumps to search,
  * on a phone the search button swaps the tabs for the field, and the developer tabs open or fold from where the last page left them.
  * The menu is DROPDOWN_SCRIPT's.
@@ -501,8 +501,8 @@ component({
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-colour: var(--rail-mark); background: var(--face-colour); transition: --face-colour 0.2s, left 0.2s; }
-.rail-mark:hover::before { --face-colour: var(--run); left: 9px; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-color: var(--rail-mark); background: var(--face-color); transition: --face-color 0.2s, left 0.2s; }
+.rail-mark:hover::before { --face-color: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 /* Its name is a Tag on glass (data.ts), wiped open from the rail. */
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); pointer-events: none;
@@ -520,7 +520,7 @@ component({
   /* …and no marks. */
   .rail-mark, .rail-mark[hidden] { display: none; }
 }
-/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centred on its line), and a finger on it drags the thumb instead of the page. */
+/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page. */
 @media (hover: none), (pointer: coarse) {
   .rail { touch-action: none; }
   .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
