@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addTime, clearCountedDay, countStart, countTicket, issueTicket, playSpikes, playStats, shelfPlayers } from "../../apps/site/src/plays.ts";
+import { addTime, clearCountedDay, countStart, countTicket, issueTicket, playingNowCounts, playSpikes, playStats, reportPlaying, shelfPlayers } from "../../apps/site/src/plays.ts";
 import { shelves } from "../../apps/site/src/home.ts";
 import { pageDataOf, pageScriptNames, pageScriptText } from "../strict-scripts.ts";
 
@@ -64,6 +64,50 @@ describe("counted plays", () => {
     await addTime(env.DB, "g-play", id, 30, t0 + 90_000);
     expect(await row()).toMatchObject({ play_count: 1, player_count: 1, new_player_count: 1, play_duration_sec: 80 });
     expect((await env.DB.prepare("SELECT autonomous_system_number, player_count FROM play_networks WHERE game_id = 'g-play'").all()).results).toEqual([{ autonomous_system_number: COMCAST, player_count: 1 }]);
+  });
+
+  it("counts a checked browser's ticket as playing now until it hides, goes quiet or leaves", async () => {
+    const t0 = Date.now();
+    const id = await issueTicket(env.DB, "g-play", NEW, t0);
+    await issueTicket(env.DB, "g-play-hidden", NEW, t0);
+    // At once, and only for its own game.
+    expect((await playingNowCounts(env, t0 + 1000)).get("g-play")).toBe(1);
+    expect((await playingNowCounts(env, t0 + 1000)).get("g-play-hidden")).toBe(1);
+    // A hidden tab isn't playing; coming back, with no time to report, counts again.
+    await reportPlaying(env.DB, "g-play", id, true, t0 + 60_000);
+    expect((await playingNowCounts(env, t0 + 61_000)).get("g-play")).toBeUndefined();
+    await reportPlaying(env.DB, "g-play", id, false, t0 + 120_000);
+    expect((await playingNowCounts(env, t0 + 121_000)).get("g-play")).toBe(1);
+    // Six minutes after its last report, it's gone.
+    expect((await playingNowCounts(env, t0 + 120_000 + 5 * 60_000)).get("g-play")).toBe(1);
+    expect((await playingNowCounts(env, t0 + 120_000 + 7 * 60_000)).get("g-play")).toBeUndefined();
+    // Another game's ticket, or a ticket id that isn't this game's, moves nothing.
+    await reportPlaying(env.DB, "g-play-hidden", id, true, t0 + 130_000);
+    expect((await playingNowCounts(env, t0 + 131_000)).get("g-play")).toBe(1);
+  });
+
+  it("takes the page's reports of hiding and coming back, and never counts a browser without a ticket", async () => {
+    const { ticket } = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string }>();
+    // A checked browser counts at once; an unchecked one has no ticket and doesn't.
+    await send("play-game", NEW);
+    await send("play-game", { ...NEW, token: "forged" });
+    expect((await playingNowCounts(env)).get("g-play")).toBe(1);
+    expect((await send("play-game", { ticket, seconds: 0, is_away: true })).status).toBe(204);
+    expect((await playingNowCounts(env)).get("g-play")).toBeUndefined();
+    expect((await send("play-game", { ticket, seconds: 0, is_away: false })).status).toBe(204);
+    expect((await playingNowCounts(env)).get("g-play")).toBe(1);
+  });
+
+  it("shows playing now for a single-player game from 3 players up, on its page and the home", async () => {
+    await env.DB.prepare("UPDATE games SET play_modes = 'single', multiplayer_mode = 'none' WHERE id = 'g-play'").run();
+    for (let i = 0; i < 2; i++) await issueTicket(env.DB, "g-play", NEW);
+    const page = async () => (await SELF.fetch(`${SITE}/g/play-game`)).text();
+    const home = async () => (await SELF.fetch(`${SITE}/`)).text();
+    expect(await page()).toMatch(/id="playing-now" hidden>2 playing now/);
+    expect(await home()).not.toContain('<span class="players">');
+    await issueTicket(env.DB, "g-play", NEW);
+    expect(await page()).toMatch(/id="playing-now">3 playing now/);
+    expect(await home()).toMatch(/<span class="players"><svg[^>]*>.*<\/svg>3<span class="sr"> playing now/);
   });
 
   it("only takes plays of games players can open, sent from Zaisma", async () => {
@@ -188,7 +232,7 @@ describe("faked plays", () => {
 
 describe("home page shelves", () => {
   const now = Date.parse("2026-10-20T12:00:00Z");
-  const show = (slug: string, firstPublishedAtMs: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, square: null, published_at_ms: null, first_published_at_ms: firstPublishedAtMs, modes: "", devices: [] });
+  const show = (slug: string, firstPublishedAtMs: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, square: null, published_at_ms: null, first_published_at_ms: firstPublishedAtMs, modes: "", devices: [], playing_now_player_count: 0 });
   // Players spread over five providers, so no one network is capped.
   const players = async (id: string, ago: number, n: number) => {
     for (const [i, asn] of [7922, 3320, 5089, 2856, 701].entries()) {

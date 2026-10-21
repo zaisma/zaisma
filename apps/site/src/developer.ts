@@ -139,6 +139,7 @@ import {
   SAVE_LIMIT_BYTES,
   isSlugRetired,
   ISO_TIME,
+  listRooms,
 } from "@zaisma/core";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
@@ -155,7 +156,7 @@ import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
-import { playStats } from "./plays.ts";
+import { playStats, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions, replaceWaitingVersions } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
@@ -896,10 +897,19 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const isImages = apiRoute.path.startsWith("/games/:slug/images");
 
   if (!isImages && method === "GET") {
-    const [images, versions, testers, alertsByGameId] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id), testerLinks(env.DB, game.id), gameAlerts(env, [game])]);
+    const [images, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
+      imagesForGame(env.DB, game.id),
+      versionsForGame(env.DB, game.id),
+      testerLinks(env.DB, game.id),
+      gameAlerts(env, [game]),
+      playingNowCounts(env),
+      game.multiplayer_mode !== "none" ? listRooms(env.DB, game.id) : null,
+    ]);
     return answer({
       game: gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
+      // The exact number, whatever the public minimum: it's the developer's own game. As on the game page, the larger of browsers and rooms.
+      playing_now_player_count: Math.max(playingNow.get(game.id) ?? 0, rooms?.playing.playerCount ?? 0),
       images: images.map((image) => imageJson(env, image)),
       versions: versions.map((version) => versionJson(env, game, version)),
       testers: testers.map((link) => testerJson(env, link)),

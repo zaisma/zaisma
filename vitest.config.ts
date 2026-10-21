@@ -129,6 +129,7 @@ export default defineConfig({
         SIGN_IN_SIGNING_KEY: signInKey,
         // Room lists answer from the database every time, so tests see each change at once.
         ROOM_LIST_CACHE_SECONDS: "0",
+        PLAYING_NOW_CACHE_SECONDS: "0",
         // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).
         TURNSTILE_SITE_KEY: "test-site-key",
         TURNSTILE_SECRET: "test-secret",
@@ -154,6 +155,7 @@ export default defineConfig({
         GAME_DOMAIN: "",
         PASS_SIGNING_KEY: passKey,
         ROOM_LIST_CACHE_SECONDS: "0",
+        PLAYING_NOW_CACHE_SECONDS: "0",
         // Cloudflare's relay and its analytics answer from the stand-in above.
         TURN_KEY_ID: "turn-key-test",
         TURN_KEY_API_TOKEN: "turn-token-test",
