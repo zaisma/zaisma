@@ -24,8 +24,13 @@
   var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl"; });
   var KICK_OPTIONS = ["keepOut"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error"];
+  var ROOM_EVENTS = ["message", "bytes", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
   var SAVES_EVENTS = ["conflict", "developerChange"];
+  var VERSIONS_EVENTS = ["update"];
+  /** The room closes connections with this as its match switches to a version published "now". */
+  var VERSION_UPDATE_CLOSE_CODE = 4004;
+  /** A real-time room's ping from this on shows as a weak connection beside the game. */
+  var WEAK_PING_MS = 150;
 
   /** An Error with a code, as the SDK's errors all have. */
   function codedError(code, message) {
@@ -387,6 +392,12 @@
     // Straight onto the socket: an answer isn't something the game said, so it doesn't count for the "here" check.
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
     if (typeof message.pingDurationMs === "number") this.pingDurationMs = message.pingDurationMs;
+    // The page beside the game shows a weak connection: told only when it starts or stops being weak.
+    var isWeak = this._probeIntervalSec !== null && this.pingDurationMs !== null && this.pingDurationMs >= WEAK_PING_MS;
+    if (isWeak !== this._isWeak) {
+      this._isWeak = isWeak;
+      this._tellConnection();
+    }
     if (typeof message.serverTimeMs !== "number") return;
     this._clockOffsetsMs.push(message.serverTimeMs + (this.pingDurationMs || 0) / 2 - (performance.timeOrigin + performance.now()));
     if (this._clockOffsetsMs.length > 8) this._clockOffsetsMs.shift();
@@ -435,7 +446,7 @@
         room.hostPlayerId = message.hostPlayerId || null;
         room._checks = message.awayChecks || { idleTimeoutSec: null, hiddenTimeoutSec: null };
         room._probeIntervalSec = typeof message.probeIntervalSec === "number" ? message.probeIntervalSec : null;
-        room._away = room._gone = room._idleSent = room._coming = room._offered = false;
+        room._away = room._gone = room._idleSent = room._coming = room._offered = room._isReloadingForVersion = false;
         // In: coming back after a lost connection never turns the player away for someone they blocked.
         room._avoidsBlockedPlayers = false;
         // A new connection: the room tells this one its blocks afresh, and hears this tab's.
@@ -489,6 +500,11 @@
       } else if (message.type === "ending") {
         room.endsAt = message.endsAt;
         room._emit("ending", message.endsAt);
+      } else if (message.type === "versionUpdate") {
+        var versionUpdate = { versionId: message.versionId, appliesAt: message.appliesAt, isReloading: message.isReloading === true };
+        if (message.step === "now") room._isReloadingForVersion = versionUpdate.isReloading;
+        else room._emit("versionUpdate", versionUpdate);
+        if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:version-update", code: room.roomCode, step: message.step === "now" ? "now" : "coming", appliesAt: versionUpdate.appliesAt, isReloading: versionUpdate.isReloading }, config.site);
       } else if (message.type === "ended") {
         room._done = true;
         room._emit("ended", message.message);
@@ -503,6 +519,13 @@
       }
     };
     ws.onclose = function (event) {
+      // The match switched to a new version: its files changed, so the page reloads the game at it, back into this room.
+      if (event.code === VERSION_UPDATE_CLOSE_CODE && room._isReloadingForVersion && config.site && window.parent !== window) {
+        room._done = true;
+        room._setConnectionStatus("reconnecting");
+        window.parent.postMessage({ type: "zaisma:reload", code: room.roomCode }, config.site);
+        return;
+      }
       // 4000: the match ended. 4001: refused or replaced by another tab. Neither comes back.
       if (room._done || event.code === 4000 || event.code === 4001) {
         room._done = true;
@@ -581,6 +604,13 @@
     if (this.connectionStatus === connectionStatus) return;
     this.connectionStatus = connectionStatus;
     this._emit("connectionStatus", connectionStatus);
+    this._tellConnection();
+  };
+
+  /** The Zaisma page shows the connection beside the game when it isn't fine: weak, reconnecting or lost. */
+  Room.prototype._tellConnection = function () {
+    if (!config.site || window.parent === window) return;
+    window.parent.postMessage({ type: "zaisma:connection", code: this.roomCode, connectionStatus: this.connectionStatus, pingDurationMs: this.pingDurationMs, isWeak: this._isWeak === true }, config.site);
   };
 
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
@@ -1207,6 +1237,38 @@
   var links = { open: openLink };
 
   /*
+   * A version the developer published "now", for a game that isn't in a match (single-player, or a menu):
+   * the page beside it notices, and a game listening switches when it says (update.apply()); otherwise the
+   * page offers Update beside the game. Never forced. Matches hear it from their room ("versionUpdate").
+   */
+  var versionsEvents = new Emitter(VERSIONS_EVENTS, "Zaisma.versions has");
+  var versions = {
+    on: function (event, listener) {
+      versionsEvents.on(event, listener);
+      return versions;
+    },
+    off: function (event, listener) {
+      versionsEvents.off(event, listener);
+      return versions;
+    },
+  };
+  if (config.site && window.parent !== window) {
+    // Which version this tab runs, so the page knows when a newer one is out.
+    if (config.version) window.parent.postMessage({ type: "zaisma:version", versionId: config.version }, config.site);
+    window.addEventListener("message", function (event) {
+      if (event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:version-ready") return;
+      var isHandled = (versionsEvents._on.update || []).length > 0;
+      if (isHandled) {
+        versionsEvents._emit("update", {
+          versionId: event.data.versionId,
+          apply: function () { window.parent.postMessage({ type: "zaisma:reload", code: null }, config.site); },
+        });
+      }
+      window.parent.postMessage({ type: "zaisma:version-ready", versionId: event.data.versionId, isHandled: isHandled }, config.site);
+    });
+  }
+
+  /*
    * The player's cloud saves, for games that draw their own save screens. The game page on Zaisma holds
    * the player's session and answers (apps/site/src/saves-client.ts); the game never talks to a server.
    */
@@ -1610,5 +1672,5 @@
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null };
   var friends = { list: listFriends, setRoom: setOwnRoom };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, friends: friends, saves: saves };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, friends: friends, saves: saves, versions: versions };
 })();

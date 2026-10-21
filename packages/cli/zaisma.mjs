@@ -102,13 +102,17 @@ const COMMANDS = {
       game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
+      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
   versions: { about: "List a game's versions and preview links", arguments: [{ name: "slug" }], flags: {} },
   publish: {
     about: "Publish a version that passed, or roll back to an older one",
     arguments: [{ name: "slug" }, { name: "version_id" }],
-    flags: { "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' } },
+    flags: {
+      "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' },
+      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
+    },
   },
   unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
   visibility: { about: "Set who can see a game: everyone (listed), people with the link (unlisted), or only you and tester links (private, draft)", arguments: [{ name: "slug" }, { name: "visibility", choices: VISIBILITIES }], flags: {} },
@@ -790,7 +794,7 @@ async function sendVersion(slug, fixedFiles, flags) {
   );
   if (todo.length && !isJson) process.stdout.write("\n");
 
-  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true });
+  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}) });
   const versionId = answer.version.id;
   say(`Version ${versionId} is being scanned. This usually takes under a minute…`);
 
@@ -1641,12 +1645,14 @@ async function run({ command, values, flags, globalFlags, rest }) {
   if (command === "publish") {
     const { slug, version_id: versionId } = values;
     const scheduledPublishAt = flags["scheduled-publish-at"] === undefined ? undefined : checkPublishTime(flags["scheduled-publish-at"]);
-    const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : undefined);
+    const matchUpdateMode = flags["match-update-mode"];
+    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}) };
+    const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, Object.keys(publishBody).length ? publishBody : undefined);
     if (isJson) return printAnswer(answer);
     const { game, version } = answer;
     if (scheduledPublishAt) console.log(`Version ${versionId} will go live at ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
     else {
-      console.log(`Version ${versionId} is live at ${game.page_url}`);
+      console.log(`Version ${versionId} is live at ${game.page_url}${matchUpdateMode === "now" ? "; running matches switch to it within seconds" : ""}`);
       if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it to everyone with: zaisma visibility ${slug} listed`);
     }
     return EXIT_CODES.done;

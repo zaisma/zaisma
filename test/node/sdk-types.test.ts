@@ -862,3 +862,71 @@ describe("the SDK's types say what the SDK does", () => {
     expect(fieldsOf("RoomList")).toEqual(fieldsOf("RoomList", CORE_ROOMS).filter((name) => name !== "changedAtMs"));
   });
 });
+
+describe("versions published now, and the connection beside the game", () => {
+  it("hears a match's version update, and asks the page to reload the game when its files changed", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    const heard: unknown[] = [];
+    room.on("versionUpdate", (versionUpdate: unknown) => heard.push(versionUpdate));
+    say(socket, { type: "versionUpdate", step: "coming", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
+    expect(heard).toEqual([{ versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true }]);
+    expect(sdk.page.posted).toContainEqual({ type: "zaisma:version-update", code: "K7Q2MX", step: "coming", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
+    say(socket, { type: "versionUpdate", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
+    const socketCount = sdk.sockets.length;
+    socket.onclose!({ code: 4004, reason: "Updating" });
+    // The page reloads the game into this room; this tab doesn't reconnect by itself.
+    expect(sdk.page.posted).toContainEqual({ type: "zaisma:reload", code: "K7Q2MX" });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sdk.sockets.length).toBe(socketCount);
+    expect(room.connectionStatus).toBe("reconnecting");
+  });
+
+  it("reconnects by itself when only the game server changed", async () => {
+    const sdk = loadSdk();
+    const { socket } = await joinedRoom(sdk);
+    say(socket, { type: "versionUpdate", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: false });
+    const socketCount = sdk.sockets.length;
+    socket.onclose!({ code: 4004, reason: "Updating" });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sdk.sockets.length).toBe(socketCount + 1);
+    expect(sdk.page.posted.some((message) => (message as { type: string }).type === "zaisma:reload")).toBe(false);
+  });
+
+  it("tells the page its connection: weak in a real-time room from a 150 ms ping, and reconnecting", async () => {
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const socket = sdk.sockets.at(-1)!;
+    socket.onopen!();
+    say(socket, { type: "welcome", me, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: 120 }, probeIntervalSec: 2 });
+    await joining;
+    const connection = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:connection");
+    expect(connection().at(-1)).toEqual({ type: "zaisma:connection", code: "K7Q2MX", connectionStatus: "open", pingDurationMs: null, isWeak: false });
+    say(socket, { type: "probe", probeNumber: 1, pingDurationMs: 90 });
+    const toldCount = connection().length;
+    say(socket, { type: "probe", probeNumber: 2, pingDurationMs: 180 });
+    expect(connection().length).toBe(toldCount + 1);
+    expect(connection().at(-1)).toMatchObject({ isWeak: true, pingDurationMs: 180 });
+    // Still weak: not told again.
+    say(socket, { type: "probe", probeNumber: 3, pingDurationMs: 190 });
+    expect(connection().length).toBe(toldCount + 1);
+    socket.onclose!({ code: 1006, reason: "" });
+    expect(connection().at(-1)).toMatchObject({ connectionStatus: "reconnecting" });
+  });
+
+  it("offers a game not in a match the version the page found, and says whether the game took it", () => {
+    const sdk = loadSdk({ ...ON_ZAISMA, version: "version_one" } as typeof ON_ZAISMA);
+    expect(sdk.page.posted).toContainEqual({ type: "zaisma:version", versionId: "version_one" });
+    sdk.page.say({ type: "zaisma:version-ready", versionId: "version_two" });
+    expect(sdk.page.posted).toContainEqual({ type: "zaisma:version-ready", versionId: "version_two", isHandled: false });
+    const offered: { versionId: string; apply(): void }[] = [];
+    sdk.Zaisma.versions.on("update", (update: { versionId: string; apply(): void }) => offered.push(update));
+    sdk.page.say({ type: "zaisma:version-ready", versionId: "version_three" });
+    expect(offered.map((update) => update.versionId)).toEqual(["version_three"]);
+    expect(sdk.page.posted).toContainEqual({ type: "zaisma:version-ready", versionId: "version_three", isHandled: true });
+    offered[0]!.apply();
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:reload", code: null });
+    expect(() => sdk.Zaisma.versions.on("updated", () => {})).toThrow('There\'s no "updated" event. Zaisma.versions has: update.');
+  });
+});
