@@ -15,9 +15,10 @@ import { runButton } from "./actions.ts";
  * show at once. The canvas never starts, and the still stays, under reduced motion, without WebGL 2, or on a device that can't
  * keep it smooth even at its lowest step (then the still comes back and it stops).
  *
- * The stills are renders of the city itself (brand/sign-in/, served at /sign-in/): the opening shot, the camera at
- * [430, 120, 300] looking at [0, 20, 0] with the city's seed 7274, a flyer mid-flight, foam on the sea and the sun's glint on,
- * at midday for light and at night for dark. Wide ones are 2400×1500, phone ones 1200×1800, WebP at quality 0.82.
+ * The stills are renders of the city itself (brand/sign-in/, served at /sign-in/): its first live frame, the camera at
+ * [430, 120, 300] looking at [0, 20, 0] with the city's seed 7274, unshifted, at midday for light and at night for dark. Wide ones
+ * are 3900×1500 at the wide view's 0.72 rad height of view, phone ones 1500×1500 at the phone's 0.95, both wider than a screen,
+ * so shown at the screen's height and moved as the camera's picture is shifted they match the first live frame. WebP, quality 0.82.
  */
 
 /** One still of the city, day or night: its picture is the stage's CSS, so only the one showing (by theme, phone or wide) is loaded, at once. */
@@ -69,15 +70,34 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var below = header ? header.offsetTop + header.offsetHeight + 12 : 12;
     pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
   }
-  place();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { placedWidth = 0; place(); });
-  window.addEventListener("resize", place);
+
+  // Keep the city centred in the part of the screen the glass doesn't cover: a shift of the camera's picture, in screen halves (as the
+  // projection takes it), left by half the pane on a wide screen, up by the pane's part of the screen on a phone.
+  function shiftFor() {
+    if (!pane || isFramed) return [0, 0];
+    var r = pane.getBoundingClientRect(), b = canvas.getBoundingClientRect();
+    if (r.width === 0) return [0, 0];
+    if (isNarrow()) { var clear = header ? header.getBoundingClientRect().bottom - b.top : 0, h = b.height; return [0, Math.min(0.74, Math.max(0, 1 - (clear + Math.min(r.top - b.top, h)) / h))]; }
+    return [-r.width / b.width, 0];
+  }
+  /* The still is the live city's first frame, rendered at the camera's own height of view (vertical) and wider than any screen: shown at
+     the screen's height, centred and moved as the camera's picture is shifted, it lines up with the first live frame on any screen. */
+  function frameStill() {
+    var s = shiftFor(), b = canvas.getBoundingClientRect();
+    stage.style.setProperty("--still-x", (s[0] * b.width / 2).toFixed(1) + "px");
+    stage.style.setProperty("--still-y", (-s[1] * b.height / 2).toFixed(1) + "px");
+  }
+  function settle() { place(); frameStill(); }
+  settle();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { placedWidth = 0; settle(); });
+  window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var gl = canvas.getContext("webgl2", { antialias: false, alpha: false, depth: false, powerPreference: "high-performance" });
   if (!gl) return;
-  var small = Math.min(window.innerWidth, window.innerHeight) < 720;
+  // The phone layout's city: fewer flyers, a smaller shadow map and a wider view (the still for phones is rendered the same way).
+  var small = isNarrow();
   var coarse = window.matchMedia("(pointer: coarse)").matches;
   // The size of the city's box, in CSS pixels, and where it is on the screen.
   function box() { return canvas.getBoundingClientRect(); }
@@ -1079,15 +1099,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       view.eye[1] += up; view.target[1] += up;
       return view;
     }
-    // Keep the city centred in the part of the screen the glass doesn't cover.
-    var shift = [0, 0];
-    function shiftTarget() {
-      if (!pane || isFramed) return [0, 0];
-      var r = pane.getBoundingClientRect(), b = box();
-      if (r.width === 0) return [0, 0];
-      if (isNarrow()) { var clear = header ? header.getBoundingClientRect().bottom - b.top : 0, h = b.height; return [0, Math.min(0.74, Math.max(0, 1 - (clear + Math.min(r.top - b.top, h)) / h))]; }
-      return [-r.width / b.width, 0];
-    }
+    // It starts where the still is framed, so the live city takes over from it with nothing moving.
+    function shiftTarget() { return shiftFor(); }
+    var shift = shiftTarget();
 
     var clock = 40, camTime = 0, last = performance.now();
     running = true;
@@ -1313,11 +1327,14 @@ const CITY_STYLES = `
    first frame, with no fade (a still and a moving city seen through each other look doubled), and gives it back if the device can't keep up. */
 .city-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
 .city-stage.is-framed { position: absolute; z-index: 0; }
-.city-stage .city-still, .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.city-stage .city-still { background: center / cover no-repeat; }
+.city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is (CITY_SCRIPT sets
+   --still-x and --still-y; until then, half the pane's width to the left). Its box reaches past the screen, so moving it leaves no edge. */
+.city-stage .city-still { position: absolute; inset: -50%; display: block; background: center / auto 50% no-repeat; transform: translate(var(--still-x, calc(min(440px, 100vw - 2 * var(--pad-inner-pane)) / -2)), var(--still-y, 0px)); }
 .city-stage .city-still.is-day { background-image: url(/sign-in/city-day.webp); }
 .city-stage .city-still.is-night { background-image: url(/sign-in/city-night.webp); }
-@media (max-width: 760px) and (orientation: portrait) {
+@media (max-width: 760px) {
+  .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
   .city-stage .city-still.is-day { background-image: url(/sign-in/city-day-phone.webp); }
   .city-stage .city-still.is-night { background-image: url(/sign-in/city-night-phone.webp); }
 }
