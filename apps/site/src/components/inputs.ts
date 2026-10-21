@@ -165,16 +165,29 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
       if (el.redrawCut) el.redrawCut(isGliding && from.beside !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
     }
-    function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
+    // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
+    var isWaitingToSlide = false;
+    function settle() { if (isWaitingToSlide) return; var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
-    // A switch of links that was on the last page too (the gallery's groups): its slab starts on the last page's tab and glides to this one's.
+    // A switch of links that was on the last page too (the gallery's groups): once this page shows, its slab slides from the last page's tab
+    // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
+    // nothing is laid out or redrawn while the new page is still starting, and the settles that follow (fonts, the first resize) can't cut it short.
     var came = window.navigation && navigation.activation && navigation.activation.from;
-    if (came && came.url && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       var lastPath = new URL(came.url).pathname, last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
       var on = current();
       if (last && on && last !== on) {
-        slab.style.transition = "none"; put(slab, last); put(ghost, last); slab.offsetWidth; slab.style.transition = "";
-        requestAnimationFrame(function () { put(slab, on, true); put(ghost, on, true); });
+        // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
+        var slide = function () {
+          var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
+          var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
+          slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: parseFloat(getComputedStyle(slab).transitionDuration) * 1000 || 550, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
+        };
+        // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
+        slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
+        isWaitingToSlide = true;
+        var start = function () { isWaitingToSlide = false; settle(); slide(); };
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
       }
     }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
@@ -187,7 +200,11 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     };
     tabs.forEach(function (tab) {
       tab.addEventListener("pointerenter", function () { if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
-      tab.addEventListener("click", function () { sw.pickTab(tab); });
+      // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab.
+      tab.addEventListener("click", function () {
+        if (tab.href && new URL(tab.href, location.href).pathname !== location.pathname) return;
+        sw.pickTab(tab);
+      });
     });
     sw.addEventListener("pointerleave", function () { sw.classList.remove("pointing"); });
   });
