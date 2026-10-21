@@ -346,6 +346,39 @@ export const PLAY_STATS = object(
   "Counted plays: the game on screen for a minute in a browser Cloudflare checked. Tester and preview links and the developer's own plays don't count; a player is a browser.",
 );
 
+const perPlayerSec = (what: string) => number(`${what} per player a second, one decimal: divided by the player time in Zaisma rooms; 0 with none.`);
+const PER_PLAYER_TRAFFIC = {
+  inbound_messages_per_player_sec: perPlayerSec("Messages and bytes frames players sent the rooms"),
+  inbound_size_bytes_per_player_sec: perPlayerSec("Bytes players sent the rooms"),
+  outbound_messages_per_player_sec: perPlayerSec("Messages and bytes frames the rooms sent players, each counted once per player it went to,"),
+  outbound_size_bytes_per_player_sec: perPlayerSec("Bytes the rooms sent players"),
+};
+
+export const ROOM_TRAFFIC_HINT = choice({
+  json_messages_large: "a JSON message type is big and frequent; sending it as bytes (room.sendBytes, room.broadcastBytes) in a compact form usually cuts it to a third",
+  outbound_heavy: "each player gets 32 KB a second or more; send each player only what changed and what they can see",
+  message_near_limit: "players send a message of 12 KB or more, close to the 16 KB limit; split it or send it as bytes",
+});
+
+export const ROOM_TRAFFIC = object(
+  {
+    ...PER_PLAYER_TRAFFIC,
+    message_types: list(
+      object({
+        message_type: text("The message's data.type, like \"move\"; (none) for messages without one, (bytes) for bytes, (zaisma) for Zaisma's own (welcome, player lists, probes), (other) past a room's first 20 types."),
+        direction: choice({ inbound: "players to the room", outbound: "the room to players" }),
+        message_count: countOf("Each sent message once per player it went to."),
+        size_bytes: countOf(),
+        largest_size_bytes: countOf(),
+        average_size_bytes: countOf(),
+      }),
+      "The month's 10 biggest message types by bytes, both ways together.",
+    ),
+    traffic_hints: list(object({ code: ROOM_TRAFFIC_HINT, message: text("What to change, with this game's numbers.") }), "Empty when nothing stands out."),
+  },
+  "This month's traffic in Zaisma rooms (UTC), counted by the rooms and written with their use about hourly. Rooms on your own server aren't counted.",
+);
+
 export const STATS = object({
   period_duration_days: countOf(),
   play_stats: PLAY_STATS,
@@ -354,7 +387,9 @@ export const STATS = object({
       date: date(),
       room_count: countOf(),
       room_play_duration_min: countOf("Player time in rooms."),
-      message_count: countOf(),
+      message_count: countOf("Messages and bytes frames players sent the rooms."),
+      ...PER_PLAYER_TRAFFIC,
+      game_server_cpu_duration_sec: countOf("The game's own game server running in its rooms (each call's time less its waits on the database and other servers); 0 for built-in ones."),
       game_server: nullable(
         object(
           {
@@ -373,10 +408,12 @@ export const STATS = object({
   room_use_this_month: object({
     room_play_duration_hours: number("Player time on Zaisma rooms this month, UTC."),
     relayed_size_bytes: countOf("Data Zaisma's relay sent this game's players this month, UTC, read from Cloudflare about once an hour."),
-    counted_play_duration_hours: number("What counts toward the free hours: room time plus relayed data, every 20 MB the relay sends one hour."),
+    game_server_cpu_duration_sec: countOf("The game's own game server running in its rooms this month, UTC."),
+    counted_play_duration_hours: number("What counts toward the free hours: room time, plus relayed data (every 20 MB the relay sends one hour), plus game server CPU past 25 CPU-seconds a player-hour (every 50 more CPU-seconds one hour)."),
     free_room_play_duration_hours: countOf(),
     has_reached_free_hours: yes("Until hosting billing is ready, no new rooms or relayed connections open until the month resets; matches and connections already running carry on."),
   }),
+  room_traffic: ROOM_TRAFFIC,
   request_use_this_month: object({
     request_count: countOf("Requests to the game's own game server this month, UTC, recorded about once a minute."),
     free_request_count: countOf(),

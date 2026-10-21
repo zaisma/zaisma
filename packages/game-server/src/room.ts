@@ -30,6 +30,14 @@ export interface Room {
   broadcast(message: unknown, broadcastOptions?: BroadcastOptions): void;
   /** Send a message to one player. */
   send(playerId: string, message: unknown): void;
+  /**
+   * Send bytes to every player, or everyone but one (exceptPlayerId), like a compact snapshot of the
+   * world. fromPlayerId says whose they are when you pass one player's bytes on; each player's game gets
+   * them as the "bytes" event, with that player's ID or null.
+   */
+  broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void;
+  /** Send bytes to one player. */
+  sendBytes(playerId: string, bytes: Uint8Array): void;
   /** End the match: everyone is told why (message) and disconnected, and the room closes. */
   end(message?: string): void;
   /**
@@ -132,6 +140,11 @@ export interface BroadcastOptions {
   exceptPlayerId?: string;
 }
 
+export interface BytesBroadcastOptions extends BroadcastOptions {
+  /** The player the bytes came from, when you pass one player's bytes on; left out, they're from the game server. */
+  fromPlayerId?: string;
+}
+
 export interface MoveOptions {
   playerIds: string[];
   joinData?: unknown;
@@ -226,9 +239,9 @@ export type AwayMode = "hold" | "lobby";
 type HandlerResult<S> = void | S | Promise<void | S>;
 
 export interface GameServer<S = any> {
-  /** Up to 16. Defaults to 8. */
+  /** Up to 100. Defaults to 8. */
   maximumPlayerCount?: number;
-  /** Ticks a second, up to 30. Leave out for turn-based games so the room can sleep between moves. */
+  /** Ticks a second, up to 60. Leave out for turn-based games so the room can sleep between moves. */
   ticksPerSec?: number;
   /**
    * The room's first player is its host: they may hide, show, open, close and name the room, and
@@ -326,6 +339,11 @@ export interface GameServer<S = any> {
   onAway?(state: S, player: Player, room: Room, reason: AwayReason): HandlerResult<S>;
   onBack?(state: S, player: Player, room: Room): HandlerResult<S>;
   onMessage?(state: S, player: Player, message: unknown, room: Room): HandlerResult<S>;
+  /**
+   * Bytes a player's game sent (room.sendBytes), like a compact input, under the same limits as
+   * messages: up to 16 KB each, 30 a second. Read them with a DataView; they're a copy, yours to keep.
+   */
+  onBytes?(state: S, player: Player, bytes: Uint8Array, room: Room): HandlerResult<S>;
   /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec (more when a tick was skipped). */
   onTick?(state: S, tickDurationSec: number, room: Room): HandlerResult<S>;
   /**
@@ -380,6 +398,7 @@ export const GAME_SERVER_OPTIONS = [
   "onAway",
   "onBack",
   "onMessage",
+  "onBytes",
   "onTick",
   "onEnding",
   "onRequest",
@@ -389,9 +408,10 @@ export const GAME_SERVER_OPTIONS = [
 ] as const satisfies readonly (keyof GameServer)[];
 
 export const ROOM_LIMITS = {
-  maximumPlayerCount: 16,
+  /** Players in one room: what one room carries at 60 ticks a second (test/rooms/room-load.test.ts). */
+  maximumPlayerCount: 100,
   defaultMaximumPlayerCount: 8,
-  maximumTicksPerSec: 30,
+  maximumTicksPerSec: 60,
   /** A room's name, its labels, and each label's name and value. */
   maximumNameCharacterCount: 40,
   maximumLabelCount: 4,
@@ -403,9 +423,12 @@ export const ROOM_LIMITS = {
   maximumReservesPerMin: 20,
   /** A kick's or a refusal's message. */
   maximumMessageCharacterCount: 200,
-  /** Largest game message a client may send. */
+  /** Largest game message (or bytes) a client may send. */
   maximumGameMessageSizeBytes: 16 * 1024,
-  /** Sustained game messages per second per player, with a short burst allowance. */
+  /**
+   * Sustained game messages (and bytes) per second per player, with a short burst allowance. A game at
+   * 60 ticks sends two inputs in one message: incoming messages are what a room is billed for.
+   */
   gameMessagesPerSec: 30,
   gameMessageBurstCount: 60,
   /** The idle check's default and range (idleTimeoutSec, joinRoom({ idleTimeoutSec })). */
@@ -488,7 +511,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
   }
   if (ticksPerSec !== undefined && !(typeof ticksPerSec === "number" && ticksPerSec > 0 && ticksPerSec <= ROOM_LIMITS.maximumTicksPerSec)) {
-    throw bad("ticksPerSec", `ticksPerSec is ${JSON.stringify(ticksPerSec)}.`, `Give a number above 0 and up to ${ROOM_LIMITS.maximumTicksPerSec}, like 20, or leave it out for a turn-based game.`);
+    throw bad("ticksPerSec", `ticksPerSec is ${JSON.stringify(ticksPerSec)}.`, `Give a number above 0 and up to ${ROOM_LIMITS.maximumTicksPerSec}, like 30, or leave it out for a turn-based game.`);
   }
   if (hostControlsEnabled !== undefined && typeof hostControlsEnabled !== "boolean") throw bad("hostControlsEnabled", "hostControlsEnabled isn't true or false.", "Give true or false.");
   if (idleCheck !== undefined && idleCheck !== "server" && idleCheck !== "client" && idleCheck !== "off") {
@@ -548,6 +571,11 @@ export interface RoomSettings {
  * messages: they don't count toward the 30 a second or the idle check. A probe left unanswered for
  * ROOM_LIMITS.probeAnswerTimeoutSec, or ROOM_LIMITS.maximumUnansweredSentBytes sent since the last
  * answered one, closes the connection with NO_ANSWER_CLOSE_CODE.
+ *
+ * Bytes: after hello, a client may also send binary frames (room.sendBytes), each up to
+ * ROOM_LIMITS.maximumGameMessageSizeBytes and counted with its messages, for the game server's onBytes.
+ * Every binary frame the room sends starts with one byte, the length in UTF-8 bytes of the player ID
+ * they came from (0 for the game server), then that ID, then the bytes (bytesFrame).
  */
 export type ServerMessage =
   | { type: "welcome"; me: Player; players: Player[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
@@ -661,6 +689,8 @@ const SEAT_MS = 60_000;
 /** How the room reaches players: a Durable Object's sockets, or a Node server's. */
 export interface Transport {
   send(playerId: string, text: string): void;
+  /** A binary frame (bytesFrame). Without it, rooms can't send bytes. */
+  sendBytes?(playerId: string, frame: Uint8Array): void;
   close(playerId: string, closeCode: number, reason: string): void;
   /** Set up a reserved room, then send each of its players a "move" message. Without it, rooms can't reserve. */
   reserve?(roomCode: string, start: RoomStart): void;
@@ -718,6 +748,97 @@ export const SEAT_GONE_CLOSE_CODE = 4002;
 /** Close code for a connection that stopped answering or fell too far behind; the SDK reconnects. */
 export const NO_ANSWER_CLOSE_CODE = 4003;
 
+/**
+ * A binary frame as the room sends it: one byte, the length of fromPlayerId in UTF-8 bytes (0 for the
+ * game server), then fromPlayerId, then the bytes.
+ */
+export function bytesFrame(bytes: Uint8Array, fromPlayerId: string | null): Uint8Array {
+  const from = new TextEncoder().encode(fromPlayerId ?? "");
+  if (from.length > 255) throw new Error("A player ID is too long to send bytes from");
+  const frame = new Uint8Array(1 + from.length + bytes.length);
+  frame[0] = from.length;
+  frame.set(from, 1);
+  frame.set(bytes, 1 + from.length);
+  return frame;
+}
+
+/**
+ * Marks a game server whose onMessage and onBytes only queue the input for its next call, like Zaisma's
+ * sandboxed real-time ones: the room hands each input over as it comes, outside the handlers waiting
+ * their turn, so ticks never wait behind input.
+ */
+export const QUEUES_INPUT = Symbol("queuesInput");
+
+/**
+ * On a room's API object, for Zaisma's sandbox: a count that goes up each time a block or friendship
+ * between the room's players may have changed, so the sandbox is sent the pairs again only then.
+ */
+export const PAIR_CHANGE_COUNT = Symbol("pairChangeCount");
+
+/** Messages a room's traffic counts by type: their data.type, like "move", or one of these. */
+export const NO_MESSAGE_TYPE = "(none)";
+export const BYTES_MESSAGE_TYPE = "(bytes)";
+export const ZAISMA_MESSAGE_TYPE = "(zaisma)";
+export const OTHER_MESSAGE_TYPE = "(other)";
+/** Message types a room counts apart in each direction; any more count as OTHER_MESSAGE_TYPE. */
+const MAXIMUM_MESSAGE_TYPE_COUNT = 20;
+/** A game's message type: up to 40 letters, digits and _ - . : */
+const MESSAGE_TYPE_PATTERN = /^[A-Za-z0-9_\-.:]{1,40}$/;
+
+export type TrafficDirection = "inbound" | "outbound";
+
+/** One message type's traffic in one direction: how many, their bytes and the largest. */
+export interface MessageTypeTraffic {
+  messageType: string;
+  direction: TrafficDirection;
+  messageCount: number;
+  sizeBytes: number;
+  largestSizeBytes: number;
+}
+
+/**
+ * A room's traffic since it was last taken (takeTraffic): bytes in, messages and bytes out (each
+ * frame once per player it went to), and per message type. Messages in are RoomCore.messageCount.
+ */
+export interface RoomTraffic {
+  inboundSizeBytes: number;
+  outboundMessageCount: number;
+  outboundSizeBytes: number;
+  messageTypes: MessageTypeTraffic[];
+}
+
+/** No traffic yet. */
+export function noTraffic(): RoomTraffic {
+  return { inboundSizeBytes: 0, outboundMessageCount: 0, outboundSizeBytes: 0, messageTypes: [] };
+}
+
+/** Two rooms' (or two hours') traffic added up, message types matched by type and direction. */
+export function addTraffic(first: RoomTraffic, second: RoomTraffic): RoomTraffic {
+  const types = new Map(first.messageTypes.map((type) => [`${type.direction} ${type.messageType}`, { ...type }]));
+  for (const type of second.messageTypes) {
+    const key = `${type.direction} ${type.messageType}`;
+    const kept = types.get(key);
+    if (!kept) types.set(key, { ...type });
+    else {
+      kept.messageCount += type.messageCount;
+      kept.sizeBytes += type.sizeBytes;
+      kept.largestSizeBytes = Math.max(kept.largestSizeBytes, type.largestSizeBytes);
+    }
+  }
+  return {
+    inboundSizeBytes: first.inboundSizeBytes + second.inboundSizeBytes,
+    outboundMessageCount: first.outboundMessageCount + second.outboundMessageCount,
+    outboundSizeBytes: first.outboundSizeBytes + second.outboundSizeBytes,
+    messageTypes: [...types.values()],
+  };
+}
+
+/** A game message's type for the traffic counts: its data.type when that's a short name, else NO_MESSAGE_TYPE. */
+function messageTypeOf(messageData: unknown): string {
+  const type = messageData && typeof messageData === "object" ? (messageData as { type?: unknown }).type : undefined;
+  return typeof type === "string" && MESSAGE_TYPE_PATTERN.test(type) ? type : NO_MESSAGE_TYPE;
+}
+
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
 const REMEMBERED_PLAYER_COUNT = 64;
 
@@ -736,6 +857,10 @@ export class RoomCore<S = any> {
   endsAt: string | null = null;
   /** Messages received from clients, for usage counts. */
   messageCount = 0;
+  /** The rest of the room's traffic since takeTraffic, by "<direction> <type>". */
+  private traffic = { inboundSizeBytes: 0, outboundMessageCount: 0, outboundSizeBytes: 0, messageTypes: new Map<string, MessageTypeTraffic>(), inboundTypeCount: 0, outboundTypeCount: 0 };
+  /** Goes up whenever a block or friendship between players may have changed (PAIR_CHANGE_COUNT). */
+  private pairChangeCount = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
   isListed = true;
@@ -864,7 +989,11 @@ export class RoomCore<S = any> {
       },
       broadcast: (message, broadcastOptions) => this.broadcast(message, broadcastOptions?.exceptPlayerId),
       send: (playerId, message) => {
-        if (this.players.has(playerId)) this.sendText(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage));
+        if (this.players.has(playerId)) this.sendText(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage), undefined, messageTypeOf(message));
+      },
+      broadcastBytes: (bytes, broadcastOptions) => this.broadcastBytes(bytes, broadcastOptions),
+      sendBytes: (playerId, bytes) => {
+        if (this.players.has(playerId)) this.sendFrame([playerId], bytesFrame(readBytes(bytes, "room.sendBytes"), null));
       },
       end: (message) => this.end(message ?? "The match is over."),
       get endsAt() {
@@ -899,6 +1028,7 @@ export class RoomCore<S = any> {
       pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,
       serverTimeMs: () => this.now(),
     };
+    Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
   }
 
   /** What a sleeping room saves besides the game's state. */
@@ -949,7 +1079,9 @@ export class RoomCore<S = any> {
       this.friendships.add(pairKey(playerId, otherPlayerId));
       isChanged = true;
     }
-    if (isChanged) this.dirty = true;
+    if (!isChanged) return;
+    this.dirty = true;
+    this.pairChangeCount++;
   }
 
   /** Whether two players have a block between them, either way: from their accounts, or one a player's game said it made. */
@@ -978,6 +1110,7 @@ export class RoomCore<S = any> {
     if (!isChanged) return;
     this.dirty = true;
     this.listingChanged = true;
+    this.pairChangeCount++;
   }
 
   /** The players in the room this one has a block with, either way. */
@@ -1004,6 +1137,7 @@ export class RoomCore<S = any> {
     if (isBlocking === this.sessionBlocks.has(key)) return null;
     if (isBlocking) this.sessionBlocks.add(key);
     else this.sessionBlocks.delete(key);
+    this.pairChangeCount++;
     this.dirty = true;
     this.listingChanged = true;
     this.tellBlocks();
@@ -1316,7 +1450,8 @@ export class RoomCore<S = any> {
     const player = this.players.get(playerId);
     const isHeld = !player && this.held.has(playerId);
     if ((!player && !isHeld) || this.ended) return "ended";
-    const isTooBig = text.length > ROOM_LIMITS.maximumGameMessageSizeBytes || utf8ByteCount(text) > ROOM_LIMITS.maximumGameMessageSizeBytes;
+    const sizeBytes = text.length > ROOM_LIMITS.maximumGameMessageSizeBytes ? text.length : utf8ByteCount(text);
+    const isTooBig = sizeBytes > ROOM_LIMITS.maximumGameMessageSizeBytes;
     let parsed: unknown;
     let isParsed = false;
     if (!isTooBig) {
@@ -1331,6 +1466,7 @@ export class RoomCore<S = any> {
     // A probe answer is automatic, not the player's input: it isn't counted, takes no token and doesn't count as seen.
     if (message.type === "probe_answer" && this.answer(playerId, message.probeNumber)) return null;
     this.messageCount++;
+    this.countTraffic("inbound", message.type === "message" ? messageTypeOf(message.data) : typeof message.type === "string" ? ZAISMA_MESSAGE_TYPE : NO_MESSAGE_TYPE, 1, sizeBytes);
     if (isTooBig) return "too_big";
     if (!this.take(playerId)) return "too_fast";
     if (!isParsed) return "bad_message";
@@ -1360,7 +1496,7 @@ export class RoomCore<S = any> {
       case "back":
         return this.back(playerId);
       case "message":
-        this.run(() => this.server.onMessage?.(this.state, player!, message.data, this.api));
+        this.input(() => this.server.onMessage?.(this.state, player!, message.data, this.api));
         return null;
       case "block":
         return this.sessionBlock(playerId, message, true);
@@ -1369,6 +1505,66 @@ export class RoomCore<S = any> {
       default:
         return "bad_message";
     }
+  }
+
+  /** Bytes from a client (a binary frame). Returns an error code if they were refused. */
+  receiveBytes(playerId: string, bytes: Uint8Array): RoomErrorCode | null {
+    const player = this.players.get(playerId);
+    const isHeld = !player && this.held.has(playerId);
+    if ((!player && !isHeld) || this.ended) return "ended";
+    this.messageCount++;
+    this.countTraffic("inbound", BYTES_MESSAGE_TYPE, 1, bytes.length);
+    if (bytes.length > ROOM_LIMITS.maximumGameMessageSizeBytes) return "too_big";
+    if (!this.take(playerId)) return "too_fast";
+    // Out of the match with their seat held, a player's bytes wait like their messages.
+    if (isHeld) return null;
+    if (!this.server.onBytes) return "bad_message";
+    const presence = this.presence.get(playerId);
+    if (presence) presence.seenAtMs = this.now();
+    this.input(() => this.server.onBytes!(this.state, player!, bytes, this.api));
+    return null;
+  }
+
+  /**
+   * A player's message or bytes for the game server: through the queue of handlers, or at once for a
+   * game server that only queues them for its next call (QUEUES_INPUT).
+   */
+  private input(handler: () => HandlerResult<S>): void {
+    if (!(this.server as { [QUEUES_INPUT]?: boolean })[QUEUES_INPUT]) return this.run(handler);
+    try {
+      handler();
+    } catch (error) {
+      console.error("Game server error:", error);
+    }
+  }
+
+  /** Count messages in or out for the room's traffic: how many, their bytes and the largest of them. */
+  private countTraffic(direction: TrafficDirection, messageType: string, messageCount: number, sizeBytes: number): void {
+    if (messageCount === 0) return;
+    const traffic = this.traffic;
+    if (direction === "inbound") traffic.inboundSizeBytes += sizeBytes;
+    else {
+      traffic.outboundMessageCount += messageCount;
+      traffic.outboundSizeBytes += sizeBytes * messageCount;
+    }
+    let kept = traffic.messageTypes.get(`${direction} ${messageType}`);
+    if (!kept) {
+      const typeCountKey = direction === "inbound" ? "inboundTypeCount" : "outboundTypeCount";
+      if (traffic[typeCountKey] >= MAXIMUM_MESSAGE_TYPE_COUNT && messageType !== OTHER_MESSAGE_TYPE) return this.countTraffic(direction, OTHER_MESSAGE_TYPE, messageCount, sizeBytes);
+      if (messageType !== OTHER_MESSAGE_TYPE) traffic[typeCountKey]++;
+      kept = { messageType, direction, messageCount: 0, sizeBytes: 0, largestSizeBytes: 0 };
+      traffic.messageTypes.set(`${direction} ${messageType}`, kept);
+    }
+    kept.messageCount += messageCount;
+    kept.sizeBytes += sizeBytes * messageCount;
+    kept.largestSizeBytes = Math.max(kept.largestSizeBytes, sizeBytes);
+  }
+
+  /** The room's traffic since the last time it was taken, and start counting afresh. */
+  takeTraffic(): RoomTraffic {
+    const traffic = this.traffic;
+    this.traffic = { inboundSizeBytes: 0, outboundMessageCount: 0, outboundSizeBytes: 0, messageTypes: new Map(), inboundTypeCount: 0, outboundTypeCount: 0 };
+    return { inboundSizeBytes: traffic.inboundSizeBytes, outboundMessageCount: traffic.outboundMessageCount, outboundSizeBytes: traffic.outboundSizeBytes, messageTypes: [...traffic.messageTypes.values()] };
   }
 
   /** The host: the room's first player, when the game server has host controls on. */
@@ -1578,7 +1774,31 @@ export class RoomCore<S = any> {
 
   private broadcast(message: unknown, exceptPlayerId?: string): void {
     const text = JSON.stringify({ type: "message", data: message } satisfies ServerMessage);
-    this.sendEach([...this.players.keys()].filter((id) => id !== exceptPlayerId), text);
+    this.sendEach([...this.players.keys()].filter((id) => id !== exceptPlayerId), text, messageTypeOf(message));
+  }
+
+  /** room.broadcastBytes: one frame, built once, to every player but exceptPlayerId. */
+  private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void {
+    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId"], "room.broadcastBytes");
+    const fromPlayerId = typeof given.fromPlayerId === "string" ? given.fromPlayerId : null;
+    const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), fromPlayerId);
+    this.sendFrame([...this.players.keys()].filter((id) => id !== given.exceptPlayerId), frame);
+  }
+
+  /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
+  private sendFrame(playerIds: string[], frame: Uint8Array): void {
+    if (!this.transport.sendBytes) throw new Error("Sending bytes isn't available here");
+    this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length);
+    this.depth++;
+    try {
+      for (const id of playerIds) {
+        this.transport.sendBytes(id, frame);
+        this.sent(id, frame.length);
+      }
+    } finally {
+      this.depth--;
+      this.flush();
+    }
   }
 
   private broadcastPlayers(): void {
@@ -1589,11 +1809,13 @@ export class RoomCore<S = any> {
    * Send one text to several players, counting its bytes once. A player it drops for falling behind
    * leaves once everyone has it, so nobody hears of the leave before the rest of this text.
    */
-  private sendEach(playerIds: Iterable<string>, text: string): void {
+  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE): void {
     const byteCount = utf8ByteCount(text);
+    const ids = [...playerIds];
+    this.countTraffic("outbound", messageType, ids.length, byteCount);
     this.depth++;
     try {
-      for (const id of [...playerIds]) this.sendText(id, text, byteCount);
+      for (const id of ids) this.sendText(id, text, byteCount, null);
     } finally {
       this.depth--;
       this.flush();
@@ -1605,8 +1827,15 @@ export class RoomCore<S = any> {
    * ROOM_LIMITS.maximumUnansweredSentBytes since the last probe they answered, they're dropped;
    * every ROOM_LIMITS.sentBytesPerProbe, they're probed, so a backed-up connection shows as a late answer.
    */
-  private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text)): void {
+  private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text), messageType: string | null = ZAISMA_MESSAGE_TYPE): void {
     this.transport.send(playerId, text);
+    // sendEach counts its text once for everyone (messageType null).
+    if (messageType !== null) this.countTraffic("outbound", messageType, 1, byteCount);
+    this.sent(playerId, byteCount);
+  }
+
+  /** Bytes that went out to a player, for the probes and the backlog. */
+  private sent(playerId: string, byteCount: number): void {
     const presence = this.presence.get(playerId);
     if (!presence) return;
     presence.sentByteCount += byteCount;
@@ -1624,7 +1853,9 @@ export class RoomCore<S = any> {
     if (presence.unansweredProbes.size > ROOM_LIMITS.maximumUnansweredProbeCount) presence.unansweredProbes.delete(presence.unansweredProbes.keys().next().value!);
     presence.lastProbeAtMs = nowMs;
     presence.lastProbeSentByteCount = presence.sentByteCount;
-    this.transport.send(playerId, JSON.stringify({ type: "probe", probeNumber, serverTimeMs: nowMs, pingDurationMs: presence.pingDurationMs } satisfies ServerMessage));
+    const text = JSON.stringify({ type: "probe", probeNumber, serverTimeMs: nowMs, pingDurationMs: presence.pingDurationMs } satisfies ServerMessage);
+    this.transport.send(playerId, text);
+    this.countTraffic("outbound", ZAISMA_MESSAGE_TYPE, 1, text.length);
   }
 
   /** A ticking room probes each player in the match every ROOM_LIMITS.probeIntervalSec, and drops those who stopped answering. */
@@ -1751,6 +1982,14 @@ interface Presence {
 /** A player's presence as they come in: nothing sent and nothing measured yet. A room waking from sleep starts its probes afresh. */
 function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
   return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null };
+}
+
+/** Bytes a game handed the room, as a Uint8Array: anything else is a mistake in the game's call. */
+function readBytes(given: unknown, call: string): Uint8Array {
+  if (given instanceof Uint8Array) return given;
+  if (given instanceof ArrayBuffer) return new Uint8Array(given);
+  if (ArrayBuffer.isView(given)) return new Uint8Array(given.buffer, given.byteOffset, given.byteLength);
+  throw new Error(`${call} takes bytes: a Uint8Array, another typed array or an ArrayBuffer.`);
 }
 
 /** How many bytes a text takes on the wire. */

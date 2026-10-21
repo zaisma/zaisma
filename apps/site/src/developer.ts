@@ -1471,12 +1471,13 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
 async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
-  const [gamePlayStats, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomUse, monthRequestCount] = await Promise.all([
+  const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
+  const [gamePlayStats, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomUse, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
     env.DB
-      .prepare("SELECT date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
+      .prepare("SELECT date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(game.id, fromDate)
-      .all<{ date: string; room_count: number; room_play_duration_sec: number; message_count: number; game_server_call_count: number; game_server_request_count: number; game_server_scheduled_run_count: number; game_server_crash_count: number; game_server_stopped_count: number; game_server_ended_match_count: number }>(),
+      .all<RoomTrafficRow & { date: string; room_count: number; game_server_cpu_duration_ms: number; game_server_call_count: number; game_server_request_count: number; game_server_scheduled_run_count: number; game_server_crash_count: number; game_server_stopped_count: number; game_server_ended_match_count: number }>(),
     env.DB
       .prepare("SELECT version_id, kind, message, occurrence_count, first_at_ms, last_at_ms FROM game_server_errors WHERE game_id = ? ORDER BY last_at_ms DESC LIMIT 20")
       .bind(game.id)
@@ -1488,6 +1489,16 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .all<{ schedule_name: string; cron: string; version_id: string; next_run_at_ms: number; last_run_at_ms: number | null }>(),
     roomUseThisMonth(env.DB, game.id),
     requestCountThisMonth(env.DB, game.id),
+    env.DB
+      .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(message_count), 0) AS message_count, COALESCE(SUM(inbound_size_bytes), 0) AS inbound_size_bytes, COALESCE(SUM(outbound_message_count), 0) AS outbound_message_count, COALESCE(SUM(outbound_size_bytes), 0) AS outbound_size_bytes FROM room_usage WHERE game_id = ? AND date >= ?")
+      .bind(game.id, monthStartDate)
+      .first<RoomTrafficRow>(),
+    env.DB
+      .prepare(
+        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
+      )
+      .bind(game.id, monthStartDate, ROOM_TRAFFIC_MESSAGE_TYPE_COUNT)
+      .all<MessageTypeRow>(),
   ]);
   // The game's own game server runs on Zaisma for its rooms, or for requests and schedules, which any game's can have.
   const hasOwnServer =
@@ -1500,16 +1511,21 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       room_count: day.room_count,
       room_play_duration_min: Math.round(day.room_play_duration_sec / 60),
       message_count: day.message_count,
+      ...perPlayerTraffic(day),
+      game_server_cpu_duration_sec: Math.round(day.game_server_cpu_duration_ms / 1000),
       game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, scheduled_run_count: day.game_server_scheduled_run_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
     // Until Hosting billing exists, new rooms and relayed connections stop at the free tier until the month resets (UTC).
     room_use_this_month: {
       room_play_duration_hours: Math.round(monthRoomUse.roomPlayDurationSec / 360) / 10,
       relayed_size_bytes: monthRoomUse.relayedSizeBytes,
+      game_server_cpu_duration_sec: Math.round(monthRoomUse.gameServerCpuDurationMs / 1000),
       counted_play_duration_hours: Math.round(monthRoomUse.countedPlayDurationSec / 360) / 10,
       free_room_play_duration_hours: FREE_ROOM_PLAY_DURATION_HOURS,
       has_reached_free_hours: monthRoomUse.countedPlayDurationSec >= FREE_ROOM_PLAY_DURATION_HOURS * 3600,
     },
+    // What each player sends and gets a second, the biggest message types and what to change, so a developer's AI can cut it.
+    room_traffic: roomTraffic(monthTraffic, monthMessageTypes),
     // Requests to the game's own game server (Zaisma.server.request): likewise, past the free ones they stop until the month resets.
     request_use_this_month: { request_count: monthRequestCount, free_request_count: FREE_REQUEST_COUNT_PER_MONTH, has_reached_free_requests: monthRequestCount >= FREE_REQUEST_COUNT_PER_MONTH },
     // Schedules are free, capped by their shape: up to 10, each at most once a minute.
@@ -1520,6 +1536,83 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
     game_server_errors: hasOwnServer ? errors.map(gameServerErrorJson) : [],
   };
 }
+
+/** Room traffic as room_usage adds it up: player time, and messages and bytes each way. */
+interface RoomTrafficRow {
+  room_play_duration_sec: number;
+  message_count: number;
+  inbound_size_bytes: number;
+  outbound_message_count: number;
+  outbound_size_bytes: number;
+}
+
+/** A message type's traffic over the month, as room_message_types adds it up. */
+interface MessageTypeRow {
+  message_type: string;
+  direction: "inbound" | "outbound";
+  message_count: number;
+  size_bytes: number;
+  largest_size_bytes: number;
+}
+
+/** The month's biggest message types get_stats lists. */
+const ROOM_TRAFFIC_MESSAGE_TYPE_COUNT = 10;
+/** Where room traffic hints start: a JSON type this big on average, this often; this much going out; a message this close to the limit. */
+const LARGE_JSON_AVERAGE_SIZE_BYTES = 512;
+const FREQUENT_MESSAGES_PER_PLAYER_SEC = 5;
+const HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC = 32 * 1024;
+const NEAR_LIMIT_SIZE_BYTES = 12 * 1024;
+
+/** Messages and bytes per player a second, each way, rounded to one decimal; 0 with no player time. */
+function perPlayerTraffic(traffic: RoomTrafficRow) {
+  const perPlayerSec = (summedNumber: number) => (traffic.room_play_duration_sec > 0 ? Math.round((summedNumber / traffic.room_play_duration_sec) * 10) / 10 : 0);
+  return {
+    inbound_messages_per_player_sec: perPlayerSec(traffic.message_count),
+    inbound_size_bytes_per_player_sec: perPlayerSec(traffic.inbound_size_bytes),
+    outbound_messages_per_player_sec: perPlayerSec(traffic.outbound_message_count),
+    outbound_size_bytes_per_player_sec: perPlayerSec(traffic.outbound_size_bytes),
+  };
+}
+
+/** The month's room traffic per player a second, its biggest message types, and hints from a closed list. */
+function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRow[]) {
+  const totals = traffic ?? { room_play_duration_sec: 0, message_count: 0, inbound_size_bytes: 0, outbound_message_count: 0, outbound_size_bytes: 0 };
+  const perPlayer = perPlayerTraffic(totals);
+  const types = totals.room_play_duration_sec > 0 ? messageTypes : [];
+  const hints: { code: RoomTrafficHintCode; message: string }[] = [];
+  const kilobytes = (sizeBytes: number) => Math.round((sizeBytes / 1024) * 10) / 10;
+  const named = (messageType: string) => (messageType === "(none)" ? "Messages without a type" : `"${messageType}" messages`);
+  for (const type of types) {
+    const averageSizeBytes = type.message_count ? type.size_bytes / type.message_count : 0;
+    const isJson = !["(bytes)", "(zaisma)", "(other)"].includes(type.message_type);
+    if (isJson && averageSizeBytes >= LARGE_JSON_AVERAGE_SIZE_BYTES && type.message_count / totals.room_play_duration_sec >= FREQUENT_MESSAGES_PER_PLAYER_SEC) {
+      hints.push({ code: "json_messages_large", message: `${named(type.message_type)} average ${Math.round(averageSizeBytes)} bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.` });
+    }
+  }
+  if (perPlayer.outbound_size_bytes_per_player_sec >= HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC) {
+    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see.` });
+  }
+  const largestInbound = types.filter((type) => type.direction === "inbound").sort((first, second) => second.largest_size_bytes - first.largest_size_bytes)[0];
+  if (largestInbound && largestInbound.largest_size_bytes >= NEAR_LIMIT_SIZE_BYTES) {
+    const which = largestInbound.message_type === "(none)" ? "message without a type" : largestInbound.message_type === "(bytes)" ? "bytes message" : `"${largestInbound.message_type}" message`;
+    hints.push({ code: "message_near_limit", message: `The largest ${which} is ${kilobytes(largestInbound.largest_size_bytes)} KB, close to the 16 KB limit. Split it or send it as bytes.` });
+  }
+  return {
+    ...perPlayer,
+    message_types: types.map((type) => ({
+      message_type: type.message_type,
+      direction: type.direction,
+      message_count: type.message_count,
+      size_bytes: type.size_bytes,
+      largest_size_bytes: type.largest_size_bytes,
+      average_size_bytes: type.message_count ? Math.round(type.size_bytes / type.message_count) : 0,
+    })),
+    traffic_hints: hints,
+  };
+}
+
+/** What room traffic hints say to change (ROOM_TRAFFIC_HINT in schemas.ts says what each means). */
+type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit";
 
 /** A game server error as it's stored. */
 export interface GameServerErrorRow {
@@ -2186,9 +2279,9 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .bind(gameIds)
       .all<{ game_id: string; id: string; scan_status: "held" | "rejected"; report_held_at_ms: number | null; created_at_ms: number; is_newest: number }>(),
     env.DB
-      .prepare("SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_request_count) AS request_count FROM room_usage WHERE game_id IN (SELECT value FROM json_each(?)) AND date >= ? GROUP BY game_id")
+      .prepare("SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_cpu_duration_ms) AS game_server_cpu_duration_ms, SUM(game_server_request_count) AS request_count FROM room_usage WHERE game_id IN (SELECT value FROM json_each(?)) AND date >= ? GROUP BY game_id")
       .bind(gameIds, monthStartDate)
-      .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; request_count: number }>(),
+      .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number; request_count: number }>(),
     // Counted as get_reports counts them: the last 90 days, never child safety.
     env.DB
       .prepare("SELECT game_id, COUNT(*) AS report_count FROM reports WHERE game_id IN (SELECT value FROM json_each(?)) AND report_status = 'open' AND reported_at_ms > ? AND reason != 'child_safety' AND severity_index > 0 GROUP BY game_id")
@@ -2232,7 +2325,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     }
     const use = usage.find((row) => row.game_id === game.id);
     // Each paused line, then the heads-ups; a heads-up is never given alongside its own paused or full kind.
-    const countedSec = use ? countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes) : 0;
+    const countedSec = use ? countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes, use.game_server_cpu_duration_ms) : 0;
     const freeRoomSec = FREE_ROOM_PLAY_DURATION_HOURS * 3600;
     const requestCount = use?.request_count ?? 0;
     if (countedSec >= freeRoomSec) {
