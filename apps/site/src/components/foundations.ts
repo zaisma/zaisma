@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DRIFT_SHADER, SHADER_HELPERS, STARWARD_SHADER, ZAISMA_SHADER } from "./shaders.ts";
 
 /*
  * The foundations of Zaisma's look: the tokens every component takes its colors from, the glass and its
@@ -35,7 +36,7 @@ const LIGHT_GLASS = `color-scheme: light;
   /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
      so it takes that glass's --line: a var() in a custom property is read where it's set. */
   --divider: 1px solid var(--line);
-  --toggle-off: rgba(60, 72, 94, 0.2); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(232, 150, 20, 0.26); --tag-warning-ink: #6A4300; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
+  --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(232, 150, 20, 0.26); --tag-warning-ink: #6A4300; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
@@ -66,7 +67,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
-  --toggle-off: rgba(0, 0, 0, 0.34); --tag-new: rgba(52, 211, 120, 0.2); --tag-new-ink: #A6F0C6; --tag-warning: rgba(245, 176, 40, 0.2); --tag-warning-ink: #F8D68C; --tag-plain: rgba(0, 0, 0, 0.22); --tag-carve: inset 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.14); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
+  --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(200, 130, 20, 0.3); --tag-warning-ink: #F8D68C; --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
@@ -708,43 +709,16 @@ export const GLASS_SCRIPT = `/* glass */(function () {
 `;
 
 /**
- * Zaisma's own backdrop shader: three soft lights in the theme's backdrop colors drifting very slowly, crossed by wide
- * diagonal facets a step brighter or darker, the cut shape at the scale of the page. Any page's own fragment shader gets
- * the same uniforms: u_resolution (pixels), u_time (seconds), u_base, u_a, u_b, u_c (the theme's --backdrop-* colors) and u_dark (1 on dark).
- */
-export const BACKDROP_SHADER = `#ifdef GL_FRAGMENT_PRECISION_HIGH
-precision highp float;
-#else
-precision mediump float;
-#endif
-uniform vec2 u_resolution; uniform float u_time; uniform vec3 u_base; uniform vec3 u_a; uniform vec3 u_b; uniform vec3 u_c; uniform float u_dark;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float light(vec2 p, vec2 at, float size) { vec2 d = p - at; return exp(-dot(d, d) / (size * size)); }
-void main() {
-  vec2 uv = gl_FragCoord.xy / u_resolution;
-  float aspect = u_resolution.x / u_resolution.y;
-  vec2 p = vec2(uv.x * aspect, uv.y);
-  float s = u_time * 0.04;
-  vec3 color = u_base;
-  color = mix(color, u_a, 0.9 * light(p, vec2(aspect * (0.22 + 0.12 * sin(s * 1.3)), 0.72 + 0.12 * cos(s * 1.7)), 0.6));
-  color = mix(color, u_b, 0.8 * light(p, vec2(aspect * (0.78 + 0.1 * cos(s * 1.1)), 0.32 + 0.15 * sin(s * 0.9)), 0.55));
-  color = mix(color, u_c, 0.75 * light(p, vec2(aspect * (0.52 + 0.18 * sin(s * 0.7 + 2.0)), 0.95 + 0.1 * sin(s * 1.5)), 0.5));
-  float facet = floor((p.x * 0.7 + p.y) * 1.4 + s * 0.5);
-  color += (hash(vec2(facet, 3.0)) - 0.5) * mix(0.045, 0.03, u_dark);
-  color += (hash(gl_FragCoord.xy + fract(u_time)) - 0.5) / 128.0;
-  gl_FragColor = vec4(color, 1.0);
-}`;
-
-/**
- * Backdrops: every canvas[data-backdrop] on a page. "shader" draws a fragment shader (the page's own in data-backdrop-shader,
- * or Zaisma's), "scene" leaves the drawing to the page: each frame the canvas gets a backdrop-frame event whose detail is
+ * Backdrops: every canvas[data-backdrop] on a page. "shader" draws a shader background (shaders.ts: a mainImage function, the page's own in
+ * data-backdrop-shader, or Zaisma's), "scene" leaves the drawing to the page: each frame the canvas gets a backdrop-frame event whose detail is
  * { timeS, colors: { base, a, b, c, isDark }, widthPx, heightPx }, and the page draws its 3D scene into the canvas then.
- * Either way this keeps the canvas sized to its box, follows the theme, runs at most 30 frames a second, stops while the page
- * is hidden or the canvas is out of view, and under reduced motion draws one still frame. Without WebGL a shader backdrop
- * keeps its CSS gradient in the same colors.
+ * Either way this keeps the canvas sized to its box, follows the theme (a shader's iDark eases from one to the other), runs at most 30
+ * frames a second, stops while the page is hidden or the canvas is out of view, and under reduced motion draws one still frame. A shader
+ * is drawn small (about half the screen's pixels, less on a phone) and gets fewer pixels, then a still frame, on a device that can't keep
+ * up. Without WebGL a shader backdrop keeps its CSS gradient in the theme's colors.
  */
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
-  var ZAISMA_SHADER = ${JSON.stringify(BACKDROP_SHADER)};
+  var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)};
   var VERTEX = "attribute vec2 corner; void main() { gl_Position = vec4(corner, 0.0, 1.0); }";
   var still = window.matchMedia("(prefers-reduced-motion: reduce)");
   var layers = [], lastMs = 0, running = false;
@@ -760,42 +734,44 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       c: rgb(css.getPropertyValue("--backdrop-c")), isDark: /dark/.test(css.colorScheme || "") };
   }
   function shaderDrawer(canvas) {
-    var gl = canvas.getContext("webgl", { antialias: false, alpha: true, powerPreference: "low-power" });
+    var gl = canvas.getContext("webgl", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
     if (!gl) return null;
     function compile(kind, source) {
       var shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { console.warn("Backdrop shader:", gl.getShaderInfoLog(shader)); return null; }
       return shader;
     }
-    var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, canvas.getAttribute("data-backdrop-shader") || ZAISMA_SHADER);
+    var precision = "#ifdef GL_FRAGMENT_PRECISION_HIGH\\nprecision highp float;\\n#else\\nprecision mediump float;\\n#endif\\n";
+    var source = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA) +
+      "\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy); gl_FragColor = vec4(color.rgb, 1.0); }";
+    var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, source);
     if (!vertex || !fragment) return null;
     var program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
-    var at = {}; ["u_resolution", "u_time", "u_base", "u_a", "u_b", "u_c", "u_dark"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
+    var resolution = gl.getUniformLocation(program, "iResolution"), time = gl.getUniformLocation(program, "iTime"), dark = gl.getUniformLocation(program, "iDark");
     return function (timeS, colors) {
       gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform2f(at.u_resolution, canvas.width, canvas.height); gl.uniform1f(at.u_time, timeS);
-      gl.uniform3fv(at.u_base, colors.base); gl.uniform3fv(at.u_a, colors.a); gl.uniform3fv(at.u_b, colors.b); gl.uniform3fv(at.u_c, colors.c);
-      gl.uniform1f(at.u_dark, colors.isDark ? 1 : 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.uniform3f(resolution, canvas.width, canvas.height, 1); gl.uniform1f(time, timeS); gl.uniform1f(dark, colors.darkShare);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
-  // A change of theme fades the backdrop's colors over the same half second as the glass's, so the two never part for a frame.
+  // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
   var FADE_MS = 500;
   function mix(from, to, t) { return from.map(function (value, i) { return value + (to[i] - value) * t; }); }
   function shownColors(layer, nowMs) {
     var t = still.matches || !layer.from ? 1 : Math.min(1, (nowMs - layer.fadeStartMs) / FADE_MS);
-    if (t >= 1) { layer.from = null; return layer.target; }
+    if (t >= 1) { layer.from = null; return Object.assign({}, layer.target, { darkShare: layer.target.isDark ? 1 : 0 }); }
     var eased = t * t * (3 - 2 * t), from = layer.from, to = layer.target;
-    return { base: mix(from.base, to.base, eased), a: mix(from.a, to.a, eased), b: mix(from.b, to.b, eased), c: mix(from.c, to.c, eased), isDark: eased < 0.5 ? from.isDark : to.isDark };
+    return { base: mix(from.base, to.base, eased), a: mix(from.a, to.a, eased), b: mix(from.b, to.b, eased), c: mix(from.c, to.c, eased), isDark: eased < 0.5 ? from.isDark : to.isDark,
+      darkShare: (from.darkShare !== undefined ? from.darkShare : from.isDark ? 1 : 0) + ((to.isDark ? 1 : 0) - (from.darkShare !== undefined ? from.darkShare : from.isDark ? 1 : 0)) * eased };
   }
   function draw(layer, nowMs) {
     // The wall clock, not the page's own: moving to another page, the backdrop carries on where it was instead of starting over.
-    var timeS = still.matches ? 20 : (Date.now() / 1000) % 100000;
+    var timeS = still.matches ? 20 : (Date.now() / 1000) % 3600;
     layer.colors = shownColors(layer, nowMs);
     if (layer.drawShader) layer.drawShader(timeS, layer.colors);
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colors: layer.colors, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
@@ -804,8 +780,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function frame(nowMs) {
     requestAnimationFrame(frame);
     if (document.hidden || nowMs - lastMs < 33) return;
-    lastMs = nowMs;
-    layers.forEach(function (layer) { if (layer.isInView && !(still.matches && layer.isDrawn)) draw(layer, nowMs); });
+    var gapMs = nowMs - lastMs; lastMs = nowMs;
+    layers.forEach(function (layer) {
+      if (!layer.isInView || (layer.isHeld || still.matches) && layer.isDrawn) return;
+      // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
+      if (layer.drawShader && gapMs < 1000) {
+        layer.slowS = gapMs > 50 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
+        if (layer.slowS > 1.5) { layer.slowS = 0; if (layer.scale > 0.26) { layer.scale *= 0.75; layer.size(); } else layer.isHeld = true; }
+      }
+      draw(layer, nowMs);
+    });
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {
@@ -819,20 +803,20 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
-    var isScene = canvas.getAttribute("data-backdrop") === "scene";
-    // A shader is soft, so it's drawn at one pixel per CSS pixel; a scene gets the screen's sharpness, up to 2x.
-    var layer = { canvas: canvas, isInView: true, isDrawn: false, target: readColors(canvas), from: null, scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
+    var isScene = canvas.getAttribute("data-backdrop") === "scene", isPhone = window.matchMedia("(max-width: 760px)").matches, sharpness = Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1.5);
+    // A shader is soft, so it's drawn at about half the screen's pixels (less on a phone); a scene gets the screen's sharpness, up to 2x.
+    var layer = { canvas: canvas, isInView: true, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
-    function size() {
-      var width = Math.max(1, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(1, Math.round(canvas.clientHeight * layer.scale));
+    layer.size = function () {
+      var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
       if (width === canvas.width && height === canvas.height) return;
       canvas.width = width; canvas.height = height; layer.isDrawn = false;
       if (canvas.backdropLayer) draw(layer, performance.now());
-    }
-    size();
-    if (window.ResizeObserver) new ResizeObserver(size).observe(canvas); else window.addEventListener("resize", size);
+    };
+    layer.size();
+    if (window.ResizeObserver) new ResizeObserver(layer.size).observe(canvas); else window.addEventListener("resize", layer.size);
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(canvas);
     layers.push(layer);
     // The first frame is drawn at once, so the canvas never shows empty while it waits for the next animation frame.
@@ -1013,7 +997,7 @@ component({
 });
 
 export interface BackdropOptions {
-  /** A page's own fragment shader, given the same uniforms as Zaisma's (BACKDROP_SHADER). Left out, the page gets Zaisma's. */
+  /** A page's own shader background: a mainImage function (shaders.ts). Left out, the page gets Zaisma's. */
   fragmentShader?: string;
   /** The page draws its own 3D scene into the canvas on each backdrop-frame event, instead of a shader. */
   isScene?: boolean;
@@ -1026,23 +1010,14 @@ export function backdrop(options: BackdropOptions = {}): Raw {
   return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""} aria-hidden="true"></canvas>`;
 }
 
-/** A page's own shader, for the gallery: slow light rippling out from the lower left in the same colors. */
-const RIPPLE_SHADER = `precision mediump float;
-uniform vec2 u_resolution; uniform float u_time; uniform vec3 u_base; uniform vec3 u_a; uniform vec3 u_b; uniform vec3 u_c;
-void main() {
-  vec2 p = gl_FragCoord.xy / u_resolution.y;
-  float ring = 0.5 + 0.5 * sin(length(p) * 9.0 - u_time * 0.4);
-  float band = 0.5 + 0.5 * sin(p.x * 3.0 + u_time * 0.15);
-  gl_FragColor = vec4(mix(mix(u_base, u_a, ring * 0.7), u_c, band * 0.35), 1.0);
-}`;
-
-const backdropFrame = (layer: Raw) => html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>Glass</strong><span>Always over something.</span></div></div>`;
+const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
+  html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div></div>`;
 
 component({
   name: "Backdrop",
   slug: "backdrop",
   group: "foundations",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have this one, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, glass facets with orange nodes wandering over them, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
@@ -1057,9 +1032,30 @@ component({
 .backdrop-frame .glass strong { font: var(--type-name); color: var(--ink); }
 `,
   examples: [
-    { label: "Zaisma's own: behind every page", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
-    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: RIPPLE_SHADER })) },
+    { label: "Zaisma's own: behind every page, pearl on light and graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
+  ],
+});
+
+component({
+  name: "Shader background",
+  slug: "shader-background",
+  group: "foundations",
+  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain; Zaisma draws it small, at most 30 frames a second, and holds a still frame on a device that can't keep up.",
+  styles: `
+/* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
+.shader-code { margin: 0; width: 100%; padding: var(--pad-inner-pane); overflow-x: auto; white-space: pre; font: var(--type-code); color: var(--ink-2);
+  background: var(--well); box-shadow: var(--well-shade); }
+`,
+  examples: [
+    { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER }), "Dusk", "Four lines.") },
+    { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER }), "Clouds", "fbm, from the helpers.") },
+    { label: "The dusk sky's whole source", markup: html`<pre class="shader-code">${DUSK_SHADER.trim()}</pre>`, isWide: true },
+    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER }), "Neon Drift", "Skyline, neon windows, rain.") },
+    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER }), "Frostline", "Aurora, stars, falling snow.") },
+    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER }), "Starward", "Nebula, twinkling stars, a planet.") },
+    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER }), "Emberfall", "Lava, a lit ridge, embers.") },
   ],
 });
 

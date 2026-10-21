@@ -228,10 +228,10 @@ component({
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle. */
 .list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 4px; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
-.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--ghost); }
+.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
 .list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
-.list-row.is-link:active { --face-color: var(--wash-press); }
+.list-row.is-link:active { --face-color: var(--row-press); }
 .list-row.is-link:focus-visible { outline: none; }
 .list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 @media (prefers-reduced-motion: reduce) { .list-row.is-link::before, .list-row-go { transition: none; } }

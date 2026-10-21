@@ -585,17 +585,33 @@ export function stepFlow(options: StepFlowOptions): Raw {
  * back; on the last step Next sends the form. form.goToStep(index) moves to any step (the gallery starts its example over with it).
  */
 export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
+  var LEAVE_MS = 450;
   document.querySelectorAll("form[data-steps]").forEach(function (form) {
     var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
     var back = form.querySelector("[data-step-buttons] > .cut-btn"), next = form.querySelector("[data-step-buttons] > .run-wrap"), words = next.querySelector(".run > span:not([class])");
     var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");
+    var settling = 0;
+    function mark(index) {
+      marks.forEach(function (each, i) {
+        each.classList.remove("is-leaving"); each.classList.toggle("is-done", i < index); each.classList.toggle("is-current", i === index);
+        if (i === index) each.setAttribute("aria-current", "step"); else each.removeAttribute("aria-current");
+      });
+    }
     function goToStep(index) {
+      var from = at;
       at = Math.max(0, Math.min(last, index));
       bodies.forEach(function (body, i) { body.hidden = i !== at; });
-      marks.forEach(function (mark, i) {
-        mark.classList.toggle("is-done", i < at); mark.classList.toggle("is-current", i === at);
-        if (i === at) mark.setAttribute("aria-current", "step"); else mark.removeAttribute("aria-current");
-      });
+      clearTimeout(settling);
+      // Going back, the lines past the new step shrink away with the light at their tip; once they're gone the step goes back to being
+      // the current one, its light at its end. Going on, the next line fills at once.
+      if (at < from && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        marks.forEach(function (each, i) {
+          if (i > at && (each.classList.contains("is-current") || each.classList.contains("is-done"))) { each.classList.remove("is-current", "is-done"); each.classList.add("is-leaving"); }
+          each.removeAttribute("aria-current");
+        });
+        marks[at].setAttribute("aria-current", "step");
+        settling = setTimeout(function () { mark(at); }, LEAVE_MS);
+      } else mark(at);
       back.hidden = at === 0; words.textContent = at === last ? finishWords : nextWords;
       var first = bodies[at].querySelector("input, select, textarea, button");
       if (first && document.activeElement && form.contains(document.activeElement)) first.focus({ preventScroll: true });
@@ -637,6 +653,8 @@ component({
 .step-line > li.is-current { color: var(--ink); }
 .step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
 @starting-style { .step-line > li.is-current .step-fill { transform: scaleX(0); } }
+/* Going back, a line shrinks away with its light still at its tip, before the step it goes back to takes the light. */
+.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 @media (max-width: 760px) { .step-line > li:not(.is-current) > .step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }

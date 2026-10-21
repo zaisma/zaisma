@@ -516,8 +516,8 @@ component({
 .text-btn:active > .face, .text-btn.is-pressed > .face { color: var(--ink); transform: translateY(1px); transition-duration: 0.08s; }
 /* Keyboard focus: an outline round its words alone. */
 .text-btn:focus-visible .text-words, .text-btn.is-focused .text-words { outline: 2px solid var(--focus); outline-offset: 4px; }
-/* Beside another control in a row it has no slant to meet, so it stands clear of that control's end by two words' gaps. */
-.control-row > .text-btn:not(:first-child) { margin-inline-start: calc(var(--control-slant) - var(--gap-control-row) + 2 * var(--gap-words-control)); }
+/* Beside another control in a row it has no slant to meet, so it stands clear of that control's end by a word's gap and a row's. */
+.control-row > .text-btn:not(:first-child) { margin-inline-start: calc(var(--control-slant) + var(--gap-words-control)); }
 /* Waiting: the loader before its words. */
 .text-btn:not([aria-busy="true"]) .loader, .text-btn[aria-busy="true"] .text-words > .ico { display: none; }
 .text-btn[aria-busy="true"] { cursor: progress; }

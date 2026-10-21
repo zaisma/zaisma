@@ -922,8 +922,11 @@ component({
 .check-box:has(.check-input:checked) > .ico { transform: scale(1); }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .check:hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { --face-color: var(--run-hi); }
+/* Pressed: the box sinks, darker and shaded from above; a ticked one deepens to the runner's foot, its light turned round, its tick a touch smaller. */
+.check:active .check-box, .check.is-pressed .check-box { --face-color: var(--check-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.check:active .check-box:has(.check-input:checked), .check.is-pressed .check-box:has(.check-input:checked) { --face-color: #D9730A; box-shadow: inset 0 2px 4px rgba(110,50,0,0.45); }
+.check:active .check-box:has(.check-input:checked) > .cut-line, .check.is-pressed .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
 .check:active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
-.check:active .check-box, .check.is-pressed .check-box { box-shadow: var(--press-shade); }
 .check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; }
@@ -935,6 +938,8 @@ component({
   examples: [
     ...pressExamples((state, exampleKey) => checkField({ id: `example-check-${exampleKey}`, name: "reply_emails", label: "Email me replies", state }), "check"),
     { label: "Ticked", markup: checkField({ id: "example-check-ticked", name: "reply_emails", label: "Email me replies", isChecked: true }) },
+    { label: "Ticked, pointed", markup: checkField({ id: "example-check-ticked-pointed", name: "reply_emails", label: "Email me replies", isChecked: true, state: "is-pointed" }), isStill: true },
+    { label: "Ticked, pressed", markup: checkField({ id: "example-check-ticked-pressed", name: "reply_emails", label: "Email me replies", isChecked: true, state: "is-pressed" }), isStill: true },
     { label: "With a hint", markup: examplePane(checkField({ id: "example-check-hint", name: "rules_agreed", label: "I've read the content rules", hint: "Games break them only by what's in them, never by taste.", isChecked: true })) },
   ],
 });
@@ -1067,14 +1072,16 @@ component({
 .toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */
-.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.35)) drop-shadow(0 3px 4px rgba(10,16,28,0.2));
-  transition: transform 0.4s var(--spring), filter 0.2s; }
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1px 1px rgba(10,16,28,0.24)) drop-shadow(0 2px 3px rgba(10,16,28,0.12));
+  transition: transform 0.4s var(--spring), scale 0.2s var(--spring), filter 0.2s; }
 /* The slab is solid and lit from above, so the orange behind it never tints it. */
 .toggle-slab { display: block; width: 100%; height: 100%; background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
-.toggle:hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 2px 2px rgba(10,16,28,0.38)) drop-shadow(0 4px 6px rgba(10,16,28,0.22)) brightness(1.04); }
-.toggle:active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: drop-shadow(0 0.5px 1px rgba(10,16,28,0.4)) brightness(0.96); }
+.toggle:hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.28)) drop-shadow(0 3px 4px rgba(10,16,28,0.14)); }
+/* Pressed: the slab is pushed down into the slot, a touch smaller, its shadow drawn in close and its face shaded from above. */
+.toggle:active .toggle-thumb, .toggle.is-pressed .toggle-thumb { scale: 0.92; filter: drop-shadow(0 0.5px 0.5px rgba(10,16,28,0.3)); transition-duration: 0.4s, 0.08s, 0.08s; }
+.toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { background: radial-gradient(120% 90% at 50% 100%, #F4F6F9, #E3E8EF 55%, #CDD4DE); box-shadow: inset 0 2px 3px rgba(10,16,28,0.18); }
 .toggle-slot:has(.toggle-input:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .toggle-slot:has(.toggle-input:checked:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
 @media (prefers-reduced-motion: reduce) { .toggle-thumb { transition: none; } .toggle-slot { transition: none; } }
@@ -1116,6 +1123,8 @@ export const SLIDER_SCRIPT = `/* sliders */(function () {
   function follow(input) {
     var box = input.closest(".slider"), min = Number(input.min), max = Number(input.max), output = box.querySelector("output"), unit = output.getAttribute("data-unit");
     box.style.setProperty("--fill", ((Number(input.value) - min) / Math.max(1e-9, max - min)).toFixed(4));
+    // The thumb's shape follows the edge rule where it now sits: cut where it meets its pane's corner, square in the middle.
+    var thumb = box.querySelector(".slider-thumb"); if (thumb && thumb.redrawCut) thumb.redrawCut();
     output.textContent = Number(input.value).toLocaleString("en-US") + (unit === "%" ? "%" : " " + unit);
   }
   document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches("input[data-slider]")) follow(event.target); });
