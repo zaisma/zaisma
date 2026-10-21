@@ -377,6 +377,32 @@ describe("components", () => {
     expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count" id="field-patch_notes-count">80 of 100</p>');
   });
 
+  it("head a table's columns for screen readers and line its numbers up on the right", () => {
+    const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    expect(markup).toContain('<caption>Versions</caption>');
+    expect(markup).toContain('<th scope="col">Version</th><th scope="col" class="num">Files</th>');
+    expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
+  });
+
+  it("give a chart's numbers to screen readers as a table of the same values", () => {
+    const markup = data.chart({ label: "Plays a day", points: [{ label: "Oct 20", amountNumber: 1205 }, { label: "Oct 21", amountNumber: 1712.5 }], unit: "plays" }).html;
+    expect(markup).toContain('<div class="chart-plot" aria-hidden="true">');
+    expect(markup).toContain('<div class="sr"><table><caption>Plays a day</caption>');
+    expect(markup).toContain('<tr><th scope="row">Oct 20</th><td>1,205 plays</td></tr><tr><th scope="row">Oct 21</th><td>1,712.5 plays</td></tr>');
+  });
+
+  it("send a date and time as ISO 8601 with its offset", () => {
+    const markup = inputs.dateTimeField({ name: "publish_at", label: "Go live", pickedAt: "2026-10-23T15:30+02:00" }).html;
+    const sent = /<input type="hidden" name="publish_at" value="([^"]*)"/.exec(markup)?.[1];
+    expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+    expect(inputs.DATE_TIME_SCRIPT).toContain('sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60)');
+  });
+
+  it("make a file drop a real file input across the whole field", () => {
+    const markup = inputs.fileDrop({ name: "build", label: "Drop your build", accept: ".zip", hint: "Up to 500 MB." }).html;
+    expect(markup).toContain('<input class="file-drop-input" type="file" id="drop-build" name="build" accept=".zip" aria-describedby="drop-build-hint">');
+  });
+
   it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
     // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
     // rectangles and cut corners to the pass round the shader, whose arrays are that long.
@@ -483,6 +509,8 @@ const LINK_IN_CONTROL = new Set<string>([
 ]);
 
 const NOT_TYPE = new Set<string>([
+  // A code field's code: inside a control, in code's letters, a size up from code in words so a key reads easily.
+  ".code-text | font",
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
@@ -501,6 +529,8 @@ const NOT_SPACING = new Set<string>([
   ".data-table th | padding", ".data-table td | padding", ".data-table.compact th | padding", ".data-table.compact td | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
   ".chart-last | margin", ".usage-track | padding",
+  // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
+  ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",

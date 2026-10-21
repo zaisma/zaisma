@@ -188,6 +188,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .stand-in-page { padding-top: 140px; }
   .header-frame { height: 320px; }
   .header-frame.tall { height: 560px; }
+  /* A header example is narrower than a phone's screen: it keeps a closer inset in its frame, so its first row has a phone's room. */
+  .header-frame .top:not(.is-logo-only) { width: calc(100% - 2 * var(--gap-words-control)); }
 }
 `;
 

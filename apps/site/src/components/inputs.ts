@@ -86,6 +86,40 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
 </fieldset>`;
 }
 
+export interface DateTimeFieldOptions {
+  name: string;
+  label: string;
+  /** Unique on the page. Defaults to when-<name>. */
+  id?: string;
+  /** A picked time, ISO 8601 with its offset: 2026-10-23T15:30+02:00. */
+  pickedAt?: string;
+  /** The earliest time it takes, ISO 8601 with its offset; earlier picks move up to it. Defaults to now. */
+  minimumAt?: string;
+  /** "open" shows the wheels: the gallery's fixed state. */
+  state?: "open";
+}
+
+/**
+ * A date and time field, for scheduling (a version going live later): the birthday field's look, opening four wheels under the lit band, the
+ * day ("Today", "Tomorrow", "Fri, Oct 23"), the hour, the minute in fives, and AM or PM, all in the viewer's own time zone, said under it.
+ * It submits ISO 8601 with the viewer's offset (DATE_TIME_SCRIPT fills it in).
+ */
+export function dateTimeField(options: DateTimeFieldOptions): Raw {
+  const id = options.id ?? `when-${options.name}`;
+  const isOpen = options.state === "open";
+  const wheel = (part: string, label: string) => html`<div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"></div>`;
+  return html`<fieldset class="bday" data-date-time${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}>
+<legend id="${id}-legend">${options.label}</legend>
+<button type="button" class="bday-field cut-carved" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-zone">${CUT_LINE}${icon("clock")}<span class="bday-value">Choose a time</span><span class="bday-chev">${icon("chevron-down")}</span></button>
+<p class="date-time-zone" id="${id}-zone"></p>
+<div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
+<div class="wheels date-time-wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span>${wheel("day", "Day")}${wheel("hour", "Hour")}${wheel("minute", "Minute")}${wheel("half", "AM or PM")}</div>
+<span class="bday-read sr" aria-live="polite"></span>
+</div>
+<input type="hidden" name="${options.name}" value="${options.pickedAt ?? ""}" data-id="${id}">
+</fieldset>`;
+}
+
 const VERTICAL_PLACES: SwitchTab[] = [
   { label: "Home", icon: "play", isCurrent: true },
   { label: "Your games", icon: "person", badgeCount: 3, isCurrent: false },
@@ -135,7 +169,7 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
 /** Show/Hide: shows the password it controls, and hides it again. */
 export const FIELD_SCRIPT = `/* fields */(function () {
   document.addEventListener("click", function (event) {
-    var show = event.target.closest && event.target.closest(".field > .cut-btn[aria-controls]");
+    var show = event.target.closest && event.target.closest(".field:not(.code) > .cut-btn[aria-controls]");
     if (!show) return;
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
@@ -243,6 +277,124 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       put(ring, tab); sw.classList.add("is-focus-shown");
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
+  });
+})();
+`;
+
+/**
+ * The date and time picker: four wheels in the viewer's time zone, the day a year ahead from the earliest it takes. It starts on the time
+ * given, or, when nothing is, the next whole hour once it opens. A pick earlier than the earliest moves up to it. Scroll, tap, or use the
+ * keys (arrows, Page Up and Down, Home and End). It writes ISO 8601 with the viewer's offset into the hidden input.
+ */
+export const DATE_TIME_SCRIPT = `/* date and time */(function () {
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var ROW = 40, DAY_MS = 86400000, FIVE_MS = 300000;
+  var HOURS = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"], MINUTES = [], HALVES = ["AM", "PM"];
+  for (var m = 0; m < 60; m += 5) MINUTES.push(String(m).padStart(2, "0"));
+  function two(n) { return String(n).padStart(2, "0"); }
+  function startOfDay(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
+  function iso(date) {
+    var offset = -date.getTimezoneOffset(), sign = offset < 0 ? "-" : "+", whole = Math.abs(offset);
+    return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate()) + "T" + two(date.getHours()) + ":" + two(date.getMinutes()) + sign + two(Math.floor(whole / 60)) + ":" + two(whole % 60);
+  }
+  function zoneName(date) {
+    try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "long" }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; }
+  }
+  document.querySelectorAll("[data-date-time]").forEach(function (root) {
+    var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), shown = root.querySelector(".bday-value"), zone = root.querySelector(".date-time-zone");
+    var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
+    // The earliest it takes, at a five-minute step; the day wheel starts on its day.
+    var minimum = root.hasAttribute("data-minimum-at") ? new Date(root.getAttribute("data-minimum-at")) : new Date();
+    if (isNaN(minimum)) minimum = new Date();
+    minimum = new Date(Math.ceil(minimum.getTime() / FIVE_MS) * FIVE_MS);
+    var firstDay = startOfDay(minimum), days = [];
+    for (var d = 0; d < 366; d++) days.push(new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + d));
+    var today = startOfDay(new Date()).getTime(), thisYear = new Date().getFullYear();
+    function dayWords(day) {
+      var gap = Math.round((day.getTime() - today) / DAY_MS);
+      if (gap === 0) return "Today";
+      if (gap === 1) return "Tomorrow";
+      return day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { weekday: "short", month: "short", day: "numeric" } : { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    }
+    var picked = { day: 0, hour: 0, minute: 0, half: 0 }, isSet = false;
+    function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.hour + at.half * 12, at.minute * 5); }
+    function pickedOf(date) {
+      var dayIndex = Math.max(0, Math.min(days.length - 1, Math.round((startOfDay(date).getTime() - firstDay.getTime()) / DAY_MS)));
+      return { day: dayIndex, hour: date.getHours() % 12, minute: Math.floor(date.getMinutes() / 5), half: date.getHours() >= 12 ? 1 : 0 };
+    }
+    var given = hidden.value ? new Date(hidden.value) : null;
+    if (given && !isNaN(given)) { picked = pickedOf(given < minimum ? minimum : given); isSet = true; }
+    var wheels = {
+      day: { el: root.querySelector('[data-part="day"]'), items: days.map(dayWords) },
+      hour: { el: root.querySelector('[data-part="hour"]'), items: HOURS },
+      minute: { el: root.querySelector('[data-part="minute"]'), items: MINUTES },
+      half: { el: root.querySelector('[data-part="half"]'), items: HALVES }
+    };
+    function mark(part) {
+      var w = wheels[part], at = picked[part];
+      Array.prototype.forEach.call(w.el.children, function (option, i) { option.setAttribute("aria-selected", String(i === at)); });
+      w.el.setAttribute("aria-activedescendant", id + "-" + part + "-" + at);
+    }
+    Object.keys(wheels).forEach(function (part) {
+      var w = wheels[part];
+      w.items.forEach(function (text, i) {
+        var option = document.createElement("div");
+        option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
+        option.addEventListener("click", function () { pickRow(part, i, true); });
+        w.el.appendChild(option);
+      });
+      mark(part);
+    });
+    function place(isGliding) { Object.keys(wheels).forEach(function (part) { wheels[part].el.scrollTo({ top: picked[part] * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
+    function pickRow(part, i, isGliding) {
+      i = Math.max(0, Math.min(wheels[part].items.length - 1, i));
+      wheels[part].el.scrollTo({ top: i * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" });
+      setRow(part, i);
+    }
+    function setRow(part, i) {
+      if (picked[part] === i && isSet) return;
+      picked[part] = i; isSet = true;
+      // Earlier than it takes: every wheel moves up to the earliest.
+      if (timeOf(picked) < minimum) { picked = pickedOf(minimum); Object.keys(wheels).forEach(mark); place(true); }
+      else mark(part);
+      show();
+    }
+    function show() {
+      var at = timeOf(picked);
+      zone.textContent = "Your time" + (zoneName(at) ? ": " + zoneName(at) : "");
+      if (!isSet) { shown.textContent = "Choose a time"; field.classList.remove("set"); hidden.value = ""; read.textContent = ""; return; }
+      var timeWords = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      shown.textContent = dayWords(days[picked.day]) + ", " + timeWords; field.classList.add("set");
+      read.textContent = at.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) + " at " + timeWords;
+      hidden.value = iso(at);
+    }
+    Object.keys(wheels).forEach(function (part) {
+      var w = wheels[part], timer = null;
+      // When a scroll comes to rest, the row under the band is the one picked.
+      w.el.addEventListener("scroll", function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { if (!pick.hidden) setRow(part, Math.round(w.el.scrollTop / ROW)); }, 110);
+      }, { passive: true });
+      w.el.addEventListener("keydown", function (event) {
+        var at = picked[part], step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[event.key];
+        if (step) { pickRow(part, at + step, true); event.preventDefault(); return; }
+        if (event.key === "Home") { pickRow(part, 0, true); event.preventDefault(); return; }
+        if (event.key === "End") { pickRow(part, w.items.length - 1, true); event.preventDefault(); return; }
+        if (event.key === "Enter") { close(true); event.preventDefault(); }
+      });
+    });
+    function open() {
+      // Nothing picked yet: it starts on the next whole hour, or the earliest it takes.
+      if (!isSet) { var next = new Date(); next.setMinutes(60, 0, 0); picked = pickedOf(next < minimum ? minimum : next); isSet = true; Object.keys(wheels).forEach(mark); show(); }
+      pick.hidden = false; field.setAttribute("aria-expanded", "true"); place(false);
+      wheels.day.el.focus({ preventScroll: true });
+      pick.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    }
+    function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
+    field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
+    pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
+    if (!pick.hidden) { if (!isSet) open(); else requestAnimationFrame(function () { place(false); }); }
+    show();
   });
 })();
 `;
@@ -378,7 +530,7 @@ const FIELD_STYLES = `
 .field input:focus, .field.is-focused input { outline: none; --face-color: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field .ico { position: absolute; z-index: 3; left: 18px; width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
+.field > .ico { position: absolute; z-index: 3; left: 18px; width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
 .field:focus-within, .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
@@ -496,6 +648,26 @@ component({
     { label: "Open", markup: examplePane(birthdayField({ id: "example-bday-open", name: "birthday", label: "When's your birthday?", state: "open" })) },
     { label: "Picked", markup: examplePane(birthdayField({ id: "example-bday-picked", name: "birthday", label: "When's your birthday?", birthday: "2004-03-14" })) },
     { label: "Error", markup: examplePane(birthdayField({ id: "example-bday-marked", name: "birthday", label: "When's your birthday?", state: "marked" })) },
+  ],
+});
+
+component({
+  name: "Date and time field",
+  slug: "date-time-field",
+  group: "inputs",
+  summary: "Picking when something happens, like a version going live: the birthday field's wheels for the day, hour, minute and AM or PM, in your own time zone, which it says.",
+  styles: `
+/* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Wed, Oct 23" needs. */
+.date-time-zone { margin: 0; font: var(--type-facts); color: var(--muted); }
+.date-time-zone:empty { display: none; }
+.date-time-wheels { grid-template-columns: 2.3fr 0.8fr 0.8fr 0.9fr; }
+.date-time-wheels [role="option"] { white-space: nowrap; }
+`,
+  render: dateTimeField,
+  examples: [
+    { label: "Closed", markup: examplePane(dateTimeField({ id: "example-when-closed", name: "publish_at", label: "Go live" })) },
+    { label: "Open", markup: examplePane(dateTimeField({ id: "example-when-open", name: "publish_at", label: "Go live", state: "open" })) },
+    { label: "Picked", markup: examplePane(dateTimeField({ id: "example-when-picked", name: "publish_at", label: "Go live", pickedAt: "2027-01-15T18:30+00:00" })) },
   ],
 });
 
@@ -1219,5 +1391,158 @@ component({
     { label: "Pressed", markup: examplePane(slider({ id: "example-slider-pressed", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 64, unit: "players", state: "is-pressed" })), isStill: true },
     { label: "Keyboard focus", markup: examplePane(slider({ id: "example-slider-focus", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 40, unit: "%", state: "is-focused" })), isStill: true },
     { label: "At its ends", markup: examplePane(html`${slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" })}${slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" })}`) },
+  ],
+});
+
+export interface FileDropOptions {
+  name: string;
+  label: string;
+  /** The kinds it takes, as a file input's accept: ".zip", "image/png,image/webp". */
+  accept: string;
+  isMultiple?: boolean;
+  /** What to drop, in a few words: "A .zip of your game's folder, up to 500 MB." */
+  hint: string;
+  /** Unique on the page. Defaults to drop-<name>. */
+  id?: string;
+  /** "over" shows a file held over it: the gallery's fixed state. */
+  state?: "over";
+}
+
+/**
+ * A file drop: a carved field the size of a pane, its outline drawn dashed, turning orange while a file is held over it. It's a real file
+ * input across the whole field, so a drop, a tap and the keyboard all reach it; the files picked are listed under it with their sizes.
+ */
+export function fileDrop(options: FileDropOptions): Raw {
+  const id = options.id ?? `drop-${options.name}`;
+  return html`<div class="file-drop-wrap" data-file-drop><div class="file-drop cut-carved${options.state === "over" ? " is-over" : ""}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint">${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><ul class="file-drop-list" aria-live="polite" hidden></ul></div>`;
+}
+
+/** A file drop lights while a file is held over it, and lists what's picked, each with its size. */
+export const FILE_DROP_SCRIPT = `/* file drops */(function () {
+  function sizeWords(byteCount) {
+    if (byteCount < 1000) return byteCount + " bytes";
+    if (byteCount < 1e6) return (byteCount / 1e3).toFixed(0) + " KB";
+    if (byteCount < 1e9) return (byteCount / 1e6).toFixed(1) + " MB";
+    return (byteCount / 1e9).toFixed(2) + " GB";
+  }
+  document.querySelectorAll("[data-file-drop]").forEach(function (root) {
+    var drop = root.querySelector(".file-drop"), input = root.querySelector(".file-drop-input"), list = root.querySelector(".file-drop-list");
+    var depth = 0;
+    input.addEventListener("dragenter", function () { depth++; drop.classList.add("is-over"); });
+    input.addEventListener("dragleave", function () { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove("is-over"); });
+    input.addEventListener("drop", function () { depth = 0; drop.classList.remove("is-over"); });
+    input.addEventListener("change", function () {
+      list.textContent = "";
+      Array.prototype.forEach.call(input.files, function (file) {
+        var row = document.createElement("li"), name = document.createElement("span"), size = document.createElement("span");
+        name.className = "file-drop-name"; name.textContent = file.name; size.className = "file-drop-size"; size.textContent = sizeWords(file.size);
+        row.appendChild(name); row.appendChild(size); list.appendChild(row);
+      });
+      list.hidden = !input.files.length;
+      drop.classList.toggle("has-files", input.files.length > 0);
+    });
+  });
+})();
+`;
+
+component({
+  name: "File drop",
+  slug: "file-drop",
+  group: "inputs",
+  summary: "Handing over files: a game's build, a cover, a screenshot for a report. Drop them on it, tap it, or reach it by keyboard; what's picked is listed with its size.",
+  styles: `
+/* A file drop: a carved field the size of a pane, its outline dashed. Pointing at it clears it a little; a file held over it whitens it and
+   turns the dashes orange, and keyboard focus draws the outline whole, in orange. The file input lies across all of it, unseen. */
+.file-drop-wrap { display: grid; gap: var(--gap-words-control); }
+.file-drop { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
+  padding: var(--pad-pane); text-align: center; color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.file-drop:hover { --face-color: var(--field-hover); }
+.file-drop.is-over { --face-color: var(--field-focus); color: var(--ink); }
+.file-drop > .ico { width: 28px; height: 28px; transition: transform 0.3s var(--spring); }
+.file-drop.is-over > .ico { transform: translateY(-3px); }
+.file-drop-input { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.file-drop-words { display: grid; gap: var(--gap-words-words); }
+.file-drop-words label { font: var(--type-label); color: var(--ink); }
+.file-drop-words span { font: var(--type-facts); color: var(--ink-2); }
+.file-drop > .cut-line { z-index: 4; }
+.file-drop > .cut-line polygon { stroke: var(--drop-dash); stroke-width: 2; stroke-dasharray: 7 5; }
+.file-drop.is-over > .cut-line polygon { stroke: var(--focus); stroke-width: 3; }
+.file-drop:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
+.file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.file-drop-list li { display: flex; justify-content: space-between; gap: var(--gap-words-control); padding: var(--gap-words-words) 0; border-top: var(--divider); font: var(--type-words); color: var(--ink); }
+.file-drop-list li:first-child { border-top: 0; }
+.file-drop-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-drop-size { flex: none; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .file-drop > .ico { transition: none; } }
+`,
+  render: fileDrop,
+  examples: [
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
+    { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
+  ],
+});
+
+export interface CodeFieldOptions {
+  label: string;
+  /** What it holds, shown whole and copied whole: an API key, an address, a command. */
+  code: string;
+  /** Unique on the page. Defaults to a slug of its label. */
+  id?: string;
+}
+
+/**
+ * A code field: code in a carved field, shown whole (it wraps rather than hiding any of it), with a Copy button at its end; for an API key
+ * shown once, an address, a command. Clicking the code selects all of it.
+ */
+export function codeField(options: CodeFieldOptions): Raw {
+  const id = options.id ?? `code-${options.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return html`<div class="cut-field"><span class="code-label" id="${id}-label">${options.label}</span><div class="field code cut-carved" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${options.code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}<span class="code-copied" role="status"></span></div></div>`;
+}
+
+/** Copy: the field's whole code goes to the clipboard, and "Copied" shows for a moment; clicking the code selects all of it. */
+export const COPY_SCRIPT = `/* code fields */(function () {
+  function selectAll(element) { var range = document.createRange(); range.selectNodeContents(element); var picked = window.getSelection(); picked.removeAllRanges(); picked.addRange(range); }
+  document.addEventListener("click", function (event) {
+    var code = event.target.closest && event.target.closest(".field.code > .code-text");
+    if (code) { selectAll(code); return; }
+    var copy = event.target.closest && event.target.closest(".field.code > .cut-btn[aria-controls]");
+    if (!copy) return;
+    var text = document.getElementById(copy.getAttribute("aria-controls")), field = copy.parentElement, said = field.querySelector(".code-copied");
+    if (!text) return;
+    function done() {
+      said.textContent = "Copied"; field.classList.add("is-copied");
+      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
+    }
+    // Where the clipboard isn't open to the page, the code is selected and copied the old way.
+    function byHand() { selectAll(text); try { if (document.execCommand("copy")) done(); } catch (error) {} }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.textContent).then(done, byHand);
+    else byHand();
+  });
+})();
+`;
+
+component({
+  name: "Code field",
+  slug: "code-field",
+  group: "inputs",
+  summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.",
+  styles: `
+/* A code field: the cut field holding code in code's letters, all of it, wrapping onto more lines rather than hiding any. Copy is the small
+   cut button at its end; once it's copied, "Copied" shows beside it for a moment. */
+.code-label { font: var(--type-label); color: var(--ink-2); }
+.field.code { height: auto; min-height: 52px; align-items: stretch; }
+.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 15px 104px 15px 16px; font: 500 15px/1.45 ui-monospace, Menlo, monospace; color: var(--ink);
+  overflow-wrap: anywhere; cursor: text; --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); }
+.code-text:focus-visible { outline: none; }
+.field.code:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.code-copied { position: absolute; z-index: 5; right: 56px; top: 17px; font: var(--type-facts); color: var(--ink-2); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.field.code.is-copied .code-copied { opacity: 1; }
+`,
+  render: codeField,
+  examples: [
+    { label: "An API key, shown once", markup: examplePane(codeField({ id: "example-code-key", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60" })) },
+    { label: "A command", markup: examplePane(codeField({ id: "example-code-command", label: "Upload from your terminal", code: "npx @zaisma/cli upload ./build --game ashen-crown" })) },
   ],
 });

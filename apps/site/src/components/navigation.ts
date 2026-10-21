@@ -129,14 +129,17 @@ const HEADER_STYLES = `
 @media (max-width: 760px) {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
   /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
-  .top > .logo { grid-area: 1 / 1; }
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
+  .top > .logo { grid-area: 1 / 1; min-width: 0; }
+  .top > .logo svg { max-width: 100%; }
   .top > .find + .cut-btn { grid-area: 1 / 3; }
   .top > .end { grid-area: 1 / 4; }
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  .top > .logo { margin-left: 6px; }
+  /* The grid's free column spaces it from search, so it keeps no gap of its own after it. */
+  .top > .logo { margin-left: 6px; margin-right: 0; }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
   .top.searching .find { display: block; }
