@@ -167,11 +167,12 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
-  it("puts controls side by side or stacked exactly --gap-control-control apart, the edge rule's neighbour distance", async () => {
+  it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbour distance) and stacked --gap-control-stack apart", async () => {
     const problems: string[] = [];
     const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
       const gap = /(?:^|[;\s])gap:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((selector) => ({ subject: selector.trim().split(/[\s>+~]+/).pop() ?? "", gap })) : [];
+      const isStack = /(?:^|[;\s])(display:\s*grid|flex-direction:\s*column)/.test(declarations);
+      return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((selector) => ({ subject: selector.trim().split(/[\s>+~]+/).pop() ?? "", gap, isStack })) : [];
     });
     for (const { group } of COMPONENT_GROUPS) {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
@@ -179,8 +180,12 @@ describe("the gallery", () => {
         // A control's own parts (a switch's tabs, the row arrows' two slabs) are its inside, not controls beside each other.
         if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
-        const gaps = [...rules.filter(({ subject }) => matchesSubject(holder, subject)).map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
-        if (gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-control)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
+        const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
+        const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
+        const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
+        // A row is a .control-row (foundations.ts): a gap can't be negative, so its controls overlap by a margin of --gap-control-row-boxes.
+        if (!isStack && holder.classes.includes("control-row")) continue;
+        if (!isStack || gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-stack)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
       }
     }
     expect([...new Set(problems)]).toEqual([]);
@@ -251,7 +256,7 @@ const NOT_SPACING = new Set<string>([
   ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".logo | margin-left", ".nav a | padding", ".me | gap",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".rail-mark span | padding", ".chip | padding",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | gap", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".sidebar-list | gap", ".menu | gap", ".menu hr | margin",
   // Lines words up with the places' words under them.
   ".sidebar-heading | padding", ".menu-head | padding",

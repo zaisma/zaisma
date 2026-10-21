@@ -54,7 +54,7 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 
 ## Spacing
 
-Applies to the components (`apps/site/src/components/`) and the gallery (`apps/site/src/design-page.ts`). Every gap, padding and margin is one of six tokens, defined once in `foundations.ts`. Pick one by looking at what sits on each side of the space, never by judging how close two things feel.
+Applies to the components (`apps/site/src/components/`) and the gallery (`apps/site/src/design-page.ts`). Every gap, padding and margin is one of seven tokens, defined once in `foundations.ts`. Pick one by looking at what sits on each side of the space, never by judging how close two things feel.
 
 - A **control** is anything from Actions & Inputs (a button, a field, a switch, the birthday picker).
 - **Words** are a heading, a label, a legend, a hint, an error or a line of text.
@@ -62,7 +62,8 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 | Token | What's on each side | Value |
 | --- | --- | --- |
-| `--gap-control-control` | Two controls, in a row or a stack (Play and Details, Light and Dark, the passkey, Google and Discord buttons) | 4px |
+| `--gap-control-row` | Two controls side by side (Play and Details, Light and Dark), measured between their slants: their boxes sit `--gap-control-row-boxes` apart, overlapping by `--control-slant` (10px) less this | 4px |
+| `--gap-control-stack` | Two controls stacked (the passkey, Google and Discord buttons) | 8px |
 | `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
@@ -71,11 +72,11 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
 - **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
-- **`--gap-control-control` is the edge rule's neighbour distance.** Two controls that far apart slant toward each other; further apart they never do. So controls are never placed further apart than this unless they're in different blocks.
+- **The row's gap is the edge rule's neighbour distance.** Two controls side by side with their boxes `--gap-control-row-boxes` apart slant toward each other by `--control-slant`; any other distance and they don't. A row of controls uses `--gap-control-row-boxes`, a stack `--gap-control-stack`.
 - **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.
 - **What isn't spacing keeps its own number:** a control's inside (its words and icon to its own edge, set by each control size), a control's own parts (a switch's tabs and the inset round its slab, the birthday's wheels, a list of places), room to scroll or for a scrollbar, and where a small mark sits on what it marks. Each one is named, with its reason, in `NOT_SPACING` in `test/site/design.test.ts`.
 
-`test/site/design.test.ts` checks both: no other number in any gap, padding or margin, and every group of controls side by side or stacked exactly `--gap-control-control` apart.
+`test/site/design.test.ts` checks both: no other number in any gap, padding or margin, and every row of controls `--gap-control-row-boxes` apart and every stack `--gap-control-stack` apart.
 
 ## Components
 

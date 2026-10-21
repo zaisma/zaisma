@@ -74,7 +74,7 @@ const HEADER_STYLES = `
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
   width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
-  display: flex; align-items: center; gap: var(--gap-control-control); padding: 0 var(--pad-inner-pane);
+  display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px));
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
@@ -87,6 +87,11 @@ const HEADER_STYLES = `
 .top.is-compact .me .frame { --frame: 32px; --frame-cut: 8px; }
 
 .logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
+/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
+.top > .logo { margin-right: var(--gap-block-block); }
+/* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
+.top .find:has(~ .end > .run-wrap) { margin-inline-end: var(--gap-control-row-boxes); }
+.top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 .logo svg { height: 26px; width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
 .top.is-compact .logo svg { height: 23px; }
 .logo:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -113,7 +118,7 @@ const HEADER_STYLES = `
 
 /* Search sits after the tabs, pushed to the end. */
 .top .find { margin-left: auto; }
-.end { display: flex; align-items: center; gap: var(--gap-control-control); flex: none; }
+.end { display: flex; align-items: center; flex: none; }
 .top .find ~ .end, .top .find-open ~ .end { margin-left: 0; }
 .top .nav + .end { margin-left: auto; }
 
@@ -131,7 +136,7 @@ const HEADER_STYLES = `
 .find-open { display: none; }
 @media (max-width: 760px) {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-control); padding: var(--pad-inner-pane); }
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .logo { margin-left: 6px; }
@@ -139,7 +144,7 @@ const HEADER_STYLES = `
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
   .top.searching .find { display: block; }
   .top.searching .nav { display: none; }
-  .find-open { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; border: 0; background: none; color: var(--ink); cursor: pointer; }
+  .find-open { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; margin-right: var(--gap-words-control); border: 0; background: none; color: var(--ink); cursor: pointer; }
   .find-open .ico { width: 20px; height: 20px; }
   .find-open:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
   .top .nav + .end { margin-left: auto; }
@@ -572,7 +577,8 @@ component({
 /* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
-.steps { position: relative; margin-left: auto; display: none; gap: 2px; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.steps { position: relative; margin-left: auto; display: none; gap: 0; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.steps > .back { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 .step { position: relative; width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2);
   --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s, opacity 0.15s; }

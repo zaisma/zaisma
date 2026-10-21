@@ -100,7 +100,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
 .stage { padding-top: var(--pad-pane); }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
-.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-control) var(--gap-words-words); padding: var(--pad-inner-pane);
+.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
   --glass-tint: var(--glass-top); }
 .gallery-bar .logo svg { height: 24px; }
 .gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: 1px solid var(--line); }
@@ -127,7 +127,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 /* What the example is: a few quiet words just under it. */
 .example { gap: var(--gap-words-control); }
 .example-name { margin: 0; font: 500 12px/1.3 var(--display); color: var(--muted); }
-.example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: var(--gap-control-control); padding: 0; }
+.example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 0; }
 .example-pane { width: min(380px, 100%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .example-wide { width: 100%; padding: var(--pad-pane); }
 .cover-sample { width: 260px; }
@@ -291,13 +291,19 @@ export const GALLERY_SCRIPT = pageScript(
       var kids = Array.prototype.filter.call(target.children, function (kid) { var css = getComputedStyle(kid); return kid.offsetWidth && css.position !== "absolute" && css.position !== "fixed" && kid.tagName !== "svg" && !kid.hidden; });
       for (var i = 1; i < kids.length; i++) {
         var a = kids[i - 1].getBoundingClientRect(), b = kids[i].getBoundingClientRect();
-        if (b.left >= a.right - 1) boxes.push([a.right, Math.max(a.top, b.top), b.left - a.right, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)]);
+        var top = Math.max(a.top, b.top), height = Math.min(a.bottom, b.bottom) - top;
+        // Side by side with their boxes overlapping: the space is between their slants, so the mark is slanted too.
+        if (b.left < a.right - 1 && b.top < a.bottom - 1) {
+          var slant = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--control-slant")) || 10, left = a.right - slant, width = b.left + slant - left;
+          boxes.push([left, top, width, height, "polygon(" + slant + "px 0, " + width + "px 0, " + (width - slant) + "px 100%, 0 100%)"]);
+        } else if (b.left >= a.right - 1) boxes.push([a.right, top, b.left - a.right, height]);
         else boxes.push([Math.max(a.left, b.left), a.bottom, Math.min(a.right, b.right) - Math.max(a.left, b.left), b.top - a.bottom]);
       }
     }
     boxes.forEach(function (box) {
       if (box[2] < 0.5 || box[3] < 0.5) return;
       var mark = document.createElement("span"); mark.className = "spacing-mark"; mark.setAttribute("aria-hidden", "true");
+      if (box[4]) mark.style.clipPath = box[4];
       mark.style.left = box[0] - s.left + "px"; mark.style.top = box[1] - s.top + "px"; mark.style.width = box[2] + "px"; mark.style.height = box[3] + "px";
       stage.appendChild(mark);
     });

@@ -108,9 +108,11 @@ export const TOKEN_STYLES = `
 /* How far in it fades: 28px, or a row's own --fade-sideways-px (a row of covers fades further). */
 [data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 28px); }
 [data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 28px); }
-/* A row of controls, --gap-control-control apart, so they slant where they meet. In a pane it fills the pane's width, its
+/* A row of controls, slanting where they meet, their slants --gap-control-row apart. In a pane it fills the pane's width, its
    controls sharing it, so its ends fit the pane's edges (the edge rule) instead of stopping short with square corners. */
-.control-row { display: flex; align-items: flex-start; gap: var(--gap-control-control); }
+/* A gap can't be negative, so each control but the last reaches back over the next by a margin; a row that wraps starts each line flush. */
+.control-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-control-stack) 0; }
+.control-row > :not(:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
 [data-glass] .control-row > .shell { display: flex; flex: 1 1 0; min-width: 0; }
 [data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
@@ -132,8 +134,12 @@ export const TOKEN_STYLES = `
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   --spring: cubic-bezier(.3, 1.2, .4, 1);
   /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
-     --gap-control-control is also the edge rule's neighbour distance: two controls that far apart slant, further apart they don't. */
-  --gap-control-control: 4px;
+     Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
+     boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
+  --control-slant: 10px;
+  --gap-control-row: 4px;
+  --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
+  --gap-control-stack: 8px;
   --gap-words-control: 8px;
   --gap-words-words: 8px;
   --gap-block-block: 24px;
@@ -413,7 +419,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   /*
    * The edge rule, one for every action and input (cutLine draws it, and glass for a control made of glass):
    * - An end slants only where another control sits right beside it in a row (tabs in a switch, Play and its details):
-   *   no further apart than --gap-control-control, side by side. Both share the slant, so the gap between them runs parallel.
+   *   side by side with their boxes --gap-control-row-boxes apart. Both slant by --control-slant, so the gap between the slants is
+   *   parallel, --gap-control-row wide. Stacked, on no pane, they're --gap-control-stack apart.
    * - Every other corner fits what holds it (the glass pane, or a control it sits in): it takes the holder's outline moved
    *   in by the gap round it, so the gap stays even. Near a corner of the pane that's the pane's cut, less the gap; along a
    *   straight edge, or in the middle, it's square. A control alone in a pane fits it at its top and its bottom.
@@ -422,7 +429,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    * The shape goes to CSS as --cut-shape, and el.cutCorners holds its corners for what sits inside it.
    */
   // Half a pixel over the token, for gaps a layout rounds.
-  var BESIDE_GAP_PX = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-control")) || 4) + 0.5, LONE_CORNERS = [18, 9, 18, 9];
+  var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
+  var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
+  // Neighbours side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
+  var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [18, 9, 18, 9];
   function glassCorners(pane) {
     var cuts = (pane.getAttribute("data-glass-corners") || "16 6 16 6").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
@@ -457,8 +467,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var o = other.getBoundingClientRect(); if (!o.width || !o.height) return;
       if (Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) < Math.min(r.height, o.height) / 2) return;
       var after = o.left - r.right, before = r.left - o.right;
-      if (after >= -1 && after <= BESIDE_GAP_PX) found.end = true;
-      if (before >= -1 && before <= BESIDE_GAP_PX) found.start = true;
+      if (after >= BESIDE_MIN_PX && after <= BESIDE_MAX_PX) found.end = true;
+      if (before >= BESIDE_MIN_PX && before <= BESIDE_MAX_PX) found.start = true;
     });
     return found;
   }
@@ -470,8 +480,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var o = other.getBoundingClientRect(); if (!o.width || !o.height) return;
       if (Math.min(r.right, o.right) - Math.max(r.left, o.left) < Math.min(r.width, o.width) / 2) return;
       var below = o.top - r.bottom, above = r.top - o.bottom;
-      if (below >= -1 && below <= BESIDE_GAP_PX) found.below = true;
-      if (above >= -1 && above <= BESIDE_GAP_PX) found.above = true;
+      if (below >= -1 && below <= STACK_GAP_PX + 0.5) found.below = true;
+      if (above >= -1 && above <= STACK_GAP_PX + 0.5) found.above = true;
     });
     return found;
   }
@@ -490,7 +500,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function controlOutline(el, w, h) {
     var beside = besides(el), cuts = fitCuts(el, w, h);
     el.cutCorners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h / 2); });
-    return controlShape(w, h, Number(el.getAttribute("data-cut-line")) || 10, cuts, beside);
+    // A control's own parts (a switch's slab, data-cut-beside) keep their own slant; controls beside each other share --control-slant.
+    return controlShape(w, h, el.hasAttribute("data-cut-beside") ? Number(el.getAttribute("data-cut-line")) || SLANT_PX : SLANT_PX, cuts, beside);
   }
   function cssPolygon(points) { return "polygon(" + points.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")"; }
   // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbours.
@@ -833,7 +844,6 @@ component({
   group: "foundations",
   summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
   styles: `
-.setting-picks { display: flex; flex-wrap: wrap; gap: var(--gap-control-control); }
 .setting-picks .hue-dot { position: relative; z-index: 2; width: 12px; height: 12px; border-radius: 50%; }
 .setting-picks [aria-pressed="true"] > .face { background: var(--btn-hover); box-shadow: inset 0 -3px 0 var(--run); }
 `,
@@ -841,12 +851,12 @@ component({
     {
       label: "Light or dark: the whole gallery follows",
       isWide: true,
-      markup: html`<div class="setting-picks" role="group" aria-label="Light or dark">${(["light", "dark"] as const).map((theme) => html`<button type="button" class="cut-btn shell" data-setting-theme="${theme}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>${theme === "light" ? "Light" : "Dark"}</span></span></button>`)}</div>`,
+      markup: html`<div class="setting-picks control-row" role="group" aria-label="Light or dark">${(["light", "dark"] as const).map((theme) => html`<button type="button" class="cut-btn shell" data-setting-theme="${theme}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>${theme === "light" ? "Light" : "Dark"}</span></span></button>`)}</div>`,
     },
     {
       label: "Glass: its hue, on every piece of glass in the gallery at once",
       isWide: true,
-      markup: html`<div class="setting-picks" role="group" aria-label="The glass's hue"><button type="button" class="cut-btn shell" data-setting-hue="" aria-pressed="true"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>None</span></span></button>${HUE_EXAMPLES.map((hue) => html`<button type="button" class="cut-btn shell" data-setting-hue="${hue.hexColour}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<i class="hue-dot" style="background:${hue.hexColour}"></i><span>${hue.label}</span></span></button>`)}</div>`,
+      markup: html`<div class="setting-picks control-row" role="group" aria-label="The glass's hue"><button type="button" class="cut-btn shell" data-setting-hue="" aria-pressed="true"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>None</span></span></button>${HUE_EXAMPLES.map((hue) => html`<button type="button" class="cut-btn shell" data-setting-hue="${hue.hexColour}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<i class="hue-dot" style="background:${hue.hexColour}"></i><span>${hue.label}</span></span></button>`)}</div>`,
     },
   ],
 });

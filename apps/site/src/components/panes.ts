@@ -297,7 +297,7 @@ component({
   name: "Spacing",
   slug: "spacing",
   group: "foundations",
-  summary: "Every gap, padding and margin is one of six tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
+  summary: "Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
   styles: `
 /* Spacing: the space each example is about, hatched over it. */
 .spacing-example { display: grid; gap: var(--gap-words-control); justify-items: start; width: 100%; }
@@ -308,8 +308,12 @@ component({
 `,
   examples: [
     {
-      label: "Two controls in a row or a stack, and the edge rule's neighbour distance: 4px",
-      markup: spacingExample("--gap-control-control", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
+      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbour distance: 4px",
+      markup: spacingExample("--gap-control-row", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
+    },
+    {
+      label: "Two controls stacked: 8px",
+      markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${cutButton("Settings", { type: "button", isFullWidth: true })}${cutButton("Account", { type: "button", isFullWidth: true })}${cutButton("Sign out", { type: "button", isFullWidth: true })}</div>`)),
     },
     {
       label: "A control and the words that belong to it: 8px",
