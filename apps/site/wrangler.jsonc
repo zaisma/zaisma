@@ -61,8 +61,16 @@
     { "binding": "PHOTODNA", "service": "zaisma-photodna", "entrypoint": "PhotoDnaService" }
   ],
   "queues": {
-    "producers": [{ "binding": "SCAN_QUEUE", "queue": "zaisma-scan" }],
-    "consumers": [{ "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 }]
+    // Brotli copies of game files have a queue of their own, so a 20,000-file game never makes scans wait,
+    // one file a batch: a 500 MB file takes about half the CPU limit (apps/site/src/compress.ts).
+    "producers": [
+      { "binding": "SCAN_QUEUE", "queue": "zaisma-scan" },
+      { "binding": "COMPRESS_QUEUE", "queue": "zaisma-compress" }
+    ],
+    "consumers": [
+      { "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 },
+      { "queue": "zaisma-compress", "max_batch_size": 1, "max_retries": 3 }
+    ]
   },
   // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files.
   "triggers": { "crons": ["*/5 * * * *", "17 3 * * *"] },

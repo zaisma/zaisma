@@ -905,6 +905,8 @@ Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
 
 Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.
 
+Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+
 ## The upload command
 
 `zaisma` ([`@zaisma/cli`](https://www.npmjs.com/package/@zaisma/cli), source `packages/cli/zaisma.mjs`) runs these calls from a terminal or CI: `npx @zaisma/cli <command>`, with `ZAISMA_KEY` set to an API key. `zaisma help` lists every command; `zaisma help --json` gives the same as JSON: each command's arguments and flags (with `has_value`, `is_required` and `choices`), the exit codes and the error codes below. Each release is published from GitHub's main by `.github/workflows/publish-cli.yml` with npm provenance, so npm shows the commit that built it.

@@ -9,7 +9,8 @@
 //   1. lists the live database's pending migrations and applies them. Ones that only add or change
 //      (tables, columns, indexes, backfills) apply by themselves. When one deletes data (DROP TABLE,
 //      DROP COLUMN, DELETE FROM, TRUNCATE) it needs a terminal, where wrangler asks Julius first;
-//      without one (Claude, a `!` command) it stops before deploying anything;
+//      without one (Claude, a `!` command) it stops before deploying anything; then makes any queue the
+//      Workers name that the account doesn't have yet;
 //   2. deploys rooms, games, photodna (with PhotoDNA's SDK from Julius's machine) and site, in that order;
 //   3. checks that npm has the command-line tool's version: a GitHub workflow
 //      (.github/workflows/publish-cli.yml) publishes it from main, never ship;
@@ -304,6 +305,26 @@ if (pendingMigrations.length) {
   say("No pending migrations.");
 }
 
+// Queues the Workers use that the account doesn't have yet, made before anything deploys: like a migration
+// that only adds, a new queue holds nothing, so it's made by itself.
+const queueNames = [...new Set(WORKERS.flatMap((worker) => [...readFileSync(join(shipCopy, "apps", worker, "wrangler.jsonc"), "utf8").matchAll(/"queue":\s*"([\w-]+)"/g)].map((match) => match[1])))];
+const listedQueues = queueNames.length ? runWrangler(["queues", "list"]) : { exitCode: 0, output: "" };
+if (listedQueues.exitCode !== 0) {
+  say(listedQueues.output.trim());
+  finish("FAIL", `${shortSha}: couldn't list the account's queues (above); nothing deployed.`, 1);
+}
+const missingQueues = queueNames.filter((name) => !new RegExp(`\\s${name}\\s`).test(listedQueues.output));
+if (missingQueues.length && !isDryRun) {
+  for (const name of missingQueues) {
+    const made = runWrangler(["queues", "create", name]);
+    if (made.exitCode !== 0) {
+      say(made.output.trim());
+      finish("FAIL", `${shortSha}: couldn't make the queue ${name} (above); nothing deployed.`, 1);
+    }
+  }
+  say(`Queues made: ${missingQueues.join(", ")}.`);
+}
+
 // The command-line tool on npm.
 const cliVersion = JSON.parse(readFileSync(join(shipCopy, "packages/cli/package.json"), "utf8")).version;
 
@@ -351,7 +372,8 @@ if (isDryRun) {
   const nowResults = [...checkBuckets(runWrangler), ...(await checkSecurityAddresses({ zaismaKey: process.env.ZAISMA_KEY, attemptCount: 1 }))];
   const nowFailed = nowResults.filter((result) => !result.isPass);
   const securityNote = nowFailed.length ? `security now: ${nowFailed.length} of ${nowResults.length} failing (${nowFailed.map((result) => result.note).join("; ")})` : `security now: all ${nowResults.length} hold`;
-  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${cliNote}; ${securityNote}.`, 0);
+  const queuesNote = missingQueues.length ? `would make the queue(s) ${missingQueues.join(", ")}` : "every queue there";
+  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${queuesNote}; ${cliNote}; ${securityNote}.`, 0);
 }
 
 // Deploys. Each Worker version is tagged with the commit, so the dashboard shows what's live.

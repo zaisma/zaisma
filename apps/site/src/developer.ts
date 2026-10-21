@@ -144,6 +144,7 @@ import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } fr
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { queueListingCheck } from "./listing-check.ts";
+import { queueCompression } from "./compress.ts";
 import { previewLinkToken } from "./preview-links.ts";
 import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
@@ -1231,7 +1232,8 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       });
     }
     const versionId = newId("version");
-    await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files, found, caller.ownerId)), { httpMetadata: { contentType: "application/json" } });
+    const manifest = toManifest(files, found, caller.ownerId);
+    await env.GAMES.put(manifestKey(versionId), JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
     await createVersion(env.DB, {
       id: versionId,
       gameId: game.id,
@@ -1244,6 +1246,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     });
     await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await logCallerEvent(env, caller, "version_uploaded", { gameId: game.id, versionId });
+    await queueCompression(env, manifest, files);
     await env.SCAN_QUEUE.send({ versionId });
     const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
     return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];

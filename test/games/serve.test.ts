@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { addTesterLink, blobKey, createAccessGrant, createEntryGrant, endPreviewPasses, gameBySlug, manifestKey, revokeTesterLink, sha256Hex } from "@zaisma/core";
+import { addTesterLink, blobKey, brotliKeyOf, createAccessGrant, createEntryGrant, endPreviewPasses, gameBySlug, manifestKey, revokeTesterLink, sha256Hex } from "@zaisma/core";
 import { isPlainHttpGameAddress, resolveGame } from "../../apps/games/src/index.ts";
 
 const G = "https://games.example";
@@ -285,6 +285,122 @@ describe("game server", () => {
     await addGame("open-one", "live");
     await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'open-one'").run();
     expect((await SELF.fetch(`${G}/open-one/`)).status).toBe(200);
+  });
+
+  describe("files uploaded one by one", () => {
+    const enc = (text: string) => new TextEncoder().encode(text);
+    // "let level = 1;\n" 200 times, and its Brotli copy, made with Node's zlib.
+    const LEVEL = "let level = 1;\n".repeat(200);
+    const LEVEL_BROTLI = Uint8Array.from(atob("G7cL+B0HdmPXQnjjspm1a7YeOrupELNTIGXxYAjQ2ACA45MG"), (character) => character.charCodeAt(0));
+
+    /** A live game whose version is a file list, with what each file holds and, optionally, its Brotli copy. */
+    async function addFilesGame(slug: string, files: Record<string, { text: string; brotli?: Uint8Array }>) {
+      const id = await addGame(slug, "live", false);
+      const manifest: Record<string, { sha256: string }> = {};
+      const shas: Record<string, string> = {};
+      for (const [path, file] of Object.entries(files)) {
+        const sha = await sha256Hex(enc(file.text));
+        await env.GAMES.put(blobKey(sha), file.text);
+        if (file.brotli) await env.GAMES.put(brotliKeyOf(blobKey(sha)), file.brotli);
+        manifest[path] = { sha256: sha };
+        shas[path] = sha;
+      }
+      const versionId = `v${id}files`;
+      await env.GAMES.put(manifestKey(versionId), JSON.stringify({ files: manifest }));
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 'files', 0)").bind(versionId, id, `manifests/${versionId}`).run();
+      await env.DB.prepare("UPDATE games SET live_version_id = ? WHERE id = ?").bind(versionId, id).run();
+      return { id, shas };
+    }
+
+    /** Wait for the cache near players to have this file: it's kept after the answer goes out. */
+    async function untilCached(storageKey: string, isCopy: boolean) {
+      for (let i = 0; i < 100; i++) {
+        if (await caches.default.match(`${G}/_zaisma/files/${storageKey}${isCopy ? ".br" : ""}`)) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error(`${storageKey} never reached the cache`);
+    }
+
+    it("sends a file's Brotli copy to browsers that take it, and the original to the rest", async () => {
+      const { shas } = await addFilesGame("brotli-one", { "index.html": { text: "<!doctype html><p>b</p>" }, "Build/game.data": { text: LEVEL, brotli: LEVEL_BROTLI } });
+      const sha = shas["Build/game.data"]!;
+      const copy = await SELF.fetch(`${G}/brotli-one/Build/game.data`, { headers: { "Accept-Encoding": "gzip, br" } });
+      expect(copy.status).toBe(200);
+      expect(copy.headers.get("content-encoding")).toBe("br");
+      expect(copy.headers.get("vary")).toBe("Accept-Encoding");
+      expect(copy.headers.get("etag")).toBe(`"${sha}-br"`);
+      expect(copy.headers.get("cache-control")).toBe("no-cache");
+      expect(copy.headers.get("content-type")).toBe("application/octet-stream");
+      // Sent as it is: the browser's decoding gives back the original, so nothing compressed it twice.
+      expect(await copy.text()).toBe(LEVEL);
+
+      const original = await SELF.fetch(`${G}/brotli-one/Build/game.data`, { headers: { "Accept-Encoding": "gzip" } });
+      expect(original.headers.get("content-encoding")).toBeNull();
+      expect(original.headers.get("etag")).toBe(`"${sha}"`);
+      expect(await original.text()).toBe(LEVEL);
+      expect((await SELF.fetch(`${G}/brotli-one/Build/game.data`, { headers: { "Accept-Encoding": "br;q=0" } })).headers.get("content-encoding")).toBeNull();
+
+      // A file with no copy yet is the original, even for Brotli.
+      const { shas: plain } = await addFilesGame("brotli-two", { "index.html": { text: "<!doctype html><p>c</p>" }, "level.json": { text: `{"level":"${"two".repeat(400)}"}` } });
+      const uncopied = await SELF.fetch(`${G}/brotli-two/level.json`, { headers: { "Accept-Encoding": "br" } });
+      expect(uncopied.headers.get("content-encoding")).toBeNull();
+      expect(uncopied.headers.get("etag")).toBe(`"${plain["level.json"]}"`);
+      expect(await uncopied.text()).toContain("twotwo");
+    });
+
+    it("answers a returning player's check by fingerprint without reading storage", async () => {
+      const { shas } = await addFilesGame("revisit", { "index.html": { text: "<!doctype html><p>r</p>" }, "game.wasm": { text: `${LEVEL}revisit`, brotli: LEVEL_BROTLI } });
+      const sha = shas["game.wasm"]!;
+      // Nothing is stored any more, so a read would answer 404.
+      await env.GAMES.delete([blobKey(sha), brotliKeyOf(blobKey(sha))]);
+      for (const etag of [`"${sha}"`, `"${sha}-br"`, `W/"${sha}-br"`]) {
+        const checked = await SELF.fetch(`${G}/revisit/game.wasm`, { headers: { "If-None-Match": etag, "Accept-Encoding": "br" } });
+        expect(checked.status, etag).toBe(304);
+        expect(checked.headers.get("cache-control")).toBe("no-cache");
+      }
+      expect((await SELF.fetch(`${G}/revisit/game.wasm`, { headers: { "If-None-Match": '"another"' } })).status).toBe(404);
+    });
+
+    it("sends part of a file from the original", async () => {
+      const { shas } = await addFilesGame("ranged", { "index.html": { text: "<!doctype html><p>x</p>" }, "music.wav": { text: `${LEVEL}ranged`, brotli: LEVEL_BROTLI } });
+      const part = await SELF.fetch(`${G}/ranged/music.wav`, { headers: { Range: "bytes=0-13", "Accept-Encoding": "br" } });
+      expect(part.status).toBe(206);
+      expect(part.headers.get("content-encoding")).toBeNull();
+      expect(part.headers.get("content-range")).toBe(`bytes 0-13/${LEVEL.length + 6}`);
+      expect(part.headers.get("etag")).toBe(`"${shas["music.wav"]}"`);
+      expect(await part.text()).toBe("let level = 1;");
+    });
+
+    it("keeps files in the cache near players, read only after every access check", async () => {
+      const { id, shas } = await addFilesGame("cached", { "index.html": { text: "<!doctype html><p>cached</p>" }, "Build/cached.data": { text: `${LEVEL}cached`, brotli: LEVEL_BROTLI } });
+      const storageKey = blobKey(shas["Build/cached.data"]!);
+      await (await SELF.fetch(`${G}/cached/Build/cached.data`, { headers: { "Accept-Encoding": "br" } })).arrayBuffer();
+      await untilCached(storageKey, true);
+      // Gone from storage, it's still sent from the cache.
+      await env.GAMES.delete([storageKey, brotliKeyOf(storageKey)]);
+      const fromCache = await SELF.fetch(`${G}/cached/Build/cached.data`, { headers: { "Accept-Encoding": "br" } });
+      expect(fromCache.status).toBe(200);
+      expect(fromCache.headers.get("content-encoding")).toBe("br");
+      expect(fromCache.headers.get("etag")).toBe(`"${shas["Build/cached.data"]}-br"`);
+      expect(await fromCache.text()).toBe(LEVEL);
+
+      // A tester link's file needs the access cookie, cached or not.
+      await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}/cached/Build/cached.data`, { headers: { "Accept-Encoding": "br" } })).status).toBe(404);
+      expect((await SELF.fetch(`${G}/cached--tester/Build/cached.data`, { headers: { "Accept-Encoding": "br" } })).status).toBe(404);
+      // And a takedown applies at once.
+      await env.DB.prepare("UPDATE games SET visibility = 'listed', review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}/cached/Build/cached.data`, { headers: { "Accept-Encoding": "br" } })).status).toBe(410);
+    });
+
+    it("leaves pages as they were: scripts added, checked each time", async () => {
+      await addFilesGame("pages", { "index.html": { text: "<!doctype html><head></head><p>page</p>" } });
+      const res = await SELF.fetch(`${G}/pages/`, { headers: { "Accept-Encoding": "br" } });
+      expect(await res.text()).toContain("_zaisma/relay.js");
+      expect(res.headers.get("cache-control")).toBe("no-cache");
+      expect(res.headers.get("etag")).toMatch(/^W\/"/);
+      expect(res.headers.get("content-encoding")).toBeNull();
+    });
   });
 
   it("only allows reading", async () => {
