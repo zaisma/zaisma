@@ -31,6 +31,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
+import { GAME_UPDATES_SCRIPT, UPDATE_BAR_STYLE, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { JOIN_OFF_STYLES } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
@@ -333,6 +334,7 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 /* Players: how many are in the room, beside the label; a corner badge on the icon where labels hide. */
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
 .ctl .count[hidden]{display:none}
+${raw(UPDATE_BAR_STYLE)}
 iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
 /* The game takes the keys while it's played: no focus ring around it. */
 iframe:focus-visible{outline:none}
@@ -422,6 +424,7 @@ ${siteHeader(env, { viewer })}
   ${multiplayer ? html`<button class="ctl" id="players-open" type="button" title="Players" aria-haspopup="dialog" aria-controls="players">${raw(ICON_PLAYERS)}<span class="label">Players</span><span class="count" hidden></span></button>` : ""}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
   ${hasRoomCodes ? html`<button class="ctl room-open" id="room-open" type="button" title="Room code, or join a room" aria-haspopup="dialog" aria-expanded="false" aria-controls="room-dialog">${raw(ICON_HASH)}<b id="room-open-text">Join</b></button>` : ""}
+  ${isClosed ? "" : raw(updateBarButtons())}
   <button class="ctl" id="share" type="button" title="Share" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
@@ -484,6 +487,7 @@ ${hasRoomCodes
   <p id="join-leaves" hidden>It leaves the room you're in.</p></form>
 </dialog>`
       : ""}
+${isClosed ? "" : raw(connectionPlate())}
 <dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
   <div class="q-head">
     <strong>${game.title}</strong>
@@ -554,6 +558,7 @@ ${isClosed
           ...(accountRequirement !== "none" ? [ACCOUNT_GATE_SCRIPT] : []),
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
+          GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });

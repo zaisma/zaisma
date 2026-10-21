@@ -21,7 +21,7 @@ How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small). Passed versions get a private preview link.
-4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
+4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing.
 
@@ -331,6 +331,7 @@ export const TOOLS: Tool[] = [
           },
           patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
           publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan; that's publishing, so it needs a key with version_access publish" },
+          match_update_mode: { ...{ type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" }, description: "With publish_when_approved: when running matches get it, next_match (the default) or now" },
         },
         ["slug", "files"],
       ),
@@ -408,14 +409,15 @@ export const TOOLS: Tool[] = [
     description:
       "Make a version that passed review live now, or later at scheduled_publish_at (from a few minutes to 90 days ahead). Publishing an older version rolls back to it. The live version and the last 5 are kept.\n\n" +
       'Not: { "scheduled_publish_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", not a number)\n' +
-      'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")',
+      'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")\n' +
+      'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")',
     inputSchema: object(
-      { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] } },
+      { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
       ["slug", "version_id"],
     ),
     outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at"])),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode"])),
   },
   {
     name: "cancel_scheduled_publish",
@@ -1465,6 +1467,7 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
     files: list,
     patch_notes: typeof toolArguments.patch_notes === "string" ? toolArguments.patch_notes : "",
     publish_when_approved: toolArguments.publish_when_approved === true,
+    ...(toolArguments.match_update_mode !== undefined ? { match_update_mode: toolArguments.match_update_mode } : {}),
   });
   return { version, sent_file_count: sent.size, next_steps: nextSteps };
 }

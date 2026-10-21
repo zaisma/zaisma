@@ -186,7 +186,7 @@ A player whose connection drops stays in the match first, as away with reason `l
 
 A player who walks away, or whose connection stays lost, leaves the match (`onLeave` with `leaveInfo.reason`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `joinInfo.isReturning`. Held seats count toward `maximumPlayerCount`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
 
-When Zaisma restarts its rooms (every update to Zaisma does), a real-time match comes back where it was a few seconds before, and its players reconnect into it: the room saves its state every `stateSaveIntervalSec` (5 by default, 1 to 60), and `onRestored(state, restoreInfo, room)` runs once with `restoreInfo.lostDurationSec`, the seconds of play lost, so you can resync clocks or tell your players. Turn-based rooms save after every move, so they lose nothing.
+When Zaisma restarts its rooms (every update to Zaisma does), a real-time match comes back where it was a few seconds before, and its players reconnect into it: the room saves its state every `stateSaveIntervalSec` (5 by default, 1 to 60), and `onRestored(state, restoreInfo, room)` runs once with `restoreInfo.lostDurationSec`, the seconds of play lost, so you can resync clocks or tell your players. Turn-based rooms save after every move, so they lose nothing. Publishing with `match_update_mode: "now"` moves every live match to the new version the same way, within seconds; your game server can hold it until the end of a round with `onVersionUpdate` ([Updates](docs/DEVELOPER-API.md#updates)).
 
 Your game server picks what happens:
 
@@ -200,7 +200,8 @@ export default {
   onAway(state, player, room, reason) {},  // reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
   onBack(state, player, room) {},          // a player onAway kept, or whose connection dropped, came back: send them the full state
   stateSaveIntervalSec: 5,   // how often a real-time room saves its state, for a restart to come back with (default 5, 1 to 60)
-  onRestored(state, restoreInfo, room) {}, // the room restarted with its saved state: restoreInfo.savedAt and lostDurationSec
+  onRestored(state, restoreInfo, room) {}, // the room restarted with its saved state: restoreInfo.savedAt, lostDurationSec and savedVersionId
+  onVersionUpdate(state, versionUpdate, room) {}, // a version published "now" is coming: call room.applyVersionUpdate() at a good moment, or it switches at versionUpdate.forcedAt
 };
 ```
 

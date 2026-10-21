@@ -1,5 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -10,6 +10,7 @@ import { deleteOldProofs } from "./session-proofs.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
+import { updateLiveMatches } from "./match-updates.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
@@ -25,7 +26,9 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
         await audit(env.DB, version.game_id, "publish-dropped", `${version.id} shows lifelike gore and the game is for everyone 13 and up, so it wasn't published at its scheduled time.`);
         continue;
       }
+      const wasLiveVersion = game?.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       await publishVersion(env.DB, version);
+      if (game && version.match_update_mode === "now") await updateLiveMatches(env, game, version, wasLiveVersion);
       await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
       await pruneVersions(env, version.game_id);
       await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
