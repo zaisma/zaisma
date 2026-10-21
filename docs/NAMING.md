@@ -297,6 +297,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
 | How long a player whose connection dropped stays in the match, and why a player in the room isn't playing | | `reconnectTimeoutSec`; `awayReason`: `idle`, `hidden`, `lost` or `null` (`room.awayReason(playerId)` on the game server, each `ListedPlayer` in `room.players` in the game) |
 | When Zaisma will end a match past the month's free tier, and hearing it | | `endsAt` (an ISO time); the game server's `onEnding`, the SDK's `ending` event, the room's `{ type: "ending", endsAt }` |
+| How often a real-time room saves its state, and a room coming back from a restart with it | | `stateSaveIntervalSec`; the game server's `onRestored(state, restoreInfo, room)`, with `RestoreInfo` `savedAt` (an ISO time) and `lostDurationSec`; the Node runner's `--room-state` file (`startServer({ roomStateFile })`, table `room_states`) |
 | What happens to a player who walks away | | `awayMode`: `hold`, `lobby` |
 | A message between a game and its room, and the game's own message in it | | `type`, `data` |
 | What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GameServerError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
+import { GameServerError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, restoreInfoOf, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -341,7 +341,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -1409,5 +1409,74 @@ describe("dropped players stay in the match", () => {
     room.end("Over");
     expect(closed).toEqual(["b"]);
     expect(room.nextReconnectDeadlineMs()).toBeNull();
+  });
+});
+
+describe("A real-time room restarted with its saved state", () => {
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  const racing = () =>
+    defineGameServer({
+      ticksPerSec: 20,
+      setup: () => ({ laps: 0, setUp: true, restored: [] as unknown[], away: [] as string[][], back: [] as string[], left: [] as string[][] }),
+      onTick: (s) => void s.laps++,
+      onRestored: (s, restoreInfo, room) => void s.restored.push({ ...restoreInfo, awayReasons: room.players.map((p) => room.awayReason(p.id)) }),
+      onAway: (s, p, _room, reason) => void s.away.push([p.id, reason]),
+      onBack: (s, p) => void s.back.push(p.id),
+      onLeave: (s, p, _room, leaveInfo) => void s.left.push([p.id, leaveInfo.reason]),
+    });
+
+  it("skips setup, runs onRestored once with the lost seconds, and keeps its players away until they reconnect", () => {
+    const clock = { now: Date.parse("2026-10-21T12:00:10Z") };
+    const { t } = transport();
+    const saved = { laps: 412, setUp: false, restored: [], away: [], back: [], left: [] };
+    const room = new RoomCore(racing(), t, {
+      state: saved,
+      room: { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, knownPlayerIds: ["a", "b"] },
+      restoreInfo: restoreInfoOf(Date.parse("2026-10-21T12:00:06Z"), clock.now),
+      lostPlayers: [player("a"), player("b")],
+      now: () => clock.now,
+    });
+    expect(room.state.setUp).toBe(false);
+    expect(room.state.laps).toBe(412);
+    expect(room.state.restored).toEqual([{ savedAt: "2026-10-21T12:00:06.000Z", lostDurationSec: 4, awayReasons: ["lost", "lost"] }]);
+    // Then each is away as a dropped connection, with the whole reconnectTimeoutSec from now.
+    expect(room.state.away).toEqual([["a", "lost"], ["b", "lost"]]);
+    expect(room.playingCount).toBe(0);
+    expect(room.nextReconnectDeadlineMs()).toBe(clock.now + 30_000);
+    // Nobody's playing, so nothing ticks.
+    room.tick(0.05);
+    expect(room.state.laps).toBe(412);
+
+    // Reconnecting is a rejoin: onBack, no onJoin, and the match carries on.
+    expect(room.join(player("a"))).toEqual({ isAllowed: true, isRejoin: true });
+    expect(room.state.back).toEqual(["a"]);
+    room.tick(0.05);
+    expect(room.state.laps).toBe(413);
+    // One who isn't back in time leaves as lost.
+    clock.now += 30_000;
+    room.sweep();
+    expect(room.state.left).toEqual([["b", "lost"]]);
+    expect(room.held.get("b")?.reason).toBe("lost");
+  });
+
+  it("lets players still connected (an eviction without a restart) carry on, and runs nothing without onRestored", () => {
+    const { t } = transport();
+    const server = racing();
+    delete server.onRestored;
+    const room = new RoomCore(server, t, { state: { laps: 5, setUp: false, restored: [], away: [], back: [], left: [] }, players: [player("a")], restoreInfo: restoreInfoOf(Date.now()), lostPlayers: [player("a"), player("b")] });
+    expect(room.state.away).toEqual([["b", "lost"]]);
+    expect(room.playingCount).toBe(1);
+    room.tick(0.05);
+    expect(room.state.laps).toBe(6);
+  });
+
+  it("checks stateSaveIntervalSec when the game server is defined", () => {
+    const define = (stateSaveIntervalSec: unknown) => () => defineGameServer({ ticksPerSec: 20, setup: () => ({}), stateSaveIntervalSec } as GameServer);
+    for (const given of [0, 61, "5"]) {
+      expect(define(given)).toThrow(`stateSaveIntervalSec is ${JSON.stringify(given)}. Give a number of seconds from 1 to 60, like 5, or leave it out for 5. (bad_option)`);
+    }
+    expect(define(1)).not.toThrow();
+    expect(define(60)).not.toThrow();
+    expect(() => defineGameServer({ setup: () => ({}), onRestored: 1 } as never)).toThrow("onRestored isn't a function.");
   });
 });

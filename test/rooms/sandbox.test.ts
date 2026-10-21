@@ -270,6 +270,45 @@ describe("sandboxed game servers", () => {
     expect((await a.next()).data).toEqual({ tickCount: 3, isTimed: true });
   });
 
+  it("brings a real-time match back with its saved state after the room restarts, a few seconds behind", async () => {
+    await addSandboxGame(
+      "restarter",
+      `export default {
+  ticksPerSec: 20,
+  stateSaveIntervalSec: 1,
+  setup: () => ({ tickCount: 0, restored: null }),
+  onTick(state) { state.tickCount++; },
+  onRestored(state, restoreInfo, room) { state.restored = { ...restoreInfo, awayReasons: room.players.map((player) => room.awayReason(player.id)) }; },
+  onMessage(state, player, message, room) { if (message === "how") room.send(player.id, { tickCount: state.tickCount, restored: state.restored }); },
+  onBack(state, player, room) { room.broadcast({ back: player.id }); },
+};`,
+    );
+    const a = await join("restarter", "RSTRTS");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("restarter:RSTRTS"));
+    // Saved within a second or so: the state as JSON, in chunks, with the players in the match.
+    let saved: any;
+    for (let tries = 0; tries < 50 && !saved?.stateChunkCount; tries++) {
+      await new Promise((r) => setTimeout(r, 100));
+      saved = await runInDurableObject(stub, (_room: Room, state) => state.storage.get("saved"));
+    }
+    expect(saved).toMatchObject({ stateChunkCount: 1, matchPlayers: [{ id: a.player.id }] });
+    const savedState = JSON.parse((await runInDurableObject(stub, (_room: Room, state) => state.storage.get<string>("stateChunk:0")))!);
+    expect(savedState.tickCount).toBeGreaterThan(0);
+
+    // A restart, as every rooms deploy does: the object goes, with its sockets and what it had in memory.
+    await runInDurableObject(stub, (_room: Room, state) => state.abort("restart")).catch(() => {});
+    const back = await join("restarter", "RSTRTS", undefined, a.pass);
+    // Coming back is a rejoin: onBack, not onJoin.
+    expect(await back.next()).toEqual({ type: "message", data: { back: a.player.id } });
+    back.say("how");
+    const how = (await back.next()).data;
+    // The match carries on from the save: not from setup, and it was told how much was lost, with its player away until they're back.
+    expect(how.tickCount).toBeGreaterThanOrEqual(savedState.tickCount);
+    expect(how.restored).toMatchObject({ savedAt: new Date(saved.savedAtMs).toISOString(), awayReasons: ["lost"] });
+    expect(how.restored.lostDurationSec).toBeGreaterThanOrEqual(0);
+    back.ws.close(1000);
+  });
+
   it("keeps the game server off hosts its game doesn't list, away from our data, and within its limits", async () => {
     await addSandboxGame("hostile", COUNTER);
     const a = await join("hostile", "ABCDEF");
@@ -361,7 +400,7 @@ describe("sandboxed game servers", () => {
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 400 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook\./,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 

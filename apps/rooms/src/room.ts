@@ -12,6 +12,7 @@ import {
   clientIdle,
   errorMessage,
   noTraffic,
+  restoreInfoOf,
   tidyRoomInfo,
   verifyPass,
   type ClientIdle,
@@ -59,9 +60,16 @@ interface Meta {
 }
 
 interface Saved {
+  /** A turn-based room's state; a real-time room's is in stateChunkCount keys of its own (stateChunk:<index>). */
   state?: unknown;
   hasEnded?: boolean;
   usage?: Usage;
+  /** When a real-time room's state was saved. */
+  savedAtMs?: number;
+  /** How many stateChunk:<index> keys a real-time room's state, as JSON, is split into. */
+  stateChunkCount?: number;
+  /** The players in a real-time room's match when it was saved, who come back as away if they aren't connected. */
+  matchPlayers?: Player[];
 }
 
 /** What the room has used since it last recorded it (recordUsage), kept with a sleeping room's state. */
@@ -110,6 +118,13 @@ const FREE_TIER_CHECK_MS = 5 * 60_000;
  * a fresh session after a failure carries on from the last copy, so a match loses at most this much.
  */
 const STATE_COPY_INTERVAL_MS = 5000;
+/**
+ * A real-time room's saved state, as JSON, is split into keys of this many characters: under the 2 MB a
+ * stored value may be, even for text that takes two bytes a character, and a 32 MB state in under 128
+ * keys, which one put writes at once.
+ */
+const STATE_CHUNK_CHARACTER_COUNT = 512 * 1024;
+const stateChunkKey = (index: number) => `stateChunk:${index}`;
 
 
 /**
@@ -134,6 +149,21 @@ export class Room extends DurableObject<Env> {
   private usage: Usage = noUsage();
   /** A real-time room's last copy of its sandboxed game server's state (STATE_COPY_INTERVAL_MS). */
   private stateCopy: unknown = undefined;
+  /** When the room last took that copy, as it saves its state too. */
+  private stateCopiedAtMs = 0;
+  /** A real-time room's save under way, so saves never overlap. */
+  private stateSaving: Promise<void> | null = null;
+  /** What a real-time room last saved (its state as JSON and its match's players), so an unchanged one isn't written again. */
+  private savedStateKey: string | null = null;
+  /** How many stateChunk:<index> keys the room's storage has. */
+  private stateChunkCount = 0;
+  /** When the room's saved real-time state was saved, and the players in its match then (Saved). */
+  private savedAtMs: number | undefined = undefined;
+  private matchPlayers: Player[] = [];
+  /** Set once the room said its state is too big to save, so it says so once. */
+  private hasReportedStateSize = false;
+  /** The game server loading, so players reconnecting at once share one (a sandbox opens one session). */
+  private loading: Promise<GameServer | null> | null = null;
   /** The room's sockets of players in it, by player ID, and the accounts among them; rebuilt after any socket comes in or goes. */
   private socketIndex: { byPlayerId: Map<string, WebSocket[]>; accountPlayerIds: string[] } | null = null;
   private saved: unknown = undefined;
@@ -178,6 +208,21 @@ export class Room extends DurableObject<Env> {
       this.savedRoom = got.get("room") as SavedRoom | undefined;
       this.hasEnded = saved.hasEnded ?? false;
       this.usage = { ...noUsage(), ...saved.usage };
+      // A real-time room's state, saved in pieces with one put, so a restart never reads half a save.
+      if (saved.stateChunkCount) {
+        const keys = Array.from({ length: saved.stateChunkCount }, (_, index) => stateChunkKey(index));
+        const chunks = await ctx.storage.get<string>(keys);
+        const text = keys.map((key) => chunks.get(key) ?? "").join("");
+        try {
+          this.saved = JSON.parse(text);
+          this.savedAtMs = saved.savedAtMs;
+          this.matchPlayers = saved.matchPlayers ?? [];
+          this.savedStateKey = stateKeyOf(text, this.matchPlayers);
+        } catch (error) {
+          console.error("Couldn't read the room's saved state:", error);
+        }
+        this.stateChunkCount = saved.stateChunkCount;
+      }
       this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
       this.freeTierCheckedAtMs = (got.get("freeTierCheckedAtMs") as number | undefined) ?? 0;
       this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
@@ -543,7 +588,8 @@ export class Room extends DurableObject<Env> {
     await this.recordUsage();
     await this.logs?.write();
     if (this.core && !this.core.ticking) this.core.dirty = true;
-    await this.save();
+    // A real-time room saves once more, so one rejoined within the day wakes as it was.
+    await this.save(true);
     await this.unlist();
     await this.seat();
     await this.ctx.storage.put("emptiedAtMs", Date.now());
@@ -602,7 +648,11 @@ export class Room extends DurableObject<Env> {
     await this.recordUsage();
     await this.logs?.write();
     await this.unlist();
-    await this.ctx.storage.put({ saved: { hasEnded: true } satisfies Saved, emptiedAtMs: Date.now() });
+    const chunkKeys = Array.from({ length: this.stateChunkCount }, (_, index) => stateChunkKey(index));
+    this.stateChunkCount = 0;
+    // One write with the chunks' delete (no await between them), so an ended room never wakes with its state.
+    const ended = this.ctx.storage.put({ saved: { hasEnded: true } satisfies Saved, emptiedAtMs: Date.now() });
+    await Promise.all([ended, chunkKeys.length ? this.ctx.storage.delete(chunkKeys) : null]);
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
   }
 
@@ -851,10 +901,17 @@ export class Room extends DurableObject<Env> {
       // A game server built into this Worker reaches its game's database directly; a sandboxed one through its own binding (sandbox.ts).
       database: gameDatabase(this.env, this.meta!.gameId),
     };
-    // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
-    // so if one is ever evicted mid-match, it starts fresh and everyone joins again.
-    // Either way, the room stays as listed or hidden, and as open or closed, as it was.
-    if (!server.ticksPerSec && this.saved !== undefined) {
+    // Turn-based rooms wake with their saved state. A real-time room restarted (every rooms deploy, or
+    // evicted) comes back with the state it last saved: the players in its match then who aren't
+    // connected are away until they reconnect (the sockets of an eviction without a deploy are still
+    // here), and onRestored runs. Either way, the room stays as listed or hidden, and open or closed, as it was.
+    if (server.ticksPerSec && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
+      const lostPlayers = this.matchPlayers.filter((player) => !players.some((connected) => connected.id === player.id));
+      // A sandboxed game server starts from the saved state with its next call, which is onRestored.
+      void (server as SandboxServer).restore?.(this.saved);
+      this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs), lostPlayers });
+      this.core.savedAtMs = this.savedAtMs;
+    } else if (!server.ticksPerSec && this.saved !== undefined) {
       this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence });
     } else {
       this.core = new RoomCore(server, transport, { room: this.savedRoom });
@@ -873,6 +930,13 @@ export class Room extends DurableObject<Env> {
     if (this.server || !this.meta) return this.server;
     if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
     if (!this.meta.versionId) return null;
+    // Players connecting at once (all of them, after a restart) wait for the same sandbox.
+    this.loading ??= this.openSandbox().finally(() => (this.loading = null));
+    return this.loading;
+  }
+
+  private async openSandbox(): Promise<GameServer | null> {
+    if (!this.meta?.versionId) return null;
     try {
       const { secrets, changedAtMs } = await secretsForGameServer(this.env, this.meta.gameId);
       this.secretsChangedAtMs = changedAtMs;
@@ -899,22 +963,27 @@ export class Room extends DurableObject<Env> {
   /** A real-time room ticks while someone's playing; a room where everyone walked away stops until someone's back. */
   private pace(core: RoomCore): void {
     if (core.playingCount > 0) this.startTicking(core);
-    else this.stopTicking();
+    else if (this.timer) {
+      this.stopTicking();
+      // Everyone walked away: the room may sleep, so its state as it stopped is what it wakes with.
+      void this.saveRealTimeState(core, true);
+    }
   }
 
   private startTicking(core: RoomCore): void {
     if (!core.ticking || this.timer) return;
     let lastTickAtMs = Date.now();
-    let lastCopyAtMs = Date.now();
+    this.stateCopiedAtMs = Date.now();
     let isCopying = false;
     const server = this.server as SandboxServer | null;
     this.timer = setInterval(() => {
       const nowMs = Date.now();
       core.tick((nowMs - lastTickAtMs) / 1000);
       lastTickAtMs = nowMs;
-      // A sandboxed game server's state, copied now and then (built-in ones keep theirs in core.state).
-      if (typeof server?.stateCopy === "function" && !isCopying && nowMs - lastCopyAtMs >= STATE_COPY_INTERVAL_MS) {
-        lastCopyAtMs = nowMs;
+      if (!core.ended) void this.saveRealTimeState(core);
+      // A sandboxed game server's state, copied now and then (built-in ones keep theirs in core.state); a save takes one too.
+      if (typeof server?.stateCopy === "function" && !isCopying && !this.stateSaving && nowMs - this.stateCopiedAtMs >= STATE_COPY_INTERVAL_MS) {
+        this.stateCopiedAtMs = nowMs;
         isCopying = true;
         void server
           .stateCopy()
@@ -1032,16 +1101,80 @@ export class Room extends DurableObject<Env> {
     void this.finish();
   }
 
-  /** Save a turn-based room's state after each change, so it can sleep between moves. */
-  private async save(): Promise<void> {
+  /** Save a turn-based room's state after each change, so it can sleep between moves, and a real-time room's every few seconds (or now: isForced). */
+  private async save(isForced = false): Promise<void> {
     const core = this.core;
     if (core?.ended) await this.finish();
+    if (core?.ticking && !this.hasEnded) return this.saveRealTimeState(core, isForced);
     if (!core || this.hasEnded || core.ticking || !core.dirty) return;
     // A sleeping room forgets what's only in memory, so its use so far goes with its state.
     this.takeUse();
     core.dirty = false;
     this.saved = core.state;
     await this.ctx.storage.put("saved", { state: core.state, usage: this.usage } satisfies Saved);
+  }
+
+  /**
+   * Save a real-time room's state every stateSaveIntervalSec (or now: isForced), when it changed, so a
+   * restart brings the match back a few seconds behind: the sandboxed game server's state, or a built-in
+   * one's, as JSON in chunks, with the match's players and the room, all in one put. Never two at once.
+   */
+  private async saveRealTimeState(core: RoomCore, isForced = false): Promise<void> {
+    if (this.stateSaving) {
+      if (!isForced) return;
+      await this.stateSaving;
+    }
+    const intervalMs = (core.server.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
+    const nowMs = Date.now();
+    core.savedAtMs ??= nowMs;
+    if (this.hasEnded || core.ended || (!isForced && nowMs - core.savedAtMs < intervalMs)) return;
+    core.savedAtMs = nowMs;
+    this.stateSaving = this.writeRealTimeState(core, nowMs).finally(() => (this.stateSaving = null));
+    await this.stateSaving;
+  }
+
+  private async writeRealTimeState(core: RoomCore, savedAtMs: number): Promise<void> {
+    const server = this.server as SandboxServer | null;
+    let state: unknown = core.state;
+    if (typeof server?.stateCopy === "function") {
+      this.stateCopiedAtMs = savedAtMs;
+      state = this.stateCopy = await server.stateCopy();
+    }
+    if (this.hasEnded || core.ended || state === undefined) return;
+    let text: string;
+    try {
+      text = JSON.stringify(state);
+    } catch (error) {
+      console.error("Couldn't save the room's state:", error);
+      return;
+    }
+    const matchPlayers = [...core.players.values()];
+    const stateKey = stateKeyOf(text, matchPlayers);
+    if (stateKey === this.savedStateKey) return;
+    // Counted byte by byte only when it could be too big: UTF-8 takes at most 3 bytes a character here.
+    const maximumSizeBytes = ROOM_LIMITS.maximumSavedStateSizeBytes;
+    if (text.length > maximumSizeBytes || (text.length * 3 > maximumSizeBytes && utf8SizeBytes(text) > maximumSizeBytes)) {
+      if (!this.hasReportedStateSize) {
+        this.hasReportedStateSize = true;
+        this.printed([{ atMs: Date.now(), level: "warn", text: "Zaisma: this room's state is over 32 MB, so it isn't saved and a restart starts it fresh." }]);
+      }
+      return;
+    }
+    // A sleeping or restarted room forgets what's only in memory, so its use so far goes with its state.
+    this.takeUse();
+    const chunkCount = Math.max(1, Math.ceil(text.length / STATE_CHUNK_CHARACTER_COUNT));
+    this.savedRoom = core.saved;
+    const entries: Record<string, unknown> = { saved: { savedAtMs, stateChunkCount: chunkCount, matchPlayers, usage: this.usage } satisfies Saved, room: this.savedRoom };
+    for (let index = 0; index < chunkCount; index++) entries[stateChunkKey(index)] = text.slice(index * STATE_CHUNK_CHARACTER_COUNT, (index + 1) * STATE_CHUNK_CHARACTER_COUNT);
+    const staleKeys = Array.from({ length: Math.max(0, this.stateChunkCount - chunkCount) }, (_, index) => stateChunkKey(chunkCount + index));
+    // Written together (no await between the put and the delete), so a restart reads all of one save or the one before.
+    const written = this.ctx.storage.put(entries);
+    await Promise.all([written, staleKeys.length ? this.ctx.storage.delete(staleKeys) : null]);
+    this.stateChunkCount = chunkCount;
+    this.savedStateKey = stateKey;
+    this.saved = state;
+    this.savedAtMs = savedAtMs;
+    this.matchPlayers = matchPlayers;
   }
 
   private refuse(socket: WebSocket, code: RoomErrorCode, message?: string): void {
@@ -1086,4 +1219,22 @@ export class Room extends DurableObject<Env> {
       // Sockets already refused but not yet gone don't hold a place.
     }
   }
+}
+
+/** A saved state's key: its JSON and who was in the match, since either changing is worth a save. */
+function stateKeyOf(stateText: string, matchPlayers: Player[]): string {
+  return `${matchPlayers.map((player) => player.id).join(" ")}\n${stateText}`;
+}
+
+/** How many bytes a text takes as UTF-8, without making a copy of it. */
+function utf8SizeBytes(text: string): number {
+  let sizeBytes = text.length;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code >= 0x800 && (code < 0xd800 || code > 0xdfff)) sizeBytes += 2;
+    else if (code >= 0x80 && (code < 0xd800 || code > 0xdfff)) sizeBytes += 1;
+    // A surrogate pair is 4 bytes for 2 characters: 1 extra each.
+    else if (code >= 0xd800 && code <= 0xdfff) sizeBytes += 1;
+  }
+  return sizeBytes;
 }

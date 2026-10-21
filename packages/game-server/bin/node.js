@@ -12,6 +12,7 @@
 // whose endpoint_url is https://your-server/v1/webhooks reaches onWebhook, checked with its signing
 // secret in the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable.
 // The game's database (room.database) is a local SQLite file, --database, made on first use.
+// Its rooms' states are another, --room-state, so a restarted server brings its matches back (onRestored).
 // Its secrets (room.secrets, server.secrets) are this process's environment variables, and it calls
 // other servers with plain fetch(), with no list: on your own server nothing stands in between.
 import { WebSocketServer } from "ws";
@@ -19,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, WEBHOOK_LIMITS, RoomCore, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -35,6 +36,10 @@ const MAXIMUM_REQUEST_BODY_SIZE_BYTES = REQUEST_LIMITS.maximumRequestSizeBytes +
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
 const SEAT_MS = 60 * 1000;
+/** A room that empties keeps its saved state this long, like Zaisma's rooms, so players coming back find it as it was. */
+const KEEP_EMPTY_MS = 24 * 3600 * 1000;
+/** How often saved states of rooms that emptied over a day ago are deleted. */
+const ROOM_STATE_SWEEP_MS = 3600 * 1000;
 
 /** Fetch Zaisma's published pass keys, caching them for an hour. */
 export function keysFrom(jwksUrl) {
@@ -144,16 +149,63 @@ export function localDatabase(file) {
 }
 
 /**
+ * The rooms' states in a local SQLite file (--room-state), made the first time a room saves: a
+ * real-time room's every stateSaveIntervalSec and a turn-based room's after each change, so a
+ * restarted server brings its matches back (onRestored). Apart from the game's database, which is the
+ * game's own data: these are the runner's. One row a room, as JSON.
+ */
+export function localRoomStates(file) {
+  let database = null;
+  const open = () => {
+    if (database) return database;
+    // Loaded only once a room saves, so a server that never does never sees Node's SQLite warning.
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+    database = new DatabaseSync(file);
+    database.exec("CREATE TABLE IF NOT EXISTS room_states (room_code TEXT PRIMARY KEY, state_json TEXT NOT NULL, match_players_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL)");
+    return database;
+  };
+  const isThere = () => database !== null || (file !== ":memory:" && existsSync(file));
+  return {
+    /** A room's saved state, the players in its match and the room, and when it was saved; null if it has none. */
+    read(roomCode) {
+      if (!isThere()) return null;
+      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms FROM room_states WHERE room_code = ?").get(roomCode);
+      if (!row) return null;
+      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms) };
+    },
+    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs }) {
+      open()
+        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms")
+        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs);
+    },
+    remove(roomCode) {
+      if (isThere()) open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
+    },
+    /** Delete the states saved before then, except those of rooms still running. */
+    removeOlder(beforeMs, runningRoomCodes) {
+      if (!isThere()) return;
+      const running = [...runningRoomCodes];
+      open()
+        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ?${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
+        .run(beforeMs, ...running);
+    },
+  };
+}
+
+/**
  * Start a server. Options: server (a game server object), game (its Zaisma slug),
  * port, origins (allowed page origins), issuer, keys (async () => public keys),
  * profiles (async (playerId) => an account's public profile or null), database (room.database
  * and server.database; by default a local file, zaisma-database.sqlite, made the first time the game uses it),
  * secrets (room.secrets and server.secrets; by default this process's environment variables),
  * webhookSigningSecret (the whsec_ secret of the webhook whose events come to /v1/webhooks; by default
- * the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable).
+ * the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable), roomStateFile (where rooms save their
+ * states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none).
  */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET }) {
+export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite" }) {
   const definition = defineGameServer(server);
+  const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
+  const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
   // Schedules run while this server is up; one that's down when a run is due misses that run.
   const schedules = startSchedules(definition, { database, secrets }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
@@ -281,10 +333,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   // start: how a reserved room begins (room.reserve). It's made before its players hear the code,
-  // closed to everyone but them.
+  // closed to everyone but them. A room with a saved state (a restart) comes back with it instead.
   function roomFor(code, start) {
     let room = rooms.get(code);
     if (room) return room;
+    const saved = start ? null : readSaved(code);
     const sockets = new Map();
     const core = new RoomCore(
       definition,
@@ -319,28 +372,82 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
             .catch((error) => console.error("Couldn't move players:", error));
         },
       },
-      { start },
+      // Its players aren't connected yet: they're away until they reconnect, as in Zaisma rooms.
+      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs), lostPlayers: saved.matchPlayers } : { start },
     );
+    if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (hasBlockBetween, areFriends).
-    room = { core, sockets, passes: new Map(), timer: null, waiting: false };
+    // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
+    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
   }
 
-  /** A real-time room ticks while someone's playing, and stops while everyone's walked away. */
-  function pace(room) {
-    if (!definition.ticksPerSec) return;
+  /** A room's saved state from the file, or null if it has none (or it can't be read). */
+  function readSaved(code) {
+    try {
+      const saved = roomStates?.read(code);
+      return saved ? { ...saved, state: JSON.parse(saved.stateJson) } : null;
+    } catch (error) {
+      console.error(`Couldn't read room ${code}'s saved state:`, error);
+      return null;
+    }
+  }
+
+  /** Save a room's state, the players in its match and the room, when its state changed. Ended rooms have nothing to come back to. */
+  function saveRoom(code, room) {
+    if (!roomStates || room.core.ended) return;
+    const nowMs = Date.now();
+    room.core.savedAtMs = nowMs;
+    let stateJson;
+    try {
+      stateJson = JSON.stringify(room.core.state);
+    } catch (error) {
+      return console.error(`Couldn't save room ${code}'s state:`, error);
+    }
+    const matchPlayers = [...room.core.players.values()];
+    const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers);
+    if (stateKey === null || stateKey === room.savedStateKey) return;
+    if (Buffer.byteLength(stateJson) > ROOM_LIMITS.maximumSavedStateSizeBytes) {
+      if (!room.hasReportedStateSize) console.warn(`Room ${code}'s state is over 32 MB, so it isn't saved and a restart starts it fresh.`);
+      room.hasReportedStateSize = true;
+      return;
+    }
+    try {
+      roomStates.write(code, { stateJson, matchPlayers, savedRoom: room.core.saved, savedAtMs: nowMs });
+      room.savedStateKey = stateKey;
+    } catch (error) {
+      console.error(`Couldn't save room ${code}'s state:`, error);
+    }
+  }
+
+  /** A turn-based room saves after each change, once its game server has finished with it. */
+  function keep(code, room) {
+    if (definition.ticksPerSec || !roomStates) return;
+    void room.core.settled().then(() => {
+      if (!room.core.dirty) return;
+      room.core.dirty = false;
+      saveRoom(code, room);
+    });
+  }
+
+  /** A real-time room ticks while someone's playing, saving its state every stateSaveIntervalSec, and stops while everyone's walked away. */
+  function pace(code, room) {
+    if (!definition.ticksPerSec) return keep(code, room);
     if (room.core.playingCount > 0 && !room.core.ended) {
       if (room.timer) return;
       let lastTickAtMs = Date.now();
+      room.core.savedAtMs ??= lastTickAtMs;
       room.timer = setInterval(() => {
         const nowMs = Date.now();
         room.core.tick((nowMs - lastTickAtMs) / 1000);
         lastTickAtMs = nowMs;
+        if (nowMs - room.core.savedAtMs >= stateSaveIntervalMs) saveRoom(code, room);
       }, 1000 / definition.ticksPerSec);
     } else if (room.timer) {
       clearInterval(room.timer);
       room.timer = null;
+      saveRoom(code, room);
     }
   }
 
@@ -356,20 +463,36 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   // A room with nobody connected stays while players whose connection dropped have time to come back, and while it holds seats.
+  // One that empties keeps its saved state for a day; one that ended keeps none.
   function closeIfEmpty(code, room) {
     if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0 || room.core.nextReconnectDeadlineMs() !== null))) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
+    try {
+      if (room.core.ended) roomStates?.remove(code);
+      else saveRoom(code, room);
+    } catch (error) {
+      console.error(`Couldn't update room ${code}'s saved state:`, error);
+    }
   }
 
   // Check on every room's players: connections that stopped answering, idle and hidden players, held seats that ran out.
+  let roomStatesSweptAtMs = 0;
   const sweeper = setInterval(() => {
     const nowMs = Date.now();
     for (const [code, room] of rooms) {
       for (const ws of room.sockets.values()) if (nowMs - ws.zaismaSeenAtMs > DEAD_MS) ws.terminate();
       room.core.sweep();
-      pace(room);
+      pace(code, room);
       closeIfEmpty(code, room);
+    }
+    if (roomStates && nowMs - roomStatesSweptAtMs >= ROOM_STATE_SWEEP_MS) {
+      roomStatesSweptAtMs = nowMs;
+      try {
+        roomStates.removeOlder(nowMs - KEEP_EMPTY_MS, rooms.keys());
+      } catch (error) {
+        console.error("Couldn't delete old room states:", error);
+      }
     }
   }, SWEEP_MS);
   sweeper.unref?.();
@@ -398,7 +521,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         // Bytes (a binary frame) go to the game server's onBytes, under the same limits as messages.
         const errorCode = text === null ? room?.core.receiveBytes(playerId, binaryBytes(received)) : room?.core.receive(playerId, text);
         if (errorCode) ws.send(errorMessage(errorCode));
-        if (room) pace(room);
+        if (room) pace(code, room);
         return;
       }
       let pass;
@@ -448,7 +571,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       playerId = player.id;
       room.waiting = false;
-      pace(room);
+      pace(code, room);
     });
 
     // Closed on purpose (1000, or 1001 as a page goes away), or lost: then the room holds the seat a while.
@@ -458,20 +581,34 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!room || !playerId || room.sockets.get(playerId) !== ws) return;
       room.sockets.delete(playerId);
       room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "lost");
-      pace(room);
+      pace(code, room);
       closeIfEmpty(code, room);
     });
   });
 
+  // Every room saves as the server stops, so a clean restart loses nothing.
   const close = () =>
     new Promise((done) => {
       clearInterval(sweeper);
       schedules.stop();
-      for (const room of rooms.values()) if (room.timer) clearInterval(room.timer);
+      for (const [code, room] of rooms) {
+        if (room.timer) clearInterval(room.timer);
+        saveRoom(code, room);
+      }
+      // Players' games hear a restart (1012) and reconnect, to the same room once this server is back.
+      for (const ws of wss.clients) ws.close(1012, "Server restarting");
+      setTimeout(() => {
+        for (const ws of wss.clients) ws.terminate();
+      }, 2000).unref?.();
       wss.close(() => httpServer.close(done));
       httpServer.closeAllConnections?.();
     });
   return { wss, httpServer, rooms, close };
+}
+
+/** A saved state's key: its JSON and who was in the match, since either changing is worth a save. */
+function stateKeyOf(stateJson, matchPlayers) {
+  return `${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
 }
 
 /** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */
@@ -495,13 +632,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const file = process.argv[2];
   const game = flag("game");
   if (!file || !game) {
-    console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com] [--database zaisma-database.sqlite]");
+    console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com] [--database zaisma-database.sqlite] [--room-state zaisma-room-states.sqlite] [--jwks https://rooms.zaisma.com/.well-known/jwks.json]");
     process.exit(1);
   }
   const server = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
   const portNumber = Number(flag("port", "8080"));
   const origins = (flag("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
-  startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")), database: localDatabase(resolve(flag("database", "zaisma-database.sqlite"))) });
+  const running = startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")), database: localDatabase(resolve(flag("database", "zaisma-database.sqlite"))), roomStateFile: resolve(flag("room-state", "zaisma-room-states.sqlite")) });
+  // Stopped (a restart, Ctrl-C): every room saves first, so its match comes back where it was.
+  for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => running.close().then(() => process.exit(0)));
   const scheduleNames = (server.schedules ?? []).map((schedule) => `${schedule.name} (${schedule.cron})`);
   const webhookNote = ` Webhooks come to POST /v1/webhooks${process.env.ZAISMA_WEBHOOK_SIGNING_SECRET ? "" : " once ZAISMA_WEBHOOK_SIGNING_SECRET is set"}${typeof server.onWebhook === "function" ? "" : " (account_deleted only: it erases the player from the database)"}.`;
   console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>; requests come to POST /v1/requests/${game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}${webhookNote}`);

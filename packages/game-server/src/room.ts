@@ -291,6 +291,11 @@ export interface GameServer<S = any> {
    */
   reconnectTimeoutSec?: number;
   /**
+   * How often a real-time room saves its state, in seconds: 1 to 60, default 5. A restarted room comes
+   * back with the last saved state (onRestored). Turn-based rooms save after every change and ignore it.
+   */
+  stateSaveIntervalSec?: number;
+  /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. setupData
    * is what room.reserve() passed when another room made this one, and null otherwise. Rooms need it;
    * a game server that only answers requests (onRequest) or runs on schedules can leave it out.
@@ -380,6 +385,26 @@ export interface GameServer<S = any> {
    * the "ending" event. Never runs on your own server.
    */
   onEnding?(state: S, room: Room): HandlerResult<S>;
+  /**
+   * The room restarted (Zaisma restarts its rooms on every update, and your own server may restart) and
+   * came back with the state it last saved: restoreInfo.savedAt says when, and restoreInfo.lostDurationSec
+   * how many seconds of play since then are lost, so you can resync clocks or tell your players. Runs
+   * once, instead of setup. The players who were in the match come back as away (reason "lost"): onAway
+   * runs for each after this, and onBack as each reconnects, or onLeave if they aren't back within
+   * reconnectTimeoutSec.
+   */
+  onRestored?(state: S, restoreInfo: RestoreInfo, room: Room): HandlerResult<S>;
+}
+
+/** What onRestored hears: when the state it came back with was saved (an ISO time), and how many seconds of play since then are lost. */
+export interface RestoreInfo {
+  savedAt: string;
+  lostDurationSec: number;
+}
+
+/** A restored room's restoreInfo, from when its state was saved. */
+export function restoreInfoOf(savedAtMs: number, nowMs = Date.now()): RestoreInfo {
+  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)) };
 }
 
 /**
@@ -419,6 +444,7 @@ export const GAME_SERVER_OPTIONS = [
   "awayMode",
   "seatHoldDurationSec",
   "reconnectTimeoutSec",
+  "stateSaveIntervalSec",
   "setup",
   "onJoin",
   "canJoin",
@@ -430,6 +456,7 @@ export const GAME_SERVER_OPTIONS = [
   "onBytes",
   "onTick",
   "onEnding",
+  "onRestored",
   "onRequest",
   "schedules",
   "onSchedule",
@@ -472,6 +499,12 @@ export const ROOM_LIMITS = {
   /** How long a player whose connection dropped stays in the match by default, and at most (reconnectTimeoutSec). */
   defaultReconnectTimeoutSec: 30,
   maximumReconnectTimeoutSec: 300,
+  /** How often a real-time room saves its state by default, and the range (stateSaveIntervalSec). */
+  defaultStateSaveIntervalSec: 5,
+  minimumStateSaveIntervalSec: 1,
+  maximumStateSaveIntervalSec: 60,
+  /** A real-time room's state bigger than this as JSON isn't saved, and a restart starts it fresh. */
+  maximumSavedStateSizeBytes: 32 * 1024 * 1024,
   /** How often a ticking room probes each player, for their ping and the room's clock. */
   probeIntervalSec: 2,
   /** A probe left unanswered this long drops the player: their connection stopped or fell too far behind. */
@@ -538,7 +571,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     }
   }
   checkSchedules(server.schedules, typeof server.onSchedule === "function");
-  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec } = server;
+  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
   }
@@ -558,6 +591,9 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   }
   if (reconnectTimeoutSec !== undefined && !(typeof reconnectTimeoutSec === "number" && reconnectTimeoutSec >= 0 && reconnectTimeoutSec <= ROOM_LIMITS.maximumReconnectTimeoutSec)) {
     throw bad("reconnectTimeoutSec", `reconnectTimeoutSec is ${JSON.stringify(reconnectTimeoutSec)}.`, `Give seconds from 0 (leave at once) to ${ROOM_LIMITS.maximumReconnectTimeoutSec}, like 30.`);
+  }
+  if (stateSaveIntervalSec !== undefined && !(typeof stateSaveIntervalSec === "number" && stateSaveIntervalSec >= ROOM_LIMITS.minimumStateSaveIntervalSec && stateSaveIntervalSec <= ROOM_LIMITS.maximumStateSaveIntervalSec)) {
+    throw bad("stateSaveIntervalSec", `stateSaveIntervalSec is ${JSON.stringify(stateSaveIntervalSec)}.`, `Give a number of seconds from ${ROOM_LIMITS.minimumStateSaveIntervalSec} to ${ROOM_LIMITS.maximumStateSaveIntervalSec}, like ${ROOM_LIMITS.defaultStateSaveIntervalSec}, or leave it out for ${ROOM_LIMITS.defaultStateSaveIntervalSec}.`);
   }
   return server;
 }
@@ -909,6 +945,8 @@ export class RoomCore<S = any> {
   private pairChangeCount = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
+  /** When a real-time room's state was last saved, set by the transport after each save; null until it has been. */
+  savedAtMs: number | null = null;
   isListed = true;
   isOpen = true;
   friendJoinsEnabled = true;
@@ -972,12 +1010,23 @@ export class RoomCore<S = any> {
    * startOptions.start makes a reserved room: closed, open only to the players it was made for, and
    * set up with its setup data. A saved room (startOptions.room) wakes as it was, with
    * startOptions.presence saying when each of its players was last heard from and the idle check
-   * their game asked for.
+   * their game asked for. A restarted real-time room (startOptions.restoreInfo, with its saved state)
+   * skips setup: startOptions.lostPlayers, the players in its match at the save who aren't connected,
+   * come back as away (reason "lost"), and onRestored runs once.
    */
   constructor(
     server: GameServer<S>,
     transport: Transport,
-    startOptions: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; presence?: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }>; now?: () => number } = {},
+    startOptions: {
+      state?: S;
+      players?: Player[];
+      room?: SavedRoom;
+      start?: RoomStart;
+      presence?: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }>;
+      restoreInfo?: RestoreInfo;
+      lostPlayers?: Player[];
+      now?: () => number;
+    } = {},
   ) {
     this.server = server;
     this.transport = transport;
@@ -1027,6 +1076,15 @@ export class RoomCore<S = any> {
       this.setupData = start.setupData ?? null;
       this.keepOut(start.keptOut);
       this.lobbyRoomCode = start.lobbyRoomCode ?? null;
+    }
+    // A restarted room's players who aren't connected: in the match until leave() below makes them away, as a dropped connection does.
+    const restoreInfo = startOptions.state !== undefined ? startOptions.restoreInfo : undefined;
+    const lostPlayers = restoreInfo ? (startOptions.lostPlayers ?? []).filter((player) => !startOptions.players?.some((connected) => connected.id === player.id) && !this.held.has(player.id)) : [];
+    for (const player of lostPlayers) {
+      this.players.set(player.id, player);
+      this.presence.set(player.id, newPresence(this.now(), {}));
+      this.kept.delete(player.id);
+      this.reconnectUntilMs.delete(player.id);
     }
     for (const player of this.players.values()) this.remember(player.id);
     // A room waking up: its players were told their blocks before it slept.
@@ -1088,6 +1146,30 @@ export class RoomCore<S = any> {
       awayReason: (playerId) => (this.players.has(playerId) ? (this.kept.get(playerId) ?? null) : null),
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
+    if (restoreInfo) this.restored(restoreInfo, lostPlayers);
+  }
+
+  /**
+   * A restarted room's players who aren't connected are away as lost, with the whole reconnectTimeoutSec
+   * from now, whatever they had before the restart; then onRestored runs, and onAway for each.
+   */
+  private restored(restoreInfo: RestoreInfo, lostPlayers: Player[]): void {
+    const reconnectTimeoutSec = this.server.reconnectTimeoutSec ?? ROOM_LIMITS.defaultReconnectTimeoutSec;
+    if (reconnectTimeoutSec > 0) {
+      for (const player of lostPlayers) {
+        this.kept.set(player.id, "lost");
+        this.reconnectUntilMs.set(player.id, this.now() + reconnectTimeoutSec * 1000);
+      }
+    }
+    this.run(() => this.server.onRestored?.(this.state, restoreInfo, this.api));
+    for (const player of lostPlayers) {
+      // With reconnectTimeoutSec 0, they leave at once, as a dropped connection does.
+      if (reconnectTimeoutSec === 0) this.leave(player.id, "lost");
+      else if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, "lost"));
+    }
+    this.listingChanged = true;
+    this.dirty = true;
+    this.broadcastPlayers();
   }
 
   /** What a sleeping room saves besides the game's state. */
