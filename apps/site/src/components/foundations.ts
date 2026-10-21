@@ -1046,7 +1046,7 @@ export function pageSettingsAttributes(settings: PageSettings): Raw {
 
 /** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */
 const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; cards: [string, string][] }) =>
-  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, adaptsGlass: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
+  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, isGlassAdaptive: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
 
@@ -1114,7 +1114,7 @@ export interface BackdropOptions {
   /** A page's own shader background: a mainImage function (shaders.ts). Left out, the page gets Zaisma's. */
   fragmentShader?: string;
   /** The glass over it takes light or smoked glass, and a tint, from what the shader draws behind it (a game's or a page's own background). */
-  adaptsGlass?: boolean;
+  isGlassAdaptive?: boolean;
   /** The page draws its own 3D scene into the canvas on each backdrop-frame event, instead of a shader. */
   isScene?: boolean;
   /** Fills its own box (position: relative) instead of the window: for a backdrop shown inside something, like the gallery's examples. */
@@ -1123,7 +1123,7 @@ export interface BackdropOptions {
 
 /** What's behind the glass on a page: the first thing in the page's body or stage, under everything else. */
 export function backdrop(options: BackdropOptions = {}): Raw {
-  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.adaptsGlass ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
+  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
 const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
@@ -1153,7 +1153,7 @@ component({
 `,
   examples: [
     { label: "Zaisma's own: behind every page, pearl on light and graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
-    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, adaptsGlass: true })) },
+    { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
 });
@@ -1169,13 +1169,13 @@ component({
   background: var(--well); box-shadow: var(--well-shade); }
 `,
   examples: [
-    { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER, adaptsGlass: true }), "Dusk", "Four lines.") },
-    { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, adaptsGlass: true }), "Clouds", "fbm, from the helpers.") },
+    { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER, isGlassAdaptive: true }), "Dusk", "Four lines.") },
+    { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true }), "Clouds", "fbm, from the helpers.") },
     { label: "The dusk sky's whole source", markup: html`<pre class="shader-code">${DUSK_SHADER.trim()}</pre>`, isWide: true },
-    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER, adaptsGlass: true }), "Neon Drift", "Skyline, neon windows, rain.") },
-    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER, adaptsGlass: true }), "Frostline", "Aurora, stars, falling snow.") },
-    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER, adaptsGlass: true }), "Starward", "Nebula, twinkling stars, a planet.") },
-    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER, adaptsGlass: true }), "Emberfall", "Lava, a lit ridge, embers.") },
+    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER, isGlassAdaptive: true }), "Neon Drift", "Skyline, neon windows, rain.") },
+    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER, isGlassAdaptive: true }), "Frostline", "Aurora, stars, falling snow.") },
+    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER, isGlassAdaptive: true }), "Starward", "Nebula, twinkling stars, a planet.") },
+    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER, isGlassAdaptive: true }), "Emberfall", "Lava, a lit ridge, embers.") },
   ],
 });
 
