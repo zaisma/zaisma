@@ -81,6 +81,8 @@ canJoin(state, player, room, joinData) {
 },
 ```
 
+Each player's ping, measured by the room, is `room.pingDurationMs(playerId)` on the game server and `room.pingDurationMs` in their game, and both read the room's clock with `room.serverTimeMs()` (see "Room connections" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md)).
+
 Games without server code can use the built-in `relay`, which passes each message to everyone else as `{ fromPlayerId, data }`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
 #### Your game server on Zaisma
