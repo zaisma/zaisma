@@ -332,13 +332,14 @@ const HOME_STYLE = pageStyle("home", () => `
 html[data-home-start][style*="--home-tone"] body { background-color: var(--home-tone); }
 html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--home-glass-tint); }
 html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
-.home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
+.home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; container-type: inline-size;
+  --stage-w: min(520px, 100cqw); }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 /* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
    the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
-  transition: transform 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
+  transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
 .home-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
 .home-pane > .glass-pane > .pane-in { gap: 0; opacity: 0; transition: opacity 0.25s; }
 .is-home-ready .home-pane .pane-in { opacity: 1; }
@@ -359,7 +360,15 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
 @media (max-height: 640px) and (min-width: 761px) { .home-description { display: none; } }
 /* The shelf: one long sheet of glass with every row on it. */
-.home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
+.home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); transition: transform 0.45s cubic-bezier(.2,.8,.2,1); }
+/* On a wide screen the page opens staged, as a phone does: the game in focus centered over its world, larger, with Play under it, and the
+   shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
+   top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
+   simply opens docked. */
+@media (min-width: 761px) {
+  html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
+  html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--pad-pane))); }
+}
 .home-shelf > .glass-pane { width: 100%; }
 /* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
 .home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
@@ -400,6 +409,6 @@ canvas.backdrop.is-shown { opacity: 1; }
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-pane, .home-more, .home-more-in, .home-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
+  .home-pane, .home-more, .home-more-in, .home-shelf, .home-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
 }
 `);

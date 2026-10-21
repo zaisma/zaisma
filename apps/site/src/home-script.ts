@@ -39,6 +39,8 @@ if (!slug) {
   slug = pool[crypto.getRandomValues(new Uint32Array(1))[0] % pool.length] || "";
 }
 root.dataset.homeStart = slug;
+// Staged: the game in focus centered over its world, until the page scrolls (the home's script takes it from here).
+root.dataset.homeStaged = "";
 const tones = DATA.tones[slug], tone = tones && (matchMedia("(max-width: 760px)").matches ? tones.phone : tones.wide);
 if (tone) {
   root.dataset.homeGlass = tone.isGlassSmoked ? "smoked" : "light";
@@ -113,12 +115,15 @@ function fillPane(game) {
 }
 function measureMore() { pane.box.style.setProperty("--more-h", pane.moreIn.offsetHeight + "px"); }
 if (window.ResizeObserver) new ResizeObserver(measureMore).observe(pane.moreIn); else addEventListener("resize", measureMore);
-// The window above the pane leaves the compact pane whole on screen, with room for a cover (taller than any title in words), so Play is
-// in view as the page opens on any screen; measured as it opens and when the window changes size, never as focus moves, so nothing shifts.
+// The window above the pane leaves the staged pane whole on screen (a phone's, or a wide screen's at the stage's width), with room for a
+// cover (taller than any title in words), so Play is in view as the page opens on any screen; measured as it opens and when the window
+// changes size, never as focus moves, so nothing shifts.
+const home = pane.box.parentElement;
 function measureStage() {
   const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
-  const coverPx = Math.max(pane.head.clientWidth * 9 / 16, pane.head.offsetHeight);
-  pane.box.parentElement.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx) + "px");
+  const stagedPx = isPhone() ? pane.box.offsetWidth : Math.min(520, home.clientWidth);
+  const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
+  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx) + "px");
 }
 addEventListener("resize", measureStage);
 
@@ -126,13 +131,14 @@ addEventListener("resize", measureStage);
 function openPane(shouldReveal) {
   const wasOpen = pane.box.classList.contains("is-pane-open");
   pane.box.classList.add("is-pane-open");
+  delete root.dataset.homeStaged;
   if (!shouldReveal || isPhone()) return;
   const box = pane.box.getBoundingClientRect(), extra = wasOpen ? 0 : pane.moreIn.offsetHeight, over = box.bottom + extra + 16 - innerHeight;
   if (over > 0) scrollBy({ top: over, behavior: isReduced ? "auto" : "smooth" });
 }
 addEventListener("scroll", () => {
   if (scrollY > 24) openPane(false);
-  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) pane.box.classList.remove("is-pane-open");
+  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; }
 }, { passive: true });
 pane.box.addEventListener("focusin", (event) => { if (pane.moreIn.contains(event.target)) openPane(false); });
 
@@ -382,6 +388,8 @@ fillContinue();
 // The opening script chose it in the page's head, before the first paint.
 setFocus(bySlug[root.dataset.homeStart] ? root.dataset.homeStart : GAMES[0].slug);
 measureStage();
+// The opening script staged it; a page that opens scrolled down (a reload) starts docked instead.
+if (scrollY > 24) openPane(false);
 document.body.classList.add("is-home-ready");
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
