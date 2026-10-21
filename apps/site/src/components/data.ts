@@ -22,10 +22,10 @@ export function pictureFrame(username: string, pictureSize: PictureSize, options
 
 /** Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three, the rest are a +N at the back. */
 export function pictureRow(usernames: string[], pictureSize: PictureSize): Raw {
-  const shown = usernames.slice(0, 3), more = usernames.length - shown.length, count = shown.length + (more > 0 ? 1 : 0);
+  const shown = usernames.slice(0, 3), hiddenCount = usernames.length - shown.length, placeCount = shown.length + (hiddenCount > 0 ? 1 : 0);
   return html`<span class="picture-row ${pictureSize}">${shown.map(
-    (username, at) => html`<span class="picture-row-place" style="z-index:${count - at}">${pictureFrame(username, pictureSize)}</span>`,
-  )}${more > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true">+${more}</span></span>` : ""}</span>`;
+    (username, placeIndex) => html`<span class="picture-row-place" style="z-index:${placeCount - placeIndex}">${pictureFrame(username, pictureSize)}</span>`,
+  )}${hiddenCount > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true">+${hiddenCount}</span></span>` : ""}</span>`;
 }
 
 /** Names as a sentence: "Liam", "Liam and Sofia", "Liam, Sofia and Noah". */
