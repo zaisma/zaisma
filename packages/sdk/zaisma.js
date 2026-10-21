@@ -24,7 +24,7 @@
   var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl"; });
   var KICK_OPTIONS = ["keepOut"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error"];
+  var ROOM_EVENTS = ["message", "bytes", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error"];
   var SAVES_EVENTS = ["conflict", "developerChange"];
 
   /** An Error with a code, as the SDK's errors all have. */
@@ -68,9 +68,11 @@
     this._on[event] = (this._on[event] || []).filter(function (each) { return each !== listener; });
     return this;
   };
-  Emitter.prototype._emit = function (event, payload) {
+  // Most events hand the game one thing; "bytes" hands two (the bytes, and whose they are).
+  Emitter.prototype._emit = function (event, payload, secondPayload) {
+    var given = arguments.length > 2 ? [payload, secondPayload] : [payload];
     (this._on[event] || []).slice().forEach(function (listener) {
-      try { listener(payload); } catch (error) { console.error(error); }
+      try { listener.apply(null, given); } catch (error) { console.error(error); }
     });
   };
 
@@ -404,6 +406,7 @@
     var room = this;
     // From a tester link, Zaisma rooms hear which one, so its players leave when it's turned off.
     var ws = new WebSocket(this._url + (config.tester && !this._serverUrl ? "?tester=" + config.tester : ""));
+    ws.binaryType = "arraybuffer";
     this._ws = ws;
     watch();
     ws.onopen = function () {
@@ -419,6 +422,7 @@
     ws.onmessage = function (event) {
       room._heardAtMs = Date.now();
       if (event.data === "pong") { room._pongAtMs = Date.now(); return; }
+      if (typeof event.data !== "string") { room._bytes(event.data); return; }
       var message;
       try { message = JSON.parse(event.data); } catch (error) { return; }
       if (message.type === "probe") {
@@ -582,6 +586,26 @@
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
   Room.prototype.send = function (message) {
     if (!this._away) this._say({ type: "message", data: message });
+  };
+
+  /**
+   * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed array,
+   * up to 16 KB, counted with messages (30 a second).
+   */
+  Room.prototype.sendBytes = function (bytes) {
+    if (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes)) throw codedError("bad_bytes", "room.sendBytes takes bytes: a Uint8Array, another typed array or an ArrayBuffer. For JSON, use room.send.");
+    if (this._away || !this._ws || this._ws.readyState !== 1) return;
+    this._ws.send(bytes);
+    this._sentAtMs = Date.now();
+  };
+
+  /** A binary frame from the room: one byte, the sender's player ID length, the ID (none for the game server), then the bytes. */
+  Room.prototype._bytes = function (received) {
+    var frame = new Uint8Array(received);
+    if (!frame.length) return;
+    var fromSizeBytes = frame[0];
+    var fromPlayerId = fromSizeBytes ? new TextDecoder().decode(frame.subarray(1, 1 + fromSizeBytes)) : null;
+    this._emit("bytes", frame.slice(1 + fromSizeBytes), fromPlayerId);
   };
 
   /**

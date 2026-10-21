@@ -318,6 +318,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   Share blurs it under Show; on narrow phones the bar scrolls under the Z)
   Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
                   and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
+  Room traffic    ${SITE}/dashboard/arena/players#multiplayer  (Room traffic this month under the use table: four numbers per player
+                  a second, the biggest message types and the "move" hint; Free hosting above it names the hours its game server's CPU adds)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
@@ -813,7 +815,19 @@ async function seedHolds(api, upload, go, form) {
   for (let i = 0; i < 5; i++) {
     // And Cave Crew: 120 hours in rooms and 860 MB through Zaisma's relay this month (43 more hours), for the stats line that counts both.
     // And Four in a Row: 850 of its 1,000 free hours this month, for the 80% heads-up on its card and Overview.
-    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+    // And Arena, whose own game server runs on Zaisma: 40 hours in rooms with 2,500 CPU-seconds (1,500 past the 1,000
+    // they include, 30 more hours), and its room traffic: big JSON "move" snapshots 12 times a player-second, for the hint.
+    const arenaTraffic = [
+      "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count) SELECT id, date('now'), 30, 144000, 4322000, 207520000, 1892000, 1586880000, 2500000, 8640000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, message_count = excluded.message_count, inbound_size_bytes = excluded.inbound_size_bytes, outbound_message_count = excluded.outbound_message_count, outbound_size_bytes = excluded.outbound_size_bytes, game_server_cpu_duration_ms = excluded.game_server_cpu_duration_ms",
+      ...[
+        ["move", "outbound", 1728000, 1555200000, 1400],
+        ["input", "inbound", 4320000, 207360000, 64],
+        ["(zaisma)", "outbound", 150000, 30000000, 2100],
+        ["chat", "outbound", 14000, 1680000, 360],
+        ["chat", "inbound", 2000, 160000, 300],
+      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes`),
+    ].join("; ");
+    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     if (inserted.status === 0) break;
     await new Promise((r) => setTimeout(r, 1000));
   }

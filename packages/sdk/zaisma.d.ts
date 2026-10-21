@@ -686,6 +686,12 @@ declare namespace Zaisma {
      * when it changes, not every frame. Nothing is sent while the player is away.
      */
     send(message: unknown): void;
+    /**
+     * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed
+     * array, up to 16 KB, counted with messages (about 30 a second at most). Anything else throws
+     * error.code "bad_bytes". Nothing is sent while the player is away.
+     */
+    sendBytes(bytes: ArrayBuffer | ArrayBufferView): void;
     /** Leave the room for good. */
     leave(): void;
     /**
@@ -760,6 +766,11 @@ declare namespace Zaisma {
   interface RoomEvents {
     /** A message from the game server: the game's own, as it sent it. With the relay, { fromPlayerId, data }. */
     message: (message: any) => void;
+    /**
+     * Bytes from the game server (its room.broadcastBytes or room.sendBytes): fromPlayerId is the player
+     * they came from when the game server passed one player's bytes on (the relay always does), or null.
+     */
+    bytes: (bytes: Uint8Array, fromPlayerId: string | null) => void;
     /** Players joined, left, walked away or came back; the same list as room.players. */
     players: (players: readonly Player[]) => void;
     /** Where the connection stands, as room.connectionStatus. "away" while the player is out of the match. */
@@ -1014,6 +1025,7 @@ declare namespace Zaisma {
    * - bad_server_url: a serverUrl that isn't a full wss://, ws://, https:// or http:// address ({@link Friends.setRoom} takes only wss:// and https://).
    * - unlisted_server: {@link Friends.setRoom} named a server that isn't one of the game's own servers (own_server_urls).
    * - connection_closed: the connection to the room closed before it let the player in; the message says why.
+   * - bad_bytes: {@link Room.sendBytes} was given something other than an ArrayBuffer or a typed array.
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
    * - And a request's ({@link RequestErrorCode}).
    */
@@ -1036,6 +1048,7 @@ declare namespace Zaisma {
     | "no_player"
     | "bad_player_id"
     | "bad_room_code"
+    | "bad_bytes"
     | "bad_server_url"
     | "unlisted_server"
     | "unknown_link"

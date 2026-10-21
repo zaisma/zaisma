@@ -311,10 +311,40 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
     expect(stats.period_duration_days).toBe(7);
-    expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 3, room_play_duration_min: 10, message_count: 42, game_server: null }]);
-    expect(stats.room_use_this_month).toEqual({ room_play_duration_hours: 0.2, relayed_size_bytes: 0, counted_play_duration_hours: 0.2, free_room_play_duration_hours: 1000, has_reached_free_hours: false });
+    expect(stats.multiplayer_days).toEqual([
+      { date: today, room_count: 3, room_play_duration_min: 10, message_count: 42, inbound_messages_per_player_sec: 0.1, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, game_server_cpu_duration_sec: 0, game_server: null },
+    ]);
+    expect(stats.room_use_this_month).toEqual({ room_play_duration_hours: 0.2, relayed_size_bytes: 0, game_server_cpu_duration_sec: 0, counted_play_duration_hours: 0.2, free_room_play_duration_hours: 1000, has_reached_free_hours: false });
+    expect(stats.room_traffic).toEqual({ inbound_messages_per_player_sec: 0.1, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, message_types: [], traffic_hints: [] });
     expect(stats.game_server_errors).toEqual([]);
     expect(stats.play_stats).toMatchObject({ play_count: 0, average_play_duration_min: null, came_back: { after_7_days: { returned_pct: null } } });
+  });
+
+  it("counts game server CPU past what player-hours include, and says what to change in room traffic", async () => {
+    await tool("create_game", { title: "Hop" });
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE id = ?").bind(game.id).run();
+    const today = new Date().toISOString().slice(0, 10);
+    // 4 player-hours include 100 CPU-seconds; 1,300 is 1,200 past them, 24 more player-hours.
+    const playSec = 4 * 3600;
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms) VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1300000)")
+      .bind(game.id, today, playSec, 30 * playSec, 60 * playSec, 10 * playSec, 900 * 10 * playSec)
+      .run();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) VALUES (?, ?, 'move', 'outbound', ?, ?, 1200)").bind(game.id, today, 10 * playSec, 900 * 10 * playSec),
+      env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) VALUES (?, ?, 'chat', 'inbound', 40, 20000, 13000)").bind(game.id, today),
+    ]);
+    const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(stats.room_use_this_month).toMatchObject({ room_play_duration_hours: 4, game_server_cpu_duration_sec: 1300, counted_play_duration_hours: 28 });
+    expect(stats.multiplayer_days[0]).toMatchObject({ inbound_messages_per_player_sec: 30, inbound_size_bytes_per_player_sec: 60, outbound_messages_per_player_sec: 10, outbound_size_bytes_per_player_sec: 9000, game_server_cpu_duration_sec: 1300 });
+    expect(stats.room_traffic.message_types).toEqual([
+      { message_type: "move", direction: "outbound", message_count: 10 * playSec, size_bytes: 900 * 10 * playSec, largest_size_bytes: 1200, average_size_bytes: 900 },
+      { message_type: "chat", direction: "inbound", message_count: 40, size_bytes: 20000, largest_size_bytes: 13000, average_size_bytes: 500 },
+    ]);
+    expect(stats.room_traffic.traffic_hints).toEqual([
+      { code: "json_messages_large", message: '"move" messages average 900 bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.' },
+      { code: "message_near_limit", message: 'The largest "chat" message is 12.7 KB, close to the 16 KB limit. Split it or send it as bytes.' },
+    ]);
   });
 
   it("shows how a game's own game server is doing, with its recent errors", async () => {
@@ -338,7 +368,11 @@ describe("reports, stats and history", () => {
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_crash_count) VALUES (?, ?, 1000000, 1)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
-    expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 0, room_play_duration_min: 0, message_count: 0, game_server: { call_count: 0, request_count: 1_000_000, scheduled_run_count: 0, crash_count: 1, stopped_count: 0, ended_match_count: 0 } }]);
+    expect(stats.multiplayer_days).toEqual([
+      { date: today, room_count: 0, room_play_duration_min: 0, message_count: 0, inbound_messages_per_player_sec: 0, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, game_server_cpu_duration_sec: 0, game_server: { call_count: 0, request_count: 1_000_000, scheduled_run_count: 0, crash_count: 1, stopped_count: 0, ended_match_count: 0 } },
+    ]);
+    // No room play: no traffic, types or hints.
+    expect(stats.room_traffic).toEqual({ inbound_messages_per_player_sec: 0, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, message_types: [], traffic_hints: [] });
     expect(stats.request_use_this_month).toEqual({ request_count: 1_000_000, free_request_count: 1_000_000, has_reached_free_requests: true });
     expect(stats.schedules).toEqual([]);
   });

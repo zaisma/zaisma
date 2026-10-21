@@ -1,14 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
-import { GameServerError, RoomCore, defineGameServer, isRoomCode, readJoinAnswer, relay, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
+import { GameServerError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
+  const frames: Record<string, Uint8Array[]> = {};
   const closed: string[] = [];
   const t: Transport = {
     send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)),
+    sendBytes: (id, frame) => (frames[id] ??= []).push(frame),
     close: (id) => closed.push(id),
   };
-  return { t, sent, closed };
+  return { t, sent, frames, closed };
+}
+
+/** A binary frame as players' games read it: who it's from (null for the game server) and the bytes. */
+function readFrame(frame: Uint8Array) {
+  const fromLength = frame[0]!;
+  return { fromPlayerId: fromLength ? new TextDecoder().decode(frame.subarray(1, 1 + fromLength)) : null, bytes: [...frame.subarray(1 + fromLength)] };
 }
 
 const counter = defineGameServer({
@@ -318,8 +326,9 @@ describe("RoomCore", () => {
   });
 
   it("checks game server settings, and refuses options it doesn't take with the ones it does", () => {
-    expect(() => defineGameServer({ maximumPlayerCount: 17, setup: () => ({}) })).toThrow("maximumPlayerCount");
-    expect(() => defineGameServer({ ticksPerSec: 60, setup: () => ({}) })).toThrow("ticksPerSec");
+    expect(() => defineGameServer({ maximumPlayerCount: 100, ticksPerSec: 60, setup: () => ({}) })).not.toThrow();
+    expect(() => defineGameServer({ maximumPlayerCount: 101, setup: () => ({}) })).toThrow("maximumPlayerCount is 101. Give a whole number from 1 to 100, like 8.");
+    expect(() => defineGameServer({ ticksPerSec: 61, setup: () => ({}) })).toThrow("ticksPerSec is 61. Give a number above 0 and up to 60, like 30, or leave it out for a turn-based game.");
     expect(() => defineGameServer({ hostControlsEnabled: "yes" as never, setup: () => ({}) })).toThrow("hostControlsEnabled");
     expect(() => defineGameServer({ onTick: 5 as never, setup: () => ({}) })).toThrow("onTick");
     expect(() => defineGameServer({} as never)).toThrow("setup");
@@ -332,8 +341,82 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
+  });
+
+  it("takes bytes from players for onBytes, under the same limits as messages", () => {
+    const got: number[][] = [];
+    const { t, frames } = transport();
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onBytes: (_s, player, bytes, api) => {
+      got.push([...bytes]);
+      api.sendBytes(player.id, new Uint8Array([9]));
+      api.broadcastBytes(new Uint8Array(new Uint16Array([258]).buffer), { exceptPlayerId: player.id });
+    } }), t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
+    expect(room.receiveBytes("a", new Uint8Array([1, 2, 3]))).toBeNull();
+    expect(got).toEqual([[1, 2, 3]]);
+    // From the game server: no sender in the header.
+    expect(frames.a!.map(readFrame)).toEqual([{ fromPlayerId: null, bytes: [9] }]);
+    expect(frames.b!.map(readFrame)).toEqual([{ fromPlayerId: null, bytes: [2, 1] }]);
+    expect(room.receiveBytes("a", new Uint8Array(ROOM_LIMITS.maximumGameMessageSizeBytes + 1))).toBe("too_big");
+    expect(room.receiveBytes("nobody", new Uint8Array([1]))).toBe("ended");
+    let refusal: string | null = null;
+    for (let i = 0; i < ROOM_LIMITS.gameMessageBurstCount + 5 && !refusal; i++) refusal = room.receiveBytes("b", new Uint8Array([i]));
+    expect(refusal).toBe("too_fast");
+    // Bytes and messages share one budget.
+    expect(room.receive("b", msg("hi"))).toBe("too_fast");
+
+    const textOnly = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: () => {} }), transport().t);
+    textOnly.join({ id: "a", name: "A", kind: "guest" });
+    expect(textOnly.receiveBytes("a", new Uint8Array([1]))).toBe("bad_message");
+  });
+
+  it("passes bytes on through the relay, saying whose they are", () => {
+    const { t, frames } = transport();
+    const room = new RoomCore(relay, t);
+    for (const id of ["player_a", "player_b", "player_c"]) room.join({ id, name: id, kind: "guest" });
+    room.receiveBytes("player_a", new Uint8Array([7, 8]));
+    expect(frames.player_a).toBeUndefined();
+    expect(frames.player_b!.map(readFrame)).toEqual([{ fromPlayerId: "player_a", bytes: [7, 8] }]);
+    expect(frames.player_c!.map(readFrame)).toEqual([{ fromPlayerId: "player_a", bytes: [7, 8] }]);
+    expect(bytesFrame(new Uint8Array([1]), "player_a")).toEqual(new Uint8Array([8, ...new TextEncoder().encode("player_a"), 1]));
+  });
+
+  it("counts the room's traffic by message type, each way", () => {
+    const { t } = transport();
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, api) => api.broadcast(message), onBytes: () => {} }), t);
+    for (const id of "abcdefgh") room.join({ id, name: id, kind: "guest" });
+    room.takeTraffic();
+    room.receive("a", msg({ type: "move", x: 1 }));
+    room.receive("a", msg("no type"));
+    room.receiveBytes("a", new Uint8Array(10));
+    const traffic = room.takeTraffic();
+    const type = (direction: string, messageType: string) => traffic.messageTypes.find((each) => each.direction === direction && each.messageType === messageType);
+    expect(type("inbound", "move")).toMatchObject({ messageCount: 1, sizeBytes: msg({ type: "move", x: 1 }).length });
+    expect(type("inbound", "(none)")).toMatchObject({ messageCount: 1 });
+    expect(type("inbound", "(bytes)")).toMatchObject({ messageCount: 1, sizeBytes: 10, largestSizeBytes: 10 });
+    // A broadcast to 8 players counts 8 out.
+    expect(type("outbound", "move")).toMatchObject({ messageCount: 8 });
+    expect(type("outbound", "(none)")).toMatchObject({ messageCount: 8 });
+    expect(traffic.outboundMessageCount).toBe(16);
+    expect(traffic.inboundSizeBytes).toBe(msg({ type: "move", x: 1 }).length + msg("no type").length + 10);
+    // Taken: the counts start again.
+    expect(room.takeTraffic()).toEqual(noTraffic());
+
+    // Past 20 types each way, the rest count as (other).
+    for (let i = 0; i < 25; i++) room.receive("b", msg({ type: `kind${i}` }));
+    const many = room.takeTraffic();
+    expect(many.messageTypes.filter((each) => each.direction === "inbound").length).toBe(21);
+    expect(many.messageTypes.find((each) => each.direction === "inbound" && each.messageType === "(other)")).toMatchObject({ messageCount: 5 });
+    expect(addTraffic(many, many).messageTypes.find((each) => each.direction === "inbound" && each.messageType === "(other)")).toMatchObject({ messageCount: 10 });
+  });
+
+  it("takes 100 players, and turns the 101st away as full", () => {
+    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 100, ticksPerSec: 60, setup: () => ({}) }), transport().t);
+    for (let i = 0; i < 100; i++) expect(room.join({ id: `p${i}`, name: `P${i}`, kind: "guest" }).isAllowed).toBe(true);
+    expect(room.join({ id: "p100", name: "P100", kind: "guest" })).toMatchObject({ isAllowed: false, code: "full" });
   });
 
   it("gives onTick the seconds since the last tick", () => {

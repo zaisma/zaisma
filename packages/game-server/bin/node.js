@@ -289,6 +289,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         database,
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),
+        sendBytes: (id, frame) => sockets.get(id)?.send(frame, { binary: true }),
         close: (id, code, reason) => {
           const ws = sockets.get(id);
           ws?.close(code, reason);
@@ -391,7 +392,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (text === "ping") return ws.send("pong");
       if (playerId) {
         const room = rooms.get(code);
-        const errorCode = text === null ? "bad_message" : room?.core.receive(playerId, text);
+        // Bytes (a binary frame) go to the game server's onBytes, under the same limits as messages.
+        const errorCode = text === null ? room?.core.receiveBytes(playerId, binaryBytes(received)) : room?.core.receive(playerId, text);
         if (errorCode) ws.send(errorMessage(errorCode));
         if (room) pace(room);
         return;
@@ -472,6 +474,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
 /** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */
 export function secretsFromEnvironment() {
   return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
+}
+
+/** A binary frame from ws (a Buffer, an ArrayBuffer or a fragmented frame's pieces) as a Uint8Array of its own. */
+function binaryBytes(received) {
+  if (Array.isArray(received)) return new Uint8Array(Buffer.concat(received));
+  if (received instanceof ArrayBuffer) return new Uint8Array(received.slice(0));
+  return new Uint8Array(received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength));
 }
 
 function flag(name, fallback) {

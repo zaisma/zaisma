@@ -68,23 +68,40 @@ export const NEARLY_USED_PCT = 80;
 /** Data Zaisma's relay sends a game's players that counts as one player-hour (Julius, Oct 17, 2026). */
 export const PLAYER_HOUR_RELAYED_SIZE_BYTES = 20_000_000;
 
+/** Game server CPU each player-hour in Zaisma rooms includes (Julius, Oct 20, 2026). */
+export const PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC = 25;
+
+/** Game server CPU past what player-hours include that counts as one more player-hour (Julius, Oct 20, 2026). */
+export const PLAYER_HOUR_CPU_DURATION_SEC = 50;
+
 /**
  * A game's use of rooms and the relay this month (UTC): player time in Zaisma rooms (running rooms add
  * theirs at least hourly), the data Zaisma's relay sent its players (read from Cloudflare about once an
- * hour), and both together as the seconds counted toward the free tier.
+ * hour), the time its own game server ran in its rooms, and all of it together as the seconds counted
+ * toward the free tier.
  */
-export async function roomUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ roomPlayDurationSec: number; relayedSizeBytes: number; countedPlayDurationSec: number }> {
+export async function roomUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ roomPlayDurationSec: number; relayedSizeBytes: number; gameServerCpuDurationMs: number; countedPlayDurationSec: number }> {
   const row = await database
-    .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(relayed_size_bytes), 0) AS relayed_size_bytes FROM room_usage WHERE game_id = ? AND date >= ?")
+    .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(relayed_size_bytes), 0) AS relayed_size_bytes, COALESCE(SUM(game_server_cpu_duration_ms), 0) AS game_server_cpu_duration_ms FROM room_usage WHERE game_id = ? AND date >= ?")
     .bind(gameId, `${new Date(nowMs).toISOString().slice(0, 7)}-01`)
-    .first<{ room_play_duration_sec: number; relayed_size_bytes: number }>();
+    .first<{ room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number }>();
   const roomPlayDurationSec = row?.room_play_duration_sec ?? 0;
   const relayedSizeBytes = row?.relayed_size_bytes ?? 0;
-  return { roomPlayDurationSec, relayedSizeBytes, countedPlayDurationSec: countedPlayDurationSec(roomPlayDurationSec, relayedSizeBytes) };
+  const gameServerCpuDurationMs = row?.game_server_cpu_duration_ms ?? 0;
+  return { roomPlayDurationSec, relayedSizeBytes, gameServerCpuDurationMs, countedPlayDurationSec: countedPlayDurationSec(roomPlayDurationSec, relayedSizeBytes, gameServerCpuDurationMs) };
 }
 
-/** Player time in rooms and relayed data together, in seconds, as the free tier counts them. */
-export const countedPlayDurationSec = (roomPlayDurationSec: number, relayedSizeBytes: number) => roomPlayDurationSec + (relayedSizeBytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 3600;
+/**
+ * Player time in rooms, relayed data and game server CPU together, in seconds, as the free tier counts
+ * them over a game's month: CPU past PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC a player-hour counts one more
+ * player-hour every PLAYER_HOUR_CPU_DURATION_SEC, so light and heavy rooms of one game net out.
+ */
+export const countedPlayDurationSec = (roomPlayDurationSec: number, relayedSizeBytes: number, gameServerCpuDurationMs: number) =>
+  roomPlayDurationSec + (relayedSizeBytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 3600 + cpuPlayDurationSec(roomPlayDurationSec, gameServerCpuDurationMs);
+
+/** The player time a game's game server CPU adds, in seconds: none until it's past what its player-hours include. */
+export const cpuPlayDurationSec = (roomPlayDurationSec: number, gameServerCpuDurationMs: number) =>
+  (Math.max(0, gameServerCpuDurationMs / 1000 - (PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC * roomPlayDurationSec) / 3600) / PLAYER_HOUR_CPU_DURATION_SEC) * 3600;
 
 /**
  * Requests to a game's own game server (onRequest) free each month, per game (Julius, Oct 16, 2026):

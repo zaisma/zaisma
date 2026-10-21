@@ -131,6 +131,48 @@ describe("sandboxed game servers", () => {
     expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
   });
 
+  it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {
+    await addSandboxGame(
+      "fast-ticker",
+      `export default {
+  maximumPlayerCount: 100,
+  ticksPerSec: 60,
+  setup: () => ({ said: [], toldCount: 0 }),
+  onMessage(state, player, message, room) {
+    if (message === "bad") throw new Error("bad input");
+    state.said.push(message);
+  },
+  onBytes(state, player, bytes, room) {
+    state.said.push("bytes " + bytes.join(","));
+  },
+  onTick(state, tickDurationSec, room) {
+    let work = 0;
+    for (let i = 0; i < 200000; i++) work += i;
+    if (state.said.length === state.toldCount) return;
+    state.toldCount = state.said.length;
+    room.broadcast({ said: state.said });
+  },
+};`,
+    );
+    const a = await join("fast-ticker", "TKRTKR");
+    for (const said of ["one", "bad", "two"]) a.say(said);
+    a.ws.send(new Uint8Array([4, 5]));
+    let told: any;
+    do told = await a.next();
+    while (told.data.said.length < 3);
+    expect(told.data.said).toEqual(["one", "two", "bytes 4,5"]);
+    a.ws.close(1000);
+    let use: any = null;
+    for (let i = 0; i < 40 && !use; i++) {
+      use = await e.DB.prepare("SELECT game_server_cpu_duration_ms, game_server_crash_count, message_count FROM room_usage WHERE game_id = 'gfastticker'").first();
+      if (!use) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(use).toMatchObject({ game_server_crash_count: 1, message_count: 4 });
+    expect(use.game_server_cpu_duration_ms).toBeGreaterThan(0);
+    const error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gfastticker'").first<{ message: string }>();
+    expect(error!.message).toContain("bad input");
+  });
+
   it("lets the game's own server turn friends' Join off for its room, and read it back", async () => {
     await addSandboxGame(
       "hushed",
@@ -298,7 +340,7 @@ describe("sandboxed game servers", () => {
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 300 characters, which can cut the code and the full stop at the end; the list of options stays whole.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook/,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule/,
     );
   });
 
@@ -426,33 +468,105 @@ describe("sandboxed game servers", () => {
   });
 });
 
-describe("a game server whose sandbox keeps failing", () => {
-  it("gets a fresh session after a failure, and gives up after the second", async () => {
-    const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
-    let opened = 0;
-    let fail = false;
-    let broken = 0;
-    const session = {
-      settings: async () => ({ optionNames: ["ticksPerSec", "setup", "onTick"], ticksPerSec: 10, handlerNames: ["setup", "onTick"] }),
-      setup: async () => ({ state: { tickCount: 0 }, effects: [] }),
-      call: async (_hook: string, state: any) => {
-        if (fail) throw new Error("Worker exceeded CPU time limit.");
-        return { state: { tickCount: state.tickCount + 1 }, effects: [] };
-      },
-    };
-    const server = await wrapSession(async () => (opened++, session as never), () => broken++);
-    const room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} , serverTimeMs: () => Date.now() } as never;
+/** A stand-in for a session with a real-time game server: it keeps its state, as the sandbox does, and counts what it's asked. */
+function tickingSession(asked: { method: string; queued?: any[]; roomChanges?: any }[], failing: { isFailing: boolean }) {
+  let state: any;
+  return {
+    settings: async () => ({ optionNames: ["ticksPerSec", "setup", "onMessage", "onTick"], ticksPerSec: 10, handlerNames: ["setup", "onMessage", "onTick"] }),
+    setup: async () => ((state = { tickCount: 0, said: [] as string[] }), { state, effects: [] }),
+    call: async (hook: string, _handlerArguments: unknown[], roomChanges: unknown, _given: unknown, queued: any[]) => {
+      asked.push({ method: `call ${hook}`, queued, roomChanges });
+      return { effects: [] };
+    },
+    tick: async (queued: any[], _tickDurationSec: number, roomChanges: unknown) => {
+      asked.push({ method: "tick", queued, roomChanges });
+      if (failing.isFailing) throw new Error("Worker exceeded CPU time limit.");
+      for (const input of queued) state.said.push(input.payload);
+      state.tickCount++;
+      return { effects: [] };
+    },
+    stateCopy: async () => structuredClone(state),
+    restore: async (copy: unknown) => {
+      asked.push({ method: "restore" });
+      state = copy;
+    },
+  };
+}
 
-    expect(await server.onTick!({ tickCount: 0 }, 0.1, room)).toEqual({ tickCount: 1 });
-    fail = true;
-    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+const ROOM = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
+const PLAYER = { id: "player_a", name: "A", kind: "guest" as const };
+
+describe("a game server whose sandbox keeps failing", () => {
+  it("gets a fresh session after a failure that carries on from the last copy, and gives up after the second", async () => {
+    const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
+    const asked: { method: string }[] = [];
+    const failing = { isFailing: false };
+    let opened = 0;
+    let broken = 0;
+    const server = await wrapSession(async () => (opened++, tickingSession(asked, failing) as never), () => broken++);
+    await server.setup!(null);
+    await server.onTick!(undefined, 0.1, ROOM);
+    await server.onTick!(undefined, 0.1, ROOM);
+    expect(await server.stateCopy()).toMatchObject({ tickCount: 2 });
+    await server.onTick!(undefined, 0.1, ROOM);
+    failing.isFailing = true;
+    await expect(server.onTick!(undefined, 0.1, ROOM)).rejects.toThrow("CPU time limit");
     expect([opened, broken]).toEqual([2, 0]);
-    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+    // The fresh session starts from the copy, two ticks in: the third tick since is lost, not the match.
+    failing.isFailing = false;
+    asked.length = 0;
+    await server.onTick!(undefined, 0.1, ROOM);
+    expect(asked.map((each) => each.method)).toEqual(["restore", "tick"]);
+    expect(await server.stateCopy()).toMatchObject({ tickCount: 3 });
+    failing.isFailing = true;
+    await expect(server.onTick!(undefined, 0.1, ROOM)).rejects.toThrow("CPU time limit");
     expect([opened, broken]).toEqual([2, 1]);
     // From then on it fails at once, without asking the sandbox again.
-    fail = false;
-    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("stopped working");
+    failing.isFailing = false;
+    await expect(server.onTick!(undefined, 0.1, ROOM)).rejects.toThrow("stopped working");
     expect(server.stats.failureCount).toBe(2);
+  });
+});
+
+describe("a real-time game server in the sandbox", () => {
+  it("gets the messages since the last tick with the tick, in one call and in order", async () => {
+    const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
+    const asked: { method: string; queued?: any[] }[] = [];
+    const server = await wrapSession(async () => tickingSession(asked, { isFailing: false }) as never, () => {});
+    await server.setup!(null);
+    for (const said of ["one", "two", "three"]) expect(server.onMessage!(undefined, PLAYER, said, ROOM)).toBeUndefined();
+    expect(asked).toEqual([]);
+    await server.onTick!(undefined, 1 / 60, ROOM);
+    expect(asked.map((each) => [each.method, each.queued!.map((input) => input.payload)])).toEqual([["tick", ["one", "two", "three"]]]);
+    expect(await server.stateCopy()).toMatchObject({ said: ["one", "two", "three"], tickCount: 1 });
+    // Messages that came before a join go first, with the join's call.
+    server.onMessage!(undefined, PLAYER, "four", ROOM);
+    await server.onJoin!(undefined, PLAYER, ROOM, null, { fromRoomCode: null, isReturning: false });
+    expect(asked.at(-1)).toMatchObject({ method: "call onJoin", queued: [{ hook: "onMessage", payload: "four" }] });
+    expect(server.stats.callCount).toBe(3);
+  });
+
+  it("sends only what changed in the room since the last call", async () => {
+    const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
+    const { RoomCore } = await import("@zaisma/game-server");
+    const asked: { method: string; roomChanges?: any }[] = [];
+    const server = await wrapSession(async () => tickingSession(asked, { isFailing: false }) as never, () => {});
+    const core = new RoomCore(server, { send: () => {}, close: () => {} });
+    await core.settled();
+    core.join({ id: "player_a", name: "A", kind: "account" });
+    core.join({ id: "player_b", name: "B", kind: "account" });
+    await core.settled();
+    core.tick(0.1);
+    await core.settled();
+    // The second join's call had the players; the tick after it, nothing new but the clock.
+    expect(Object.keys(asked.at(-1)!.roomChanges)).toEqual(["serverTimeMs"]);
+    core.setFriends("player_a", ["player_b"]);
+    core.tick(0.1);
+    await core.settled();
+    expect(asked.at(-1)!.roomChanges).toMatchObject({ friendPairs: [["player_a", "player_b"]], blockPairs: [] });
+    core.tick(0.1);
+    await core.settled();
+    expect(asked.at(-1)!.roomChanges.friendPairs).toBeUndefined();
   });
 });
 

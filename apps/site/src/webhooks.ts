@@ -247,14 +247,14 @@ export async function noticeFreeUseAlerts(env: Env, nowMs = Date.now()): Promise
   const monthStart = monthStartDate(nowMs);
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const { results } = await env.DB.prepare(
-    "SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_request_count) AS request_count FROM room_usage WHERE date >= ? AND game_id IN (SELECT game_id FROM room_usage WHERE date = ?) GROUP BY game_id",
+    "SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_cpu_duration_ms) AS game_server_cpu_duration_ms, SUM(game_server_request_count) AS request_count FROM room_usage WHERE date >= ? AND game_id IN (SELECT game_id FROM room_usage WHERE date = ?) GROUP BY game_id",
   )
     .bind(monthStart, today)
-    .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; request_count: number }>();
+    .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number; request_count: number }>();
     const freeRoomSec = FREE_ROOM_PLAY_DURATION_HOURS * 3600;
   const insert = env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, noticed_at_ms) VALUES (?, ?, ?, ?)");
   const notices = results.flatMap((use) => {
-    const countedSec = countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes);
+    const countedSec = countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes, use.game_server_cpu_duration_ms);
     const reached: [FreeUseAlertKind, boolean][] = [
       ["rooms_nearly_paused", countedSec >= freeRoomSec * NEARLY_USED_PCT / 100],
       ["rooms_paused", countedSec >= freeRoomSec],

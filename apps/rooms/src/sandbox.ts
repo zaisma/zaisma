@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -11,9 +11,13 @@ import type { Env } from "./index.ts";
  * path) or one zaisma-server.js. ES modules whose default export is the game server.
  *
  * The room (our Durable Object) still owns everything players touch: sockets, passes, limits,
- * mute, block and report. The sandbox only runs the game's handlers: each call gets the state and
- * a copy of the room, and hands back the new state plus what the game asked the room to do
- * (broadcast, send, end, kick, ...), which the room then does; canJoin only answers yes or no.
+ * mute, block and report. The sandbox only runs the game's handlers, and hands back what the game
+ * asked the room to do (broadcast, send, end, kick, ...), which the room then does; canJoin only
+ * answers yes or no. Each call carries what changed in the room since the last one (RoomChanges). A
+ * turn-based room's state goes in and out with each call, since the room saves it after every change;
+ * a real-time room's stays in the sandbox, which the room copies every few seconds
+ * (STATE_COPY_INTERVAL_MS) to start a fresh session from, and its players' messages wait in the room
+ * for the next tick, which runs them and onTick in one call.
  * Requests (onRequest), schedules (onSchedule) and webhooks (onWebhook) go through the game's own object outside any room
  * (game-server.ts), with the same sandbox and the same database. A room or that object opens one session with the sandbox
  * when it wakes and makes every call through it, so a room is billed one request per wake rather
@@ -54,6 +58,8 @@ const FAILURE_COUNT = 2;
 type Effect =
   | { do: "broadcast"; message: unknown; exceptPlayerId?: string }
   | { do: "send"; playerId: string; message: unknown }
+  | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string }
+  | { do: "send_bytes"; playerId: string; bytes: unknown }
   | { do: "end"; message?: string }
   | { do: "listed"; isListed: boolean }
   | { do: "open"; isOpen: boolean }
@@ -63,6 +69,7 @@ type Effect =
   | { do: "kick"; playerId: unknown; kickOptions: unknown }
   | { do: "moveTo"; roomCode: unknown; moveOptions: unknown };
 
+/** The room as the sandbox sees it. The session keeps it, and each call sends only what changed (RoomChanges). */
 interface Snapshot {
   players: Player[];
   isListed: boolean;
@@ -82,16 +89,32 @@ interface Snapshot {
   serverTimeMs: number;
 }
 
+/** What changed in the room since the last call; serverTimeMs comes every time. */
+type RoomChanges = Partial<Snapshot> & { serverTimeMs: number };
+
+/** A player's message or bytes waiting in the room for a real-time game server's next call. */
+interface Queued {
+  hook: "onMessage" | "onBytes";
+  player: Player;
+  payload: unknown;
+}
+
 interface Answer {
+  /** A turn-based room's new state; a real-time room's stays in the sandbox. */
   state?: unknown;
   effects: Effect[];
   error?: string;
-  /** What the game server printed during the call (plus anything it printed between calls), checked by readPrintedLines. */
-  logLines?: unknown;
+  /** Errors thrown by the input a call ran first, or by the handlers of a tick, up to 20 of them. */
+  errors?: unknown;
+  /** How many handlers threw in all. */
+  errorCount?: unknown;
 }
 
-/** Every answer from the sandbox can carry the lines the game server printed. */
-type Printed = { logLines?: unknown };
+/**
+ * Every answer from the sandbox can carry the lines the game server printed, and how long the call
+ * waited on its database and outside calls (the rest is CPU, for the player-hour meter).
+ */
+type Printed = { logLines?: unknown; ioWaitDurationMs?: unknown };
 
 /** A game server's options as the sandbox reports them, and which of its handlers it has. */
 interface Settings {
@@ -110,14 +133,28 @@ interface Settings {
   logLines?: unknown;
 }
 
+/**
+ * A call's state: a turn-based room's, handed in (and back in the answer), or none for a real-time
+ * room, whose state the session keeps.
+ */
+type GivenState = { state: unknown } | null;
+
 export interface Session {
-  settings(): Promise<Settings>;
+  settings(): Promise<Settings & Printed>;
   /** The game's secrets changed: room.secrets and server.secrets are these from the next call. */
   setSecrets(secrets: Record<string, string>): Promise<void>;
-  setup(setupData: unknown): Promise<Answer>;
-  call(hook: string, state: unknown, handlerArguments: unknown[], room: Snapshot): Promise<Answer>;
+  /** The starting state, kept by the session and handed back. */
+  setup(setupData: unknown): Promise<Answer & Printed>;
+  /** One handler, after any input still waiting (queued), in order. */
+  call(hook: string, handlerArguments: unknown[], roomChanges: RoomChanges, given: GivenState, queued: Queued[]): Promise<Answer & Printed>;
+  /** A real-time room's tick: the input that came since the last call, in order, then onTick. */
+  tick(queued: Queued[], tickDurationSec: number, roomChanges: RoomChanges): Promise<Answer & Printed>;
+  /** A real-time room's state as it is now, for the room to keep. */
+  stateCopy(): Promise<unknown>;
+  /** Start from a copy of the state, on a fresh session after the last one failed. */
+  restore(state: unknown): Promise<void>;
   /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
-  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string } & Printed>;
+  check(player: Player, joinData: unknown, roomChanges: RoomChanges, given: GivenState, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onRequest: what the game server answered a request, as plain JSON, or the error it threw. */
   request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onSchedule: one run of a schedule, or the error it threw. */
@@ -130,13 +167,15 @@ export interface Session {
 // room, which checks everything it's handed back like any message from a player.
 const harness = (entry: string) => `
 import "./outside-calls.js";
-import { withLogs } from "./logs.js";
+import { withLogs, timedWait } from "./logs.js";
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack", "onEnding"];
+const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding"];
+// A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
+const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", ...HOOKS];
 
 // room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
@@ -155,9 +194,9 @@ function gameDatabase(binding) {
     return answer.queryResult;
   };
   return {
-    async query(sql, values) { return read(await binding.query(sql, values === undefined ? [] : values)); },
-    async batch(statements) { return read(await binding.batch(statements)); },
-    async erasePlayer(playerId) { return read(await binding.erasePlayer(playerId)); },
+    async query(sql, values) { return read(await timedWait(binding.query(sql, values === undefined ? [] : values))); },
+    async batch(statements) { return read(await timedWait(binding.batch(statements))); },
+    async erasePlayer(playerId) { return read(await timedWait(binding.erasePlayer(playerId))); },
   };
 }
 
@@ -169,6 +208,8 @@ function recorder(snapshot, effects, database, secrets) {
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId }); },
     send(playerId, message) { effects.push({ do: "send", playerId, message }); },
+    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId }); },
+    sendBytes(playerId, bytes) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes") }); },
     end(message) { effects.push({ do: "end", message }); },
     get isListed() { return snapshot.isListed; },
     setListed(isListed) { snapshot.isListed = Boolean(isListed); effects.push({ do: "listed", isListed: snapshot.isListed }); },
@@ -188,6 +229,13 @@ function recorder(snapshot, effects, database, secrets) {
     pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
     serverTimeMs() { return Date.now() + clockOffsetMs; },
   };
+}
+
+// Bytes the game hands the room, copied as they are now (the game may reuse its buffer).
+function copyBytes(given, call) {
+  if (given instanceof ArrayBuffer) return new Uint8Array(given.slice(0));
+  if (ArrayBuffer.isView(given)) return new Uint8Array(given.buffer.slice(given.byteOffset, given.byteOffset + given.byteLength));
+  throw new Error(call + " takes bytes: a Uint8Array, another typed array or an ArrayBuffer.");
 }
 
 // A handler may be async (it awaits room.database): what it asked the room to do is handed back once it's done.
@@ -210,6 +258,10 @@ function frozenSecrets(given) {
 class Session extends RpcTarget {
   #database;
   #secrets;
+  // A real-time room's state lives here between calls; a turn-based room's comes with each call.
+  #state;
+  // The room as the last call left it: each call sends only what changed.
+  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, serverTimeMs: Date.now() };
   constructor(database, secrets) {
     super();
     this.#database = database;
@@ -233,34 +285,89 @@ class Session extends RpcTarget {
     }));
   }
   setup(setupData) {
-    return withLogs(() => answer(() => server.setup(setupData), [], undefined));
+    return withLogs(async () => {
+      const answered = await answer(() => server.setup(setupData), [], undefined);
+      if (!answered.error) this.#state = answered.state;
+      return answered;
+    });
   }
-  call(hook, state, handlerArguments, snapshot) {
-    return withLogs(() => this.#call(hook, state, handlerArguments, snapshot));
+  stateCopy() {
+    return this.#state;
   }
-  #call(hook, state, handlerArguments, snapshot) {
+  restore(state) {
+    this.#state = state;
+  }
+  // This call's room: the kept one with what changed, copied, so what a handler sets (room.setListed) lasts only this call.
+  #take(roomChanges) {
+    Object.assign(this.#room, roomChanges && typeof roomChanges === "object" ? roomChanges : {});
+    return { ...this.#room };
+  }
+  call(hook, handlerArguments, roomChanges, given, queued) {
+    return withLogs(() => this.#call(hook, handlerArguments, roomChanges, given, queued));
+  }
+  async #call(hook, handlerArguments, roomChanges, given, queued) {
+    if (given) this.#state = given.state;
+    const room = this.#take(roomChanges);
     const effects = [];
-    if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
+    const errors = await this.#input(queued, room, effects);
+    const error = HOOKS.includes(hook) && typeof server[hook] === "function" ? await this.#run(hook, handlerArguments, room, effects) : null;
+    // A turn-based room's state goes back only when its handler finished, as it was before otherwise.
+    return { effects, ...(given && !error ? { state: this.#state } : {}), ...(error ? { error } : {}), ...listed(errors) };
+  }
+  tick(queued, tickDurationSec, roomChanges) {
+    return withLogs(() => this.#tick(queued, tickDurationSec, roomChanges));
+  }
+  async #tick(queued, tickDurationSec, roomChanges) {
+    const room = this.#take(roomChanges);
+    const effects = [];
+    const errors = await this.#input(queued, room, effects);
+    if (typeof server.onTick === "function") {
+      const error = await this.#run("onTick", [tickDurationSec], room, effects);
+      if (error) errors.push(error);
+    }
+    return { effects, ...listed(errors) };
+  }
+  // Players' messages and bytes that waited for this call, in the order they came. One that throws doesn't stop the rest.
+  async #input(queued, room, effects) {
+    const errors = [];
+    for (const input of Array.isArray(queued) ? queued : []) {
+      if ((input.hook !== "onMessage" && input.hook !== "onBytes") || typeof server[input.hook] !== "function") continue;
+      const error = await this.#run(input.hook, [input.player, input.payload], room, effects);
+      if (error) errors.push(error);
+    }
+    return errors;
+  }
+  // One handler on the state: what it answers is the new state (nothing keeps it). Answers the error it threw, or null.
+  async #run(hook, handlerArguments, snapshot, effects) {
     const room = recorder(snapshot, effects, this.#database, this.#secrets);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
-    // onMessage(state, player, message, room), onTick(state, tickDurationSec, room), onMoved(state, moveResult, room), onBack(state, player, room),
-    // onEnding(state, room)
+    // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
+    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room)
+    const state = this.#state;
     const full =
       hook === "onJoin" ? [state, handlerArguments[0], room, handlerArguments[1], handlerArguments[2]]
-      : hook === "onMessage" ? [state, handlerArguments[0], handlerArguments[1], room]
+      : hook === "onMessage" || hook === "onBytes" ? [state, handlerArguments[0], handlerArguments[1], room]
       : hook === "onLeave" || hook === "onAway" ? [state, handlerArguments[0], room, handlerArguments[1]]
       : hook === "onEnding" ? [state, room]
       : [state, handlerArguments[0], room];
-    return answer(() => server[hook](...full), effects, state);
+    try {
+      const next = await server[hook](...full);
+      if (next !== undefined) this.#state = next;
+      return null;
+    } catch (error) {
+      return String((error && error.stack) || error);
+    }
   }
-  check(state, player, joinData, snapshot, joinInfo) {
-    return withLogs(() => this.#check(state, player, joinData, snapshot, joinInfo));
+  check(player, joinData, roomChanges, given, joinInfo) {
+    return withLogs(() => this.#check(player, joinData, roomChanges, given, joinInfo));
   }
-  async #check(state, player, joinData, snapshot, joinInfo) {
+  async #check(player, joinData, roomChanges, given, joinInfo) {
+    if (given) this.#state = given.state;
+    const snapshot = this.#take(roomChanges);
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
-      answer = await server.canJoin(state, player, recorder(snapshot, [], this.#database, this.#secrets), joinData, joinInfo);
+      answer = await server.canJoin(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -322,6 +429,11 @@ class Session extends RpcTarget {
   }
 }
 
+// The errors a call's handlers threw, up to ERROR_COUNT of them, for its answer.
+function listed(errors) {
+  return errors.length ? { errors: errors.slice(0, ERROR_COUNT), errorCount: errors.length } : {};
+}
+
 // An option as plain JSON, or a note saying it isn't, for the game's object to report.
 function plain(value) {
   if (value === undefined) return undefined;
@@ -380,13 +492,25 @@ for (const level of LEVELS) {
 console.trace = console.debug;
 console.dir = console.log;
 console.table = console.log;
-// Runs work as one call, and hands back its answer with what it printed.
+// Runs work as one call, and hands back its answer with what it printed and how long it waited on I/O.
 export async function withLogs(work) {
-  const printed = { lines: loose.lines, droppedCount: loose.droppedCount };
+  const printed = { lines: loose.lines, droppedCount: loose.droppedCount, ioWaitDurationMs: 0 };
   loose = { lines: [], droppedCount: 0 };
-  const answer = await store.run(printed, work);
+  let answer = await store.run(printed, work);
   if (printed.droppedCount) printed.lines.push({ atMs: Date.now(), level: "warn", text: "Zaisma: this call printed " + printed.droppedCount + " more lines than the " + LINE_COUNT + " a call keeps; they weren't kept." });
+  if (printed.ioWaitDurationMs) answer = { ...answer, ioWaitDurationMs: printed.ioWaitDurationMs };
   return printed.lines.length ? { ...answer, logLines: printed.lines } : answer;
+}
+// Waits on the database or another server, counting the time toward the call's I/O wait: inside the
+// sandbox the clock moves only across I/O, so the rest of a call's time is the game server running.
+export async function timedWait(waited) {
+  const printed = store.getStore();
+  const startedAtMs = Date.now();
+  try {
+    return await waited;
+  } finally {
+    if (printed) printed.ioWaitDurationMs += Date.now() - startedAtMs;
+  }
 }
 `;
 
@@ -394,6 +518,7 @@ export async function withLogs(work) {
 // (outbound.ts) throws an OutsideCallError saying why and what to do, instead of answering like the
 // server it was meant for. The gateway decides either way; this only shapes the error.
 const outsideCalls = `
+import { timedWait } from "./logs.js";
 class OutsideCallError extends Error {
   constructor(error) {
     super(error.message + " " + error.fix + " (" + error.code + ")");
@@ -404,7 +529,7 @@ class OutsideCallError extends Error {
 }
 const outsideFetch = globalThis.fetch;
 globalThis.fetch = async function fetch(input, init) {
-  const response = await outsideFetch(input, init);
+  const response = await timedWait(outsideFetch(input, init));
   if (!response.headers.has("${OUTSIDE_CALL_REFUSAL_HEADER}")) return response;
   let error;
   try {
@@ -486,8 +611,27 @@ export function linesOf(answer: { logLines?: unknown; error?: unknown } | null |
   return lines;
 }
 
-/** A sandboxed game server as a room runs it: its stats, and a way to hand it the game's secrets again. */
-export type SandboxServer = GameServer & { stats: SandboxStats; setSecrets(secrets: Record<string, string>): Promise<void> };
+/**
+ * A sandboxed game server as a room runs it: its stats, a way to hand it the game's secrets again, and,
+ * for a real-time room, a copy of its state (stateCopy) and a way to start again from one (restore).
+ */
+export type SandboxServer = GameServer & {
+  stats: SandboxStats;
+  setSecrets(secrets: Record<string, string>): Promise<void>;
+  /** A real-time room's state as it is now (the last copy if the sandbox can't answer), or undefined for a turn-based room. */
+  stateCopy(): Promise<unknown>;
+  /** Carry on from this copy of a real-time room's state, from the next call. */
+  restore(state: unknown): Promise<void>;
+};
+
+/** What the room last sent the session, to send only what changed; pairChangeCount undefined means always look again. */
+interface SentRoom {
+  playersKey: string;
+  settingsKey: string;
+  pingsKey: string;
+  pairsKey: string;
+  pairChangeCount: number | undefined;
+}
 
 /**
  * A game server that runs its handlers through a session with the sandbox. If the sandbox itself
@@ -511,7 +655,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   // A game server for requests or schedules alone doesn't run rooms, and one whose schedules don't read doesn't start anywhere.
   if (!handlerNames.has("setup")) throw noSetupError();
   checkSchedules(settings.schedules, handlerNames.has("onSchedule"));
-  const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
+  const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, cpuDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
   // Errors this session already reported as new: stats.errors empties each time the room records them, and a repeat isn't new.
   const reportedErrorKeys = new Set<string>();
   const record = (kind: "crash" | "stopped", text: string) => {
@@ -528,12 +672,26 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     }
   };
 
-  /** One call into the sandbox, counting it and handling a sandbox that fails. */
-  const reach = async <T extends { error?: string; logLines?: unknown }>(work: () => Promise<T>): Promise<T> => {
+  // A real-time game server keeps its state in the sandbox, and its players' input waits in the room for the next call.
+  const isTicking = settings.ticksPerSec !== undefined;
+  const queued: Queued[] = [];
+  /** The room as the session last heard it; null when a fresh session needs all of it. */
+  let sent: SentRoom | null = null;
+  /** A real-time room's last copy of its state (setup's, then stateCopy's), for a fresh session to start from. */
+  let lastCopy: unknown = undefined;
+  /** A fresh session that hasn't had the last copy yet. */
+  let needsRestore = false;
+
+  /** One call into the sandbox, counting it and its CPU, and handling a sandbox that fails. */
+  const reach = async <T extends Printed & { error?: string }>(work: () => Promise<T>): Promise<T> => {
     const startedAtMs = Date.now();
     if (stats.failureCount >= FAILURE_COUNT) throw new Error("This game's server stopped working");
     let answer: T;
     try {
+      if (needsRestore) {
+        await session.restore(lastCopy);
+        needsRestore = false;
+      }
       answer = await work();
     } catch (error) {
       stats.stoppedCount++;
@@ -541,11 +699,18 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       record("stopped", stopped);
       printed(linesOf(null, `Zaisma: ${stopped}`));
       if (++stats.failureCount >= FAILURE_COUNT) onBroken();
-      else session = await open(currentSecrets);
+      else {
+        session = await open(currentSecrets);
+        sent = null;
+        needsRestore = isTicking;
+      }
       throw error;
     }
+    const callDurationMs = Date.now() - startedAtMs;
     stats.callCount++;
-    stats.waitDurationMs += Date.now() - startedAtMs;
+    stats.waitDurationMs += callDurationMs;
+    // The call's time less its waits on the database and other servers: the game server running, plus the call's own small cost.
+    stats.cpuDurationMs += Math.max(0, callDurationMs - (typeof answer.ioWaitDurationMs === "number" ? answer.ioWaitDurationMs : 0));
     printed(linesOf(answer));
     if (answer.error) {
       stats.crashCount++;
@@ -553,14 +718,54 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     }
     return answer;
   };
-  const ask = async (work: () => Promise<Answer>, room: Room | null): Promise<unknown> => {
+  const ask = async (work: () => Promise<Answer & Printed>, room: Room | null): Promise<unknown> => {
     const answer = await reach(work);
     if (room) apply(answer.effects, room);
+    // Input and tick handlers that threw: each is a crash, and the others' changes stand.
+    const errors = Array.isArray(answer.errors) ? answer.errors.filter((error): error is string => typeof error === "string") : [];
+    if (errors.length) {
+      stats.crashCount += Math.max(errors.length, typeof answer.errorCount === "number" ? answer.errorCount : 0);
+      for (const error of errors) record("crash", error);
+      printed(errors.flatMap((error) => linesOf(null, error)));
+    }
     if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
     return answer.state;
   };
-  const snapshot = (room: Room): Snapshot => ({ players: [...room.players], isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt, blockPairs: pairsOf(room, (first, second) => room.hasBlockBetween(first, second)), friendPairs: pairsOf(room, (first, second) => room.areFriends(first, second)), pingDurationsMs: pingsOf(room), serverTimeMs: room.serverTimeMs() });
-  const call = (hook: string, state: unknown, handlerArguments: unknown[], room: Room) => ask(() => session.call(hook, state, handlerArguments, snapshot(room)), room);
+  /**
+   * What changed in the room since the last call: the players, the room's settings, pings, and the
+   * block and friend pairs, which are looked for again only when the players or the room's pairs changed.
+   */
+  const roomChanges = (room: Room): RoomChanges => {
+    const was = sent;
+    const players = [...room.players];
+    const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}`).join("\n");
+    const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt };
+    const settingsKey = JSON.stringify(settings);
+    const pingDurationsMs = pingsOf(room);
+    const pingsKey = JSON.stringify(pingDurationsMs);
+    const pairChangeCount = (room as unknown as { [PAIR_CHANGE_COUNT]?: number })[PAIR_CHANGE_COUNT];
+    const changes: RoomChanges = { serverTimeMs: room.serverTimeMs() };
+    if (!was || was.playersKey !== playersKey) changes.players = players;
+    if (!was || was.settingsKey !== settingsKey) Object.assign(changes, settings);
+    if (!was || was.pingsKey !== pingsKey) changes.pingDurationsMs = pingDurationsMs;
+    let pairsKey = was?.pairsKey ?? "";
+    if (!was || was.playersKey !== playersKey || pairChangeCount === undefined || was.pairChangeCount !== pairChangeCount) {
+      const blockPairs = pairsOf(room, (first, second) => room.hasBlockBetween(first, second));
+      const friendPairs = pairsOf(room, (first, second) => room.areFriends(first, second));
+      pairsKey = JSON.stringify([blockPairs, friendPairs]);
+      if (!was || was.pairsKey !== pairsKey) Object.assign(changes, { blockPairs, friendPairs });
+    }
+    sent = { playersKey, settingsKey, pingsKey, pairsKey, pairChangeCount };
+    return changes;
+  };
+  /** A turn-based room's state goes with each call; a real-time room's is in the sandbox. */
+  const given = (state: unknown): GivenState => (isTicking ? null : { state });
+  const call = (hook: string, state: unknown, handlerArguments: unknown[], room: Room) => ask(() => session.call(hook, handlerArguments, roomChanges(room), given(state), queued.splice(0)), room);
+  /** A real-time room's input waits for the next call, which runs it first; RoomCore keeps its last state meanwhile. */
+  const queue = (hook: Queued["hook"], player: Player, payload: unknown): undefined => {
+    queued.push({ hook, player, payload });
+    return undefined;
+  };
 
   // The options pass through as the game gave them, so defineGameServer checks them like any game server's.
   const server = {
@@ -571,20 +776,30 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(settings.idleTimeoutSec !== undefined ? { idleTimeoutSec: settings.idleTimeoutSec as number } : {}),
     ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
     ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
-    setup: (setupData: unknown) => ask(() => session.setup(setupData), null),
+    setup: async (setupData: unknown) => {
+      const state = await ask(() => session.setup(setupData), null);
+      if (isTicking) lastCopy = state;
+      return state;
+    },
     onJoin: (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => call("onJoin", state, [player, joinData, joinInfo], room),
     onLeave: (state: unknown, player: Player, room: Room, leaveInfo: LeaveInfo) => call("onLeave", state, [player, leaveInfo], room),
-    onMessage: (state: unknown, player: Player, message: unknown, room: Room) => call("onMessage", state, [player, message], room),
-    onTick: (state: unknown, tickDurationSec: number, room: Room) => call("onTick", state, [tickDurationSec], room),
+    onMessage: (state: unknown, player: Player, message: unknown, room: Room) => (isTicking ? queue("onMessage", player, message) : call("onMessage", state, [player, message], room)),
+    onTick: (state: unknown, tickDurationSec: number, room: Room) => {
+      if (!isTicking) return call("onTick", state, [tickDurationSec], room);
+      // Nothing to run: no call.
+      if (!queued.length && !handlerNames.has("onTick")) return undefined;
+      return ask(() => session.tick(queued.splice(0), tickDurationSec, roomChanges(room)), room);
+    },
     onMoved: (state: unknown, moveResult: unknown, room: Room) => call("onMoved", state, [moveResult], room),
-    // Only for game servers that have them: with onAway, players who walk away stay in the room.
+    // Only for game servers that have them: with onAway, players who walk away stay in the room; without onBytes, bytes are refused.
+    ...(handlerNames.has("onBytes") ? { onBytes: (state: unknown, player: Player, bytes: Uint8Array, room: Room) => (isTicking ? queue("onBytes", player, bytes) : call("onBytes", state, [player, bytes], room)) } : {}),
     ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, reason: AwayReason) => call("onAway", state, [player, reason], room) } : {}),
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
     ...(handlerNames.has("canJoin")
       ? {
           canJoin: async (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => {
-            const checked = await reach(() => session.check(state, player, joinData, snapshot(room), joinInfo));
+            const checked = await reach(() => session.check(player, joinData, roomChanges(room), given(state), joinInfo));
             if (checked.error) throw new Error(`Game server error: ${checked.error.slice(0, 2000)}`);
             // A wrong answer (like a string) turns the player away, and its developer sees why with the game's server errors.
             const read = readJoinAnswer(checked.answer);
@@ -609,13 +824,29 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       console.error("Couldn't hand the game server its new secrets:", error);
     }
   };
-  return { ...server, stats, setSecrets };
+  const stateCopy = async (): Promise<unknown> => {
+    if (!isTicking || needsRestore || stats.failureCount >= FAILURE_COUNT) return lastCopy;
+    try {
+      lastCopy = await session.stateCopy();
+    } catch (error) {
+      // The next call finds out and opens a fresh session; the last copy stands.
+      console.error("Couldn't copy the game server's state:", error);
+    }
+    return lastCopy;
+  };
+  const restore = async (state: unknown): Promise<void> => {
+    lastCopy = state;
+    needsRestore = isTicking;
+  };
+  return { ...server, ...(isTicking ? { [QUEUES_INPUT]: true } : {}), stats, setSecrets, stateCopy, restore };
 }
 
 export interface SandboxStats {
   callCount: number;
   /** Time spent waiting on the game server, for our own measurements. */
   waitDurationMs: number;
+  /** The game server's time running in its calls (each call's time less its I/O waits), for the player-hour meter. */
+  cpuDurationMs: number;
   /** Times the sandbox itself failed; FAILURE_COUNT of them end the room. */
   failureCount: number;
   crashCount: number;
@@ -649,6 +880,12 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "send":
           if (typeof effect.playerId === "string") room.send(effect.playerId, effect.message);
+          break;
+        case "broadcast_bytes":
+          if (effect.bytes instanceof Uint8Array) room.broadcastBytes(effect.bytes, { ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}), ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}) });
+          break;
+        case "send_bytes":
+          if (typeof effect.playerId === "string" && effect.bytes instanceof Uint8Array) room.sendBytes(effect.playerId, effect.bytes);
           break;
         case "end":
           room.end(typeof effect.message === "string" ? effect.message.slice(0, 200) : undefined);
