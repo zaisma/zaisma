@@ -69,9 +69,9 @@ const SMOKED_GLASS = `color-scheme: dark;
   --tag-new: rgba(52, 211, 120, 0.22); --tag-new-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
-  --edge-inner: rgba(255, 255, 255, 0.25); --edge-bevel: 0.22; --edge-rim: 0.55; --edge-fringe: 0.2;
-  --edge-lit: rgba(226, 233, 244, 0.72); --edge-shade: rgba(150, 162, 184, 0.26); --edge-corner: rgba(200, 210, 226, 0.4);
-  --edge-spec: rgba(255, 255, 255, 0.6); --edge-dense: rgba(255, 255, 255, 0.025);
+  --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
+  --edge-lit: rgba(220, 228, 242, 0.55); --edge-shade: rgba(140, 152, 176, 0.18); --edge-corner: rgba(196, 206, 224, 0.26);
+  --edge-spec: rgba(255, 255, 255, 0.4); --edge-dense: rgba(255, 255, 255, 0.015);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
