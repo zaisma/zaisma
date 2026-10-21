@@ -535,9 +535,9 @@ component({
 /* On the narrowest phones (320px wide), the tabs keep closer to their words so a switch of two long ones still fits. */
 @media (max-width: 380px) { .tab-switch > a, .tab-switch > button { --tab-room: 12px; } .tab-switch.small > a, .tab-switch.small > button { --tab-room: 8px; } }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
-   A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the slab, ghost and ring are spans). */
-.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not(span)) { padding-inline-start: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
-.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not(span)) { padding-inline-end: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
+   A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab, ghost and ring are hidden from readers, so they never count). */
+.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
+.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and the ghost follows the pointer between them. */
 .tab-switch.vertical { flex-direction: column; height: auto; }
