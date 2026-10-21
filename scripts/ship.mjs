@@ -11,7 +11,7 @@
 //      DROP COLUMN, DELETE FROM, TRUNCATE) it needs a terminal, where wrangler asks Julius first;
 //      without one (Claude, a `!` command) it stops before deploying anything; then makes any queue the
 //      Workers name that the account doesn't have yet;
-//   2. deploys rooms, games, photodna (with PhotoDNA's SDK from Julius's machine) and site, in that order;
+//   2. deploys rooms, games, photodna (with PhotoDNA's SDK from Julius's machine), compress and site, in that order;
 //   3. checks that npm has the command-line tool's version: a GitHub workflow
 //      (.github/workflows/publish-cli.yml) publishes it from main, never ship;
 //   4. loads a game page, the MCP, a game's files and the rooms' keys on the live site, and runs the
@@ -36,7 +36,7 @@ import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, che
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
 // Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
-const WORKERS = ["rooms", "games", "photodna", "site"];
+const WORKERS = ["rooms", "games", "photodna", "compress", "site"];
 // Microsoft's PhotoDNA SDK, on Julius's machine only: its license keeps it out of this public repo and
 // away from AI agents. Ship copies the one file the hasher runs into the ship copy's apps/photodna/container/sdk/
 // (gitignored), after checking it against Microsoft's published SHA-384. Nothing here reads or shows its contents.

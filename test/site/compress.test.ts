@@ -2,7 +2,8 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { brotliDecompressSync } from "node:zlib";
 import { blobKey, brotliKeyOf, manifestKey, ownedBlobKey, sha256Hex, type CompressJob, type Manifest, type UploadFile } from "@zaisma/core";
-import { handleCompressBatch, queueCompression, queueMissingCompression } from "../../apps/site/src/compress.ts";
+import { queueCompression, queueMissingCompression } from "../../apps/site/src/compress.ts";
+import { handleCompressBatch } from "../../apps/compress/src/index.ts";
 import type { Env } from "../../apps/site/src/env.ts";
 
 /** A queue that keeps what it was sent, so tests can see it. */

@@ -1,5 +1,5 @@
 import { deleteDueGames } from "./game-deletion.ts";
-import { gameBySlug, upgradeToHttps, withTransportSecurity, type CompressJob, type ListingCheckJob, type ScanJob } from "@zaisma/core";
+import { gameBySlug, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
@@ -21,7 +21,7 @@ import { handlePasskeys } from "./passkeys.ts";
 import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
-import { handleCompressBatch, queueMissingCompression } from "./compress.ts";
+import { queueMissingCompression } from "./compress.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
 import { testWaitingReviewPrecedents } from "./review-precedent-tests.ts";
@@ -149,7 +149,6 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
-    if (batch.queue === "zaisma-compress") return handleCompressBatch(batch as MessageBatch<CompressJob>, env);
     const scans: Message<ScanJob>[] = [];
     for (const message of batch.messages) {
       const body = message.body;
@@ -175,4 +174,4 @@ export default {
     const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
-} satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | CompressJob>;
+} satisfies ExportedHandler<Env, ScanJob | ListingCheckJob>;

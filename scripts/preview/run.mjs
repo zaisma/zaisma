@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -94,7 +94,7 @@ function wrangler(app, args, opts = {}) {
   return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } });
 }
 
-// The three servers share one database file, and local D1 fails straight away when another server
+// The servers share one database file, and local D1 fails straight away when another server
 // has it locked. Each runs its Worker through scripts/preview/workers/<app>.mjs, which tries such
 // calls again; the Workers themselves, and production, are unchanged.
 // Wrangler looks for its config beside the entry it's given, so it's named too.
@@ -138,6 +138,9 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-site.mjs"), String
 // One at a time: they share the preview's database, and starting together can find it locked.
 children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 await waitFor(GAMES);
+// The compress Worker reads the queue the site puts new files on; it has no pages, so it's only waited for to answer.
+children.push(wrangler("compress", [...dev("compress"), "--port", String(PORTS.compress), "--inspector-port", String(9343 + OFFSET), "--persist-to", STATE], { quiet: true }));
+await waitFor(`http://localhost:${PORTS.compress}`);
 children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
 children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env"), "--test-scheduled"], { quiet: true }));
