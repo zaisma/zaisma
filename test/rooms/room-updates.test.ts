@@ -36,7 +36,7 @@ async function newPass(game: string) {
   return response.json<{ pass: string; player: { id: string; name: string } }>();
 }
 
-async function join(game: string, code: string, samePass?: string) {
+async function join(game: string, code: string, samePass?: string, helloFields: Record<string, unknown> = {}) {
   const { pass, player } = samePass ? { pass: samePass, player: null as never } : await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   expect(up.status).toBe(101);
@@ -66,7 +66,7 @@ async function join(game: string, code: string, samePass?: string) {
     }
   };
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
-  ws.send(JSON.stringify({ type: "hello", pass }));
+  ws.send(JSON.stringify({ type: "hello", pass, ...helloFields }));
   expect((await next()).type).toBe("welcome");
   return { ws, player, pass, say, next, until, closed };
 }
@@ -168,5 +168,78 @@ describe("a match moving to a version published now", () => {
     back.say("how");
     expect((await back.until("message")).data).toMatchObject({ version: "two", count: 1, restored: { savedVersionId: "vsleeper1" } });
     back.ws.close(1000);
+  });
+});
+
+/** A hello the room may turn away: its first answer and the code its connection closes with. */
+async function knock(game: string, code: string, helloFields: Record<string, unknown>) {
+  const { pass } = await newPass(game);
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+  const ws = up.webSocket!;
+  ws.accept();
+  const first = new Promise<any>((resolve) => ws.addEventListener("message", (event) => resolve(JSON.parse(event.data as string)), { once: true }));
+  const closed = new Promise<number>((resolve) => ws.addEventListener("close", (event) => resolve(event.code)));
+  ws.send(JSON.stringify({ type: "hello", pass, ...helloFields }));
+  return { ws, first: await first, closed };
+}
+
+const roomRow = async (gameId: string) => {
+  for (let tries = 0; tries < 50; tries++) {
+    const row = await e.DB.prepare("SELECT version_id FROM live_rooms WHERE game_id = ?").bind(gameId).first<{ version_id: string | null }>();
+    if (row) return row;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return null;
+};
+
+// A player always plays the version their room runs (docs/DEVELOPER-API.md, "Updates"): a newcomer whose game
+// runs another version is turned away with other_version and the room's, so their game reloads at it first.
+describe("a room on another version than the player's game", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+  });
+
+  it("turns a newcomer on another version away with the room's, and lets in one on its own or who doesn't say", async () => {
+    const { gameId, versionId } = await addSandboxGame("finisher", server("one", false));
+    const olivia = await join("finisher", "FNSHRA", undefined, { versionId });
+    // Its row names the version, for the game domain.
+    expect(await roomRow(gameId)).toEqual({ version_id: versionId });
+    // The next version goes live for the next match: this one finishes on the first.
+    await addVersion(gameId, "vfinisher2", server("two", false));
+    await e.DB.prepare("UPDATE games SET live_version_id = 'vfinisher2' WHERE id = ?").bind(gameId).run();
+
+    const newer = await knock("finisher", "FNSHRA", { versionId: "vfinisher2" });
+    expect(newer.first).toEqual({ type: "error", code: "other_version", message: "This room runs another version of the game, so the game reloads at it first.", versionId });
+    expect(await newer.closed).toBe(4001);
+
+    const same = await join("finisher", "FNSHRA", undefined, { versionId });
+    const unsaid = await join("finisher", "FNSHRA");
+    // Already in the room: coming back on another version never bounces them out of the match.
+    olivia.ws.close(1000);
+    await olivia.closed;
+    const back = await join("finisher", "FNSHRA", olivia.pass, { versionId: "vfinisher2" });
+    for (const player of [same, unsaid, back]) player.ws.close(1000);
+  });
+
+  it("writes the new version into its row when it switches, before anyone reloads", async () => {
+    const { gameId, versionId } = await addSandboxGame("switcher", server("one", false));
+    const noah = await join("switcher", "SWTCHR", undefined, { versionId });
+    expect(await roomRow(gameId)).toEqual({ version_id: versionId });
+    await addVersion(gameId, "vswitcher2", server("two", false));
+    await publishNow(gameId, "vswitcher2", true);
+    await runInDurableObject(roomStub("switcher", "SWTCHR"), async (room: Room) => {
+      await (room as any).startVersionUpdate("vswitcher2", true);
+      await (room as any).applyVersionUpdate();
+    });
+    expect(await noah.closed).toBe(4004);
+    expect(await roomRow(gameId)).toEqual({ version_id: "vswitcher2" });
+  });
+
+  it("never turns anyone away in a room without a game server of the game's own, and its row has no version", async () => {
+    await e.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES ('grelayer', 'relayer', 'relayer', 'live', 'vrelayer1', 'relay', 'page', 0, 0)").run();
+    const ava = await join("relayer", "RLYRAB", undefined, { versionId: "vrelayer1" });
+    const other = await join("relayer", "RLYRAB", undefined, { versionId: "vrelayer0" });
+    expect(await roomRow("grelayer")).toEqual({ version_id: null });
+    for (const player of [ava, other]) player.ws.close(1000);
   });
 });
