@@ -23,7 +23,7 @@ export interface HeaderOptions {
   account?: { username: string; pictureMarkup: Raw } | null;
   /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
   isOnDeveloperPage: boolean;
-  /** Sign-in's pages: the logo and the tabs with nothing at the end, since you're signing in already. */
+  /** Sign-in's pages: the logo alone, with no tabs and nothing at the end, so nothing leads away from signing in but the logo home. */
   isOnSignInPage?: boolean;
   /** Tabs of the page's own in place of Zaisma's (the admin pages'). */
   ownTabs?: SwitchTab[];
@@ -58,7 +58,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${wordmark}
-  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account

@@ -56,17 +56,18 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var pane = host.querySelector("[data-city-pane]"), header = host.querySelector("header.top");
   function isNarrow() { return window.innerWidth <= 760; }
 
-  /* On a phone the pane starts low, so the city has the screen down to the pane's main button; it's measured again only when the width
-     changes (not when the browser's bars come and go while scrolling). It's the pane's place whether or not the city runs. */
+  /* On a phone the pane starts low, so the city has most of the screen and only the pane's top shows, down to its heading; it's measured
+     again only when the width changes (not when the browser's bars come and go while scrolling). It's the pane's place whether or not
+     the city runs. */
   var placedWidth = 0;
   function place() {
     if (!pane || isFramed || window.innerWidth === placedWidth) return;
     placedWidth = window.innerWidth;
     if (!isNarrow()) { pane.style.marginTop = ""; return; }
-    // The first main button showing (a pane can hold views that take turns, like Sign in and Make an account).
-    var button = Array.prototype.find.call(pane.querySelectorAll(".run-wrap, button, a"), function (el) { return el.getClientRects().length > 0 && el.matches(".run-wrap"); }) || pane.querySelector("button, a");
+    // The first heading showing (a pane can hold views that take turns, like Sign in and Make an account).
+    var heading = Array.prototype.find.call(pane.querySelectorAll("h1, h2"), function (el) { return el.getClientRects().length > 0; });
     pane.style.marginTop = "0px";
-    var peek = (button ? button.getBoundingClientRect().bottom : pane.getBoundingClientRect().top + 240) - pane.getBoundingClientRect().top + 24;
+    var peek = (heading ? heading.getBoundingClientRect().bottom : pane.getBoundingClientRect().top + 120) - pane.getBoundingClientRect().top + 24;
     var below = header ? header.offsetTop + header.offsetHeight + 12 : 12;
     pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
   }
