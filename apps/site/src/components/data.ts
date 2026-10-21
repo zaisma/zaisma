@@ -10,28 +10,22 @@ import { CUT_LINE, MINUTE_MS, ago, icon, tag, type TagTone } from "./foundations
 
 export type PictureSize = "xs" | "sm" | "md";
 
-/** The slant where a picture in a row lies over the one behind it: the edge rule's, for a part declared beside the next (data-cut-beside). */
-const ROW_SLANT_PX: Record<PictureSize, number> = { xs: 6, sm: 8, md: 10 };
-
 /**
- * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim, cut by the edge rule
- * like a glass button. The picture sits inside the rim, cut to the same shape. isOverNext: it lies over the next picture in a row, so its end
- * slants down onto it (pictureRow).
+ * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Pictures are the
+ * one thing never cut or slanted: always square, alone or in a row, wherever they sit.
  */
-export function pictureFrame(username: string, pictureSize: PictureSize, options: { isOnline?: boolean; isOverNext?: boolean } = {}): Raw {
-  const slant = ROW_SLANT_PX[pictureSize];
-  const beside = options.isOverNext ? raw(' data-cut-beside="end"') : "";
-  const frame = html`<span class="frame ${pictureSize} glass" data-glass data-cut-line="${slant}" data-glass-band="2"${beside} aria-hidden="true"><span class="frame-picture" data-cut-line="${slant}"${beside}>${accountPicture(username, pictureSize, { title: "" })}</span></span>`;
-  // The glass is clipped to its cut, so the online mark sits outside it, over its corner.
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { isOnline?: boolean } = {}): Raw {
+  const frame = html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${accountPicture(username, pictureSize, { title: "" })}</span></span>`;
+  // The glass is clipped to its edge, so the online mark sits outside it, over its corner.
   return options.isOnline ? html`<span class="frame-online">${frame}<span class="online-mark" aria-hidden="true"></span></span>` : frame;
 }
 
-/** Friends' pictures in a row, front to back: each lies over the next, slanting down onto it; past three, the rest are a +N at the back. */
+/** Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three, the rest are a +N at the back. */
 export function pictureRow(usernames: string[], pictureSize: PictureSize): Raw {
   const shown = usernames.slice(0, 3), more = usernames.length - shown.length, count = shown.length + (more > 0 ? 1 : 0);
   return html`<span class="picture-row ${pictureSize}">${shown.map(
-    (username, at) => html`<span class="picture-row-place" style="z-index:${count - at}">${pictureFrame(username, pictureSize, { isOverNext: at < count - 1 })}</span>`,
-  )}${more > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-cut-line="${ROW_SLANT_PX[pictureSize]}" data-glass-band="2" aria-hidden="true">+${more}</span></span>` : ""}</span>`;
+    (username, at) => html`<span class="picture-row-place" style="z-index:${count - at}">${pictureFrame(username, pictureSize)}</span>`,
+  )}${more > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true">+${more}</span></span>` : ""}</span>`;
 }
 
 /** Names as a sentence: "Liam", "Liam and Sofia", "Liam, Sofia and Noah". */
@@ -74,13 +68,12 @@ component({
   group: "data",
   summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, on a profile. ",
   styles: `
-/* An account's picture in a small frame of the panes' glass with its drawn rim, cut by the edge rule (--cut-shape) like a glass button:
-   square in the middle of a pane, cut where it meets a corner. The picture fills it inside the rim, cut to the same shape. */
+/* An account's picture in a small frame of the panes' glass with its drawn rim. Always square: never cut or slanted, alone or in a row. */
 .frame { --frame: 44px; --frame-rim: 3px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;
   font: var(--type-tag); color: var(--ink); }
 .frame.sm { --frame: 32px; --frame-rim: 2px; }
 .frame.xs { --frame: 24px; --frame-rim: 2px; }
-.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: var(--frame-rim); clip-path: var(--cut-shape); }
+.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: var(--frame-rim); }
 .frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Online: a small green diamond on the picture's corner, ringed in the glass's light. */
@@ -103,16 +96,18 @@ component({
   name: "Picture row",
   slug: "picture-row",
   group: "data",
-  summary: "Friends' pictures together: front to back, each lying over the next with its end slanting down onto it, so every face shows whole. Past three, the rest are a +N.",
+  summary: "Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.",
   styles: `
-/* A row, front to back: each picture lies over the next by a little less than its slant, its end slanting down onto it, so the one behind shows almost whole
-   but where the one in front lies over it. Past three, a +N of the same glass sits at the back. */
+/* A row, front to back: each picture lies over the left of the next and casts a small shadow onto it, so the one in front reads as on top.
+   Past three, a +N of the same glass sits at the back. */
 .picture-row { display: inline-flex; flex: none; }
 .picture-row-place { position: relative; display: inline-flex; }
+/* The shadow is its own layer under the picture (the glass is clipped to its edge, so it can't cast one), falling to the right onto the next. */
+.picture-row-place:not(:last-child)::after { content: ""; position: absolute; inset: 0; z-index: -1; box-shadow: 3px 0 6px -1px var(--picture-shadow); }
 .picture-row-place + .picture-row-place { margin-left: calc(var(--frame-overlap) * -1); }
-.picture-row.md { --frame-overlap: 10px; }
-.picture-row.sm { --frame-overlap: 7px; }
-.picture-row.xs { --frame-overlap: 5px; }
+.picture-row.md { --frame-overlap: 12px; }
+.picture-row.sm { --frame-overlap: 9px; }
+.picture-row.xs { --frame-overlap: 7px; }
 .frame.more { font-variant-numeric: tabular-nums; }
 `,
   render: pictureRow,
