@@ -17,3 +17,18 @@ export const CLEAN_GAME = {
 export async function letPublish(database: D1Database, accountId: string): Promise<void> {
   await database.prepare("UPDATE accounts SET can_publish = 1 WHERE id = ?").bind(accountId).run();
 }
+
+/** A minified bundle of about this many characters on one line, the same for the same seed: no newlines for a line diff to use. */
+export function minifiedBundle(characterCount: number, seedNumber = 1): string {
+  const words = ["player", "enemy", "render", "update", "vector", "mesh", "camera", "light", "scene", "input", "sound", "physics"];
+  let stateNumber = seedNumber;
+  const nextNumber = () => (stateNumber = (Math.imul(stateNumber, 1103515245) + 12345) >>> 0);
+  const parts: string[] = [];
+  let builtCharacterCount = 0;
+  while (builtCharacterCount < characterCount) {
+    const part = `function ${words[nextNumber() % words.length]}${nextNumber() % 100000}(a,b){return a*${nextNumber() % 997}+b.${words[nextNumber() % words.length]}("${nextNumber().toString(36)}")}`;
+    parts.push(part);
+    builtCharacterCount += part.length;
+  }
+  return parts.join("");
+}

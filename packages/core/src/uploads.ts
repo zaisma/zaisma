@@ -35,6 +35,14 @@ export const COPY_LIMITS = {
 /** How long a file the scan cleared (checked_files) is trusted before it's matched again: hash lists grow. */
 export const CHECKED_FILE_KEPT_DURATION_DAYS = 30;
 
+/**
+ * How long VirusTotal's answer about a file (antivirus_lookups) is reused before it's looked up again, so
+ * rescans stay inside its free limit of 4 lookups a minute: a count for a week, since verdicts change slowly,
+ * and "doesn't know the file" for a day, since a new file can become known fast.
+ */
+export const ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS = 7;
+export const ANTIVIRUS_UNKNOWN_FILE_KEPT_DURATION_DAYS = 1;
+
 /** Approved versions kept besides the live one, for rolling back. */
 export const KEPT_VERSION_COUNT = 5;
 
