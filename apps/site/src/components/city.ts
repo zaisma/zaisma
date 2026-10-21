@@ -10,8 +10,9 @@ import { runButton } from "./actions.ts";
  * it's tapped. Signing in and making an account sit on it (docs/DECISIONS.md, "Signing in happens in the city, on every device"),
  * and the developer front door can reuse it: nothing here is the sign-in's.
  *
- * cityStage() is the city's sky, a still of the same city and the canvas. CITY_SCRIPT draws the city into the canvas, hidden while
- * its first frames compile and settle, then fades it in from the sky, so nothing half-made or stuttering ever shows. The canvas never
+ * cityStage() is the city's sky, a still of the same city (a tiny blurred placeholder until the full one is needed) and the canvas.
+ * CITY_SCRIPT draws the city into the canvas as soon as the page has painted, hidden while its first frames compile and settle, then
+ * sharpens it in out of the placeholder, so nothing half-made or stuttering ever shows. The canvas never
  * starts under reduced motion or without WebGL 2, and stops on a device that can't keep it smooth even at its lowest step: the still
  * stands in then, loaded only then and faded in once it has wholly loaded.
  *
@@ -94,12 +95,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.
-  /* Where the city can't run, the still stands in: loaded only then, and faded in once it has wholly loaded, so it never shows half-drawn. */
+  /* Where the city can't run, the still stands in for good: loaded only then, and swapped in for the placeholder once it has wholly
+     loaded, so it never shows half-drawn; the placeholder's blur clears as it does. */
   function showStill() {
-    stage.classList.add("is-still");
-    var stills = Array.prototype.slice.call(stage.querySelectorAll(".city-still")), shown = stills.find(function (el) { return getComputedStyle(el).display !== "none"; });
-    var url = shown && (getComputedStyle(shown).backgroundImage.match(/url\("?([^")]+)"?\)/) || [])[1];
-    function reveal() { stills.forEach(function (el) { el.classList.add("is-shown"); }); }
+    var shown = Array.prototype.find.call(stage.querySelectorAll(".city-still"), function (el) { return getComputedStyle(el).display !== "none"; });
+    var url = shown && (getComputedStyle(shown).getPropertyValue("--still-full").match(/url\("?([^")]+)"?\)/) || [])[1];
+    function reveal() { stage.classList.add("is-still"); }
     if (!url) { reveal(); return; }
     var image = new Image(); image.src = url;
     (image.decode ? image.decode() : new Promise(function (done) { image.onload = image.onerror = done; })).then(reveal, reveal);
@@ -1114,7 +1115,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     function shiftTarget() { return shiftFor(); }
     var shift = shiftTarget();
 
-    var clock = 40, camTime = 0, last = performance.now(), isShown = false, warmFrameCount = 0;
+    var clock = 40, camTime = 0, last = performance.now(), isShown = false, warmFrameCount = 0, shownAt = 0;
     running = true;
     var ripples = [], rippleData = new Float32Array(48), seen = null;
     function projectW(m, p) {
@@ -1214,6 +1215,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     function frame(now) {
       if (!running) return;
       var raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+      // Hidden while it warms up, it stays on its first frame (the placeholder's), so it fades in from exactly what was showing.
+      var warmDt = isShown ? dt : 0;
       // Only a steady slowdown (under about 42 frames a second for two seconds running) lowers the resolution; a one-off hitch never does.
       if (clock > 43 && raw < 0.25) {
         frameAvg = frameAvg * 0.95 + raw * 0.05;
@@ -1222,12 +1225,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         if (slowFor > 2) { slowFor = 0; fastFor = 0; frameAvg = 1 / 60; stepDown(); if (stopped) return; }
         else if (fastFor > 5 && isSteppedDown && upsLeft > 0) { fastFor = 0; stepUp(); }
       }
-      clock += dt;
+      clock += warmDt;
       night += (nightTarget - night) * Math.min(1, dt * 1.6); if (Math.abs(nightTarget - night) < 0.002) night = nightTarget;
       for (var ci = 0; ci < 3; ci++) { FOG[ci] = lerp(FOG_DAY[ci], FOG_NIGHT[ci], night); ZENITH[ci] = lerp(ZENITH_DAY[ci], ZENITH_NIGHT[ci], night); }
       fogDensity = lerp(FOG_DENSITY_DAY, FOG_DENSITY_NIGHT, night);
-      updateMovers(dt);
-      camTime += dt * paceAt(camTime);
+      updateMovers(warmDt);
+      // The camera sets off gently once it's shown, over the entrance's second and a half, rather than at full pace from a standstill.
+      var setOff = isShown ? Math.min(1, (now - shownAt) / 1500) : 0;
+      camTime += warmDt * paceAt(camTime) * setOff * setOff * (3 - 2 * setOff);
       var view = shot(camTime);
       var aim = shiftTarget();
       shift[0] += (aim[0] - shift[0]) * Math.min(1, dt * 2.5); shift[1] += (aim[1] - shift[1]) * Math.min(1, dt * 2.5);
@@ -1323,14 +1328,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       });
 
       // It shows once it runs smoothly: its first frames compile shaders and fill caches, and would stutter. Then it fades in from the sky.
-      if (!isShown) { warmFrameCount++; if ((warmFrameCount >= 12 && raw < 0.034) || warmFrameCount >= 120) { isShown = true; canvas.classList.add("on"); } }
+      if (!isShown) { warmFrameCount++; if ((warmFrameCount >= 12 && raw < 0.034) || warmFrameCount >= 120) { isShown = true; shownAt = now; canvas.classList.add("on"); } }
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
   }
   function start() { try { run(); } catch (error) { giveUp(); } }
-  function whenIdle() { if (window.requestIdleCallback) requestIdleCallback(start, { timeout: 700 }); else setTimeout(start, 50); }
-  if (document.readyState === "complete") whenIdle(); else window.addEventListener("load", whenIdle);
+  // At once, not after the page's load (the bot check's frame alone can hold that back a second): once the page has painted its
+  // placeholder, so building the city never delays the pane.
+  requestAnimationFrame(function () { setTimeout(start, 0); });
 })();
 `);
 
@@ -1445,28 +1451,32 @@ export const CITY_PANE_SCRIPT: PageScript = pageScript("city-pane", `(function (
 `);
 
 const CITY_STYLES = `
-/* The city's stage: under everything on the page, filling the window. Its sky shows at once, and nothing half-made shows over it: the
-   live city fades in once it runs smoothly, and where it can't run (reduced motion, no WebGL, a device that can't keep up) the still
-   fades in instead, once it has wholly loaded. The still is loaded only then, so a slow connection never spends time on it. */
+/* The city's stage: under everything on the page, filling the window. It shows the city at once, as a placeholder: its first frame,
+   tiny and blurred, in the page itself so it needs no download. Nothing half-made shows over it: the live city comes in once it runs
+   smoothly, sharpening out of the placeholder from that same first frame (a focus pull: it fades in as it settles from a touch larger),
+   then the camera sets off. Where it can't run (reduced motion, no WebGL, a device that can't keep up) the full still takes the
+   placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
 .city-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
 .city-stage.is-framed { position: absolute; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* The still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is (CITY_SCRIPT sets
-   --still-x and --still-y; until then, half the pane's width to the left). Its box reaches past the screen, so moving it leaves no edge. */
-.city-stage .city-still { position: absolute; inset: -50%; display: block; background: center / auto 50% no-repeat; transform: translate(var(--still-x, calc(min(440px, 100vw - 2 * var(--pad-inner-pane)) / -2)), var(--still-y, 0px));
-  opacity: 0; transition: opacity 0.9s ease; }
-.city-stage.is-still .city-still.is-day { background-image: url(/sign-in/city-day.webp); }
-.city-stage.is-still .city-still.is-night { background-image: url(/sign-in/city-night.webp); }
+/* The placeholder and the still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is
+   (CITY_SCRIPT sets --still-x and --still-y; until then, half the pane's width to the left). Its box reaches past the screen, so moving
+   it leaves no edge. */
+.city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
+  transform: translate(var(--still-x, calc(min(440px, 100vw - 2 * var(--pad-inner-pane)) / -2)), var(--still-y, 0px));
+  filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRhoBAABXRUJQVlA4IA4BAADwBwCdASpIABwAPrVOn0snJCKisBZoAOAWiWQAnTmN175sfiOO6aSA49N8S7tEwnNRBnH3uayYzHgEh78vfLz7kMBomq1YV8AA/tMDxfpJhn+a3HQXlB9YpiUQaGwZNdX6SW9k4Ld0jmhMFDLRrLAibnisyiB+2r8djigCsyr/MD+WFq5ju6pA9SL374CHdFGxA+W7bnJfxHrfOQ2ax8d1Byfi/wolz+fdtSbzeQKDtaer6RcnaEAtRnDbYjpcUS+cwSmru0ypFSFMQnhNiEJMsyZ2Mqc4GYy55ic40KrT7fks0najlcCECg8rGRJ19kQqBwQyZLNtv3L/qPi1xCIET5dDpTx3yycJwOPQ0AA=); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRpoAAABXRUJQVlA4II4AAACQBgCdASpIABwAPqVCnkmmJCMhNnbdUMAUiWcA0bwZwHio1w1SP5jrVuFisu1eXXMBPBp2PobndLw0XfyAAP71YFzvnwrphWIz6VyaMsdkNl7tj1QIeBISMUWGK15Ll/lipZ36RiTW7DbAcbDZtb+Y/e+FiQa0qrIUvD2bmh0B5qsVxT+UhV2Uw9WrQcAA); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage.is-still .city-still.is-day { background-image: url(/sign-in/city-day-phone.webp); }
-  .city-stage.is-still .city-still.is-night { background-image: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRtQAAABXRUJQVlA4IMgAAACQBwCdASokACQAPrVMm0qnJCIhrjgMyOAWiWIAuzQAhx/yZ5aEbn/wDW/DkLNzcXlBy0uNKnZ2sgcejPdgYqj+xKFIGwAA/osHqD3Mp/anU8Yx/9CpUyty792u7qt0g78wd5Z+o9hlwwOzyMdCICDD1BJnLqbTNt242W5Z4Q+ul5Jc0KvU7J5+WqgVwgC3ZREbJ+xjZmeI4Wlpka7O09TB8tNvP3LIrTeINltCKw/LT1R2WlWL9TT/2tIB0jwZvLfAGVIyE8AAAA==); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRn4AAABXRUJQVlA4IHIAAABwBQCdASokACQAPrVSokynJKMiKrVZWOAWiWcAzcAjp7YWpt/jON8xi4L2T6DuXHg5oU0AAP71kNmW+4FX2EXbiySQuDZV82Ta/XPnibU0yShSDm6e/BAPSxEcGwlB/10iiIzIPwk2QtLnr/Od8T9mAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
-.city-stage.is-still .city-still.is-shown { opacity: 1; }
-.city-stage .city { opacity: 0; transition: opacity 0.9s ease; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.city-stage .city.on { opacity: 1; }
+.city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
+.city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.city-stage .city.on { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .city-stage .city-still, .city-stage .city { transition: none; } }
-/* Day for light, night for dark: only the one showing is loaded. */
+/* Day for light, night for dark: only the one showing is ever loaded. */
 .city-stage .city-still.is-night { display: none; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme-choice="light"]) .city-stage { background: linear-gradient(180deg, #050812 0%, #0B1226 55%, #142040 100%); }
@@ -1500,6 +1510,11 @@ html:has(.city-page) { height: 100%; }
 .city-pane .note { font: var(--type-note); color: var(--muted); }
 /* How do you play?: the pane's heading is the question, so the choices' own legend is for screen readers only. */
 .city-pane .is-play-step .choices > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Its cards sit two to a row where the pane has room: an odd one out on the last row is centred under the two above it, one column wide. */
+.city-pane .is-play-step .choice-cards { container-type: inline-size; }
+@container (min-width: 368px) {
+  .city-pane .is-play-step .choice-card:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; width: calc(50% - var(--gap-control-stack) / 2); }
+}
 @media (max-width: 760px) {
   html:has(.city-page) { height: auto; }
   .city-page { display: flow-root; min-height: 0; padding-bottom: calc(var(--pad-inner-pane) + env(safe-area-inset-bottom)); }
