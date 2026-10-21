@@ -232,7 +232,7 @@ export const TOOLS: Tool[] = [
     title: "Get a game",
     description: "One game: its details (and review_reason when Zaisma holds it or took it down; its registered links, each with who_can_open), its alerts (what needs your attention, as in list_games), covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links.",
     inputSchema: object({ slug }, ["slug"]),
-    outputSchema: answer({ game: GAME, alerts: GAME_ALERTS, images: list(IMAGE), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
+    outputSchema: answer({ game: GAME, alerts: GAME_ALERTS, playing_now_player_count: countOf("People playing now: browsers that pressed Play and still have the game on screen, plus players in your Zaisma rooms. Counted from the last 6 minutes."), images: list(IMAGE), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}`),
   },

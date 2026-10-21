@@ -26,7 +26,8 @@ import { isRealBrowser } from "./turnstile.ts";
  *          { key } when the browser was checked and the game is multiplayer.
  *     { tester, token }   a play through a tester link (its token): never counted; answers { key }.
  *     { ticket, counted: true }   a minute on screen: count the play
- *     { ticket, seconds }         time on screen since the last report, up to 10 minutes
+ *     { ticket, seconds, is_away } time on screen since the last report, up to 10 minutes; is_away: true
+ *          when the tab was hidden. A ticket whose last report is under 6 minutes old and not away is "playing now".
  *
  *   POST /api/plays/:slug/entry   { then }: Play on an accounts-only game. Answers { entry_url }, the game
  *          domain's address that swaps a grant for its entry cookie and then opens then (a path and query
@@ -47,6 +48,10 @@ const MAXIMUM_RETURN_AFTER_DAYS = 30;
 const COUNT_AFTER_MS = 55_000;
 /** A ticket is good for this long: a play longer than that stops adding time. */
 const TICKET_MS = 6 * 3_600_000;
+/** A playing page reports at least every 5 minutes, so a ticket that reported within this long is "playing now". */
+export const PLAYING_NOW_WINDOW_MS = 6 * 60_000;
+/** Fewest players for "playing now" to show on public pages, so a new game never looks empty. */
+export const MINIMUM_PLAYING_NOW_PLAYER_COUNT = 3;
 
 const today = (nowMs = Date.now()) => new Date(nowMs).toISOString().slice(0, 10);
 const ok = (body?: unknown) => (body === undefined ? new Response(null, { status: 204 }) : Response.json(body));
@@ -79,7 +84,10 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   if (typeof body.ticket === "string") {
     if (!isIdOf("play_ticket", body.ticket)) return new Response(null, { status: 400 });
     if (body.counted === true) await countTicket(env.DB, game.id, body.ticket, network(request));
-    else await addTime(env.DB, game.id, body.ticket, body.seconds);
+    else {
+      await addTime(env.DB, game.id, body.ticket, body.seconds);
+      await reportPlaying(env.DB, game.id, body.ticket, body.is_away === true);
+    }
     return ok();
   }
   // A game that needs an account, or is for older players, starts no play for anyone it doesn't let in.
@@ -187,8 +195,8 @@ export async function issueTicket(database: D1Database, gameId: string, facts: S
   const id = newId("play_ticket");
   const date = today(nowMs);
   await database
-    .prepare("INSERT INTO play_tickets (id, game_id, issued_at_ms, date, is_first_play_today, is_new_player, first_play_date) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, gameId, nowMs, date, facts.clast !== date ? 1 : 0, facts.cfirst === null ? 1 : 0, facts.cfirst)
+    .prepare("INSERT INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player, first_play_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, gameId, nowMs, nowMs, date, facts.clast !== date ? 1 : 0, facts.cfirst === null ? 1 : 0, facts.cfirst)
     .run();
   return id;
 }
@@ -225,6 +233,34 @@ export async function countTicket(database: D1Database, gameId: string, id: stri
   }
   await database.batch(writes);
   return true;
+}
+
+/** The page is still open and playing (or hidden, with isAway): what "playing now" counts. */
+export async function reportPlaying(database: D1Database, gameId: string, id: string, isAway: boolean, nowMs = Date.now()): Promise<void> {
+  await database
+    .prepare("UPDATE play_tickets SET reported_at_ms = ?1, away_at_ms = CASE WHEN ?2 THEN ?1 ELSE NULL END WHERE id = ?3 AND game_id = ?4 AND issued_at_ms > ?5")
+    .bind(nowMs, isAway ? 1 : 0, id, gameId, nowMs - TICKET_MS)
+    .run();
+}
+
+/**
+ * Players on screen right now in each game, from the tickets of checked plays: guests included, nothing
+ * personal. The developer's own plays and unchecked browsers have no ticket, so they never count. The same
+ * for everyone, cached for a short while so a page of games costs one read.
+ */
+export async function playingNowCounts(env: Env, nowMs = Date.now()): Promise<Map<string, number>> {
+  const cacheDurationSec = Number(env.PLAYING_NOW_CACHE_SECONDS ?? 30);
+  const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
+  const key = new Request("https://playing-now.zaisma.internal/v1");
+  const hit = await cache?.match(key);
+  if (hit) return new Map(Object.entries((await hit.json()) as Record<string, number>));
+  const { results } = await env.DB
+    .prepare("SELECT game_id, COUNT(*) AS player_count FROM play_tickets WHERE reported_at_ms > ? AND away_at_ms IS NULL GROUP BY game_id")
+    .bind(nowMs - PLAYING_NOW_WINDOW_MS)
+    .all<{ game_id: string; player_count: number }>();
+  const counts = new Map(results.map((row) => [row.game_id, row.player_count]));
+  await cache?.put(key, Response.json(Object.fromEntries(counts), { headers: { "Cache-Control": `max-age=${cacheDurationSec}` } }));
+  return counts;
 }
 
 /** Time on screen, never more than has passed since the ticket was issued. */
@@ -423,19 +459,20 @@ const check = () => new Promise((done) => {
 });
 let ticket = null, shown = 0, since = 0, sent = 0, counted = false;
 const onScreen = () => shown + (since ? Date.now() - since : 0);
-const flush = () => {
+// Every report says whether the tab is hidden, so "playing now" leaves a game the moment its player does.
+const flush = (away) => {
   if (since) { shown += Date.now() - since; since = document.hidden ? 0 : Date.now(); }
   if (!ticket) return;
   const seconds = Math.floor((shown - sent) / 1000);
-  if (seconds >= 1) { beacon({ ticket, seconds }); sent += seconds * 1000; }
+  if (seconds >= 1 || away) { beacon({ ticket, seconds: Math.max(seconds, 0), is_away: Boolean(away) }); sent += Math.max(seconds, 0) * 1000; }
 };
 const tick = () => {
   if (ticket && !counted && onScreen() >= 60000) {
     counted = true;
-    flush();
+    flush(document.hidden);
     post({ ticket, counted: true }).then(() => { const mine = load()[SLUG] || {}; save({ ...mine, cfirst: mine.cfirst || day(), clast: day() }); });
   }
-  if (onScreen() - sent >= 300000) flush();
+  if (onScreen() - sent >= 300000) flush(document.hidden);
 };
 return () => {
   // A tester link's play is never counted: the check is only for multiplayer.
@@ -444,8 +481,11 @@ return () => {
   const start = { first: mine.first || null, last: mine.last || null, cfirst: mine.cfirst || null, clast: mine.clast || null };
   save({ ...mine, first: mine.first || day(), last: day() });
   since = document.hidden ? 0 : Date.now();
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); else since = Date.now(); });
-  addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) flush(true);
+    else { since = Date.now(); if (ticket) post({ ticket, seconds: 0, is_away: false }); }
+  });
+  addEventListener("pagehide", () => flush(true));
   setInterval(tick, 5000);
   check().then((token) => post({ ...start, token })).then((r) => { if (r && r.ticket) ticket = r.ticket; gotKey(r); });
 };

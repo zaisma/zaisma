@@ -152,6 +152,9 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
 .tile .name:hover span{text-decoration:underline;text-underline-offset:3px}
 .tile .name small{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 a.tile{color:inherit;text-decoration:none}
+/* People playing a game now, under its card (or under the stage's title), a plain number. */
+.players{display:inline-flex;align-items:center;gap:5px;align-self:flex-end;margin-top:8px;font:500 13px/1.3 var(--display);color:var(--muted);font-variant-numeric:tabular-nums}
+.players .ico{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 .tile .pic picture{display:block;width:100%;height:100%}
 .tile .fill{display:none}
 /* Phones: players' cards are square. A game with only a landscape cover shows it whole, over a

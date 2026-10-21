@@ -4,7 +4,7 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { shelfPlayers } from "./plays.ts";
+import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
 
 /**
@@ -29,13 +29,17 @@ export interface ShowGame {
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
+  /** People playing it right now (checked browsers with it on screen); cards show it from MINIMUM_PLAYING_NOW_PLAYER_COUNT up. */
+  playing_now_player_count: number;
 }
+
+const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>';
 
 /** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears and games the listing check keeps off lists ("No slop"). */
 export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200): Promise<ShowGame[]> {
-  const { results } = await env.DB
+  const [{ results }, playingNow] = await Promise.all([env.DB
     .prepare(
-      `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode,
+      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode,
          accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
@@ -48,7 +52,9 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, maximumGameCount)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>();
+    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
+    playingNowCounts(env),
+  ]);
   return results.map((row) => ({
     slug: row.slug,
     title: row.title,
@@ -61,6 +67,7 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     first_published_at_ms: row.first_published_at_ms,
     modes: playerLine(readPlayModes(row.play_modes), row.multiplayer_mode !== "none"),
     devices: row.devices ? row.devices.split(",") : [],
+    playing_now_player_count: playingNow.get(row.id) ?? 0,
   }));
 }
 
@@ -128,7 +135,7 @@ export async function shelves(env: Env, games: ShowGame[], viewerAgeFloorYears: 
  * logo. It opens the game's page; only a Play button starts a game. A game without a cover gets its
  * title engraved on a plate. `flag` is a small note on the art, like "Updated".
  */
-export function tile(game: Pick<ShowGame, "slug" | "title" | "cover" | "square">, options: { flag?: string } = {}): Raw {
+export function tile(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { playing_now_player_count?: number }, options: { flag?: string } = {}): Raw {
   return raw(card(game, options.flag));
 }
 
@@ -137,13 +144,19 @@ export function tile(game: Pick<ShowGame, "slug" | "title" | "cover" | "square">
  * show square cards: the square cover when there is one, otherwise the landscape cover whole (never
  * cropped, so no logo is cut off) over a blurred copy of itself.
  */
-function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square">, flag?: string, label = game.title): string {
+function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { playing_now_player_count?: number }, flag?: string, label = game.title): string {
   const art = !game.cover
     ? `<span class="named"><span>${esc(game.title)}</span></span>`
     : game.square
       ? `<picture><source media="(max-width:640px)" srcset="${esc(game.square)}"><img src="${esc(game.cover)}" alt="" loading="lazy"></picture>`
       : `<span class="fill" style="--fill:url(${esc(game.cover)})"></span><img src="${esc(game.cover)}" alt="" loading="lazy">`;
-  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a></div>`;
+  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
+}
+
+/** The stage's line under the title: people playing the featured game now (the home's script swaps it when the stage changes). */
+function stagePlayers(game: ShowGame): Raw {
+  const isShown = game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT;
+  return html`<p class="players" id="stage-players"${isShown ? "" : raw(" hidden")}>${raw(PEOPLE_ICON)}<span id="stage-players-count">${game.playing_now_player_count}</span><span class="sr"> playing now</span></p>`;
 }
 
 export async function home(env: Env, request: Request): Promise<Response> {
@@ -175,6 +188,7 @@ ${featured
 <div class="info plate bevel-l">
 <h1 id="stage-title">${featured.title}</h1>
 <p class="by" id="stage-by">${[featured.developer, featured.modes].filter(Boolean).join(" · ")}</p>
+${stagePlayers(featured)}
 <a class="updated" id="stage-updated" hidden></a>
 <p class="desc" id="stage-desc">${featured.description}</p>
 <div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, isBig: true, isFullWidth: true, hasPlayIcon: true })}<a class="btn ghost big" id="stage-details" href="/g/${featured.slug}">Details</a></div>
@@ -265,6 +279,7 @@ const HOME_STYLES = `
 .stage h1{margin:0;font-size:clamp(34px,3.6vw,54px)}
 .stage [hidden]{display:none!important}
 .stage .by{margin:0;color:var(--muted);font-size:15px}
+.stage .players{margin:0;align-self:flex-start}
 .stage .desc{margin:4px 0 0;color:var(--text-2);font-size:16px;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .stage .updated{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;text-decoration:none;font-family:var(--display);font-size:13px;font-weight:600;color:var(--ok-text);
   background:linear-gradient(180deg,#24331f,#1a2417);box-shadow:inset 1px 1px 0 rgba(185,231,166,.15),inset -1px -1px 0 #000}
@@ -300,12 +315,14 @@ const HOME_STYLES = `
 const HOME_SCRIPT = pageScript("home", `
 (()=>{const GAMES=JSON.parse(document.getElementById("home-games").textContent);const bySlug=Object.fromEntries(GAMES.map(g=>[g.slug,g]));const KEY="zaisma:played";
 const el=(tag,attributes,...children)=>{const e=document.createElement(tag);for(const [name,value] of Object.entries(attributes))e.setAttribute(name,value);e.append(...children);return e};
+const PEOPLE='<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>',MIN_PLAYERS=${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
 const card=(g,flag,label)=>{const pic=el("span",{class:"pic"});
 if(!g.cover)pic.append(el("span",{class:"named"},el("span",{},g.title)));
 else if(g.square)pic.append(el("picture",{},el("source",{media:"(max-width:640px)",srcset:g.square}),el("img",{src:g.cover,alt:"",loading:"lazy"})));
 else{const fill=el("span",{class:"fill"});fill.style.setProperty("--fill","url("+g.cover+")");pic.append(fill,el("img",{src:g.cover,alt:"",loading:"lazy"}))}
 if(flag)pic.append(el("span",{class:"flag"},flag));
-const hit=el("div",{class:"hit block"},el("a",{class:"tile"+(g.cover&&!g.square?" wide":""),href:"/g/"+g.slug,"aria-label":label},pic));if(g.cover)hit.dataset.art=g.cover;return hit};
+const hit=el("div",{class:"hit block"},el("a",{class:"tile"+(g.cover&&!g.square?" wide":""),href:"/g/"+g.slug,"aria-label":label},pic));if(g.cover)hit.dataset.art=g.cover;
+if(g.playing_now_player_count>=MIN_PLAYERS){const n=el("span",{class:"players"},g.playing_now_player_count,el("span",{class:"sr"}," playing now"));n.insertAdjacentHTML("afterbegin",PEOPLE);hit.append(n)}return hit};
 const ago=t=>{const m=Math.max(1,Math.round((Date.now()-t)/60000));return m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)===1?"yesterday":Math.round(m/1440)+" days ago"};
 let played=[];try{played=JSON.parse(localStorage.getItem(KEY)||"[]").map(p=>({slug:p.slug,played_at_ms:p.played_at_ms??p.at}))}catch{}
 const signedIn=/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);const guest=document.getElementById("guest");if(guest&&!signedIn)guest.hidden=false;
@@ -318,6 +335,7 @@ stage.querySelector("#stage-title").textContent=g.title;
 stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.played_at_ms)].filter(Boolean).join(" · ");
 const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.published_at_ms)}
 stage.querySelector("#stage-desc").hidden=true;
+const pl=stage.querySelector("#stage-players");pl.hidden=!(g.playing_now_player_count>=MIN_PLAYERS);stage.querySelector("#stage-players-count").textContent=g.playing_now_player_count;
 const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue";stage.querySelector("#stage-details").href="/g/"+g.slug}
 // The game on the stage isn't repeated underneath.
 const others=stage?list.slice(1):list;if(!others.length)return;

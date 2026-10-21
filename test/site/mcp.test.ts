@@ -148,7 +148,8 @@ describe("publishing a game through the MCP", () => {
     expect(events[0]).toMatchObject({ description: "Rolled back to an earlier version", version_id: first.version.id, done_by: "ai", api_key_name: "claude" });
     expect(events).toContainEqual(expect.objectContaining({ description: expect.stringContaining("held"), version_id: first.version.id, done_by: "zaisma" }));
 
-    const { game: shown, versions, images, testers } = await tool("get_game", { slug: "tiny-jump" });
+    const { game: shown, versions, images, testers, playing_now_player_count: playingNow } = await tool("get_game", { slug: "tiny-jump" });
+    expect(playingNow).toBe(0);
     expect(shown).toMatchObject({ slug: "tiny-jump", page_url: expect.stringContaining("/g/tiny-jump"), play_modes: null, screen_orientation: null, multiplayer_mode: "none" });
     expect(versions).toHaveLength(2);
     expect(images).toEqual([]);
