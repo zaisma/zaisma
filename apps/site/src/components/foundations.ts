@@ -836,7 +836,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var head = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA);
     // Every shader gets the glass pass round its mainImage; a device that can't build it gets the shader alone.
     function build(withPass) {
-      var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, head + (withPass ? GLASS_LIGHT : "\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy); gl_FragColor = vec4(color.rgb, 1.0); }"));
+      var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, head + (withPass ? GLASS_LIGHT : "\\nuniform vec2 zaismaViewOffset;\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy + zaismaViewOffset); gl_FragColor = vec4(color.rgb, 1.0); }"));
       if (!vertex || !fragment) return null;
       var made = gl.createProgram(); gl.attachShader(made, vertex); gl.attachShader(made, fragment); gl.linkProgram(made);
       return gl.getProgramParameter(made, gl.LINK_STATUS) ? made : null;
@@ -848,10 +848,15 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
-    var at = {}; ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaPixel"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
+    var at = {}; ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaPixel", "zaismaViewOffset"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
     return function (timeS, colors, layer) {
       gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform3f(at.iResolution, canvas.width, canvas.height, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
+      // A framed backdrop is a window onto a scene 1.8 times its size, centered on it: a shader sizes everything to its screen, so in a
+      // small box its finest details (snowflakes, stars, rain) would shrink to a pixel and shimmer. Most of the picture still shows.
+      var isWindow = canvas.classList.contains("is-framed"), sceneShare = isWindow ? 1.8 : 1;
+      var sceneWidth = canvas.width * sceneShare, sceneHeight = canvas.height * sceneShare;
+      gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
+      gl.uniform2f(at.zaismaViewOffset, (sceneWidth - canvas.width) / 2, (sceneHeight - canvas.height) / 2);
       if (!hasPass) { gl.drawArrays(gl.TRIANGLES, 0, 3); return; }
       var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
       gl.uniform4fv(at.zaismaPanes, glass.rects);
@@ -912,8 +917,11 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
     var isScene = canvas.getAttribute("data-backdrop") === "scene", isPhone = window.matchMedia("(max-width: 760px)").matches, sharpness = Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1.5);
-    // A shader is soft, so it's drawn at about half the screen's pixels (less on a phone); a scene gets the screen's sharpness, up to 2x.
-    var layer = { canvas: canvas, isInView: true, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
+    // A shader filling the window is soft, so it's drawn at about half the screen's pixels (less on a phone). One framed in a small box
+    // (the gallery's examples) gets the screen's sharpness: at half, its finest details (snowflakes, stars) would be a pixel or two
+    // and shimmer as they move. A scene gets the screen's sharpness, up to 2x.
+    var isFramed = canvas.classList.contains("is-framed");
+    var layer = { canvas: canvas, isInView: true, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.

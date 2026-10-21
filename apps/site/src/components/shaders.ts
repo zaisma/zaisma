@@ -218,6 +218,7 @@ uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];     // each pane: left, bott
 uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // its cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
 uniform float zaismaPaneCount;
 uniform float zaismaPixel;      // canvas pixels per CSS pixel
+uniform vec2 zaismaViewOffset;  // where the canvas sits in the scene it shows a part of (the gallery's framed examples), in its pixels
 // Signed distance to a pane's cut shape (negative inside), and the outward normal of its nearest side.
 float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
   vec2 h = (r.zw - r.xy) * 0.5, q = f - (r.xy + r.zw) * 0.5, a = abs(q) - h;
@@ -245,7 +246,7 @@ void main() {
       break;
     }
   }
-  vec4 color; mainImage(color, at);
+  vec4 color; mainImage(color, at + zaismaViewOffset);
   vec3 col = color.rgb;
   gl_FragColor = vec4(col, 1.0);
 }`;
