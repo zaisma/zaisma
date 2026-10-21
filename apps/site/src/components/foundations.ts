@@ -137,7 +137,8 @@ export const TOKEN_STYLES = `
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
      boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
   --control-slant: 10px;
-  /* The least a control's corner is cut where it sits at a pane's corner (or on no pane), so its bevel always shows. */
+  /* The least a 44px-tall control's corner is cut where it sits at a pane's corner (or on no pane), so its bevel always shows;
+     a shorter or taller one in proportion (a 36px tab frame, 8px). */
   --control-bevel: 10px;
   --gap-control-row: 4px;
   --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
@@ -445,9 +446,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
   function fitCuts(el, w, h) {
     var holder = holderOf(el);
+    var bevel = BEVEL_PX * Math.min(1.3, h / 44);
     if (!holder) {
       var stack = stacked(el);
-      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.max(BEVEL_PX, Math.min(cut, Math.round(Math.min(w, h) * 0.3))); });
+      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.max(bevel, Math.min(cut, Math.round(Math.min(w, h) * 0.3))); });
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
     var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = el.getAttribute("data-cut-ends") || "";
@@ -458,7 +460,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var isPart = holder.hasAttribute("data-cut-line");
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]), fitted = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
-      return !isPart && gaps[0] <= CORNER_REACH_PX && gaps[1] <= CORNER_REACH_PX ? Math.max(BEVEL_PX, fitted) : fitted;
+      return !isPart && gaps[0] <= CORNER_REACH_PX && gaps[1] <= CORNER_REACH_PX ? Math.max(bevel, fitted) : fitted;
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's
