@@ -31,9 +31,9 @@ export async function liveVersionAnswer(env: Env, slug: string): Promise<Respons
 
 const svg = (paths: string, className = "") => `<svg${className ? ` class="${className}"` : ""} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 /** Three bars rising, the last two dimmed: a weak signal. */
-const ICON_WEAK = svg('<path d="M5 19v-3"/><path class="dim" d="M12 19v-7"/><path class="dim" d="M19 19V8"/>', "conn-weak");
+const ICON_WEAK = svg('<path d="M5 20v-4"/><path class="dim" d="M12 20v-9"/><path class="dim" d="M19 20V5"/>', "conn-weak");
 /** The bars crossed out: no connection. */
-const ICON_LOST = svg('<path d="M5 19v-3"/><path d="M12 19v-7"/><path d="M19 19V8"/><path d="M3 4l18 16"/>', "conn-lost");
+const ICON_LOST = svg('<path class="dim" d="M5 20v-4"/><path class="dim" d="M12 20v-9"/><path class="dim" d="M19 20V5"/><path d="M3 3l18 18"/>', "conn-lost");
 /** Two arrows chasing round, turning: reconnecting. */
 const ICON_RETRYING = svg('<path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/>', "conn-retrying");
 const ICON_UPDATE = svg('<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 20h14"/>');
@@ -53,7 +53,8 @@ export const UPDATE_BAR_STYLE = `
 /* The connection, only when it isn't fine, and Update or Updating beside it. */
 .ctl.conn svg{display:none}
 .ctl.conn.weak .conn-weak,.ctl.conn.retrying .conn-retrying,.ctl.conn.lost .conn-lost{display:block}
-.ctl.conn .dim{opacity:.3}
+.ctl.conn .conn-weak,.ctl.conn .conn-lost{stroke-width:3}
+.ctl.conn .dim{opacity:.35}
 .ctl.conn.weak{color:#f0c060}
 .ctl.conn.lost{color:#ff8a7a}
 .ctl.conn.retrying .conn-retrying{animation:conn-turn 1.2s linear infinite}
@@ -81,6 +82,9 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   const LOST_AFTER_MS = 10000;
   const frame = () => document.getElementById("game");
   const tell = (message) => { const f = frame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, gameOrigin); };
+  // The local preview shows each state by its link (?play&preview_bar=weak), since a room on this computer
+  // is never slow or gone; the game's own messages then don't change it. Never on zaisma.com.
+  const previewBar = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? new URLSearchParams(location.search).get("preview_bar") : null;
 
   // The game's room, as its SDK says, and its connection: { code, connectionStatus, pingDurationMs, isWeak }.
   let connection = null;
@@ -170,7 +174,7 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   addEventListener("message", (e) => {
     const f = frame();
     const d = e.data;
-    if (!f || e.source !== f.contentWindow || e.origin !== gameOrigin || !d) return;
+    if (!f || e.source !== f.contentWindow || e.origin !== gameOrigin || !d || previewBar) return;
     if (d.type === "zaisma:connection" && typeof d.code === "string" && CODE.test(d.code)) {
       const wasReconnecting = connection && connection.connectionStatus === "reconnecting";
       connection = { code: d.code, connectionStatus: String(d.connectionStatus), pingDurationMs: typeof d.pingDurationMs === "number" ? d.pingDurationMs : null, isWeak: d.isWeak === true };
@@ -229,5 +233,21 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   }
   setInterval(checkVersion, ${LIVE_VERSION_CHECK_MS});
   document.addEventListener("visibilitychange", checkVersion);
+
+  if (previewBar) {
+    const nowMs = Date.now();
+    if (previewBar === "weak") connection = { code: "PREVUE", connectionStatus: "open", pingDurationMs: 182, isWeak: true };
+    if (previewBar === "retrying" || previewBar === "lost") {
+      connection = { code: "PREVUE", connectionStatus: "reconnecting", pingDurationMs: 64, isWeak: false };
+      reconnectingSinceMs = previewBar === "lost" ? nowMs - LOST_AFTER_MS : nowMs;
+      lostTimer = setTimeout(showConnection, LOST_AFTER_MS);
+    }
+    if (previewBar === "coming") matchUpdate = { code: "PREVUE", step: "coming", appliesAt: new Date(nowMs + 4 * 60_000).toISOString(), isReloading: true };
+    if (previewBar === "updating") matchUpdate = { code: "PREVUE", step: "now", appliesAt: new Date(nowMs).toISOString(), isReloading: true };
+    if (previewBar === "update") offeredVersionId = "version_preview";
+    frameVersionId = "version_preview";
+    showConnection();
+    showUpdate();
+  }
 })();`,
 );
