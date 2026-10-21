@@ -509,7 +509,7 @@ const NOT_SPACING = new Set<string>([
   ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
   // Lines words up with the places' words under them.
   ".dropdown-head | padding",

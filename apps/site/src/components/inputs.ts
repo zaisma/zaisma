@@ -591,23 +591,35 @@ component({
   name: "Color picker",
   slug: "color-picker",
   group: "inputs",
-  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Swatches in a row slant toward each other like any controls; the picked one is outlined in ink and named beside them.",
+  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one stands on a raised slab with the orange line under it, and is named beside them.",
   styles: `
-/* A color picker: a .control-row of swatches. A swatch is a control like any other, cut by the edge rule; its outline is its cut line. */
+/* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
+   so swatches side by side slant toward each other and the end ones follow the well's corners. */
 .color-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-.color-picker .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
+.color-well { position: relative; display: flex; flex: none; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.color-well .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
 .color-picker-name { margin-left: var(--gap-words-control); }
-.color-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
-.color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
-.color-pick:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
+.color-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: none; clip-path: var(--cut-shape); }
+/* The color itself, the swatch's whole face until it's picked. */
+.color-face { position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); transition: scale 0.35s var(--spring), translate 0.35s var(--spring); }
+.color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; }
+/* Pointed at: a light rim inside its cut. */
+.color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
+/* Picked: it stands on a raised slab with the orange line under it, like the switch's, its color set into the slab. */
+.color-pick[aria-pressed="true"] { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.color-pick[aria-pressed="true"] > .color-face { scale: 0.66; translate: 0 -1.5px; }
+.color-pick[aria-pressed="true"] > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
+.color-pick[aria-pressed="true"] .cut-line polygon { stroke: transparent; }
+/* Keyboard focus: the orange line round its cut, like every control's. */
 .color-pick:focus-visible { outline: none; }
-.color-pick:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.color-pick[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
+.color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+@media (prefers-reduced-motion: reduce) { .color-face { transition: none; } }
 `,
   render: colorPicker,
   examples: [
     { label: "Picked", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" }) },
     { label: "Clear picked: a checker, the usual sign for see-through", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "clear" }) },
+    { label: "Keyboard focus", markup: colorPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo", focusedValue: "blue" }) },
   ],
 });
 

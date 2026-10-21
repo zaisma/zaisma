@@ -359,16 +359,20 @@ export interface ColorChoice {
   swatch: string;
 }
 
-/** A color picker (inputs.ts's Color picker shows it): a row of cut swatches that slant toward each other, the picked one outlined in ink, its name beside them. */
-export function colorPicker(options: { label: string; choices: ColorChoice[]; pickedValue: string; extra?: Raw }): Raw {
+/**
+ * A color picker (inputs.ts's Color picker shows it): plain swatches in a carved well, like the switch's tabs, slanting toward each other;
+ * the picked one stands on a raised slab with the orange line under it, like the switch's, and its name sits beside the well.
+ * focusedValue fixes keyboard focus on one, for the gallery.
+ */
+export function colorPicker(options: { label: string; choices: ColorChoice[]; pickedValue: string; focusedValue?: string; extra?: Raw }): Raw {
   const picked = options.choices.find((choice) => choice.colorValue === options.pickedValue);
-  return html`<div class="color-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}>${options.choices.map(
+  return html`<div class="color-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}><div class="color-well cut-carved" data-cut-line="9">${CUT_LINE}${options.choices.map(
     (choice) =>
-      html`<button type="button" class="color-pick" data-cut-line="6" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
-  )}<span class="color-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
+      html`<button type="button" class="color-pick${choice.colorValue === options.focusedValue ? " is-focused" : ""}" data-cut-line="6" data-color-value="${choice.colorValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}"><span class="color-face"></span>${CUT_LINE}</button>`,
+  )}</div><span class="color-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
 }
 
-/** A pick moves the outline and the name; what the color changes is the page's own script's (it reads data-color-value). */
+/** A pick moves the slab and the name; what the color changes is the page's own script's (it reads data-color-value). */
 export const COLOR_PICKER_SCRIPT = `/* color pickers */(function () {
   document.addEventListener("click", function (event) {
     var pick = event.target.closest && event.target.closest(".color-pick"); if (!pick) return;
