@@ -81,7 +81,7 @@ function coverFacts(facts: GlanceFacts): Raw {
 /** A game's cover: the studio's art alone, bare. The orange line draws in under it on point and runs out to the right on leave. */
 export function gameCover(options: { title: string; imageUrl: string; href: string; facts: GlanceFacts; isCurrent?: boolean }): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
-  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
@@ -190,13 +190,13 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* Covers are the studios' art alone: no rim, no glass, nothing drawn on them. */
+/* Covers are the studios' art alone: no rim, no glass, nothing drawn on them. They're cut by the edge rule like every control, so a
+   cover near a pane's corner takes the pane's cut and one in the middle of it is square: never a rectangle against a cut corner. */
 .cover { position: relative; min-width: 0; }
-.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: rgba(20,30,50,0.12);
-  box-shadow: 0 4px 10px rgba(10,20,40,0.16); transition: box-shadow 0.2s ease-out; }
+.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: rgba(20,30,50,0.12); clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover:hover .cover-art, .cover-art:focus-visible { box-shadow: 0 6px 14px rgba(10,20,40,0.24); }
-.cover-art:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cover-art:focus-visible { outline: none; }
+.cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
 .cover-bar { position: relative; display: block; height: 4px; margin-top: 6px; overflow: hidden; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);

@@ -24,6 +24,8 @@ function layerFor(background) {
   const layer = make(background.source === "image" ? "img" : "iframe");
   layer.setAttribute("aria-hidden", "true");
   layer.setAttribute("data-adapts-glass", "");
+  // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
+  if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); }
   if (background.source === "image") {
     layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async"; layer.src = background.imageUrl;
   } else {
@@ -51,7 +53,7 @@ function show(background, options) {
   const fadeMs = options.isInstant || isReduced ? 0 : 500;
   if (background.source === "zaisma") {
     // Back to Zaisma's own: the game's layer fades out over its canvas, which draws again, and the glass goes back to the theme's.
-    if (defaultBackdrop) defaultBackdrop.removeAttribute("data-backdrop-paused");
+    if (defaultBackdrop) { defaultBackdrop.removeAttribute("data-backdrop-paused"); defaultBackdrop.classList.add("is-shown"); }
     if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
     layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
     const leaving = layers.slice();
@@ -73,7 +75,8 @@ function show(background, options) {
     setTimeout(() => {
       if (shownKey !== key) return;
       dropLayers(layer);
-      if (defaultBackdrop) defaultBackdrop.setAttribute("data-backdrop-paused", "");
+      // Zaisma's own waits shown underneath (a page may start it unseen, as the home does), so going back to it is only the game's fading out.
+      if (defaultBackdrop) { defaultBackdrop.setAttribute("data-backdrop-paused", ""); defaultBackdrop.classList.add("is-shown"); }
     }, fadeMs + 80);
   };
   if (background.source === "image") {

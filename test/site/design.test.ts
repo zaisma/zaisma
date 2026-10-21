@@ -415,6 +415,18 @@ describe("components", () => {
     expect(markup).toContain('<input class="file-drop-input" type="file" id="drop-build" name="build" accept=".zip" aria-describedby="drop-build-hint">');
   });
 
+  it("cut a stacked control by its place in the whole scrolled content, never by how far the pane happens to be scrolled", () => {
+    // A tall pane scrolls inside itself (.own-scroll). Measured against the pane's visible box, the sign-in buttons below the fold had
+    // negative gaps and took the pane's bottom corners while Continue as guest, last, went square. Against the scrolled content,
+    // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
+    expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
+    expect(glassScriptSource).toContain('el.closest(".own-scroll")');
+    expect(glassScriptSource).toContain("top - scroller.scrollTop");
+    expect(glassScriptSource).toContain("top + scroller.scrollHeight");
+    expect(glassScriptSource).toContain("p = contentRectOf(el, holder)");
+    expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
+  });
+
   it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
     // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
     // rectangles and cut corners to the pass round the shader, whose arrays are that long.
@@ -443,8 +455,8 @@ describe("components", () => {
 // What isn't spacing between things, so it keeps a number of its own (docs/DESIGN.md, Spacing). Named one by one, with why,
 // so a new one is a deliberate choice.
 const HAND_CUT = new Set<string>([
-  // A pane: cut by its own corners (24 and 20, the header and the gallery's bar 20 and 14), which the edge rule fits all inside it to.
-  ".top", ".header-frame", ".backdrop-frame", ".glass-play", ".cuts .header-cut", ".cuts .pane-cut",
+  // A pane: cut by its own corners (24 and 20, the header, the footer and the gallery's bar 20 and 14), which the edge rule fits all inside it to.
+  ".top", ".foot", ".header-frame", ".backdrop-frame", ".glass-play", ".cuts .header-cut", ".cuts .pane-cut",
   // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
   ".glass-play .cut",
   // The scroll rail's thumb and the labels its marks open.
@@ -507,6 +519,7 @@ const OWN_GLASS = new Map<string, string>([
   ['class="sheet glass', "a sheet"],
   ['class="select-list glass', "a select field's list"],
   ['class="notice glass', "a notice"],
+  ['class="foot glass"', "the footer"],
   ['class="banner glass', "a banner"],
   ['class="top glass', "the header"],
   ['class="gallery-bar glass', "the gallery's bar"],
@@ -620,9 +633,6 @@ function matchesSubject(element: Element, subject: string): boolean {
 }
 
 describe("the example page", () => {
-  // The page shell's own piece no component draws: the ambient light behind the header (html.ts, AMBIENT_STYLES).
-  const SHELL_CLASSES = new Set<string>(["ambient"]);
-
   it("is built only from components: every class comes from one, and nothing is styled in place", async () => {
     const { response, text } = await page("/design/example");
     expect(response.status).toBe(200);
@@ -631,7 +641,7 @@ describe("the example page", () => {
     const styledBy = (name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(componentCss);
     const problems = [...body.matchAll(/\sclass="([^"]*)"/g)]
       .flatMap(([, list = ""]) => list.split(/\s+/).filter(Boolean))
-      .filter((name) => !styledBy(name) && !SHELL_CLASSES.has(name) && !UNSTYLED_HOOKS.has(name))
+      .filter((name) => !styledBy(name) && !UNSTYLED_HOOKS.has(name))
       .map((name) => `.${name} comes from no component`);
     // A page places components; its own look is a component's. Only the variables a component offers (--swatch, the pane's cut) or a placed size may be set.
     for (const [, style = ""] of body.matchAll(/\sstyle="([^"]*)"/g)) if (/(^|;)\s*(color|background|border|font|box-shadow|filter|opacity)/.test(style)) problems.push(`style="${style}" restyles a piece`);

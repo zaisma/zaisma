@@ -103,7 +103,7 @@ describe("room.database on the Node runner", () => {
       },
     });
     const file = join(folder, "runner.sqlite");
-    const own = startServer({ server: leaderboard, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], database: localDatabase(file) });
+    const own = startServer({ server: leaderboard, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], database: localDatabase(file), roomStateFile: null });
     await new Promise((resolve) => own.wss.once("listening", resolve));
     const at = (own.wss.address() as { port: number }).port;
     const scoresOnJoin = async (sub: string, code: string) => {

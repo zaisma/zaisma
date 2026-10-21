@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type VersionUpdate } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -76,7 +76,8 @@ type Effect =
   | { do: "info"; nameAndLabels: unknown }
   | { do: "reserve"; reserveOptions: unknown; roomCode: string }
   | { do: "kick"; playerId: unknown; kickOptions: unknown }
-  | { do: "moveTo"; roomCode: unknown; moveOptions: unknown };
+  | { do: "moveTo"; roomCode: unknown; moveOptions: unknown }
+  | { do: "apply_version_update" };
 
 /** The room as the sandbox sees it. The session keeps it, and each call sends only what changed (RoomChanges). */
 interface Snapshot {
@@ -138,6 +139,7 @@ interface Settings {
   awayMode?: unknown;
   seatHoldDurationSec?: unknown;
   reconnectTimeoutSec?: unknown;
+  stateSaveIntervalSec?: unknown;
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
@@ -185,7 +187,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding"];
+const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", ...HOOKS];
@@ -241,6 +243,7 @@ function recorder(snapshot, effects, database, secrets) {
     pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
     serverTimeMs() { return Date.now() + clockOffsetMs; },
     awayReason(playerId) { const awayReasons = snapshot.awayReasons || {}; return Object.hasOwn(awayReasons, playerId) ? awayReasons[playerId] : null; },
+    applyVersionUpdate() { effects.push({ do: "apply_version_update" }); },
   };
 }
 
@@ -294,6 +297,7 @@ class Session extends RpcTarget {
       awayMode: server.awayMode,
       seatHoldDurationSec: server.seatHoldDurationSec,
       reconnectTimeoutSec: server.reconnectTimeoutSec,
+      stateSaveIntervalSec: server.stateSaveIntervalSec,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
     }));
@@ -356,7 +360,8 @@ class Session extends RpcTarget {
     const room = recorder(snapshot, effects, this.#database, this.#secrets);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
     // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
-    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room)
+    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room), onRestored(state, restoreInfo, room),
+    // onVersionUpdate(state, versionUpdate, room)
     const state = this.#state;
     const full =
       hook === "onJoin" ? [state, handlerArguments[0], room, handlerArguments[1], handlerArguments[2]]
@@ -778,7 +783,12 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   };
   /** A turn-based room's state goes with each call; a real-time room's is in the sandbox. */
   const given = (state: unknown): GivenState => (isTicking ? null : { state });
-  const call = (hook: string, state: unknown, handlerArguments: unknown[], room: Room) => ask(() => session.call(hook, handlerArguments, roomChanges(room), given(state), queued.splice(0)), room);
+  // The room as it is when the handler runs, even if the call waits (a fresh session's restore) while it changes.
+  const call = (hook: string, state: unknown, handlerArguments: unknown[], room: Room) => {
+    const changes = roomChanges(room);
+    const input = queued.splice(0);
+    return ask(() => session.call(hook, handlerArguments, changes, given(state), input), room);
+  };
   /** A real-time room's input waits for the next call, which runs it first; RoomCore keeps its last state meanwhile. */
   const queue = (hook: Queued["hook"], player: Player, payload: unknown): undefined => {
     queued.push({ hook, player, payload });
@@ -795,6 +805,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
     ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
     ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
+    ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
     setup: async (setupData: unknown) => {
       const state = await ask(() => session.setup(setupData), null);
       if (isTicking) lastCopy = state;
@@ -807,7 +818,9 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       if (!isTicking) return call("onTick", state, [tickDurationSec], room);
       // Nothing to run: no call.
       if (!queued.length && !handlerNames.has("onTick")) return undefined;
-      return ask(() => session.tick(queued.splice(0), tickDurationSec, roomChanges(room)), room);
+      const input = queued.splice(0);
+      const changes = roomChanges(room);
+      return ask(() => session.tick(input, tickDurationSec, changes), room);
     },
     onMoved: (state: unknown, moveResult: unknown, room: Room) => call("onMoved", state, [moveResult], room),
     // Only for game servers that have them: with onAway, players who walk away stay in the room; without onBytes, bytes are refused.
@@ -815,10 +828,13 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, reason: AwayReason) => call("onAway", state, [player, reason], room) } : {}),
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
+    ...(handlerNames.has("onRestored") ? { onRestored: (state: unknown, restoreInfo: RestoreInfo, room: Room) => call("onRestored", state, [restoreInfo], room) } : {}),
+    ...(handlerNames.has("onVersionUpdate") ? { onVersionUpdate: (state: unknown, versionUpdate: VersionUpdate, room: Room) => call("onVersionUpdate", state, [versionUpdate], room) } : {}),
     ...(handlerNames.has("canJoin")
       ? {
           canJoin: async (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => {
-            const checked = await reach(() => session.check(player, joinData, roomChanges(room), given(state), joinInfo));
+            const changes = roomChanges(room);
+            const checked = await reach(() => session.check(player, joinData, changes, given(state), joinInfo));
             if (checked.error) throw new Error(`Game server error: ${checked.error.slice(0, 2000)}`);
             // A wrong answer (like a string) turns the player away, and its developer sees why with the game's server errors.
             const read = readJoinAnswer(checked.answer);
@@ -929,6 +945,9 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "moveTo":
           room.moveTo(effect.roomCode as string, asObject(effect.moveOptions) as never);
+          break;
+        case "apply_version_update":
+          room.applyVersionUpdate();
           break;
       }
     } catch (error) {

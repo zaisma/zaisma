@@ -71,7 +71,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 
 - **A slab** (`class="glass"`): a tint, the page's hue, a sheen brightest at the top left, a blur and saturation of what's behind.
 - **The drawn rim** (`data-glass`, with `data-glass-corners`): `GLASS_SCRIPT` draws an `svg.edge` sized to the slab: a dark hairline, a polished edge, a bevel band and bright cut facets.
-- **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind.
+- **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind. The backdrop is measured as a whole, once, and every piece of glass over it takes the same glass, so a game's glass never changes with a frame of its shader and no pane picks its own. A game's background is measured when it's added (a picture) or checked (a shader's still) and keeps its tone, its average color and its glass (`apps/site/src/background-tone.ts`), so the home opens on the game's color with its glass already right.
 - **The hue** (`--glass-hue`): a studio's color can tint every piece of glass under where it's set; glass tinted for a brand keeps its own color.
 - **A component only sets the glass's variables** (its tint, a layer); it never paints glass of its own. `test/site/design.test.ts` checks it.
 
@@ -82,10 +82,10 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
   - **In a pane's middle, it's square.** A swatch in the middle of the color pane.
   - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the color pane's top left is cut only there.
   - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details.
-  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
+  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom. In a pane that scrolls inside itself, gaps are measured against the whole scrolled content, so how far it's scrolled never changes a cut.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
-  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
+  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. Game covers follow the rule too (`data-cut-line` on `.cover-art`): near a pane's corner a cover takes its cut, in the middle of a pane it's square, so no picture is a plain rectangle against a cut corner. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
 
 ## Spacing
 
@@ -189,8 +189,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `state?: ButtonState`
 - **Cut button** (`cutButton(label: string, options?: CutButtonOptions)`, `actions.ts`): Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
-- **Glass button** (`glassButton(label: string, options: { … })`, `actions.ts`): Another way in, like a passkey, Google or Discord: below the runner, never instead of it.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS`, `tint?: GlassTint`, `state?: ButtonState`, `isBusy?: boolean`
+- **Glass button** (`glassButton(label: string, options: { … })`, `actions.ts`): Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS | IconName`, `tint?: GlassTint`, `state?: ButtonState`, `isBusy?: boolean`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `state?: ButtonState`, `isBusy?: boolean`
 - **Text button** (`textButton(label: string, options?: TextButtonOptions)`, `actions.ts`): The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.

@@ -128,6 +128,14 @@ dialog.game-plate > .glass-pane { width: 100%; }
 .room-line { display: flex; align-items: center; gap: var(--gap-words-words); }
 .room-line b { flex: 1; min-width: 0; overflow: hidden; font: var(--type-heading); letter-spacing: 0.16em; color: var(--ink); }
 .room-join { display: grid; gap: var(--gap-words-control); }
+/* The connection, only when it isn't fine (amber when weak, the marked color when lost, turning while it reconnects), and Update beside it. */
+#conn.weak .face { color: var(--meter-near); }
+#conn.lost .face { color: var(--marked); }
+#conn.retrying .face > .ico { animation: conn-turn 1.2s linear infinite; }
+@keyframes conn-turn { to { transform: rotate(360deg); } }
+#update.updating { cursor: default; }
+.conn-title { font: var(--type-name); }
+.conn-line { font: var(--type-words); font-variant-numeric: tabular-nums; }
 /* Cards over the game's top corner: Keep your progress, a game's sign-in ask, a link leaving Zaisma. */
 .game-card { position: fixed; z-index: 30; top: 64px; right: var(--pad-inner-pane); width: min(360px, calc(100vw - 2 * var(--pad-inner-pane))); }
 .game-card > .glass-pane { width: 100%; }
@@ -177,5 +185,5 @@ dialog.game-plate > .glass-pane { width: 100%; }
   .room .fill { display: none; }
   .code-join > .cut-field { width: auto; flex: 1; }
 }
-@media (prefers-reduced-motion: reduce) { body.playing > .game, body.playing > .backdrop { transition: none; } }
+@media (prefers-reduced-motion: reduce) { body.playing > .game, body.playing > .backdrop { transition: none; } #conn.retrying .face > .ico { animation: none; } }
 `);

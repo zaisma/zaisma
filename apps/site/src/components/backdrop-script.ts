@@ -38,11 +38,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function readList() {
     isListStale = false; isPlaceStale = true;
     candidates = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (el) {
+      el.glassHost = hostOf(el);
+      if (el.glassHost && el.glassHost.shownGlass) setGlass(el, el.glassHost.shownGlass);
       var css = getComputedStyle(el);
       el.glassIsSmoked = /dark/.test(css.colorScheme || "");
       return css.visibility !== "hidden" && css.display !== "none" && Number(css.opacity) > 0.05;
     });
-    candidates.forEach(function (el) { el.glassHost = hostOf(el); if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
+    candidates.forEach(function (el) { if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
   }
   function glassCuts(el, width, height) {
     var short = Math.min(width, height);
@@ -70,10 +72,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.isDrawn = false;
   }
   /*
-   * Glass that adapts to a page's own shader (data-adapts-glass): after the shader's first frame, the colors behind each pane are read,
-   * and the pane takes light glass (dark words) or smoked glass (light words), whichever can be thinner while every word keeps its
-   * contrast (4.5:1 for the quietest, 6:1 for the main ones) against the harsh side of what's behind (its darker quarter under light glass,
-   * its brighter quarter under smoked), tinted a little with what's behind. Read again when the canvas changes size or the theme turns.
+   * Glass that adapts to its backdrop (data-adapts-glass): the colors of the whole backdrop are read once (a page's own shader after its
+   * first frame, a game's frame or picture from its still), and every piece of glass over that backdrop takes the same glass: light (dark
+   * words) or smoked (light words), whichever can be thinner while every word keeps its contrast (4.5:1 for the quietest, 6:1 for the
+   * main ones) against the harsh side of the backdrop (its darker quarter under light glass, its brighter quarter under smoked), tinted a
+   * little with it. One choice for all the glass over a backdrop (the whole page, over a page's), never a pane's own from what happens to
+   * be under it, so a game's glass stays the same whatever its shader shows in a frame. Read again only when the theme turns or the still
+   * changes; glass that appears later gets it too.
    */
   function luminance(c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
   function contrast(a, b) { var la = luminance(a), lb = luminance(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); }
@@ -87,44 +92,46 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
     return 0.95;
   }
-  // One pane's glass from the colors behind it.
-  function pickGlass(el, colors) {
+  // The glass from the backdrop's colors.
+  function pickGlass(colors) {
     var sum = colors.reduce(function (s, c) { return [s[0] + c[0], s[1] + c[1], s[2] + c[2]]; }, [0, 0, 0]), average = sum.map(function (v) { return v / colors.length; });
     var light = { isSmoked: false, base: blend([255, 255, 255], average, 0.1) }, smoked = { isSmoked: true, base: blend([12, 15, 20], average, 0.3) };
     var lightShare = thinnest(light, colors), smokedShare = thinnest(smoked, colors), pick = lightShare <= smokedShare ? light : smoked;
-    // Its own kind of glass, whatever the page's theme: smoked, or fixed light.
+    return { isSmoked: pick.isSmoked, tint: "rgba(" + pick.base.map(Math.round).join(", ") + ", " + Math.min(lightShare, smokedShare).toFixed(2) + ")" };
+  }
+  // A piece of glass takes the page's glass, whatever the page's theme: smoked, or fixed light.
+  function setGlass(el, pick) {
+    if (el.glassPick === pick) return;
+    el.glassPick = pick;
     el.classList.toggle("smoke", pick.isSmoked);
     if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else el.setAttribute("data-theme-choice", "light");
-    el.style.setProperty("--glass-tint", "rgba(" + pick.base.map(Math.round).join(", ") + ", " + Math.min(lightShare, smokedShare).toFixed(2) + ")");
+    el.style.setProperty("--glass-tint", pick.tint);
+  }
+  function showGlass(layer, colors) { if (colors.length) showPick(layer, pickGlass(colors)); }
+  function showPick(layer, pick) {
+    var host = layer.canvas.parentElement; if (!host) return;
+    host.shownGlass = pick; isListStale = true;
+    host.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { if (hostOf(el) === host) setGlass(el, host.shownGlass); });
+  }
+  function sample(pixels) {
+    var colors = [], step = 4 * Math.max(1, Math.floor(pixels.length / 4 / 2400));
+    for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
+    return colors;
   }
   function adaptGlass(gl, layer) {
-    var glass = layer.glass; if (!glass) return;
-    glass.els.forEach(function (el, i) {
-      var x = Math.max(0, Math.round(glass.rects[i * 4])), y = Math.max(0, Math.round(glass.rects[i * 4 + 1]));
-      var w = Math.min(gl.drawingBufferWidth - x, Math.round(glass.rects[i * 4 + 2]) - x), h = Math.min(gl.drawingBufferHeight - y, Math.round(glass.rects[i * 4 + 3]) - y);
-      if (w < 2 || h < 2) return;
-      var pixels = new Uint8Array(w * h * 4), colors = [], step = 4 * Math.max(1, Math.floor(w * h / 600));
-      gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
-      pickGlass(el, colors);
-    });
+    var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    showGlass(layer, sample(pixels));
   }
-  // A game's frame or picture: its glass is measured from the still, laid over the box as the frame or picture covers it.
+  // A game's frame or picture: its glass is measured from the whole still, the same at every size of window.
   function adaptGlassFromStill(layer) {
-    var glass = layer.glass, picture = layer.still; if (!glass || !picture || !glass.count) return;
-    var width = Math.max(2, Math.round(glass.box.width)), height = Math.max(2, Math.round(glass.box.height)), board = document.createElement("canvas");
-    board.width = width; board.height = height;
-    var context = board.getContext("2d", { willReadFrequently: true }), cover = Math.max(width / picture.naturalWidth, height / picture.naturalHeight);
-    context.drawImage(picture, (width - picture.naturalWidth * cover) / 2, (height - picture.naturalHeight * cover) / 2, picture.naturalWidth * cover, picture.naturalHeight * cover);
-    glass.els.forEach(function (el, i) {
-      var x = Math.max(0, Math.round(glass.rects[i * 4])), top = Math.max(0, Math.round(height - glass.rects[i * 4 + 3]));
-      var w = Math.min(width - x, Math.round(glass.rects[i * 4 + 2]) - x), h = Math.min(height - top, Math.round(height - glass.rects[i * 4 + 1]) - top);
-      if (w < 2 || h < 2) return;
-      var pixels = context.getImageData(x, top, w, h).data, colors = [], step = 4 * Math.max(1, Math.floor(w * h / 600));
-      for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
-      pickGlass(el, colors);
-    });
+    var picture = layer.still; if (!picture || !picture.naturalWidth) return;
+    var board = document.createElement("canvas"), share = Math.min(1, 160 / Math.max(picture.naturalWidth, picture.naturalHeight));
+    board.width = Math.max(2, Math.round(picture.naturalWidth * share)); board.height = Math.max(2, Math.round(picture.naturalHeight * share));
+    var context = board.getContext("2d", { willReadFrequently: true });
+    context.drawImage(picture, 0, 0, board.width, board.height);
     layer.isGlassAdapted = true;
+    try { showGlass(layer, sample(context.getImageData(0, 0, board.width, board.height).data)); } catch (error) { /* a still from a site that doesn't allow reading it */ }
   }
   // A game's frame is told where the glass over it is, in its own CSS pixels from its bottom left (apps/games/src/background.ts).
   function tellFrame(layer) {
@@ -242,6 +249,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } }; window.addEventListener("message", layer.onMessage); }
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
+      // A background whose tone was measured when it was added says its glass (background-tone.ts): nothing to measure here.
+      var glassKind = el.getAttribute("data-glass-kind");
+      if (el.hasAttribute("data-adapts-glass") && glassKind) { layer.isGlassAdapted = true; showPick(layer, { isSmoked: glassKind === "smoked", tint: el.getAttribute("data-glass-tint") || "" }); return; }
       var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
       if (!el.hasAttribute("data-adapts-glass") || !stillUrl) return;
       var picture = new Image();
@@ -249,7 +259,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       picture.src = stillUrl;
     }
     loadStill();
-    new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src"] });
+    new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src", "data-glass-kind"] });
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(el);
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
@@ -269,7 +279,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.size = function () {
       var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
       if (width === canvas.width && height === canvas.height) return;
-      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null; layer.isGlassAdapted = false;
+      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
       if (canvas.backdropLayer) draw(layer, performance.now());
     };
     layer.size();
@@ -295,7 +305,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       el.backdropLayer = null; isPlaceStale = true;
     },
     forgetGlass: function () {
-      document.querySelectorAll("[data-glass]").forEach(function (el) { el.classList.remove("smoke"); el.removeAttribute("data-theme-choice"); el.style.removeProperty("--glass-tint"); });
+      document.querySelectorAll(":has(> .backdrop)").forEach(function (host) { host.shownGlass = null; });
+      document.querySelectorAll("[data-glass]").forEach(function (el) { el.glassPick = null; el.classList.remove("smoke"); el.removeAttribute("data-theme-choice"); el.style.removeProperty("--glass-tint"); });
     }
   };
   // The glass's places: a scroll or resize moves them, and the page's own changes may add, remove, open or shut a piece of glass.

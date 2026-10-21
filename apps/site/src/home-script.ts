@@ -17,6 +17,37 @@ import { pageScript } from "./page-scripts.ts";
  * /g/<slug>, and Back (the browser's, or the bar's Zaisma button, which the game page says through postMessage) takes the frame
  * away and leaves the home as it was. The data it reads comes in the page's home-data block.
  */
+/**
+ * Before the first paint, in the page's <head>: which game the home opens on (the one this device played last, then the one it was on
+ * before a Play, then one of Popular's top 8 drawn at random), and, when that game's background has a measured tone, the page's color
+ * and glass from it (html[data-home-glass], --home-tone, --home-glass-tint), so the page never opens light and then turns dark. The
+ * home's script reads the choice from data-home-start. Its data is the home-opening block just before it.
+ */
+export const HOME_OPENING_SCRIPT = pageScript("home-opening", String.raw`(() => {
+const DATA = JSON.parse(document.getElementById("home-opening").textContent), root = document.documentElement;
+const known = new Set(DATA.slugs);
+let slug = "";
+try {
+  const played = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((entry) => known.has(entry.slug));
+  played.sort((a, b) => (b.played_at_ms ?? b.at) - (a.played_at_ms ?? a.at));
+  if (played.length) slug = played[0].slug;
+} catch {}
+if (!slug) { try { const remembered = sessionStorage.getItem("zaisma:home-focus") || ""; if (known.has(remembered)) slug = remembered; } catch {} }
+if (!slug) {
+  const picks = DATA.guest_picks.filter((each) => known.has(each)), pool = picks.length ? picks : DATA.slugs.slice(0, 8);
+  slug = pool[crypto.getRandomValues(new Uint32Array(1))[0] % pool.length] || "";
+}
+root.dataset.homeStart = slug;
+// Staged: the game in focus centered over its world, until the page scrolls (the home's script takes it from here).
+root.dataset.homeStaged = "";
+const tones = DATA.tones[slug], tone = tones && (matchMedia("(max-width: 760px)").matches ? tones.phone : tones.wide);
+if (tone) {
+  root.dataset.homeGlass = tone.isGlassSmoked ? "smoked" : "light";
+  root.style.setProperty("--home-tone", tone.averageColor);
+  root.style.setProperty("--home-glass-tint", tone.glassTint);
+}
+})();`);
+
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
 const DATA = JSON.parse(document.getElementById("home-data").textContent);
 const GAMES = DATA.games;
@@ -44,7 +75,7 @@ const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b
 const playedAt = (slug) => { const entry = played.find((each) => each.slug === slug); return entry ? entry.played_at_ms : 0; };
 
 /* ---- The pane: the game in focus, at a glance ---- */
-const pane = { title: $("home-title"), facts: $("home-facts"), glance: $("home-glance"), description: $("home-description"), box: $("home-pane"), more: $("home-more"), moreIn: $("home-more-in") };
+const pane = { head: $("home-head"), art: $("home-art"), title: $("home-title"), facts: $("home-facts"), glance: $("home-glance"), description: $("home-description"), box: $("home-pane"), more: $("home-more"), moreIn: $("home-more-in") };
 const playLink = pane.box.querySelector("a.run-wrap"), detailsLink = pane.box.querySelector("a.cut-btn");
 const playLabel = playLink.querySelector(".face > span:not([class])");
 let focusSlug = "", hasChosen = false;
@@ -53,6 +84,9 @@ function glanceItem(kind, ...parts) { const item = make("li", kind); item.append
 function fillPane(game) {
   const at = playedAt(game.slug);
   pane.title.textContent = game.title;
+  // Its cover is its face; without one, its title in words.
+  pane.head.classList.toggle("has-cover", Boolean(game.cover));
+  if (game.cover) pane.art.src = game.cover;
   pane.facts.textContent = [game.developer ? "by " + game.developer : "", game.modes].filter(Boolean).join(" · ");
   const items = [];
   if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
@@ -80,27 +114,69 @@ function fillPane(game) {
 }
 function measureMore() { pane.box.style.setProperty("--more-h", pane.moreIn.offsetHeight + "px"); }
 if (window.ResizeObserver) new ResizeObserver(measureMore).observe(pane.moreIn); else addEventListener("resize", measureMore);
+// The window above the pane leaves the staged pane whole on screen (a phone's, or a wide screen's at the stage's width), with room for a
+// cover (taller than any title in words), so Play is in view as the page opens on any screen; measured as it opens and when the window
+// changes size, never as focus moves, so nothing shifts.
+const home = pane.box.parentElement;
+// The staged pane's width as the page's CSS has it (--stage-w), measured on a stand-in, since a docked pane isn't at it.
+function stageWidthPx() {
+  const probe = make("div"); probe.style.cssText = "position:absolute;visibility:hidden;width:var(--stage-w)";
+  home.append(probe); const widthPx = probe.offsetWidth; probe.remove(); return widthPx;
+}
+function measureStage() {
+  const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
+  const stagedPx = isPhone() ? pane.box.offsetWidth : stageWidthPx();
+  const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
+  // On a wide screen the tray with "More games" sits under the staged pane, so it's kept on screen too (measured from what's on it,
+  // since a docked pane's tray is tucked away).
+  const trayPx = isPhone() ? 0 : cue.offsetHeight + 2 * (parseFloat(getComputedStyle(home).getPropertyValue("--gap-words-words")) || 8);
+  home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - stageTray.offsetHeight - openPx - pane.head.offsetHeight + coverPx + trayPx) + "px");
+}
+// Staged on a wide screen, the pane is a tray's head: square at its foot, the tray running on under it. Docked, or on a phone, the tray
+// tucks away and the head is a whole pane again, cut at its foot.
+const stageHead = pane.box.querySelector(".tray-head"), stageTray = pane.box.querySelector(".tray"), cue = pane.box.querySelector(".home-cue");
+function showTray() {
+  const isOn = "homeStaged" in root.dataset && !isPhone();
+  home.classList.toggle("is-staged-wide", isOn);
+  stageHead.setAttribute("data-glass-corners", isOn ? "24 20 0 0" : "24 20 24 20");
+}
+// "More games" takes the page to where the shelf docks beside the pane: the top of the shelf just under the header.
+const cueLink = cue.querySelector("a");
+if (cueLink) cueLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  const headerRoomPx = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+  scrollTo({ top: home.querySelector(".home-window").getBoundingClientRect().bottom + scrollY - headerRoomPx, behavior: isReduced ? "auto" : "smooth" });
+});
+addEventListener("resize", () => { showTray(); measureStage(); });
 
 /* The pane opens when the page scrolls (wanting more) and shuts again back at the top, where Play and Details sit on the art. */
 function openPane(shouldReveal) {
   const wasOpen = pane.box.classList.contains("is-pane-open");
   pane.box.classList.add("is-pane-open");
+  delete root.dataset.homeStaged; showTray();
   if (!shouldReveal || isPhone()) return;
   const box = pane.box.getBoundingClientRect(), extra = wasOpen ? 0 : pane.moreIn.offsetHeight, over = box.bottom + extra + 16 - innerHeight;
   if (over > 0) scrollBy({ top: over, behavior: isReduced ? "auto" : "smooth" });
 }
 addEventListener("scroll", () => {
   if (scrollY > 24) openPane(false);
-  else if (scrollY <= 2 && !pane.box.contains(document.activeElement)) pane.box.classList.remove("is-pane-open");
+  else if (scrollY <= 0 && !pane.box.contains(document.activeElement)) { pane.box.classList.remove("is-pane-open"); root.dataset.homeStaged = ""; showTray(); }
 }, { passive: true });
 pane.box.addEventListener("focusin", (event) => { if (pane.moreIn.contains(event.target)) openPane(false); });
 
 /* ---- The world behind the glass (game-background-script.ts) ---- */
-let worldSlug = "", swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
+const root = document.documentElement;
+let worldSlug = "", hasShownWorld = false, swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
 function showWorld(slug, isInstant) {
   const game = bySlug[slug];
+  const isFirst = !hasShownWorld;
   worldSlug = slug;
-  if (window.zaismaWorld.show(window.zaismaWorld.pick(game.background), { glassTintColor: game.glass_tint_color, isInstant })) lastFadeMs = isInstant || isReduced ? 0 : 500;
+  // The page opens on the opening game's color (or its own plain one) and the first background fades in over it, Zaisma's or the game's,
+  // so neither shows for a frame and is swapped. After that the glass follows each background the backdrop script shows.
+  if (!window.zaismaWorld.show(window.zaismaWorld.pick(game.background), { glassTintColor: game.glass_tint_color, isInstant: isInstant && !isFirst })) return;
+  hasShownWorld = true;
+  if (!isFirst) { delete root.dataset.homeGlass; root.style.removeProperty("--home-tone"); root.style.removeProperty("--home-glass-tint"); }
+  lastFadeMs = isReduced || (isInstant && !isFirst) ? 0 : 500;
 }
 function queueWorld(slug) {
   clearTimeout(swapTimer);
@@ -142,7 +218,7 @@ function coverFor(game, list, at) {
   const cover = make("div", "cover"), art = make("a", "cover-art"), image = make("img");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
-  art.href = "/g/" + game.slug; art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
+  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
   image.src = game.cover || DATA.placeholder_cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
   if (!game.cover) cover.classList.add("is-placeholder");
   art.append(image);
@@ -263,19 +339,15 @@ if (history.state && history.state.zaismaPlaying) history.replaceState(null, "",
 /* ---- Starting up ---- */
 const guest = $("home-guest");
 if (guest && !isSignedIn) guest.hidden = false;
-function startSlug() {
-  const list = playedList();
-  if (list.length) return list[0].slug;
-  let remembered = "";
-  try { remembered = sessionStorage.getItem(RETURN_KEY) || ""; } catch {}
-  if (bySlug[remembered]) return remembered;
-  const picks = DATA.guest_picks.filter((slug) => bySlug[slug]);
-  const pool = picks.length ? picks : GAMES.slice(0, 8).map((game) => game.slug);
-  const draw = crypto.getRandomValues(new Uint32Array(1))[0];
-  return pool[draw % pool.length];
-}
 fillContinue();
-setFocus(startSlug());
+// The opening script chose it in the page's head, before the first paint.
+setFocus(bySlug[root.dataset.homeStart] ? root.dataset.homeStart : GAMES[0].slug);
+showTray();
+measureStage();
+// The opening script staged it; a page that opens scrolled down (a reload) starts docked instead.
+if (scrollY > 24) openPane(false);
+// Everything placed for the page as it opens is laid out before anything may glide, so nothing moves into place on the first frames.
+void home.offsetHeight;
 document.body.classList.add("is-home-ready");
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {

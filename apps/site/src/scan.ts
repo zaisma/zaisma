@@ -64,6 +64,7 @@ import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDra
 import { findMatchedGame } from "./copies.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
+import { updateLiveMatches } from "./match-updates.ts";
 import { sendAlert } from "./email.ts";
 import { queuePerformanceCheck } from "./performance-check.ts";
 import type { Env } from "./env.ts";
@@ -915,7 +916,10 @@ export async function passVersion(env: Env, version: Version, why: string, actor
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish (a newer version exists, so it wasn't published)`, actor);
   } else if (version.publish_when_approved_enabled) {
+    const game = await gameById(env.DB, version.game_id);
+    const wasLiveVersion = game?.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
     await publishVersion(env.DB, version);
+    if (game && version.match_update_mode === "now") await updateLiveMatches(env, game, version, wasLiveVersion);
     await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
     await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });

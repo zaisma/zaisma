@@ -1,17 +1,19 @@
 import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession } from "./auth.ts";
+import type { ShownTone } from "./background-tone.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
-import { glassPane, icon, tag } from "./components/foundations.ts";
+import { glassPane, icon, tag, tray } from "./components/foundations.ts";
+import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
-import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
+import { esc, html, layout, openingScriptTags, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
 import { GAME_BACKGROUND_SCRIPT } from "./game-background-script.ts";
-import { HOME_SCRIPT } from "./home-script.ts";
+import { HOME_OPENING_SCRIPT, HOME_SCRIPT } from "./home-script.ts";
 import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
@@ -170,7 +172,7 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
     : game.square
       ? `<picture><source media="(max-width:640px)" srcset="${esc(game.square)}"><img src="${esc(game.cover)}" alt="" loading="lazy"></picture>`
       : `<span class="fill" style="--fill:url(${esc(game.cover)})"></span><img src="${esc(game.cover)}" alt="" loading="lazy">`;
-  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
+  return `<div class="hit block"><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
 }
 
 /** Shown in place of a cover for a game that has none: the home's rows are covers, so a game without one gets Zaisma's mark on glass. */
@@ -209,14 +211,14 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const body = first
     ? html`<div class="home">
 <div class="home-window" aria-hidden="true"></div>
-<div class="home-pane" id="home-pane">${glassPane({
-        paneSize: "medium",
+<div class="home-pane" id="home-pane">${tray({
         label: "The game in focus",
-        body: html`<div class="home-head"><h1 id="home-title">${first.title}</h1><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p></div>
+        head: html`<div class="home-stage-in"><div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
 <div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
-<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div>`,
+<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div></div>`,
+        body: html`<div class="home-cue">${textButton("More games", { href: "#home-games", icon: "chevron-down" })}</div>`,
       })}</div>
-<div class="home-shelf">${glassPane({
+<div class="home-shelf" id="home-games">${glassPane({
         paneSize: "full",
         label: "Games",
         body: html`${env.SUPABASE_URL
@@ -232,7 +234,7 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
 <div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
       })}</div>
 </div>
-<noscript><style>.home-pane .pane-in { opacity: 1 !important; }</style></noscript>`
+<noscript><style>.home-stage-in { opacity: 1 !important; }</style></noscript>`
     : html`<div class="home"><div class="home-window" aria-hidden="true"></div>${glassPane({ paneSize: "medium", body: html`<h1>Every kind of game. One link away.</h1><p>The first games are on their way.</p>` })}</div>`;
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
@@ -243,7 +245,8 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
     isRebuilt: true,
     // Play opens the game's page in a frame of the home.
     frames: ["'self'"],
-    head: styleTags(HOME_STYLE),
+    // The opening game is chosen before the first paint, so the page opens on its color and glass (home-script.ts's HOME_OPENING_SCRIPT).
+    head: html`${first ? html`${pageData("home-opening", { slugs: games.map((game) => game.slug), guest_picks: guestPicks, tones: openingTones(games) })}${openingScriptTags(HOME_OPENING_SCRIPT)}` : ""}${styleTags(HOME_STYLE)}`,
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
@@ -257,6 +260,14 @@ ${pageData("home-data", {
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
+}
+
+/** Each game's measured tone on each screen, for the games whose background has one. */
+function openingTones(games: ShowGame[]): Record<string, { wide: ShownTone | null; phone: ShownTone | null }> {
+  const toneOf = (background: ShownBackground) => (background.source === "zaisma" ? null : background.tone);
+  return Object.fromEntries(
+    games.flatMap((game) => (game.background && (toneOf(game.background.wide) || toneOf(game.background.phone)) ? [[game.slug, { wide: toneOf(game.background.wide), phone: toneOf(game.background.phone) }]] : [])),
+  );
 }
 
 /**
@@ -316,38 +327,80 @@ export function playable(game: Game): boolean {
  * screen with its background behind the glass; the pane holds its words and Play, the shelf below holds the rows.
  */
 const HOME_STYLE = pageStyle("home", () => `
-.home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
+/* The opening game's color and glass, before its background has loaded (home-script.ts's HOME_OPENING_SCRIPT): the same glass the
+   backdrop script then gives every pane, so nothing turns from light to dark as it arrives. */
+html[data-home-start][style*="--home-tone"] body { background-color: var(--home-tone); }
+html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--home-glass-tint); }
+html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
+.home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; container-type: inline-size;
+  /* The staged pane: up to 520px, but no more than 45% of the page's width, and only as wide as leaves about a third of the window's
+     height for the world above it (its cover grows with it, 9 wide to 5 tall, the rest of it about 160px); never narrower than docked. */
+  /* Room under the staged pane, so it floats over the screen's foot: the page's edge; on a phone twice that, above its home bar. */
+  --stage-gap: var(--pad-pane);
+  --stage-w: max(390px, min(520px, 45cqw, (0.65 * (100svh - var(--header-room)) - 160px) * 1.78)); }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
-.home-window { grid-column: 1 / -1; grid-row: 1; height: max(300px, calc(100svh - var(--header-room) - 200px)); }
-.home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
-  transition: transform 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
-.home-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
-.home-pane .pane-in { gap: 0; opacity: 0; transition: opacity 0.25s; }
-.is-home-ready .home-pane .pane-in { opacity: 1; }
-.home-head h1 { margin: 0; font: var(--type-title); text-wrap: balance; }
-.home-facts { margin: var(--gap-words-words) 0 0; font: var(--type-words); }
+/* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
+   the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
+.home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--stage-gap))); }
+.home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block); }
+.is-home-ready .home-pane { transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
+/* The pane is a tray's head: staged, "More games" sits on the tray under it; docked, the tray tucks away and the head is a whole pane. */
+.home-pane > .tray-group { width: 100%; }
+.home-pane .tray-head { max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
+/* The pane never scrolls: compact it's the cover and Play, and open its details are clamped to fit, so it gets no scrollbar. */
+.home-stage-in { overflow: hidden; opacity: 0; transition: opacity 0.25s; }
+.is-home-ready .home-stage-in { opacity: 1; }
+/* The game's cover is its face here: its title and studio are on it, as the studio drew them, over a background that stays a background.
+   The title is still the page's heading, for screen readers; a game without a cover shows it in words instead. */
+.home-head h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font: var(--type-title); text-wrap: balance; }
+.home-head.has-cover h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.home-head:not(.has-cover) .home-art { display: none; }
+.home-facts { margin: 0; font: var(--type-words); }
 .home-actions { margin-top: var(--gap-block-block); }
-/* At the top of the page the pane is compact: the title, one line, Play and Details. Scrolling (or choosing a cover) opens the rest below the buttons,
+/* At the top of the page the pane is compact: the cover, Play and Details. Scrolling (or choosing a cover) opens the rest below the buttons,
    so the buttons never move on a wide screen. */
 .home-more { height: 0; overflow: hidden; transition: height 0.42s cubic-bezier(.2,.8,.2,1); }
-.home-more-in { padding-top: var(--gap-block-block); opacity: 0; transition: opacity 0.2s; }
+.home-more-in { display: flex; flex-direction: column; gap: var(--gap-block-block); padding-top: var(--gap-block-block); opacity: 0; transition: opacity 0.2s; }
+.home-facts:empty, #home-glance:empty { display: none; }
 .is-pane-open .home-more { height: var(--more-h, auto); }
 .is-pane-open .home-more-in { opacity: 1; transition: opacity 0.3s 0.1s; }
-.home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: var(--gap-block-block); }
-.home-more-in > #home-glance:empty + .home-description { margin-top: 0; }
+.home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
 @media (max-height: 640px) and (min-width: 761px) { .home-description { display: none; } }
 /* The shelf: one long sheet of glass with every row on it. */
 .home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
+/* The shelf and the pane glide only once the page is ready: as it opens, they're simply put where the measured pane leaves them. */
+.is-home-ready .home-shelf { transition: transform 0.45s cubic-bezier(.2,.8,.2,1); }
+/* On a wide screen the page opens staged, as a phone does: the game in focus centered over its world, larger, with Play under it, and the
+   shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
+   top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
+   simply opens docked. */
+/* Staged, the tray under the pane says there's more below: "More games", its arrow drifting down. It takes the page down to the shelf,
+   and tucks away as the pane docks. */
+.home-cue { display: flex; justify-content: center; }
+.home-cue .text-words > svg { order: 2; animation: home-cue-drift 1.6s ease-in-out infinite; }
+@keyframes home-cue-drift { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
+.home-pane .tray { padding-block: var(--gap-words-words); }
+.home:not(.is-staged-wide) .home-pane .tray { height: 0; padding-block: 0; border: 0; overflow: hidden; visibility: hidden; }
+@media (min-width: 761px) {
+  html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
+  html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--stage-gap))); }
+}
 .home-shelf > .glass-pane { width: 100%; }
-.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); min-height: 44px; }
+/* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
+.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
 .home-row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; }
-.home-row-head > .steps { margin-left: auto; }
-.home-row-head > .tab-switch { margin-left: var(--gap-words-control); }
+/* The row's controls sit at its right end, the sort switch before the arrows. */
+.home-row-head > .steps, .home-row-head > .tab-switch { margin-left: auto; }
+.home-row-head > .tab-switch + .steps { margin-left: 0; }
 /* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
-.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: var(--gap-words-words) var(--gap-words-words) var(--gap-block-block); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
+.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
 .home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
+/* Zaisma's own backdrop starts unseen and fades in when it's the first background (or after a few seconds, should the script not run). */
+canvas.backdrop { opacity: 0; transition: opacity 500ms ease; animation: home-backdrop-late 0s 4s forwards; }
+canvas.backdrop.is-shown { opacity: 1; }
+@keyframes home-backdrop-late { to { opacity: 1; } }
 /* Play: Zaisma steps aside. The glass slides off to the edges and the game's page opens over the world in place. */
 .home-game { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100%; border: 0; background: #000; opacity: 0; visibility: hidden; transition: opacity 0.3s 0.5s, visibility 0s 0.8s; }
 .is-game-shown .home-game { opacity: 1; visibility: visible; transition: opacity 0.3s 0.5s, visibility 0s; }
@@ -357,15 +410,21 @@ const HOME_STYLE = pageStyle("home", () => `
 .is-playing header.top { transform: translate(-50%, -150%); }
 @media (max-width: 1100px) { .home { grid-template-columns: 340px minmax(0, 1fr); } .home-head h1 { font: var(--type-heading); } }
 @media (max-width: 760px) {
-  .home { display: block; }
-  .home-window { height: max(220px, calc(100svh - var(--header-room) - 300px)); }
-  .home-pane { position: relative; top: auto; }
+  .home { display: block; --stage-gap: calc(2 * var(--pad-pane) + env(safe-area-inset-bottom, 0px)); }
+  /* The card is as wide as the screen, but on a screen nearly as wide as tall only as wide as leaves about a third of it for the world
+     above (its cover grows with it, 9 wide to 5 tall, the rest of it about 110px), centered. */
+  .home-pane { position: relative; top: auto; width: min(100%, max(280px, (0.65 * (100svh - var(--header-room)) - 110px) * 1.78)); margin-inline: auto; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }
   .home-row-head > .steps { display: none; }
+  /* Continue playing's sort switch takes its own line under the heading, at its own width, instead of running past the pane. */
+  .home-row-head { flex-wrap: wrap; row-gap: var(--gap-words-control); }
+  .home-row-head > h2 { flex: 1 0 100%; }
+  .home-row-head > .tab-switch { margin-left: 0; max-width: 100%; }
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-pane, .home-more, .home-more-in, .game-world, .home-game, .is-playing .home-shelf { transition: none !important; }
+  .home-pane, .home-more, .home-more-in, .home-shelf, .game-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
+  .home-cue .text-words > svg { animation: none; }
 }
 `);

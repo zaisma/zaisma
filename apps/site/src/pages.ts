@@ -40,6 +40,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
+import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel } from "./rooms.ts";
@@ -218,6 +219,7 @@ ${siteFooter()}
 ${multiplayer ? html`<span class="game-bar-players">${cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" })}<span class="game-bar-count" id="players-count-badge" hidden></span></span>` : ""}
 ${saves ? cutButton("Keep progress", { id: "keep-bar", href: joinHere, icon: "save", isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } }) : ""}
 ${hasRoomCodes ? cutButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog", isExpanded: false }) : ""}
+${isClosed ? "" : updateBarButtons()}
 ${cutButton("Share", { id: "share", type: "button", icon: "share", isSmall: true, controls: "share-dialog" })}
 ${cutButton("Full screen", { id: "full", type: "button", icon: "full-screen", isSmall: true })}
 ${cutButton("More", { id: "menu", type: "button", icon: "more", isSmall: true, isLabelHidden: true, controls: "game-menu", isExpanded: false })}`,
@@ -250,6 +252,7 @@ ${dropdown({
         { label: "All games", icon: "games", href: "/" },
       ],
     })}
+${isClosed ? "" : connectionPlate()}
 ${shots.length > 1 ? sheet({ id: "picture-sheet", title: game.title, body: html`<img class="game-picture-large" id="picture-large" alt="">`, closeLabel: "Close" }) : ""}
 ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
 ${multiplayer ? blockSheet({ gameOrigin }) : ""}
@@ -306,6 +309,7 @@ ${isClosed
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
+          GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });

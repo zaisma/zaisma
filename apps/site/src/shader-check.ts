@@ -6,6 +6,7 @@ import {
   gameById,
   heldImageKey,
   reviewReason,
+  setBackgroundTone,
   settleShader,
   shaderById,
   shaderFrameKey,
@@ -18,6 +19,7 @@ import {
   type ReviewReason,
   type ShaderCheckJob,
 } from "@zaisma/core";
+import { toneOfPng } from "./background-tone.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
@@ -271,6 +273,9 @@ export async function runShaderCheck(env: Env, shaderId: string, deps: ShaderChe
   const matched = await (deps.images ?? imageMatcher(env)).check([{ id: "still-full", pngBytes: drawn.stillPng }, ...pictures].map((picture) => ({ path: `shader ${shader.id} ${picture.id}`, type: "image/png", id: picture.id, body: async () => picture.pngBytes })));
   if (matched.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) return holdKnownImage(env, game.slug, shader, drawn);
 
+  // Its tone, from the still the glass would be measured from, so pages can open on its color with its glass right.
+  const tone = await toneOfPng(drawn.smallStillPng);
+  if (tone) await setBackgroundTone(env.DB, "game_shaders", shader.id, tone);
   await Promise.all([
     env.GAMES.put(shaderStillKey(shader.game_id, shader.id), drawn.stillPng, { httpMetadata: { contentType: "image/png" } }),
     ...drawn.framePngs.map((pngBytes, frameIndex) => env.GAMES.put(shaderFrameKey(shader.game_id, shader.id, frameIndex), pngBytes, { httpMetadata: { contentType: "image/png" } })),

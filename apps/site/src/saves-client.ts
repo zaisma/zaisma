@@ -176,6 +176,15 @@ export const SAVES_SCRIPT = pageScript("saves", `
     }, 6000);
   }
 
+  // The game page reloads the game in place (a version published "now"), at query: through the restore
+  // page, so its progress carries over. A guest's game has nothing to restore, so the page opens it itself.
+  window.reloadGameThroughSaves = function (query) {
+    if (guest || !frame) return false;
+    SAVES.query = query;
+    openThroughRestore();
+    return true;
+  };
+
   // Called by play(): start the game through the restore page instead of directly.
   window.startSaves = function (f) {
     frame = f;

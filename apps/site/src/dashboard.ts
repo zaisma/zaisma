@@ -328,8 +328,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
-      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, {});
-      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at") });
+      // "Update running games now": live matches switch now instead of at their next match.
+      const matchUpdate = field("match_update_mode") === "now" ? { match_update_mode: "now" } : {};
+      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, matchUpdate);
+      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
       return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
     }
@@ -373,8 +375,8 @@ function withCookies(response: Response, cookies: string[]): Response {
   return withAll;
 }
 
-export function page(env: Env, title: string, body: Raw, httpStatus = 200, art: string | null = null, account?: Account | null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", art, viewer: account === undefined ? undefined : { account } });
+export function page(env: Env, title: string, body: Raw, httpStatus = 200, account?: Account | null): Response {
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 
@@ -425,7 +427,7 @@ ${games.length
           const cover = coverOf(details[i]!.images);
           const live = details[i]!.versions.find((version) => version.is_live);
           const waitingDraftCount = details[i]!.versions.filter((version) => !version.is_live && version.scan_status === "approved" && !version.published_at).length;
-          return html`<div class="hit block"${cover ? raw(` data-art="${cover.image_url.replace(/"/g, "")}"`) : ""}><div class="tile">
+          return html`<div class="hit block"><div class="tile">
 <a class="pic" href="/dashboard/${game.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.image_url}" alt="" loading="lazy">` : ""}</a>
 <div class="body"><a class="name" href="/dashboard/${game.slug}"><span>${game.title}</span><small>${VISIBILITY[game.visibility].label} · ${REVIEW[game.review_status]}${live ? "" : " · no live version"}</small></a>
 ${waitingDraftCount ? html`<span class="badge">${waitingDraftCount === 1 ? "Draft ready" : `${waitingDraftCount} drafts ready`}</span>` : ""}</div>
@@ -446,7 +448,6 @@ ${canPublish
 <p class="muted">Both need an API key: <a href="/account#developer">make one on your account page</a> and set it as ZAISMA_KEY.</p>`
       : ""}`,
     200,
-    null,
     account,
   );
 }
@@ -518,7 +519,7 @@ async function managerPage(
   try {
     loaded = (await call("GET", `/games/${slug}`)) as Loaded;
   } catch (error) {
-    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, null, account);
+    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, account);
     throw error;
   }
   const { game, images } = loaded;
@@ -579,7 +580,6 @@ ${body}
 </div>
 </div>`,
     httpStatus,
-    cover?.image_url ?? null,
     account,
   );
 }
@@ -845,9 +845,9 @@ function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   if (version.scan_status === "approved" && !version.is_live) {
     acts = html`<div class="row">
 ${version.preview_url ? html`<a class="btn ghost" href="${version.preview_url}" target="_blank" rel="noopener" title="For you and your AI: each link works for a day">Preview</a>` : ""}
-<form method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button></form>
+<form class="row" method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
 ${version.preview_url ? html`<details class="later"><summary>Preview links</summary><form class="row" method="post" action="${action("end-previews")}">${sectionField(section)}<span class="muted">Each preview link is for you and your AI and works for a day. Shared one too widely? Turn them all off; Preview gets a fresh one.</span><button class="btn ghost" type="submit">Turn off preview links</button></form></details>` : ""}
-${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><button class="btn ghost" type="submit">Schedule</button></form></details>`}
+${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;

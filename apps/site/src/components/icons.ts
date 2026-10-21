@@ -46,6 +46,10 @@ export const ICONS = {
   save: stroke("0 0 20 20", '<path d="M4 3h9.5L16 5.5V17H4z"/><path d="M7 3v4.5h6V3M7 17v-5.5h6V17"/>'),
   rules: stroke("0 0 20 20", '<path d="M10 2.8l6.5 2.4v4.6c0 3.6-2.8 6.6-6.5 7.4-3.7-.8-6.5-3.8-6.5-7.4V5.2z"/><path d="M7.2 10l2 2 3.8-4.2"/>'),
   games: stroke("0 0 20 20", '<path d="M3.5 3.5h5.5V9H3.5zM11 3.5h5.5V9H11zM3.5 11H9v5.5H3.5zM11 11h5.5v5.5H11z"/>'),
+  "signal-weak": stroke("0 0 20 20", '<path d="M4.5 16.5v-3"/><path d="M10 16.5v-7" opacity="0.35"/><path d="M15.5 16.5v-11" opacity="0.35"/>', ' stroke-width="2.4"'),
+  "signal-lost": stroke("0 0 20 20", '<path d="M4.5 16.5v-3M10 16.5v-7M15.5 16.5v-11" opacity="0.35"/><path d="M3 3l14 14"/>', ' stroke-width="2.2"'),
+  reconnecting: stroke("0 0 20 20", '<path d="M16.5 10a6.5 6.5 0 0 1-11.4 4.3M3.5 10a6.5 6.5 0 0 1 11.4-4.3"/><path d="M15 2.8v3.4h-3.4M5 17.2v-3.4h3.4"/>'),
+  download: stroke("0 0 20 20", '<path d="M10 3.5v9M6.2 8.8 10 12.6l3.8-3.8"/><path d="M4 16.5h12"/>'),
   "out-of-page": stroke("0 0 20 20", '<path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5"/><path d="M14.5 12v4.5h-11v-11H8"/>'),
   passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
   // Filled arrows, for scrolling a row back and on.
