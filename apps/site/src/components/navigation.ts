@@ -419,7 +419,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
-const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { isOnline: true }) };
+const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online" }) };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
 
 component({
@@ -598,7 +598,7 @@ component({
   render: sectionTabs,
   examples: [
     { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Stats", "Settings"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    { label: "In a narrow column: they scroll", markup: html`<div style="width:min(300px,100%)">${sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) })}</div>` },
+    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneSize: "small", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
@@ -642,11 +642,8 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
 })();
 `;
 
-const LOADED_ROWS = [
-  { title: "Version 14", detail: "Live · 2 days ago", href: "#load-more" },
-  { title: "Version 13", detail: "Replaced · 5 days ago", href: "#load-more" },
-  { title: "Version 12", detail: "Replaced · last week", href: "#load-more" },
-];
+/** The example's first page of versions; the gallery serves the next two (design-page.ts, olderVersionsPage). */
+const LOADED_ROWS = [14, 13, 12].map((versionNumber) => ({ title: `Version ${versionNumber}`, detail: versionNumber === 14 ? "Live · 2 days ago" : `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" }));
 
 component({
   name: "Load more",
@@ -659,7 +656,7 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it", isWide: true, markup: glassPane({ paneSize: "medium", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneSize: "medium", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
   ],
 });

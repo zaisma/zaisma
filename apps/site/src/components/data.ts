@@ -14,10 +14,12 @@ export type PictureSize = "xs" | "sm" | "md";
  * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Pictures are the
  * one thing never cut or slanted: always square, alone or in a row, wherever they sit.
  */
-export function pictureFrame(username: string, pictureSize: PictureSize, options: { isOnline?: boolean } = {}): Raw {
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing" } = {}): Raw {
   const frame = html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${accountPicture(username, pictureSize, { title: "" })}</span></span>`;
-  // The glass is clipped to its edge, so the online mark sits outside it, over its corner.
-  return options.isOnline ? html`<span class="frame-online">${frame}<span class="online-mark" aria-hidden="true"></span></span>` : frame;
+  // The glass is clipped to its edge, so the presence marks sit outside it: a green line along its foot, and for playing a green tab with a play mark at the line's end.
+  return options.presence
+    ? html`<span class="frame-presence ${pictureSize}">${frame}<span class="presence-line" aria-hidden="true"></span>${options.presence === "playing" ? html`<span class="presence-play" aria-hidden="true">${icon("play")}</span>` : ""}</span>`
+    : frame;
 }
 
 /** Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three, the rest are a +N at the back. */
@@ -81,9 +83,17 @@ component({
 .frame.glass > .edge { z-index: 4; opacity: 0.5; }
 .frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
-/* Online: a small green diamond on the picture's corner, ringed in the glass's light. */
-.frame-online { position: relative; display: inline-flex; flex: none; }
-.frame-online > .online-mark { position: absolute; z-index: 4; right: -2px; bottom: -2px; width: 11px; height: 11px; background: var(--online); border: 2px solid var(--presence-ring); transform: rotate(45deg); }
+/* Presence, under the picture: online is a green line along its foot, like the orange line under what you're on; playing adds a green tab at the
+   line's right end holding a white play mark. Both sit just outside the glass, which is clipped to its edge. */
+.frame-presence { position: relative; display: inline-flex; flex: none; --presence-gap: 3px; --presence-line: 3px; }
+.frame-presence.xs { --presence-gap: 2px; --presence-line: 2px; }
+.presence-line { position: absolute; z-index: 4; left: 0; right: 0; bottom: calc(-1 * (var(--presence-gap) + var(--presence-line))); height: var(--presence-line); background: var(--online);
+  clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%); }
+.presence-play { position: absolute; z-index: 5; right: -6px; bottom: calc(-1 * (var(--presence-gap) + 8px)); display: grid; place-items: center; width: 20px; height: 13px; color: #fff; background: var(--online);
+  box-shadow: 0 1px 3px var(--picture-shadow); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.presence-play > .play { width: 6px; height: 7px; transform: translateX(0.5px); }
+.frame-presence.xs > .presence-play { right: -4px; width: 14px; height: 10px; bottom: calc(-1 * (var(--presence-gap) + 6px)); }
+.frame-presence.xs > .presence-play > .play { width: 5px; height: 6px; }
 /* The smallest shows only the first letter. */
 .frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
@@ -91,7 +101,10 @@ component({
   render: pictureFrame,
   examples: [
     { label: "Big", markup: pictureFrame("emma_r", "md") },
-    { label: "Online", markup: pictureFrame("emma_r", "md", { isOnline: true }) },
+    { label: "Online", markup: pictureFrame("emma_r", "md", { presence: "online" }) },
+    { label: "Playing", markup: pictureFrame("emma_r", "md", { presence: "playing" }) },
+    { label: "Small: online, playing", markup: html`${pictureFrame("Liam", "sm", { presence: "online" })}${pictureFrame("Sofia", "sm", { presence: "playing" })}` },
+    { label: "Smallest: online, playing", markup: html`${pictureFrame("Mia", "xs", { presence: "online" })}${pictureFrame("Noah", "xs", { presence: "playing" })}` },
     { label: "Small", markup: pictureFrame("Liam", "sm") },
     { label: "Smallest", markup: pictureFrame("Mia", "xs") },
   ],
@@ -113,7 +126,8 @@ component({
 .picture-row.md { --frame-overlap: 12px; }
 .picture-row.sm { --frame-overlap: 9px; }
 .picture-row.xs { --frame-overlap: 7px; }
-.frame.more { font-variant-numeric: tabular-nums; }
+/* The +N is sized to its frame, like the initials in a picture. */
+.frame.more { font: 600 calc(var(--frame) * 0.36)/1 var(--display); font-variant-numeric: tabular-nums; }
 `,
   render: pictureRow,
   examples: [
@@ -128,13 +142,15 @@ component({
   name: "Tag",
   slug: "tag",
   group: "data",
-  summary: "A few words or a number on what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, Held on a version, a mark's name on the rail.",
+  summary: "A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, Held on a version. On glass, a mark's name on the rail.",
   styles: `
-/* A tag: slanted at both ends, in --type-tag. Its tone says what it is: new (green), a count (the buttons' face), or glass (the menus' glass, over the page). */
+/* A tag: slanted at both ends, in --type-tag, carved into the glass it's on: shaded along its top, lit along its foot. Its tone says what it is:
+   new (green), a count or plain words (the glass's own carving), a warning (amber), or glass (a sliver of the menus' glass, floating over the page). */
 .tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 0 9px; flex: none; white-space: nowrap;
   font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+.tag.new, .tag.count, .tag.warning { box-shadow: var(--tag-carve); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
-.tag.count { padding: 0 8px; color: var(--ink-2); background: var(--btn); font-variant-numeric: tabular-nums; }
+.tag.count { padding: 0 8px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
 .tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
 .tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
 `,
@@ -187,7 +203,7 @@ export interface ListRow {
 export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
   return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const inside = html`<span class="list-row-words"><span class="list-row-title">${row.title}</span>${row.detail ? html`<span class="list-row-detail">${row.detail}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
-    return html`<li>${row.href ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-line" aria-hidden="true"></span></a>` : html`<div class="list-row">${inside}</div>`}</li>`;
+    return html`<li>${row.href ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span></a>` : html`<div class="list-row">${inside}</div>`}</li>`;
   })}</ul>`;
 }
 
@@ -195,30 +211,30 @@ component({
   name: "List rows",
   slug: "list-rows",
   group: "data",
-  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, its orange line drawing in as you point.",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point.",
   styles: `
-/* List rows: one thing a row, hairlines between. A row that's a link brightens a little under the pointer, a faint slab cut by the edge
-   rule, and the cover's orange line draws in along its foot from the left, a light running ahead; leaving, it runs on out. */
+/* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
+   (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does. */
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
 .list-rows > li + li { border-top: var(--divider); }
-.list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px 12px; color: var(--ink); text-decoration: none; }
+.list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px 12px 10px 16px; color: var(--ink); text-decoration: none; }
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
-.list-row > :not(.cut-line):not(.list-row-line) { position: relative; z-index: 2; }
+.list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
 .list-row-title { font: var(--type-label); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row-detail { font: var(--type-facts); color: var(--muted); }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
-.list-row-line { position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
-  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
-.list-row-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+.list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
+/* The mark at its start: a short orange bar, cut at its ends, growing from its middle. */
+.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 4px; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
 .list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--ghost); }
-.list-row.is-link:hover > .list-row-line, .list-row.is-link.is-pointed > .list-row-line, .list-row.is-link:focus-visible > .list-row-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
-.list-row.is-link:hover > .list-row-line::after, .list-row.is-link.is-pointed > .list-row-line::after { animation: row-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
-@keyframes row-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
+.list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
 .list-row.is-link:active { --face-color: var(--wash-press); }
 .list-row.is-link:focus-visible { outline: none; }
 .list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .list-row-line { transition: none; } .list-row-line::after { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .list-row.is-link::before, .list-row-go { transition: none; } }
 `,
   render: listRows,
   examples: [

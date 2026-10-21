@@ -6,6 +6,8 @@ import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from ".
 import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
+import { loadMore } from "./components/navigation.ts";
+import { listRows } from "./components/data.ts";
 import { glassPane, tray } from "./components/foundations.ts";
 
 /*
@@ -58,7 +60,19 @@ ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_S
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
+/** The Load more example's next pages (/design/examples/older-versions?page=2 and 3): its list of the same id, and on page 2 the Load more for page 3. */
+function olderVersionsPage(env: Env, url: URL): Response {
+  const pageNumber = url.searchParams.get("page") === "3" ? 3 : 2;
+  const rows = [0, 1, 2].map((rowIndex) => {
+    const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
+    return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
+  });
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : ""}</body></html>`;
+  return new Response(page.html, { headers: securityHeaders(env) });
+}
+
 export function designPage(env: Env, url: URL): Response | null {
+  if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
   const theme = themeOf(url);
@@ -220,9 +234,12 @@ export const GALLERY_SCRIPT = pageScript(
   });
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {
-    if (!event.target.closest(".example-stage") || event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
+    // One a page script already handled (a step flow moving on) is left to it.
+    if (event.defaultPrevented || !event.target.closest(".example-stage") || event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
     event.preventDefault();
     var sheet = event.target.closest("dialog.sheet"); if (sheet && sheet.open) sheet.close();
+    // A step flow's last step sends its form: here it starts over instead.
+    if (event.target.goToStep) event.target.goToStep(0);
   });
   // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colors.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {

@@ -74,12 +74,14 @@ export interface CutButtonOptions extends ButtonTarget {
   controls?: string;
   /** It opens what it controls (a dropdown, a search): whether that's open now (aria-expanded). Left out, it opens nothing. */
   isExpanded?: boolean;
+  /** Not shown for now: a page script shows it (a step flow's Back on its first step). */
+  isHidden?: boolean;
 }
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}`;
+  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
   return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
 }
 
@@ -322,6 +324,7 @@ component({
     { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
     { label: "Only its icon", markup: cutButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
     { label: "Small", markup: cutButton("Show", { type: "button", isSmall: true }) },
+    { label: "Small, only its icon: a sheet's Close, a Copy", markup: html`<div class="control-row">${cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })}</div>` },
     { label: "Can't press", markup: cutButton("Details", { type: "button", isDisabled: true }), isStill: true },
     { label: "A toggle, off and on", markup: html`<div class="control-row">${cutButton("Show", { type: "button", isSmall: true, isPressed: false })}${cutButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>` },
     { label: "Big, beside Play", markup: html`<div class="control-row">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
@@ -511,8 +514,10 @@ component({
 .text-btn:hover .text-line::after, .text-btn.is-pointed .text-line::after { animation: text-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes text-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 .text-btn:active > .face, .text-btn.is-pressed > .face { color: var(--ink); transform: translateY(1px); transition-duration: 0.08s; }
-/* Keyboard focus: an outline round its words and line. */
-.text-btn:focus-visible > .face, .text-btn.is-focused > .face { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Keyboard focus: an outline round its words alone. */
+.text-btn:focus-visible .text-words, .text-btn.is-focused .text-words { outline: 2px solid var(--focus); outline-offset: 4px; }
+/* Beside another control in a row it has no slant to meet, so it stands clear of that control's end by two words' gaps. */
+.control-row > .text-btn:not(:first-child) { margin-inline-start: calc(var(--control-slant) - var(--gap-control-row) + 2 * var(--gap-words-control)); }
 /* Waiting: the loader before its words. */
 .text-btn:not([aria-busy="true"]) .loader, .text-btn[aria-busy="true"] .text-words > .ico { display: none; }
 .text-btn[aria-busy="true"] { cursor: progress; }
@@ -523,38 +528,6 @@ component({
     ...stateExamples((state) => textButton("Skip for now", { type: "button", state }), "text"),
     { label: "Busy", markup: textButton("Undo", { type: "button", isBusy: true }), isStill: true },
     { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${textButton("Cancel", { type: "button" })}</div>` },
-  ],
-});
-
-export interface IconButtonOptions {
-  /** What it does, said by a screen reader (aria-label): "Close", "Copy the key". */
-  label: string;
-  icon: IconName;
-  href?: string;
-  type?: "submit" | "button";
-  /** The id of what it shows, hides or opens (aria-controls). */
-  controls?: string;
-  formMethod?: "dialog";
-  isBusy?: boolean;
-  state?: ButtonState;
-}
-
-/** An icon button: a small cut slab holding one line icon, for a sheet's close, a copy, a row's own action. Its label is what a screen reader says. */
-export function iconButton(options: IconButtonOptions): Raw {
-  return cutButton(options.label, { href: options.href, type: options.type, controls: options.controls, formMethod: options.formMethod, icon: options.icon, isBusy: options.isBusy, state: options.state, isLabelHidden: true, isSmall: true });
-}
-
-component({
-  name: "Icon button",
-  slug: "icon-button",
-  group: "actions",
-  summary: "One line icon on a small cut slab, where the icon says it all: Close on a sheet, Copy beside a key. Its label is what a screen reader says.",
-  styles: "",
-  render: iconButton,
-  examples: [
-    ...stateExamples((state) => iconButton({ label: "Close", icon: "close", type: "button", state }), "cut"),
-    { label: "Copy", markup: iconButton({ label: "Copy", icon: "copy", type: "button" }) },
-    { label: "Busy", markup: iconButton({ label: "Copy", icon: "copy", type: "button", isBusy: true }), isStill: true },
   ],
 });
 
@@ -581,7 +554,7 @@ const dangerButton = (label: string) =>
 export function deleteButton(label: string, options: DeleteButtonOptions): Raw {
   const id = options.id ?? `delete-${options.action.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
   const body = html`<p class="sheet-text">${options.confirmText}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${dangerButton(options.confirmLabel)}</div></form>`;
-  const sheet = sheetMarkup({ id, title: `${label}?`, body, closeButton: iconButton({ label: "Close", icon: "close", type: "submit" }), isShown: options.isConfirmShown });
+  const sheet = sheetMarkup({ id, title: `${label}?`, body, closeButton: cutButton("Close", { type: "submit", icon: "close", isLabelHidden: true, isSmall: true }), isShown: options.isConfirmShown });
   return options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`;
 }
 

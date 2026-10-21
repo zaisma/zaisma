@@ -2,8 +2,8 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
-import { cutButton, iconButton, runButton } from "./actions.ts";
-import { birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
+import { cutButton, runButton } from "./actions.ts";
+import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -187,7 +187,7 @@ const COVER_STYLES = `
 .cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
-.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: var(--type-facts); color: var(--muted); white-space: nowrap; }
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); white-space: nowrap; }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
@@ -341,7 +341,7 @@ export interface SheetOptions {
 
 /** A sheet: a pane of glass over the dimmed page for a task that comes and goes (report a game, block someone), opened by a button that names it. */
 export function sheet(options: SheetOptions): Raw {
-  return sheetMarkup({ id: options.id, title: options.title, body: options.body, closeButton: iconButton({ label: options.closeLabel, icon: "close", type: "submit" }), isShown: options.isShown });
+  return sheetMarkup({ id: options.id, title: options.title, body: options.body, closeButton: cutButton(options.closeLabel, { type: "submit", icon: "close", isLabelHidden: true, isSmall: true }), isShown: options.isShown });
 }
 
 export interface ConfirmSheetOptions {
@@ -379,33 +379,35 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 
 const SHEET_STYLES = `
 /* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
-   little as it opens, and drops away as it closes; nothing in it waits for that. Centered on a wide screen; on a phone it rises from the
-   foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
+   little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
+   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
 .sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), overlay 0.35s allow-discrete, display 0.35s allow-discrete; }
-.sheet:modal { position: fixed; inset: 0; z-index: 40; }
-.sheet:not([open]) { opacity: 0; transform: translateY(12px) scale(0.985); }
+  transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
+.sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
+.sheet:not([open]) { opacity: 0; transform: translateY(16px) scale(0.98); transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
-.sheet::backdrop { background: rgba(6, 9, 14, 0.42); transition: opacity 0.25s, overlay 0.25s allow-discrete, display 0.25s allow-discrete; }
+.sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+.sheet:not([open])::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* In place (the gallery's still copy): a pane where it sits. */
-.sheet:not(:modal) { position: relative; inset: auto; z-index: auto; margin: 0; }
+.sheet.in-place { position: relative; z-index: auto; margin: 0; }
 .sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
 .sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
 .sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 .sheet-close, .sheet-form { margin: 0; }
 .sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 @media (max-width: 760px) {
-  .sheet:modal { width: calc(100% - 2 * var(--gap-control-stack)); max-height: calc(100dvh - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet:not([open]) { transform: translateY(32px); }
-  @starting-style { .sheet[open] { transform: translateY(32px); } }
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: calc(100dvh - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
+  @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet, .sheet::backdrop { transition: var(--glass-transition); } }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not([open]) { transform: none; } }
 `;
 
 const reportBody = (idPrefix: string) =>
-  html`${choiceCards({ id: `${idPrefix}-reason`, name: "report_reason", label: "What's wrong", choices: [{ label: "It breaks a content rule", choiceValue: "content_rule", text: "Something in the game that the rules don't allow." }, { label: "It doesn't work", choiceValue: "broken", text: "It won't load, or it stops partway." }], pickedValue: "content_rule" })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}${runButton("Send report", { type: "button", isFullWidth: true })}`;
+  html`${choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}${runButton("Send report", { type: "button", isFullWidth: true })}`;
 
 component({
   name: "Sheet",
@@ -446,13 +448,17 @@ export interface NoticeOptions {
 /** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
 export function notice(options: NoticeOptions): Raw {
   const isProblem = options.tone === "problem";
-  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="18 14 18 14">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? iconButton({ label: "Close", icon: "close", type: "button" }) : ""}</div>`;
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="18 14 18 14">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
 }
 
 /** Notices: one that's done leaves after 4 s (it waits while you point at it); a problem leaves when its close button is pressed. Notices a page adds later are watched too. */
 export const NOTICE_SCRIPT = `/* notices */(function () {
   var STAY_MS = 4000, LEAVE_MS = 300;
-  function leave(el) { if (el.classList.contains("is-leaving")) return; el.classList.add("is-leaving"); setTimeout(function () { el.remove(); }, LEAVE_MS); }
+  // One in place (the gallery's still copy) comes back a moment after it leaves, so it can be tried again.
+  function leave(el) {
+    if (el.classList.contains("is-leaving")) return; el.classList.add("is-leaving");
+    if (el.classList.contains("in-place")) setTimeout(function () { el.classList.remove("is-leaving"); }, 1600); else setTimeout(function () { el.remove(); }, LEAVE_MS);
+  }
   function wait(el) { clearTimeout(el.noticeTimer); el.noticeTimer = setTimeout(function () { leave(el); }, STAY_MS); }
   function arrive(el) {
     if (el.noticeArrived || el.classList.contains("in-place")) return; el.noticeArrived = true;
@@ -532,60 +538,116 @@ component({
   ],
 });
 
+export interface StepFlowStep {
+  label: string;
+  /** The step's own words and fields. Given for every step, the flow moves between them on the page and sends its form once, at the end. */
+  body?: Raw;
+}
+
 export interface StepFlowOptions {
-  steps: { label: string }[];
+  steps: StepFlowStep[];
   /** The step shown now, from 0. */
   currentIndex: number;
-  /** The step's own words and fields. */
-  body: Raw;
-  /** Where Next posts the step. */
+  /** When each step is a page of its own (no step has a body): this step's words and fields. */
+  body?: Raw;
+  /** Where the form posts: each step, or once at the end when the steps carry their bodies. */
   action: string;
-  /** Next's words; the last step's usually says what it does ("Turn it on"). */
-  nextLabel?: string;
-  /** The step before's address; left out on the first step, which has no Back. */
+  /** Next's words on the last step, saying what it does ("Turn it on"). */
+  finishLabel?: string;
+  /** When each step is a page of its own: the step before's address, left out on the first step. */
   backHref?: string;
 }
 
-/** A step flow: a task in a few steps (protect your account, set up a game's sign-in), a pane with a step line across its top and Back and Next. */
+/**
+ * A step flow: a task in a few steps (protect your account, set up a game's sign-in), a pane with a step line across its top and Back and
+ * Next. Its steps are pages of their own (a body, a backHref), or all on this page (each step's body), where STEP_FLOW_SCRIPT moves between them.
+ */
 export function stepFlow(options: StepFlowOptions): Raw {
+  const isOnPage = options.steps.every((step) => step.body !== undefined);
+  const lastIndex = options.steps.length - 1;
   const stepLine = html`<ol class="step-line" aria-label="Steps">${options.steps.map((step, stepIndex) => {
     const kind = stepIndex < options.currentIndex ? "is-done" : stepIndex === options.currentIndex ? "is-current" : "";
-    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark" aria-hidden="true"></span><span class="step-label">${step.label}</span></li>`;
+    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark" aria-hidden="true"><span class="step-fill"></span></span><span class="step-label">${step.label}</span></li>`;
   })}</ol>`;
-  const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(options.nextLabel ?? "Next", { type: "submit" })}</div>`;
-  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body}${buttons}</form>` });
+  const finishLabel = options.finishLabel ?? "Done";
+  const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
+  if (!isOnPage) {
+    const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(nextLabel, { type: "submit" })}</div>`;
+    return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
+  }
+  const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
+  const buttons = html`<div class="control-row" data-step-buttons>${cutButton("Back", { type: "button", isHidden: options.currentIndex === 0 })}${runButton(nextLabel, { type: "submit" })}</div>`;
+  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
 }
 
-const PROTECT_STEPS = [{ label: "Your email" }, { label: "Check it" }, { label: "A passkey" }];
+/**
+ * Step flows with every step on the page: Next checks the step's fields, then moves on, the step line filling to the next step; Back goes
+ * back; on the last step Next sends the form. form.goToStep(index) moves to any step (the gallery starts its example over with it).
+ */
+export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
+  document.querySelectorAll("form[data-steps]").forEach(function (form) {
+    var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
+    var back = form.querySelector("[data-step-buttons] > .cut-btn"), next = form.querySelector("[data-step-buttons] > .run-wrap"), words = next.querySelector(".run > span:not([class])");
+    var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");
+    function goToStep(index) {
+      at = Math.max(0, Math.min(last, index));
+      bodies.forEach(function (body, i) { body.hidden = i !== at; });
+      marks.forEach(function (mark, i) {
+        mark.classList.toggle("is-done", i < at); mark.classList.toggle("is-current", i === at);
+        if (i === at) mark.setAttribute("aria-current", "step"); else mark.removeAttribute("aria-current");
+      });
+      back.hidden = at === 0; words.textContent = at === last ? finishWords : nextWords;
+      var first = bodies[at].querySelector("input, select, textarea, button");
+      if (first && document.activeElement && form.contains(document.activeElement)) first.focus({ preventScroll: true });
+    }
+    form.goToStep = goToStep;
+    back.addEventListener("click", function () { goToStep(at - 1); });
+    form.addEventListener("submit", function (event) {
+      if (at === last) return;
+      event.preventDefault();
+      var fields = bodies[at].querySelectorAll("input, select, textarea");
+      for (var i = 0; i < fields.length; i++) if (!fields[i].checkValidity()) { fields[i].reportValidity(); return; }
+      goToStep(at + 1);
+    });
+  });
+})();
+`;
+
+const PROTECT_STEPS: StepFlowStep[] = [
+  { label: "Your email", body: html`<h2>Protect your account</h2><p>An email lets you back in if you lose your password, and nothing else: we never send news.</p>${cutField({ id: "example-steps-email", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com", text: "emma@example.com" })}` },
+  { label: "Check it", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-steps-code", name: "email_code", label: "Code", type: "text", icon: "mail", text: "482 913", autocomplete: "one-time-code" })}` },
+  { label: "A passkey", body: html`<h2>Add a passkey</h2><p>Your device signs you in with your face, finger or screen lock. Nobody can phish it.</p>` },
+];
 
 component({
   name: "Step flow",
   slug: "step-flow",
   group: "panes",
-  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top, the steps done in orange and the one you're on in ink, and Back and Next.",
+  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.",
   styles: `
-/* A step flow: a pane whose top is a row of thin lines, one per step: done ones orange, the one you're on in ink, the ones ahead faint,
-   each with its name under it (on a phone, only the one you're on). The step's words and fields come next, then Back and Next. */
+/* A step flow: a pane whose top is a row of thin cut lines, one per step, each with its name under it (on a phone, only the one you're
+   on). Done steps are filled orange; the one you're on fills in orange as you reach it, brightening to a light at its leading end, so it
+   reads as moving on; the ones ahead are faint. The step's words and fields come next, then Back and Next. */
 .step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
-.step-line > li { display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
-.step-mark { display: block; height: 3px; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.step-line > li { display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
+.step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
 .step-line > li.is-done { color: var(--ink-2); }
-.step-line > li.is-done > .step-mark { background: linear-gradient(90deg, #E9820C, var(--run)); }
+.step-line > li.is-done .step-fill { transform: scaleX(1); }
 .step-line > li.is-current { color: var(--ink); }
-.step-line > li.is-current > .step-mark { background: var(--ink); }
+.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
+@starting-style { .step-line > li.is-current .step-fill { transform: scaleX(0); } }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 @media (max-width: 760px) { .step-line > li:not(.is-current) > .step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+@media (prefers-reduced-motion: reduce) { .step-fill { transition: none; } }
 `,
   render: stepFlow,
   examples: [
+    { label: "Try it: Next and Back, and Turn it on starts it over", isWide: true, markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 0, action: "#step-flow", finishLabel: "Turn it on" }) },
     {
-      label: "The second step",
-      isWide: true,
-      markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 1, action: "#step-flow", backHref: "#step-flow", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-step-code", name: "email_code", label: "Code", type: "text", icon: "mail", autocomplete: "one-time-code" })}` }),
-    },
-    {
-      label: "The first step: no Back",
-      markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 0, action: "#step-flow", body: html`<h2>Protect your account</h2>${cutField({ id: "example-step-email", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com" })}` }),
+      label: "The second step, as a page of its own",
+      markup: stepFlow({ steps: PROTECT_STEPS.map(({ label }) => ({ label })), currentIndex: 1, action: "#step-flow", backHref: "#step-flow", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-step-code", name: "email_code", label: "Code", type: "text", icon: "mail", autocomplete: "one-time-code" })}` }),
     },
   ],
 });

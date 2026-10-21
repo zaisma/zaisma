@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colorPicker, glassPane, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, colorPicker, glassPane, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES, cutButton } from "./actions.ts";
 
 /*
@@ -206,6 +206,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       sw.classList.remove("pointing");
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
       put(slab, tab, true); put(ghost, tab, true);
+      // In a row that scrolls, the picked tab comes into the middle of it.
+      var row = sw.closest("[data-fades-sideways]");
+      if (row && row.scrollWidth > row.clientWidth) row.scrollTo({ left: Math.max(0, tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     };
     tabs.forEach(function (tab) {
       tab.addEventListener("pointerenter", function () { if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
@@ -732,48 +735,138 @@ export interface SelectFieldOptions {
   /** What kind of thing it picks, like a cut field's. Left out, the words start at the edge. */
   icon?: IconName;
   error?: string;
-  state?: "is-focused";
+  /** The gallery's fixed states: focused, or open with its list under it. */
+  state?: "is-focused" | "is-open";
 }
 
-/** A select field: a cut field holding the system's own list, so a phone opens its own picker. For one of many (a region, a language); one of a few is Choice cards or a Switch. */
+/**
+ * A select field: a cut field that opens a list of Zaisma's glass under it, on every device, so picking from a list looks and feels like
+ * the rest of the page. For one of many (a region, a language); one of a few is Choice cards or a Switch. The pick is sent as a hidden field.
+ */
 export function selectField(options: SelectFieldOptions): Raw {
   const id = options.id ?? `field-${options.name}`;
-  const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
-  return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<select id="${id}" name="${options.name}"${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.choices.map((choice) => html`<option value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" selected") : ""}>${choice.label}</option>`)}</select><span class="select-chev">${icon("chevron-down")}</span></span>
+  const picked = options.choices.find((choice) => choice.choiceValue === options.pickedValue) ?? options.choices[0];
+  const isOpen = options.state === "is-open";
+  const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
+  const list = html`<div class="select-list glass${isOpen ? " in-place" : ""}" id="${id}-list" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-glass data-glass-corners="18 14 18 14"${isOpen ? "" : raw(" popover")}>${EDGE}${options.choices.map(
+    (choice, choiceIndex) =>
+      html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span>${icon("check")}</div>`,
+  )}</div>`;
+  return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
+${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}">
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
 }
+
+/**
+ * Select fields: the list opens as a popover (over everything, never clipped by the pane it's in) just under its field, or above it when
+ * there's no room below, as wide as the field. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
+ * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
+ */
+export const SELECT_SCRIPT = `/* select fields */(function () {
+  var GAP_PX = 6;
+  document.querySelectorAll("[data-select]").forEach(function (root) {
+    var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field");
+    if (!list.hasAttribute("popover")) return;
+    var options = Array.prototype.slice.call(list.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
+    function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
+    function setActive(i) {
+      active = Math.max(0, Math.min(options.length - 1, i));
+      options.forEach(function (o, j) { o.classList.toggle("is-active", j === active); });
+      list.setAttribute("aria-activedescendant", options[active].id);
+      var o = options[active]; if (o.offsetTop < list.scrollTop) list.scrollTop = o.offsetTop; else if (o.offsetTop + o.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = o.offsetTop + o.offsetHeight - list.clientHeight;
+    }
+    function place() {
+      var r = field.getBoundingClientRect(), height = list.offsetHeight, below = window.innerHeight - r.bottom - GAP_PX;
+      list.style.width = r.width + "px"; list.style.left = r.left + "px";
+      list.style.top = (below >= height || below >= r.top ? r.bottom + GAP_PX : r.top - GAP_PX - height) + "px";
+    }
+    function pick(i) {
+      options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
+      root.querySelector(".select-value").textContent = options[i].textContent;
+      if (hidden.value !== options[i].getAttribute("data-choice-value")) { hidden.value = options[i].getAttribute("data-choice-value"); hidden.dispatchEvent(new Event("change", { bubbles: true })); }
+      list.hidePopover(); button.focus();
+    }
+    list.addEventListener("toggle", function (event) {
+      var isOpen = event.newState === "open";
+      button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
+      if (isOpen) { place(); setActive(Math.max(0, picked())); list.focus({ preventScroll: true }); }
+    });
+    window.addEventListener("resize", function () { if (list.matches(":popover-open")) place(); });
+    window.addEventListener("scroll", function () { if (list.matches(":popover-open")) place(); }, { passive: true, capture: true });
+    button.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); list.showPopover(); }
+    });
+    list.addEventListener("click", function (event) { var o = event.target.closest('[role="option"]'); if (o) pick(options.indexOf(o)); });
+    list.addEventListener("pointermove", function (event) { var o = event.target.closest('[role="option"]'); if (o && options.indexOf(o) !== active) setActive(options.indexOf(o)); });
+    list.addEventListener("keydown", function (event) {
+      var key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
+      if (step) { setActive(active + step); event.preventDefault(); return; }
+      if (key === "Home" || key === "End") { setActive(key === "Home" ? 0 : options.length - 1); event.preventDefault(); return; }
+      if (key === "Enter" || key === " ") { pick(active); event.preventDefault(); return; }
+      if (key === "Tab") { list.hidePopover(); return; }
+      if (key.length !== 1 || event.metaKey || event.ctrlKey) return;
+      var now = Date.now(); typed = now - typedAt > 900 ? key.toLowerCase() : typed + key.toLowerCase(); typedAt = now;
+      var hit = options.findIndex(function (o) { return o.textContent.toLowerCase().indexOf(typed) === 0; });
+      if (hit >= 0) setActive(hit);
+    });
+  });
+})();
+`;
 
 const REGIONS: SelectChoice[] = [
   { label: "Nearest to each player", choiceValue: "nearest" },
   { label: "Europe", choiceValue: "europe" },
   { label: "North America", choiceValue: "north-america" },
+  { label: "South America", choiceValue: "south-america" },
   { label: "Asia Pacific", choiceValue: "asia-pacific" },
+  { label: "Middle East and Africa", choiceValue: "middle-east-africa" },
 ];
 
 component({
   name: "Select field",
   slug: "select-field",
   group: "inputs",
-  summary: "One of many, from a list: a region, a language, a category. The list is the system's own, so a phone opens its own picker; for one of a few, use Choice cards or a Switch.",
+  summary: "One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.",
   styles: `
-/* A select field: the cut field, holding the system's own select with its arrow hidden; the birthday field's chevron sits at its end. */
-.field.select select { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 48px 0 52px; appearance: none; -webkit-appearance: none; cursor: pointer;
-  font: 500 18px var(--display); color: var(--ink); text-overflow: ellipsis;
-  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-.field.select.no-icon select { padding-left: 18px; }
-.field.select:hover select { --face-color: var(--field-hover); }
-.field.select select:focus, .field.select.is-focused select { outline: none; --face-color: var(--field-focus); }
-.field.select option { color: #14171C; background: #fff; }
-.select-chev { position: absolute; z-index: 3; right: 18px; display: inline-flex; color: var(--ink); pointer-events: none; }
+/* A select field: the cut field holding a button with the picked choice; the birthday field's chevron sits at its end and turns as it opens.
+   Its list is a pane of the menus' glass hanging just under the field, as wide as it, its choices on the switch's slabs: a faint one under
+   the pointer or the arrow keys, the white one with the orange line on the picked, which also carries a tick. */
+.select-button { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 48px 0 52px; border: 0; border-radius: 0; cursor: pointer; text-align: left;
+  font: 500 18px var(--display); color: var(--ink);
+  --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.field.select.no-icon .select-button { padding-left: 18px; }
+.select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.field.select:hover .select-button { --face-color: var(--field-hover); }
+.select-button:focus-visible, .field.select.is-focused .select-button, .field.select.is-open .select-button { outline: none; --face-color: var(--field-focus); }
+.field.select:focus-within > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.select-chev { position: absolute; z-index: 3; right: 18px; display: inline-flex; color: var(--ink); pointer-events: none; transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
+.field.select.is-open .select-chev { transform: rotate(180deg); }
+/* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. */
+.select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); overflow-y: auto; padding: var(--pad-inner-pane); border: 0; color: var(--ink);
+  display: flex; flex-direction: column; gap: 2px; outline: none; --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+.select-list:not(:popover-open):not(.in-place) { opacity: 0; transform: translateY(-6px); }
+@starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } }
+.select-list.in-place { position: relative; display: flex; width: 100%; }
+.select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px; cursor: pointer; flex: none;
+  font: var(--type-words); color: var(--ink-2); --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
+.select-option > :not(.cut-line) { position: relative; z-index: 2; }
+.select-option > span { flex: 1; }
+.select-option > .ico { width: 16px; height: 16px; color: var(--run); stroke-width: 2.4; opacity: 0; }
+.select-option.is-active { --face-color: var(--ghost); color: var(--ink); }
+.select-option[aria-selected="true"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.select-option[aria-selected="true"] > .ico { opacity: 1; }
+.select-list:focus-visible .select-option.is-active > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+@media (prefers-reduced-motion: reduce) { .select-list, .select-chev { transition: var(--glass-transition); } }
 `,
   render: selectField,
   examples: [
-    { label: "Picked", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
+    { label: "Picked: try it", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
     { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", icon: "people" })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
+    { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },
     { label: "Error", markup: examplePane(selectField({ id: "example-select-error", name: "room_region", label: "Where rooms run", choices: REGIONS, error: "Pick where your rooms run to go on." })) },
   ],
 });
@@ -813,10 +906,10 @@ component({
   name: "Check field",
   slug: "check-field",
   group: "inputs",
-  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns white with an orange tick. On a page that saves at once, use a Toggle.",
+  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a white tick. On a page that saves at once, use a Toggle.",
   styles: `
-/* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the box turns white like a
-   switch's slab and holds an orange tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
+/* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the whole box turns orange
+   and raised, with a white tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
    the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
@@ -824,12 +917,15 @@ component({
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
 .check:hover .check-box, .check.is-pointed .check-box { --face-color: var(--field-hover); }
-.check-box:has(.check-input:checked) { --face-color: #fff; color: var(--run); }
+/* Ticked: the whole box turns orange, lit like the runner, with a white tick. */
+.check-box:has(.check-input:checked) { --face-color: var(--run); color: #fff; box-shadow: none; }
 .check-box:has(.check-input:checked) > .ico { transform: scale(1); }
-.check-box:has(.check-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
+.check:hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { --face-color: var(--run-hi); }
 .check:active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
 .check:active .check-box, .check.is-pressed .check-box { box-shadow: var(--press-shade); }
 .check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
 .check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
@@ -847,7 +943,7 @@ export interface ChoiceCard {
   label: string;
   choiceValue: string;
   /** A line on what it means. */
-  text: string;
+  text?: string;
   icon?: IconName;
 }
 
@@ -859,17 +955,20 @@ export interface ChoiceCardsOptions {
   pickedValue?: string;
   /** Unique on the page. Defaults to choice-<name>. */
   id?: string;
+  /** Many choices (a report's reasons): one line each, down a carved well that scrolls once it's long, like a vertical switch. */
+  isCompact?: boolean;
   /** The gallery's fixed states, on the first card. */
   state?: PressState;
 }
 
-/** Choice cards: one of a few, each needing a line to say what it means (who can see a game, how rooms run). Radios as cut glass cards. */
+/** Choice cards: one of a few, each needing a line to say what it means (who can see a game, how rooms run); compact, one of many (why you're reporting). Radios underneath. */
 export function choiceCards(options: ChoiceCardsOptions): Raw {
   const id = options.id ?? `choice-${options.name}`;
-  return html`<fieldset class="choices"><legend>${options.label}</legend><div class="choice-cards">${options.choices.map(
-    (choice, choiceIndex) =>
-      html`<label class="choice-card cut-raised${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10">${CUT_LINE}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span><span class="choice-text">${choice.text}</span></span></label>`,
-  )}</div></fieldset>`;
+  const card = (choice: ChoiceCard, choiceIndex: number) =>
+    html`<label class="choice-card cut-carved${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10">${CUT_LINE}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span>${choice.text ? html`<span class="choice-text">${choice.text}</span>` : ""}</span></label>`;
+  return options.isCompact
+    ? html`<fieldset class="choices"><legend>${options.label}</legend><div class="choice-list cut-carved" data-cut-line="10">${CUT_LINE}<div class="choice-list-in">${options.choices.map(card)}</div></div></fieldset>`
+    : html`<fieldset class="choices"><legend>${options.label}</legend><div class="choice-cards">${options.choices.map(card)}</div></fieldset>`;
 }
 
 const VISIBILITIES: ChoiceCard[] = [
@@ -878,39 +977,61 @@ const VISIBILITIES: ChoiceCard[] = [
   { label: "Private", choiceValue: "private", text: "Only you and your testers.", icon: "lock" },
 ];
 
+/** Why someone reports a game (report.ts's reasons): the many-choices case. */
+export const REPORT_REASONS: ChoiceCard[] = [
+  { label: "It's broken", choiceValue: "broken", text: "Won't load, crashes, or isn't really a game" },
+  { label: "A player", choiceValue: "player", text: "Someone in a match is causing trouble" },
+  { label: "Sexual content", choiceValue: "sexual", text: "Nudity or sexual material" },
+  { label: "Private details or threats", choiceValue: "real_people", text: "Shows where a real person lives or goes to school, or threatens them" },
+  { label: "Scam or malware", choiceValue: "malware", text: "Asks for passwords or payment, or tries to install something" },
+  { label: "Child safety", choiceValue: "child_safety", text: "Sexualizes children or puts a child in danger" },
+  { label: "Illegal content", choiceValue: "illegal", text: "Something against the law" },
+  { label: "Something else", choiceValue: "other" },
+];
+
 component({
   name: "Choice cards",
   slug: "choice-cards",
   group: "inputs",
-  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. The picked card turns white with the orange line, like a switch's slab.",
+  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.",
   styles: `
-/* Choice cards: radios as raised slabs of clearer glass, the cut buttons' face, cut by the edge rule. Pointing brightens one; the
-   picked one is the switch's white slab with its orange line along the foot. The real radio lies over the card, unseen, so the arrow
-   keys move between them as the system's do. */
+/* Choice cards: radios as cut slabs. The ones not picked are carved into the glass, their words quieter; the picked one rises out of it as
+   the switch's white slab, lit, with its orange line along its foot and its words in full ink. Pointing at one brightens its carving. The
+   real radio lies over the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .choices > legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-control-stack); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
-  color: var(--ink-2); --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s; }
+  color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
 .choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
 .choice-words { display: grid; gap: var(--gap-words-words); }
-.choice-label { font: var(--type-label); color: var(--ink); }
+.choice-label { font: var(--type-label); color: var(--ink-2); }
 .choice-text { font: var(--type-note); color: var(--muted); }
-.choice-card:hover, .choice-card.is-pointed { --face-color: var(--btn-hover); }
-.choice-card:active, .choice-card.is-pressed { --face-color: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
-.choice-card:active > .cut-line, .choice-card.is-pressed > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
-/* Picked: the switch's slab, white with the orange line along its foot, its words and icon in full ink. */
+.choice-card:hover, .choice-card.is-pointed { --face-color: var(--field-hover); color: var(--ink-2); }
+.choice-card:active, .choice-card.is-pressed { --face-color: var(--field-face); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+/* Picked: raised out of the carving, the switch's white slab with its light turned the other way and the orange line along its foot. */
 .choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); color: var(--ink); }
-.choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
-.choice-card:has(.choice-input:checked) > .cut-line { --band-bottom: transparent; }
+.choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
+.choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
+.choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
+   together, their line under their name, and only the picked one is a slab. */
+.choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
+.choice-list .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
+.choice-list .choice-words { gap: 2px; }
+.choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.choice-list .choice-card:hover, .choice-list .choice-card.is-pointed { --face-color: var(--ghost); }
+.choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 `,
   render: choiceCards,
   examples: [
     ...pressExamples((state, exampleKey) => choiceCards({ id: `example-choice-${exampleKey}`, name: `visibility_${exampleKey}`, label: "Who can see it", choices: VISIBILITIES.slice(0, 2), pickedValue: "unlisted", state }), "choice"),
     { label: "Three, in a pane", markup: glassPane({ paneSize: "medium", body: choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" }) }), isWide: true },
+    { label: "Compact: many choices, scrolling", markup: glassPane({ paneSize: "medium", body: choiceCards({ id: "example-choice-compact", name: "report_reason_compact", label: "What's wrong", choices: REPORT_REASONS, pickedValue: "malware", isCompact: true }) }), isWide: true },
   ],
 });
 
@@ -928,7 +1049,7 @@ export interface ToggleOptions {
 /** A toggle: on or off for a setting that takes effect as it's saved (Cloud saves, Show me online). A checkbox underneath, sent with its form, so it needs no script to post. */
 export function toggle(options: ToggleOptions): Raw {
   const id = options.id ?? `toggle-${options.name}`;
-  return html`<label class="toggle${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="toggle-words"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot cut-carved" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}><span class="toggle-slab cut-raised" data-cut-line="6" data-cut-ends="start end" aria-hidden="true">${CUT_LINE}</span></span></label>`;
+  return html`<label class="toggle${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="toggle-words"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot cut-carved" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}><span class="toggle-thumb" aria-hidden="true"><span class="toggle-slab cut-raised" data-cut-line="6" data-cut-ends="start end">${CUT_LINE}</span></span></span></label>`;
 }
 
 component({
@@ -943,18 +1064,20 @@ component({
 .toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
-.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
+.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-/* The slab is solid, so the orange behind it never tints it. */
-.toggle-slab { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape);
+/* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.35)) drop-shadow(0 3px 4px rgba(10,16,28,0.2));
   transition: transform 0.4s var(--spring), filter 0.2s; }
+/* The slab is solid and lit from above, so the orange behind it never tints it. */
+.toggle-slab { display: block; width: 100%; height: 100%; background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
-.toggle-slot:has(.toggle-input:checked) > .toggle-slab { transform: translateX(24px); }
-.toggle:hover .toggle-slab, .toggle.is-pointed .toggle-slab { filter: brightness(1.06); }
-.toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { filter: brightness(0.94); box-shadow: var(--press-shade); }
+.toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
+.toggle:hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 2px 2px rgba(10,16,28,0.38)) drop-shadow(0 4px 6px rgba(10,16,28,0.22)) brightness(1.04); }
+.toggle:active .toggle-thumb, .toggle.is-pressed .toggle-thumb { filter: drop-shadow(0 0.5px 1px rgba(10,16,28,0.4)) brightness(0.96); }
 .toggle-slot:has(.toggle-input:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .toggle-slot:has(.toggle-input:checked:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
-@media (prefers-reduced-motion: reduce) { .toggle-slab { transition: none; } .toggle-slot { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .toggle-thumb { transition: none; } .toggle-slot { transition: none; } }
 `,
   render: toggle,
   examples: [
@@ -1008,14 +1131,14 @@ component({
   styles: `
 /* A slider: a hairline track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
    unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. */
-.slider { --thumb: 26px; display: grid; gap: var(--gap-words-control); }
+.slider { --thumb: 30px; display: grid; gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
 .slider-head > label { font: var(--type-label); color: var(--ink-2); }
 .slider-head > output { font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
 .slider-track { position: relative; height: var(--thumb); }
-.slider-line, .slider-fill { position: absolute; top: calc(50% - 1px); height: 2px; left: calc(var(--thumb) / 2); pointer-events: none; }
+.slider-line, .slider-fill { position: absolute; top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); pointer-events: none; }
 .slider-line { right: calc(var(--thumb) / 2); background: var(--line); }
-.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 4px; top: calc(50% - 2px); background: linear-gradient(90deg, #E9820C, var(--run)); }
+.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: linear-gradient(90deg, #E9820C, var(--run)); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }

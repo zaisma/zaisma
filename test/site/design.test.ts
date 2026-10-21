@@ -222,7 +222,9 @@ describe("the gallery", () => {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
         // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"')) continue;
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.attributes.includes(' role="listbox"')) continue;
+        // A compact choice list's cards are its own inside, down its carved well like a vertical switch's places.
+        if (holder.classes.includes("choice-list-in")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
@@ -399,7 +401,9 @@ const HAND_CUT = new Set<string>([
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
-  ".text-line", ".list-row-line", ".step-mark",
+  ".text-line", ".step-mark",
+  // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
+  ".presence-line", ".presence-play",
 ]);
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
@@ -442,7 +446,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
-  ['class="sheet glass"', "a sheet"],
+  ['class="sheet glass', "a sheet"],
+  ['class="select-list glass', "a select field's list"],
   ['class="notice glass', "a notice"],
   ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
@@ -469,7 +474,9 @@ const NOT_TYPE = new Set<string>([
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size", ".me | font",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
-  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".field.select select | font",
+  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  // The +N at the back of a row of pictures, sized to the pictures.
+  ".frame.more | font",
 ]);
 
 const NOT_SPACING = new Set<string>([
@@ -481,8 +488,9 @@ const NOT_SPACING = new Set<string>([
   ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
   ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".top > .logo | margin-left", ".me | gap",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
-  ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".field.select select | padding",
-  ".field.select.no-icon select | padding-left", ".choice-card | padding", ".list-row | padding",
+  ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
+  ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
+  ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
