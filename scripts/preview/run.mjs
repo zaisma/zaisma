@@ -683,10 +683,12 @@ async function seed() {
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
 async function seedEngineSamples(api, upload) {
-  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
+  const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
   const samples = [];
   for (const engine of engines) {
+    // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.
+    spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
     const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
     let version = null;

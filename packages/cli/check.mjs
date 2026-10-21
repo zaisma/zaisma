@@ -77,13 +77,18 @@ const lineAround = (text, index) => {
 
 /**
  * Engine and library output: Unity's framework and loader, a .js beside a .wasm of the same name (Godot,
- * Emscripten) and minified libraries. Their code mentions dialogs, cameras and the like without the game
+ * Emscripten), wasm-bindgen's glue (Bevy, Trunk) beside its _bg.wasm, macroquad's and miniquad's loader
+ * beside a .wasm, and minified libraries. Their code mentions dialogs, cameras and the like without the game
  * using them, so the behaviour checks skip them.
  */
 export function isEngineOutput(path, lowercasePaths) {
   const lowercasePath = path.toLowerCase();
   if (/\.(framework|loader)\.js$/.test(lowercasePath) || /\.min\.m?js$/.test(lowercasePath)) return true;
-  return /\.m?js$/.test(lowercasePath) && lowercasePaths.has(lowercasePath.replace(/\.m?js$/, ".wasm"));
+  if (!/\.m?js$/.test(lowercasePath)) return false;
+  if (lowercasePaths.has(lowercasePath.replace(/\.m?js$/, ".wasm"))) return true;
+  if (lowercasePaths.has(lowercasePath.replace(/\.m?js$/, "_bg.wasm"))) return true;
+  const folder = lowercasePath.slice(0, lowercasePath.lastIndexOf("/") + 1);
+  return /(^|\/)(mq_js_bundle|gl)\.js$/.test(lowercasePath) && [...lowercasePaths].some((other) => other.startsWith(folder) && !other.slice(folder.length).includes("/") && other.endsWith(".wasm"));
 }
 
 /** The text with JavaScript comments blanked to spaces (line breaks kept), so indexes into it are the original's. */
@@ -293,7 +298,7 @@ function dialogOf(code) {
   }
   return null;
 }
-const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i];
+const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i, /\b__wbindgen_thread_destroy\b/, /\binitThreadPool\b/];
 
 /**
  * Checks a game's files: [{ path, sizeBytes, contentText }], contentText a string for the checked text files
@@ -358,7 +363,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
   if (files.length > UPLOAD_LIMITS.maximumFileCount) add("too_many_files", { message: `The game has ${files.length} files; the limit is 20,000.`, fix: "Leave out files the game doesn't load, or pack small ones together (like sprites into an atlas)." });
   if (sizeBytes > UPLOAD_LIMITS.maximumGameSizeBytes) add("game_too_big", { message: `The game is ${(sizeBytes / 1024 ** 3).toFixed(1)} GB; the limit is 2 GB.`, fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more." });
 
-  const threadsFix = "Export without threads: in Godot 4.3 or newer, turn Thread Support off in the Web export preset (Godot 4.0 to 4.2 always use threads, so update); in Unity, leave Native C/C++ Multithreading off in Player Settings, the default. Games on Zaisma can't have SharedArrayBuffer.";
+  const threadsFix = "Export without threads: in Godot 4.3 or newer, turn Thread Support off in the Web export preset (Godot 4.0 to 4.2 always use threads, so update); in Unity, leave Native C/C++ Multithreading off in Player Settings, the default; in Rust, build without the `atomics` target feature (the default) and without wasm-bindgen-rayon. Games on Zaisma can't have SharedArrayBuffer.";
   let hasThreadsProblem = false;
   const addThreads = (message, quote, path) => {
     if (!hasThreadsProblem) add("needs_threads", { message, quote, path, fix: threadsFix });
