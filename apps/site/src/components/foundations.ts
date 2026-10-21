@@ -153,6 +153,7 @@ export const TOKEN_STYLES = `
   --gap-block-block: 24px;
   --pad-pane: 24px;
   --pad-inner-pane: 12px;
+  --pad-tray: 16px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
   --type-title: 600 40px/1.04 var(--display);
   --type-heading: 600 30px/1.1 var(--display);
@@ -312,11 +313,12 @@ export function glassPane(options: GlassPaneOptions): Raw {
  * A tray: a thinner, clearer sheet of glass that a pane extends into, holding a whole area under it, so what's in the area reads as one
  * with its head (the gallery's sections: a head of words, then every example on the tray). The head's bottom corners and the tray's top
  * ones are square where they meet, and the tray has no rim along its top: it runs straight on from the pane (data-glass-open). It's the
- * same glass, light or smoked, only thinner: a clearer tint and a fainter rim, its bevel as wide. What sits on a tray keeps its own
- * edges: the edge rule treats it as on no pane (data-glass-tray).
+ * same glass, light or smoked, only thinner: a clearer tint and a fainter rim, its bevel as wide. What sits on a tray fits it like
+ * anything on a pane: square under its square top, cut at an even gap into its cut foot.
+ * Its padding (--pad-tray) is closer than a pane's and its foot's cuts smaller (16 and 12), still clear of what sits in its corners.
  */
 export function tray(options: { head: Raw; body: Raw; label?: string }): Raw {
-  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="24 20 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-tray data-glass-open="top" data-glass-corners="0 0 24 20">${EDGE}${options.body}</div></section>`;
+  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="24 20 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
 }
 
 /** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */
@@ -497,8 +499,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
-  // A tray (data-glass-tray) is a backing, not a pane: what sits on it keeps the edges it would have on no pane.
-  function holderOf(el) { return el.parentElement && el.parentElement.closest("[data-glass]:not([data-glass-tray]), [data-cut-line]"); }
+  // What holds a control: the nearest pane, tray or control round it. data-on-no-pane stops the search (a gallery example's stage:
+  // what's shown in it is shown on no pane, even when the stage sits on a tray).
+  function holderOf(el) { var found = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line], [data-on-no-pane]"); return found && !found.hasAttribute("data-on-no-pane") ? found : null; }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
@@ -630,7 +633,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     };
     if (window.ResizeObserver) {
       var watch = new ResizeObserver(draw); watch.observe(el);
-      var holder = el.parentElement && el.parentElement.closest("[data-glass]:not([data-glass-tray])"); if (holder) watch.observe(holder);
+      var holder = el.parentElement && el.parentElement.closest("[data-glass], [data-on-no-pane]"); if (holder && holder.hasAttribute("data-glass")) watch.observe(holder);
     }
     window.addEventListener("resize", draw);
     // Where it sits can change without its size changing: once the fonts are in, the layout has settled.

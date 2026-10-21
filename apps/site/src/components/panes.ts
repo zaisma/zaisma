@@ -271,8 +271,8 @@ component({
    tint (--glass-tray), less blur, the colours behind it less lifted, and a fainter rim, its bevel as wide. */
 .tray-group { display: flex; flex-direction: column; }
 .tray-head { padding: var(--pad-pane); }
-/* Thinner glass, closer padding: a tray sits its pieces nearer its edge than a pane does (--pad-inner-pane, not --pad-pane). */
-.tray { --glass-tint: var(--glass-tray); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-inner-pane); }
+/* Thinner glass, closer padding: a tray sits its pieces nearer its edge than a pane does (--pad-tray, not --pad-pane), still clear of its cut foot. */
+.tray { --glass-tint: var(--glass-tray); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-tray); }
 .tray > .edge { opacity: 0.45; }
 .tray-sample-title { margin: 0; font: var(--type-section); }
 .tray-sample-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--gap-block-block); }

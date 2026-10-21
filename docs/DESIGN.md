@@ -77,6 +77,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
 | `--pad-pane` | A pane's edge and what's inside it; also the page's edge | 24px, 18px on a phone |
 | `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a dropdown), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
+| `--pad-tray` | A tray's edge and what's on it: closer than a pane's, still clear of its cut foot | 16px |
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
 - **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
@@ -127,7 +128,7 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Zaisma's logo is the Logo** (`logo`, `foundations.ts`): the wordmark at the top of a page, the mark in the footer, always a link home.
 - **Waiting is the Loader** (`loader`): the Z building itself (`brand/loader/`). Every button shows it in place of its icon or arrow once it's pressed and waiting (`isBusy`, and `BUSY_SCRIPT` for a form sent or a page opening), and can't be pressed twice.
-- **What belongs to a pane sits on its Tray** (`tray`): the same glass as the pane, only thinner and muted (a clearer tint, less blur, a fainter rim with the same bevel, and `--pad-inner-pane` instead of `--pad-pane`), so the pane stands out and the tray stays in the background. It runs on from the pane with no rim along its top (`data-glass-open="top"`). Every gallery section is one. What's on a tray keeps the edges it would have on no pane.
+- **What belongs to a pane sits on its Tray** (`tray`): the same glass as the pane, only thinner and muted (a clearer tint, less blur, a fainter rim with the same bevel, smaller cuts at its foot, and `--pad-tray` instead of `--pad-pane`), so the pane stands out and the tray stays in the background. It runs on from the pane with no rim along its top (`data-glass-open="top"`). Every gallery section is one. What's on a tray fits it like anything on a pane: square under its square top, cut at an even gap into its cut foot. A gallery example's stage (`data-on-no-pane`) shows what's in it on no pane, though the stage sits on a tray.
 - **A switch that scrolls is a framed Switch** (`isFramed`), which draws its own carved frame: the header's tabs, the gallery's groups on a phone. Its tabs can fold away (`isFoldable`), as the header's Developer and Forum do off a developer page.
 - **Online is the Picture frame's** (`isOnline`); **you, signed in, are the Account button.**
 

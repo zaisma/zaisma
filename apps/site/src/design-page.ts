@@ -27,7 +27,7 @@ export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "
 const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
 
 function examples(each: Component): Raw {
-  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage"${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-name">${example.label}</figcaption></figure>`)}</div>`;
+  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage" data-on-no-pane${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-name">${example.label}</figcaption></figure>`)}</div>`;
 }
 
 function section(each: Component, theme: GalleryTheme): Raw {
