@@ -178,9 +178,14 @@ const PANE_STYLES = `
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). */
 .glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); }
+/* With its rail, the pane keeps room for it along its right edge, so the rail never sits against what's in it. */
+.glass-pane > .pane-in.own-scroll { padding-right: calc(var(--pad-pane) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
-.glass-pane h2 { margin: 0; font: var(--type-heading); text-wrap: balance; }
+/* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
+.glass-pane > .pane-in form, .glass-pane .pane-stack { display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
+.glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }
 `;
 
@@ -614,7 +619,7 @@ export function stepFlow(options: StepFlowOptions): Raw {
  */
 export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
   var LEAVE_MS = 450;
-  document.querySelectorAll("form[data-steps]").forEach(function (form) {
+  window.zaismaWatch.each("form[data-steps]", function (form) {
     var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
     var back = form.querySelector("[data-step-buttons] > .cut-btn"), next = form.querySelector("[data-step-buttons] > .run-wrap"), words = next.querySelector(".run > span:not([class])");
     var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");

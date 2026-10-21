@@ -2,7 +2,8 @@
 // Plays each engine sample (test/engines/<engine>/build) on this checkout's running preview, in headless
 // Chrome, and checks it got there unchanged and works: the upload command sent it, the scan passed it on
 // its own (scripts/preview/run.mjs seeds them with no hand approval), and on its game page the engine
-// starts, draws moving frames, and throws nothing and is refused nothing (no blocked file or address).
+// starts, draws moving frames, and throws nothing and is refused nothing (no blocked file or address); Zaisma's own run
+// in Chrome found it starting, and the files its page preloads are the ones the game then uses.
 //
 //   npm run engines:play                    against this checkout's preview (npm run preview:start first)
 //   CHROME_PATH=/path/to/chrome npm run engines:play
@@ -37,6 +38,13 @@ for (const engine of engines) {
   if (!sample) fail(`${engine}: not in the preview's test data. Start it with fresh test data: npm run preview:start -- --reset.`);
   else if (sample.upload_exit_code !== 0) fail(`${engine}: the upload command exited with ${sample.upload_exit_code} (3 held, 4 rejected).`);
   else if (sample.scan_status !== "approved") fail(`${engine}: the scan left it ${sample.scan_status}: ${JSON.stringify(sample.findings)}`);
+  // Zaisma's own run in Chrome (apps/site/src/performance-check.ts) started it too, and found it working.
+  else if (sample.performance_check?.check_status !== "checked") fail(`${engine}: its run in Chrome is ${sample.performance_check?.check_status ?? "missing"}, not checked.`);
+  else {
+    const { loading_duration_sec: loadingDurationSec, notes } = sample.performance_check;
+    if (loadingDurationSec === null) fail(`${engine}: its run in Chrome saw no first frame.`);
+    for (const note of notes.filter((note) => ["error_at_start", "missing_file_at_start", "no_frame_drawn"].includes(note.code))) fail(`${engine}: its run in Chrome says ${note.code}: ${note.message}`);
+  }
 }
 
 const chrome = await openChrome();
@@ -66,6 +74,11 @@ async function play(chrome, sample) {
     if (method === "Runtime.consoleAPICalled" && params.type === "error") problems.push(`console.error: ${params.args.map((arg) => arg.value ?? arg.description ?? "").join(" ")}`.split("\n")[0]);
     // Refusals: a file or address the security policy blocked, a file that wasn't there.
     if (method === "Log.entryAdded" && params.entry.level === "error") problems.push(`${params.entry.source}: ${params.entry.text}${params.entry.url ? ` (${params.entry.url})` : ""}`);
+    // A preload its page sent that the game's own request didn't use (First files preloaded) downloads twice.
+    const unusedPreload = /preloaded using link preload but not used|preload for .* is found, but is not used/i;
+    if ((method === "Log.entryAdded" && unusedPreload.test(params.entry.text)) || (method === "Runtime.consoleAPICalled" && params.type === "warning" && unusedPreload.test(params.args.map((arg) => arg.value ?? "").join(" ")))) {
+      problems.push(`preload not used: ${method === "Log.entryAdded" ? params.entry.text : params.args.map((arg) => arg.value ?? "").join(" ")}`.split("\n")[0]);
+    }
   });
   try {
     await send("Runtime.enable");
@@ -93,6 +106,8 @@ async function play(chrome, sample) {
       await wait(1000);
       const second = await screenshot(send);
       if (first === second) fail(`${sample.engine}: the game didn't draw anything new in a second.`);
+      // Chrome says a preload wasn't used a few seconds after the page loaded.
+      await wait(3000);
     }
     for (const problem of new Set(problems)) fail(`${sample.engine}: ${problem}`);
   } finally {

@@ -140,10 +140,7 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
   var GAP_PX = 6;
-  // Every select field on the page, and any a page script puts in later (the game page's rooms list, as it refreshes).
-  function setUp(root) {
-    if (root.isSelectReady) return;
-    root.isSelectReady = true;
+  window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field");
     if (!list.hasAttribute("popover")) return;
     var options = Array.prototype.slice.call(list.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
@@ -188,9 +185,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       var hit = options.findIndex(function (o) { return o.textContent.toLowerCase().indexOf(typed) === 0; });
       if (hit >= 0) setActive(hit);
     });
-  }
-  document.querySelectorAll("[data-select]").forEach(setUp);
-  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll("[data-select]").forEach(setUp); }); }); });
+  });
 })();
 `;
 
@@ -260,6 +255,8 @@ export interface CheckFieldOptions {
   isChecked?: boolean;
   /** A line under its label, saying what it changes. */
   hint?: string;
+  /** What it sends when ticked. Defaults to "yes"; one of several boxes with the same name sends its own (a game's slug). */
+  checkValue?: string;
   /** Unique on the page. Defaults to check-<name>. */
   id?: string;
   state?: PressState;
@@ -268,7 +265,7 @@ export interface CheckFieldOptions {
 /** A check field: a box to tick, for a yes or no that's sent with its form (I agree, Email me replies). On a page that saves at once, use a Toggle. */
 export function checkField(options: CheckFieldOptions): Raw {
   const id = options.id ?? `check-${options.name}`;
-  return html`<label class="check${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="yes"${options.isChecked ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label">${options.label}</span>${options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+  return html`<label class="check${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="${options.checkValue ?? "yes"}"${options.isChecked ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label">${options.label}</span>${options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
 }
 
 /** What you press that holds a value: its states, still, then one to try and one on a loop. */

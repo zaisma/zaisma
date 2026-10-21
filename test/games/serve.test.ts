@@ -22,7 +22,7 @@ async function addGame(slug: string, status: string, withVersion = true) {
 
 describe("game server", () => {
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM performance_checks; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
   afterAll(async () => {
     await env.DB.exec("DELETE FROM tester_links;");
@@ -401,6 +401,129 @@ describe("game server", () => {
       expect(res.headers.get("etag")).toMatch(/^W\/"/);
       expect(res.headers.get("content-encoding")).toBeNull();
     });
+  });
+
+  describe("each version's own address, so returning players skip file checks", () => {
+    const enc = (text: string) => new TextEncoder().encode(text);
+    const IMMUTABLE = "public, max-age=31536000, immutable";
+
+    /** A file-by-file version of a game: approved, and published when isPublished. */
+    async function addFilesVersion(gameId: string, versionId: string, files: Record<string, string>, isPublished: boolean) {
+      const manifest: Record<string, { sha256: string }> = {};
+      for (const [path, text] of Object.entries(files)) {
+        const sha = await sha256Hex(enc(text));
+        await env.GAMES.put(blobKey(sha), text);
+        manifest[path] = { sha256: sha };
+      }
+      await env.GAMES.put(manifestKey(versionId), JSON.stringify({ files: manifest }));
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 'files', ?, 0)")
+        .bind(versionId, gameId, `manifests/${versionId}`, isPublished ? 1 : null)
+        .run();
+    }
+
+    it("opens pages at their version's address, keeping the query, and keeps what they load for good", async () => {
+      const id = await addGame("kept", "live", false);
+      await addFilesVersion(id, "vkept1", { "index.html": "<!doctype html><head></head><p>one</p>", "Build/game.wasm": "wasm one" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vkept1' WHERE id = ?").bind(id).run();
+
+      const opened = await SELF.fetch(`${G}/kept/?room=ABC234`, { redirect: "manual" });
+      expect(opened.status).toBe(302);
+      expect(opened.headers.get("location")).toBe("/kept/_zaisma/versions/vkept1/?room=ABC234");
+      expect(opened.headers.get("cache-control")).toBe("no-store");
+      expect((await SELF.fetch(`${G}/kept/menu.html`, { redirect: "manual" })).headers.get("location")).toBe("/kept/_zaisma/versions/vkept1/menu.html");
+
+      const page = await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/`);
+      expect(page.headers.get("cache-control")).toBe("no-cache");
+      const text = await page.text();
+      expect(text).toContain("<p>one</p>");
+      expect(text).toContain('src="/kept/_zaisma/relay.js');
+
+      const file = await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/Build/game.wasm`);
+      expect(file.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect(await file.text()).toBe("wasm one");
+      // At the game's own address (a file named by its full path), it's checked each time as before.
+      expect((await SELF.fetch(`${G}/kept/Build/game.wasm`)).headers.get("cache-control")).toBe("no-cache");
+      // The SDK, named by a relative path from a page at the version's address.
+      expect((await SELF.fetch(`${G}/kept/_zaisma/versions/vkept1/_zaisma/v1.js`)).status).toBe(200);
+    });
+
+    it("sends an earlier version's page back to the live one, keeps its released files, and applies a takedown at once", async () => {
+      const id = await addGame("updated", "live", false);
+      await addFilesVersion(id, "vupdated1", { "index.html": "<!doctype html><p>one</p>", "level.json": "one" }, true);
+      await addFilesVersion(id, "vupdated2", { "index.html": "<!doctype html><p>two</p>", "level.json": "two" }, true);
+      await addFilesVersion(id, "vupdated3", { "index.html": "<!doctype html><p>three</p>", "level.json": "three" }, false);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vupdated2' WHERE id = ?").bind(id).run();
+
+      // A reload after the update: the old page goes back to the game's address, which opens the new version.
+      const reloaded = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated1/?room=ABC234`, { redirect: "manual" });
+      expect(reloaded.status).toBe(302);
+      expect(reloaded.headers.get("location")).toBe("/updated/?room=ABC234");
+      // A game still running the released version 1 finishes loading its own files.
+      const earlier = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated1/level.json`);
+      expect(earlier.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect(await earlier.text()).toBe("one");
+      // A version never released isn't opened through the public address.
+      const unreleased = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated3/level.json`, { redirect: "manual" });
+      expect(unreleased.status).toBe(302);
+      expect(unreleased.headers.get("location")).toBe("/updated/level.json");
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/nothing/level.json`, { redirect: "manual" })).headers.get("location")).toBe("/updated/level.json");
+
+      await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/level.json`)).status).toBe(410);
+      expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/`)).status).toBe(410);
+    });
+
+    it("keeps a zip version's files for good at its address", async () => {
+      await addGame("zipped", "live");
+      expect((await SELF.fetch(`${G}/zipped/`, { redirect: "manual" })).headers.get("location")).toBe("/zipped/_zaisma/versions/vgzipped/");
+      const file = await SELF.fetch(`${G}/zipped/_zaisma/versions/vgzipped/sfx/beep.mp3`);
+      expect(file.status).toBe(200);
+      expect(file.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect((await SELF.fetch(`${G}/zipped/sfx/beep.mp3`)).headers.get("cache-control")).toBe("public, max-age=60");
+    });
+  });
+
+  it("preloads the files its run in Chrome needed first, besides the ones the page names, up to 20", async () => {
+    await addGame("live-one", "live");
+    await env.GAMES.put("games/gliveone/vgliveone/index.html", '<!doctype html><script src="Build/loader.js"></script><p>game</p>');
+    const before = await SELF.fetch(`${G}/live-one/`);
+    expect(before.headers.get("link")).toBeNull();
+    const startFiles = [
+      { path: "Build/loader.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 30_000 },
+      { path: "Build/framework.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 600_000 },
+      { path: "Build/game data.data", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 9_000_000 },
+      ...Array.from({ length: 25 }, (_, i) => ({ path: `chunks/${i}.js`, destination: "script", is_cors_request: true, downloaded_size_bytes: 1000 })),
+    ];
+    await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vgliveone', 'owner', 'checked', ?, 0)").bind(JSON.stringify(startFiles)).run();
+    const after = await SELF.fetch(`${G}/live-one/`);
+    const links = after.headers.get("link")!.split(", ");
+    // The loader the page names itself is found by the browser on its own.
+    expect(links.slice(0, 2)).toEqual(["</live-one/_zaisma/versions/vgliveone/Build/framework.js>; rel=preload; as=script", "</live-one/_zaisma/versions/vgliveone/Build/game%20data.data>; rel=preload; as=fetch; crossorigin"]);
+    expect(links).toHaveLength(20);
+    expect(links[2]).toBe("</live-one/_zaisma/versions/vgliveone/chunks/0.js>; rel=preload; as=script; crossorigin");
+    // A page cached before the run gets fetched again.
+    expect(after.headers.get("etag")).not.toBe(before.headers.get("etag"));
+    expect((await SELF.fetch(`${G}/live-one/_zaisma/versions/vgliveone/`, { headers: { "if-none-match": after.headers.get("etag")! } })).status).toBe(304);
+  });
+
+  it("warms up the live version's first files, up to 100 MB, only on the game's public address", async () => {
+    const id = await addGame("live-one", "live");
+    const startFiles = [
+      { path: "Build/framework.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 600_000 },
+      { path: "Build/game.data", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 90 * 1024 * 1024 },
+      { path: "Build/game.wasm", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 20 * 1024 * 1024 },
+    ];
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual([]);
+    await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vgliveone', 'owner', 'checked', ?, 0)").bind(JSON.stringify(startFiles)).run();
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).json()).toEqual(["/live-one/_zaisma/versions/vgliveone/Build/framework.js", "/live-one/_zaisma/versions/vgliveone/Build/game.data"]);
+    const page = await SELF.fetch(`${G}/live-one/_zaisma/warm`);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain('src="warm.js?v=1"');
+    expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.js`)).text()).toContain('fetch("warm.json"');
+    // Tester and preview addresses, and accounts-only games, need a cookie before Play: no warm-up.
+    expect((await SELF.fetch(`${G}/live-one--tester/_zaisma/warm.json`)).status).toBe(404);
+    await env.DB.prepare("UPDATE games SET account_requirement = 'whole_game' WHERE id = ?").bind(id).run();
+    expect((await SELF.fetch(`${G}/live-one/_zaisma/warm.json`)).status).toBe(404);
   });
 
   it("only allows reading", async () => {

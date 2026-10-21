@@ -161,6 +161,20 @@ describe("checkUrl", () => {
     const result = await checkUrl("door", "https://x.test/", {}, privateAddressProblems, { ...options, isSecurity: true, isRetriedOnProblem: false });
     expect(result.isPass).toBe(true);
   });
+  it("follows a redirect on the same origin only when asked, and never to another origin", async () => {
+    const fetchStub = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "https://x.test/") return answer(302, { location: "/_zaisma/versions/v1/" });
+      if (url === "https://x.test/away") return answer(302, { location: "https://elsewhere.test/" });
+      return answer(200);
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    const isOk = (response: Response) => (response.status === 200 ? [] : [`answered ${response.status}`]);
+    expect(await checkUrl("page", "https://x.test/", {}, isOk, { ...options, isSecurity: true, isRetriedOnProblem: false })).toMatchObject({ isPass: false, note: "page: answered 302" });
+    expect(await checkUrl("page", "https://x.test/", {}, isOk, { ...options, isSecurity: true, isSameOriginRedirectFollowed: true })).toMatchObject({ isPass: true });
+    expect(fetchStub).toHaveBeenLastCalledWith("https://x.test/_zaisma/versions/v1/", expect.anything());
+    expect(await checkUrl("away", "https://x.test/away", {}, isOk, { ...options, isSecurity: true, isRetriedOnProblem: false, isSameOriginRedirectFollowed: true })).toMatchObject({ isPass: false, note: "away: answered 302" });
+  });
   it("retries a header problem that clears", async () => {
     const withoutHsts = siteHeaders();
     withoutHsts.delete("strict-transport-security");
@@ -183,6 +197,8 @@ describe("checkSecurityAddresses", () => {
         return answer(404);
       }
       if (url.endsWith("/admin") || url.endsWith("/admin/mcp")) return answer(302, { location: `${ACCESS_LOGIN_PREFIX}zaisma.com` });
+      // A game's page opens at its version's own address.
+      if (url === "https://arena.zaismausercontent.com/") return answer(302, { location: "/_zaisma/versions/version_1/", "cache-control": "no-store" });
       if (url.includes("zaismausercontent.com")) return new Response("game", { headers: gameHeaders() });
       return new Response("page", { headers: siteHeaders({ "content-security-policy": url.includes("/g/") ? GAME_PAGE_POLICY : SITE_POLICY }) });
     });
