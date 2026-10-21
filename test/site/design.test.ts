@@ -344,6 +344,36 @@ describe("components", () => {
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
   });
 
+  it("keep a delete quiet until its confirm step, whose button is the one red and no runner", () => {
+    const markup = actions.deleteButton("Delete this game", { action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", confirmText: "It's gone for good." }).html;
+    expect(markup).toContain('<form class="sheet-form" method="post" action="/dashboard/games/ashen-crown/delete">');
+    const confirmForm = markup.slice(markup.indexOf('<form class="sheet-form"'), markup.indexOf("</form>", markup.indexOf('<form class="sheet-form"')));
+    expect(confirmForm).toMatch(/<span class="face danger cut-raised"/);
+    expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
+    // Cancel closes the sheet without sending the delete.
+    expect(confirmForm).toContain('formmethod="dialog" formnovalidate');
+    // The button that opens it is a cut button, never orange, and names its sheet.
+    const opener = markup.slice(markup.indexOf("</dialog>"));
+    expect(opener).toContain('class="shell cut-btn" type="button" aria-controls="delete-dashboard-games-ashen-crown-delete"');
+    expect(opener).not.toMatch(/\brun\b|danger/);
+  });
+
+  it("make a toggle a checkbox that posts with its form, with no script", () => {
+    const markup = inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: true }).html;
+    expect(markup).toContain('<input class="toggle-input" type="checkbox" role="switch" id="toggle-cloud_saves" name="cloud_saves" value="on" checked>');
+    expect(inputs.toggle({ name: "cloud_saves", label: "Cloud saves", isOn: false }).html).not.toContain(" checked");
+  });
+
+  it("announce a problem notice as an alert and a done one as a status", () => {
+    expect(panes.notice({ text: "Couldn't save", tone: "problem" }).html).toContain('role="alert"');
+    expect(panes.notice({ text: "Saved", tone: "done" }).html).toContain('role="status"');
+  });
+
+  it("count a long field's characters only from 80% of its limit", () => {
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(79) }).html).toContain('<p class="long-count" id="field-patch_notes-count" hidden>79 of 100</p>');
+    expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count" id="field-patch_notes-count">80 of 100</p>');
+  });
+
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
@@ -368,6 +398,8 @@ const HAND_CUT = new Set<string>([
   ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
   ".tag", ".cover-bar",
+  // The same line under a text button's words, along a list row's foot and across a step flow's top.
+  ".text-line", ".list-row-line", ".step-mark",
 ]);
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
@@ -410,6 +442,9 @@ const OWN_GLASS = new Map<string, string>([
   ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
+  ['class="sheet glass"', "a sheet"],
+  ['class="notice glass', "a notice"],
+  ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
@@ -433,7 +468,9 @@ const NOT_TYPE = new Set<string>([
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size", ".me | font",
   // A picture's initials, sized to the picture.
-  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ]);
+  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
+  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".field.select select | font",
+]);
 
 const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
@@ -444,6 +481,8 @@ const NOT_SPACING = new Set<string>([
   ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
   ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".top > .logo | margin-left", ".me | gap",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
+  ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".field.select select | padding",
+  ".field.select.no-icon select | padding-left", ".choice-card | padding", ".list-row | padding",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
@@ -454,7 +493,9 @@ const NOT_SPACING = new Set<string>([
   // Room for the covers to lift into, given back round the row.
   ".track | padding", ".track | margin",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
-  ".rail-mark | margin-top", ".cover-bar | margin-top",
+  ".rail-mark | margin-top", ".cover-bar | margin-top", ".text-line | margin-top",
+  // Lines a box's or a card's icon up with the first line of its words.
+  ".check-words | padding-top", ".choice-card > .ico | margin-top",
   // A header example's stand-in page: room for the header over it, and to scroll the header compact.
   ".stand-in-page | padding", ".stand-in-page | padding-top",
 ]);

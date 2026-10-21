@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
-import { cutButton, runButton } from "./actions.ts";
-import { birthdayField, cutField } from "./inputs.ts";
+import { cutButton, iconButton, runButton } from "./actions.ts";
+import { birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -325,6 +325,268 @@ component({
     { label: "Players now", markup: html`<div class="cover-sample">${standInCovers(["hollow-tide"])}</div>` },
     { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
+  ],
+});
+
+export interface SheetOptions {
+  /** Unique on the page: the button that opens it names it (cutButton's controls). */
+  id: string;
+  title: string;
+  body: Raw;
+  /** What its close button says to a screen reader: "Close". */
+  closeLabel: string;
+  /** Open in place rather than over the page: the gallery's still copy. */
+  isShown?: boolean;
+}
+
+/** A sheet: a pane of glass over the dimmed page for a task that comes and goes (report a game, block someone), opened by a button that names it. */
+export function sheet(options: SheetOptions): Raw {
+  return sheetMarkup({ id: options.id, title: options.title, body: options.body, closeButton: iconButton({ label: options.closeLabel, icon: "close", type: "submit" }), isShown: options.isShown });
+}
+
+export interface ConfirmSheetOptions {
+  id: string;
+  /** The question: "Sign out everywhere?" */
+  title: string;
+  /** One sentence on what happens. */
+  text: string;
+  /** Where its action posts. */
+  action: string;
+  /** The action's words: "Sign out everywhere". */
+  confirmLabel: string;
+  isShown?: boolean;
+}
+
+/** A confirm sheet: one sentence, the action and Cancel, before something that's hard to take back. A delete's is Delete button's own, the only red one. */
+export function confirmSheet(options: ConfirmSheetOptions): Raw {
+  const body = html`<p class="sheet-text">${options.text}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${runButton(options.confirmLabel, { type: "submit" })}</div></form>`;
+  return sheet({ id: options.id, title: options.title, body, closeLabel: "Close", isShown: options.isShown });
+}
+
+/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press on the dimmed page round it closes it. Esc and its own buttons close it natively. */
+export const SHEET_SCRIPT = `/* sheets */(function () {
+  document.addEventListener("click", function (event) {
+    var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
+    var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
+    if (named && named.matches("dialog.sheet")) { event.preventDefault(); if (!named.open) named.showModal(); return; }
+    var open = event.target.matches && event.target.matches("dialog.sheet[open]") ? event.target : null;
+    if (!open || !event.detail) return;
+    var r = open.getBoundingClientRect();
+    if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) open.close();
+  });
+})();
+`;
+
+const SHEET_STYLES = `
+/* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
+   little as it opens, and drops away as it closes; nothing in it waits for that. Centred on a wide screen; on a phone it rises from the
+   foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
+.sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+  --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), overlay 0.35s allow-discrete, display 0.35s allow-discrete; }
+.sheet:modal { position: fixed; inset: 0; z-index: 40; }
+.sheet:not([open]) { opacity: 0; transform: translateY(12px) scale(0.985); }
+@starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
+.sheet::backdrop { background: rgba(6, 9, 14, 0.42); transition: opacity 0.25s, overlay 0.25s allow-discrete, display 0.25s allow-discrete; }
+@starting-style { .sheet[open]::backdrop { opacity: 0; } }
+/* In place (the gallery's still copy): a pane where it sits. */
+.sheet:not(:modal) { position: relative; inset: auto; z-index: auto; margin: 0; }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
+.sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
+.sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.sheet-close, .sheet-form { margin: 0; }
+.sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
+@media (max-width: 760px) {
+  .sheet:modal { width: calc(100% - 2 * var(--gap-control-stack)); max-height: calc(100dvh - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not([open]) { transform: translateY(32px); }
+  @starting-style { .sheet[open] { transform: translateY(32px); } }
+}
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet::backdrop { transition: var(--glass-transition); } }
+`;
+
+const reportBody = (idPrefix: string) =>
+  html`${choiceCards({ id: `${idPrefix}-reason`, name: "report_reason", label: "What's wrong", choices: [{ label: "It breaks a content rule", choiceValue: "content_rule", text: "Something in the game that the rules don't allow." }, { label: "It doesn't work", choiceValue: "broken", text: "It won't load, or it stops partway." }], pickedValue: "content_rule" })}${longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })}${runButton("Send report", { type: "button", isFullWidth: true })}`;
+
+component({
+  name: "Sheet",
+  slug: "sheet",
+  group: "panes",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it.",
+  styles: SHEET_STYLES,
+  render: sheet,
+  examples: [
+    { label: "Try it: from its button", markup: html`${cutButton("Report this game", { type: "button", controls: "example-sheet-try" })}${sheet({ id: "example-sheet-try", title: "Report Ashen Crown", body: reportBody("example-sheet-try"), closeLabel: "Close" })}` },
+    { label: "Open", markup: sheet({ id: "example-sheet-shown", title: "Report Ashen Crown", body: reportBody("example-sheet-shown"), closeLabel: "Close", isShown: true }), isWide: true, isStill: true },
+  ],
+});
+
+const SIGN_OUT_EVERYWHERE = { title: "Sign out everywhere?", text: "Every device signed in as you is signed out, this one too. Games keep your saves.", action: "#confirm-sheet", confirmLabel: "Sign out everywhere" } as const;
+
+component({
+  name: "Confirm sheet",
+  slug: "confirm-sheet",
+  group: "panes",
+  summary: "One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. A delete's confirm is Delete button's own, the only red one.",
+  styles: "",
+  render: confirmSheet,
+  examples: [
+    { label: "Try it: from its button", markup: html`${cutButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
+    { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
+  ],
+});
+
+export interface NoticeOptions {
+  text: string;
+  /** "done": something just went through (Saved), and it leaves by itself after 4 s. "problem": something didn't, and it stays until it's closed. */
+  tone: "done" | "problem";
+  /** Where it sits rather than floating under the header: the gallery's still copies. */
+  isInPlace?: boolean;
+}
+
+/** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
+export function notice(options: NoticeOptions): Raw {
+  const isProblem = options.tone === "problem";
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="18 14 18 14">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? iconButton({ label: "Close", icon: "close", type: "button" }) : ""}</div>`;
+}
+
+/** Notices: one that's done leaves after 4 s (it waits while you point at it); a problem leaves when its close button is pressed. Notices a page adds later are watched too. */
+export const NOTICE_SCRIPT = `/* notices */(function () {
+  var STAY_MS = 4000, LEAVE_MS = 300;
+  function leave(el) { if (el.classList.contains("is-leaving")) return; el.classList.add("is-leaving"); setTimeout(function () { el.remove(); }, LEAVE_MS); }
+  function wait(el) { clearTimeout(el.noticeTimer); el.noticeTimer = setTimeout(function () { leave(el); }, STAY_MS); }
+  function arrive(el) {
+    if (el.noticeArrived || el.classList.contains("in-place")) return; el.noticeArrived = true;
+    if (el.getAttribute("data-notice") !== "done") return;
+    wait(el);
+    el.addEventListener("pointerenter", function () { clearTimeout(el.noticeTimer); });
+    el.addEventListener("pointerleave", function () { wait(el); });
+  }
+  function find(root) { if (!root.querySelectorAll) return; if (root.matches("[data-notice]")) arrive(root); root.querySelectorAll("[data-notice]").forEach(arrive); }
+  find(document.body);
+  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(find); }); }).observe(document.body, { subtree: true, childList: true });
+  document.addEventListener("click", function (event) { var close = event.target.closest && event.target.closest("[data-notice] > .cut-btn"); if (close) leave(close.closest("[data-notice]")); });
+})();
+`;
+
+component({
+  name: "Notice",
+  slug: "notice",
+  group: "panes",
+  summary: "A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.",
+  styles: `
+/* A notice: a small slab of the header's glass floating just under the header, in the middle. It comes down a little as it arrives
+   and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked colour and a close button. */
+.notice { position: fixed; z-index: 30; top: var(--under-header, 96px); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
+  display: flex; align-items: center; gap: var(--gap-words-words); min-height: 52px; padding: var(--pad-inner-pane) var(--pad-tray); --glass-tint: var(--glass-top);
+  font: var(--type-words); color: var(--ink);
+  transition: var(--glass-transition), opacity 0.3s, transform 0.3s cubic-bezier(.2,.8,.2,1); }
+@starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
+.notice.is-leaving { opacity: 0; transform: translateY(-8px); }
+.notice.in-place { position: relative; top: auto; left: auto; right: auto; z-index: auto; margin: 0; }
+.notice > .ico { width: 20px; height: 20px; }
+.notice.done > .ico { color: var(--online); stroke-width: 2.4; }
+.notice.problem > .ico { color: var(--marked); }
+.notice.problem { padding-right: var(--pad-inner-pane); }
+.notice-text { min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .notice { transition: var(--glass-transition), opacity 0.3s; } }
+`,
+  render: notice,
+  examples: [
+    { label: "Done", markup: notice({ text: "Saved", tone: "done", isInPlace: true }) },
+    { label: "Done, longer", markup: notice({ text: "Version 14 is live", tone: "done", isInPlace: true }) },
+    { label: "A problem", markup: notice({ text: "Couldn't save: you're offline. Your changes are kept here.", tone: "problem", isInPlace: true }) },
+  ],
+});
+
+export interface BannerOptions {
+  text: string;
+  icon?: IconName;
+  /** At most one thing to do about it. */
+  action?: { label: string; href: string };
+}
+
+/** A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held version). One line and at most one button. */
+export function banner(options: BannerOptions): Raw {
+  return html`<div class="banner glass" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
+}
+
+component({
+  name: "Banner",
+  slug: "banner",
+  group: "panes",
+  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.",
+  styles: `
+/* A banner: a strip of the panes' glass, the width of the page's content, holding one line of words and at most one cut button at its
+   end, which fits the strip's corners. On a phone the button goes under the words. */
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-control); width: 100%; min-height: 60px; padding: var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-tray); font: var(--type-words); color: var(--ink); }
+.banner > .ico { color: var(--ink-2); }
+.banner-text { flex: 1 1 240px; min-width: 0; }
+.banner > .cut-btn { flex: none; }
+@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
+`,
+  render: banner,
+  examples: [
+    { label: "Playing as a guest", isWide: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device until you make an account.", icon: "person", action: { label: "Make an account", href: "#banner" } }) },
+    { label: "A held version", isWide: true, markup: banner({ text: "Version 14 is held: a person looks at it, usually within a day.", icon: "clock", action: { label: "See why", href: "#banner" } }) },
+    { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
+  ],
+});
+
+export interface StepFlowOptions {
+  steps: { label: string }[];
+  /** The step shown now, from 0. */
+  currentIndex: number;
+  /** The step's own words and fields. */
+  body: Raw;
+  /** Where Next posts the step. */
+  action: string;
+  /** Next's words; the last step's usually says what it does ("Turn it on"). */
+  nextLabel?: string;
+  /** The step before's address; left out on the first step, which has no Back. */
+  backHref?: string;
+}
+
+/** A step flow: a task in a few steps (protect your account, set up a game's sign-in), a pane with a step line across its top and Back and Next. */
+export function stepFlow(options: StepFlowOptions): Raw {
+  const stepLine = html`<ol class="step-line" aria-label="Steps">${options.steps.map((step, stepIndex) => {
+    const kind = stepIndex < options.currentIndex ? "is-done" : stepIndex === options.currentIndex ? "is-current" : "";
+    return html`<li${kind ? html` class="${kind}"` : ""}${stepIndex === options.currentIndex ? raw(' aria-current="step"') : ""}><span class="step-mark" aria-hidden="true"></span><span class="step-label">${step.label}</span></li>`;
+  })}</ol>`;
+  const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(options.nextLabel ?? "Next", { type: "submit" })}</div>`;
+  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body}${buttons}</form>` });
+}
+
+const PROTECT_STEPS = [{ label: "Your email" }, { label: "Check it" }, { label: "A passkey" }];
+
+component({
+  name: "Step flow",
+  slug: "step-flow",
+  group: "panes",
+  summary: "A task in a few steps, like protecting your account: a pane with a thin step line across its top, the steps done in orange and the one you're on in ink, and Back and Next.",
+  styles: `
+/* A step flow: a pane whose top is a row of thin lines, one per step: done ones orange, the one you're on in ink, the ones ahead faint,
+   each with its name under it (on a phone, only the one you're on). The step's words and fields come next, then Back and Next. */
+.step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
+.step-line > li { display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
+.step-mark { display: block; height: 3px; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.step-line > li.is-done { color: var(--ink-2); }
+.step-line > li.is-done > .step-mark { background: linear-gradient(90deg, #E9820C, var(--run)); }
+.step-line > li.is-current { color: var(--ink); }
+.step-line > li.is-current > .step-mark { background: var(--ink); }
+.step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+@media (max-width: 760px) { .step-line > li:not(.is-current) > .step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+`,
+  render: stepFlow,
+  examples: [
+    {
+      label: "The second step",
+      isWide: true,
+      markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 1, action: "#step-flow", backHref: "#step-flow", body: html`<h2>Check your email</h2><p>We sent a code to emma@example.com. It works for 10 minutes.</p>${cutField({ id: "example-step-code", name: "email_code", label: "Code", type: "text", icon: "mail", autocomplete: "one-time-code" })}` }),
+    },
+    {
+      label: "The first step: no Back",
+      markup: stepFlow({ steps: PROTECT_STEPS, currentIndex: 0, action: "#step-flow", body: html`<h2>Protect your account</h2>${cutField({ id: "example-step-email", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com" })}` }),
+    },
   ],
 });
 

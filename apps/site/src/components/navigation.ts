@@ -5,7 +5,7 @@ import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
-import { pictureFrame } from "./data.ts";
+import { listRows, pictureFrame } from "./data.ts";
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -548,3 +548,94 @@ component({
   ],
 });
 
+
+export interface SectionTabsOptions {
+  /** What the sections are, for a screen reader: "Game sections". */
+  label: string;
+  tabs: { label: string; href: string; isCurrent: boolean }[];
+}
+
+/** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
+export function sectionTabs(options: SectionTabsOptions): Raw {
+  return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, tabs: options.tabs })}</nav>`;
+}
+
+component({
+  name: "Section tabs",
+  slug: "section-tabs",
+  group: "navigation",
+  summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
+  styles: `
+/* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
+   they scroll sideways inside their frame, fading out over a side with more, starting on the one you're on. */
+.section-tabs { display: flex; min-width: 0; max-width: 100%; }
+.section-tabs > .switch-frame { flex: 0 1 auto; }
+`,
+  render: sectionTabs,
+  examples: [
+    { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Stats", "Settings"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
+    { label: "In a narrow column: they scroll", markup: html`<div style="width:min(300px,100%)">${sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) })}</div>` },
+  ],
+});
+
+export interface LoadMoreOptions {
+  /** The next page's address: the same page with the next cursor. */
+  href: string;
+  label: string;
+  /** The id of the list it adds to; the next page has a list of the same id, and its own Load more for the page after. */
+  listId: string;
+}
+
+/** Load more: a cut button under a long list that adds the next page to it in place. Without scripts it's a link to that page. */
+export function loadMore(options: LoadMoreOptions): Raw {
+  return html`<div class="load-more" data-load-more="${options.listId}">${cutButton(options.label, { href: options.href, isFullWidth: true })}</div>`;
+}
+
+/**
+ * Load more: pressing it fetches its page, adds what's in that page's list of the same id to this one, and puts that page's own
+ * Load more in its place (or none, at the end). It's busy while it waits; if the page doesn't come, it goes there instead.
+ */
+export const LOAD_MORE_SCRIPT = `/* load more */(function () {
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("[data-load-more] > a.shell[href]");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    var holder = link.parentElement, list = document.getElementById(holder.getAttribute("data-load-more"));
+    if (!list) return;
+    event.preventDefault();
+    if (link.getAttribute("aria-busy") === "true") return;
+    link.setAttribute("aria-busy", "true");
+    fetch(link.href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then(function (response) {
+      if (!response.ok) throw new Error(String(response.status));
+      return response.text();
+    }).then(function (text) {
+      var next = new DOMParser().parseFromString(text, "text/html"), more = next.getElementById(list.id);
+      if (!more) throw new Error("no list");
+      Array.prototype.slice.call(more.children).forEach(function (child) { list.appendChild(document.importNode(child, true)); });
+      var after = next.querySelector('[data-load-more="' + list.id + '"]');
+      if (after) holder.replaceWith(document.importNode(after, true)); else holder.remove();
+    }).catch(function () { location.href = link.href; });
+  });
+})();
+`;
+
+const LOADED_ROWS = [
+  { title: "Version 14", detail: "Live · 2 days ago", href: "#load-more" },
+  { title: "Version 13", detail: "Replaced · 5 days ago", href: "#load-more" },
+  { title: "Version 12", detail: "Replaced · last week", href: "#load-more" },
+];
+
+component({
+  name: "Load more",
+  slug: "load-more",
+  group: "navigation",
+  summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes. Without scripts it's a link to that page.",
+  styles: `
+/* Load more: a full-width cut button under its list, a block below it. */
+.load-more { display: flex; }
+`,
+  render: loadMore,
+  examples: [
+    { label: "Under a list: try it", isWide: true, markup: glassPane({ paneSize: "medium", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+  ],
+});

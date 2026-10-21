@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, glassPane, icon, loader, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colourPicker, glassPane, icon, loader, sheetMarkup, type ColourChoice, type IconName } from "./foundations.ts";
 
 /*
  * Actions, loudest to quietest: the runner button (the one coloured thing you press), the cut button beside it,
@@ -17,6 +17,10 @@ interface ButtonTarget {
   type?: "submit" | "button";
   name?: string;
   buttonValue?: string;
+  /** "dialog": it closes the sheet it's in instead of sending its form (a Cancel). */
+  formMethod?: "dialog";
+  /** Focused as its sheet opens: a confirm step's Cancel, so a stray Enter never confirms. */
+  isAutofocused?: boolean;
 }
 
 /** The gallery's fixed states, so they sit still side by side. */
@@ -26,7 +30,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
     ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 
@@ -125,6 +129,8 @@ export const BUSY_SCRIPT = `/* busy */(function () {
   // Checked once every handler has run, so a page script that handles the press itself (and prevents it) keeps it idle.
   function afterHandlers(event, then) { setTimeout(function () { if (!event.defaultPrevented) then(); }, 0); }
   document.addEventListener("submit", function (event) {
+    // Closing a sheet (a Cancel, its close button) sends nothing, so nothing waits.
+    if (event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
     var button = (event.submitter && event.submitter.closest(".shell")) || event.target.querySelector('.shell[type="submit"]');
     afterHandlers(event, function () { busy(button); });
   });
@@ -237,7 +243,7 @@ const COLUMN = "width:min(340px,100%)";
  * A button's states, still, side by side; then one to try, and one that points, presses and lets go on a loop
  * (the gallery's design-loops script plays it: data-state-loop names what it plays). Full-width buttons get a column.
  */
-const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "guest", isFullWidth = false) => {
+const stateExamples = (render: (state?: ButtonState) => Raw, loopKind: "runner" | "cut" | "glass" | "guest" | "text", isFullWidth = false) => {
   const sized = (markup: Raw) => (isFullWidth ? html`<div style="${COLUMN}">${markup}</div>` : markup);
   return [
     { label: "Rest", markup: sized(render()), isStill: true },
@@ -465,6 +471,153 @@ component({
     ...stateExamples((state) => guestButton("Continue as guest", { state }), "guest", true),
     { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
     { label: "Busy", markup: guestButton("Continue as guest", { isBusy: true }), isStill: true },
+  ],
+});
+
+export interface TextButtonOptions {
+  href?: string;
+  type?: "submit" | "button";
+  name?: string;
+  buttonValue?: string;
+  formMethod?: "dialog";
+  icon?: IconName;
+  isBusy?: boolean;
+  state?: ButtonState;
+}
+
+/** A text button: words alone, the quietest thing you press (Skip for now, Show all, Undo). The orange line draws in under them as you point. */
+export function textButton(label: string, options: TextButtonOptions = {}): Raw {
+  return html`${opening(classes("text-btn", options.state), options, options.isBusy)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
+}
+
+component({
+  name: "Text button",
+  slug: "text-button",
+  group: "actions",
+  summary: "The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.",
+  styles: `
+/* A text button: words only. Pointing at it draws the orange line in under its words from the left, a light running ahead along it,
+   the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press sinks the words a pixel.
+   The shell (the button) stays still; its face moves. */
+.text-btn { vertical-align: middle; }
+.text-btn:focus-visible { outline: none; }
+.text-btn > .face { display: inline-flex; flex-direction: column; align-items: stretch; padding: 12px 2px 6px; color: var(--ink-2); white-space: nowrap; transition: color 0.2s, transform 0.4s ${SPRING}; }
+.text-words { display: inline-flex; align-items: center; justify-content: center; gap: var(--gap-words-words); font: var(--type-label); }
+.text-line { position: relative; display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+.text-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.text-btn:hover > .face, .text-btn.is-pointed > .face, .text-btn:focus-visible > .face, .text-btn.is-focused > .face { color: var(--ink); }
+.text-btn:hover .text-line, .text-btn.is-pointed .text-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.text-btn:hover .text-line::after, .text-btn.is-pointed .text-line::after { animation: text-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes text-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.text-btn:active > .face, .text-btn.is-pressed > .face { color: var(--ink); transform: translateY(1px); transition-duration: 0.08s; }
+/* Keyboard focus: an outline round its words and line. */
+.text-btn:focus-visible > .face, .text-btn.is-focused > .face { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Waiting: the loader before its words. */
+.text-btn:not([aria-busy="true"]) .loader, .text-btn[aria-busy="true"] .text-words > .ico { display: none; }
+.text-btn[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .text-btn > .face, .text-line { transition: color 0.2s; } .text-line::after { animation: none !important; } }
+`,
+  render: textButton,
+  examples: [
+    ...stateExamples((state) => textButton("Skip for now", { type: "button", state }), "text"),
+    { label: "Busy", markup: textButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${textButton("Cancel", { type: "button" })}</div>` },
+  ],
+});
+
+export interface IconButtonOptions {
+  /** What it does, said by a screen reader (aria-label): "Close", "Copy the key". */
+  label: string;
+  icon: IconName;
+  href?: string;
+  type?: "submit" | "button";
+  /** The id of what it shows, hides or opens (aria-controls). */
+  controls?: string;
+  formMethod?: "dialog";
+  isBusy?: boolean;
+  state?: ButtonState;
+}
+
+/** An icon button: a small cut slab holding one line icon, for a sheet's close, a copy, a row's own action. Its label is what a screen reader says. */
+export function iconButton(options: IconButtonOptions): Raw {
+  return cutButton(options.label, { href: options.href, type: options.type, controls: options.controls, formMethod: options.formMethod, icon: options.icon, isBusy: options.isBusy, state: options.state, isLabelHidden: true, isSmall: true });
+}
+
+component({
+  name: "Icon button",
+  slug: "icon-button",
+  group: "actions",
+  summary: "One line icon on a small cut slab, where the icon says it all: Close on a sheet, Copy beside a key. Its label is what a screen reader says.",
+  styles: "",
+  render: iconButton,
+  examples: [
+    ...stateExamples((state) => iconButton({ label: "Close", icon: "close", type: "button", state }), "cut"),
+    { label: "Copy", markup: iconButton({ label: "Copy", icon: "copy", type: "button" }) },
+    { label: "Busy", markup: iconButton({ label: "Copy", icon: "copy", type: "button", isBusy: true }), isStill: true },
+  ],
+});
+
+export interface DeleteButtonOptions {
+  /** Where its confirm step posts. */
+  action: string;
+  /** The confirm's words: "Delete Ashen Crown". */
+  confirmLabel: string;
+  /** One sentence on what goes, said on the confirm step: "Its page, saves and stats are gone for good." */
+  confirmText: string;
+  /** Its confirm step's id, unique on the page. Made from action when left out. */
+  id?: string;
+  isFullWidth?: boolean;
+  state?: ButtonState;
+  /** Only its confirm step, open in place: the gallery's still copy. */
+  isConfirmShown?: boolean;
+}
+
+/** The red confirm: the runner's shape and edge light, in red, with no glint and no lean. Only a delete's confirm step has it. */
+const dangerButton = (label: string) =>
+  html`${opening("danger-wrap", { type: "submit" }, undefined)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span>${label}</span></span>${closing({})}`;
+
+/** A delete: a cut button with a trash icon, never orange, that opens its confirm step, a sheet with one sentence, Cancel, and the only red in Zaisma. */
+export function deleteButton(label: string, options: DeleteButtonOptions): Raw {
+  const id = options.id ?? `delete-${options.action.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+  const body = html`<p class="sheet-text">${options.confirmText}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${dangerButton(options.confirmLabel)}</div></form>`;
+  const sheet = sheetMarkup({ id, title: `${label}?`, body, closeButton: iconButton({ label: "Close", icon: "close", type: "submit" }), isShown: options.isConfirmShown });
+  return options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`;
+}
+
+const GAME_DELETE = { action: "#delete-button", confirmLabel: "Delete Ashen Crown", confirmText: "Its page, versions, saves and stats are gone for good. Players who have it open are sent home." } as const;
+
+component({
+  name: "Delete button",
+  slug: "delete-button",
+  group: "actions",
+  summary: "Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.",
+  styles: `
+/* A delete's confirm: the runner's shape, height and edge light, in red; no glint and no lean, since it's the moment to stop and read.
+   A press sinks it into the glass, its light turned round, like any raised control. The shell stays still; its face moves. */
+.danger-wrap { vertical-align: middle; }
+.danger-wrap:focus-visible { outline: none; }
+.danger { position: relative; overflow: hidden; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 44px; padding: 0 24px;
+  color: #fff; text-shadow: 0 1px 1px rgba(90,10,0,0.35); font: 600 16px var(--display); white-space: nowrap;
+  --face-colour: var(--danger); background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.24), rgba(255,255,255,0) 62%), linear-gradient(180deg, rgba(255,255,255,0.06), rgba(80,0,0,0.14)), var(--face-colour);
+  clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+.danger.cut-raised > .cut-line { --band-top: rgba(255,214,206,0.8); --band-left: rgba(255,196,186,0.5); --band-right: rgba(110,20,10,0.35); --band-bottom: rgba(96,14,4,0.55); }
+.danger > :not(.cut-line) { position: relative; z-index: 2; }
+.danger-wrap:hover > .danger, .danger-wrap.is-pointed > .danger { --face-colour: #E44A3B; }
+.danger-wrap:active > .danger, .danger-wrap.is-pressed > .danger { --face-colour: var(--danger-lo); box-shadow: inset 0 2px 5px rgba(60,0,0,0.35); transform: translateY(1px); transition-duration: 0.08s; }
+.danger-wrap:active > .danger > .cut-line, .danger-wrap.is-pressed > .danger > .cut-line { --band-top: rgba(96,14,4,0.5); --band-left: rgba(110,20,10,0.35); --band-right: rgba(255,196,186,0.4); --band-bottom: rgba(255,214,206,0.6); }
+.danger-wrap:focus-visible > .danger > .cut-line polygon, .danger-wrap.is-focused > .danger > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.danger-wrap[aria-busy="true"] { cursor: progress; }
+.danger-wrap:not([aria-busy="true"]) .loader { display: none; }
+[data-glass] .control-row > .danger-wrap > .danger { width: 100%; }
+@media (max-width: 760px) { .danger { padding: 0 20px; font-size: 15px; } }
+@media (prefers-reduced-motion: reduce) { .danger { transition: --face-colour 0.2s; } }
+`,
+  render: deleteButton,
+  examples: [
+    ...stateExamples((state) => deleteButton("Delete this game", { ...GAME_DELETE, id: `example-delete-${state ?? "rest"}`, state }), "cut").filter((example) => example.label !== "Try it" && example.label !== "On a loop"),
+    { label: "Try it: it opens its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-try" }) },
+    { label: "Its confirm step", markup: deleteButton("Delete this game", { ...GAME_DELETE, id: "example-delete-shown", isConfirmShown: true }), isWide: true, isStill: true },
   ],
 });
 

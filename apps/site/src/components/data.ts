@@ -1,7 +1,7 @@
 import { accountPicture, html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { textLink } from "./actions.ts";
-import { MINUTE_MS, ago, glassPane, icon, tag, type TagTone } from "./foundations.ts";
+import { cutButton, runButton, textLink } from "./actions.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type TagTone } from "./foundations.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -128,19 +128,22 @@ component({
   name: "Tag",
   slug: "tag",
   group: "data",
-  summary: "A few words or a number on what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, a mark's name on the rail.",
+  summary: "A few words or a number on what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, Held on a version, a mark's name on the rail.",
   styles: `
 /* A tag: slanted at both ends, in --type-tag. Its tone says what it is: new (green), a count (the buttons' face), or glass (the menus' glass, over the page). */
 .tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 0 9px; flex: none; white-space: nowrap;
   font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
 .tag.count { padding: 0 8px; color: var(--ink-2); background: var(--btn); font-variant-numeric: tabular-nums; }
+.tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
 .tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
 `,
   render: (words: string | number, tone: TagTone) => tag(words, tone),
   examples: [
     { label: "New", markup: tag("Updated", "new") },
     { label: "A count", markup: tag(3, "count") },
+    { label: "Plain words", markup: tag("Live", "count") },
+    { label: "A warning", markup: tag("Held", "warning") },
     { label: "On glass", markup: tag("Continue playing", "glass") },
   ],
 });
@@ -167,3 +170,145 @@ component({
   ],
 });
 
+
+export interface ListRow {
+  title: string;
+  /** A line under its title, in quiet words. */
+  detail?: string;
+  /** Where the row goes: the whole row is the link. */
+  href?: string;
+  /** What sits at its end: a Tag or a few words. Never a button in a row that's a link. */
+  end?: Raw | string;
+  /** The gallery's fixed states. */
+  state?: "is-pointed" | "is-focused";
+}
+
+/** List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole. */
+export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
+  return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+    const inside = html`<span class="list-row-words"><span class="list-row-title">${row.title}</span>${row.detail ? html`<span class="list-row-detail">${row.detail}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
+    return html`<li>${row.href ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-line" aria-hidden="true"></span></a>` : html`<div class="list-row">${inside}</div>`}</li>`;
+  })}</ul>`;
+}
+
+component({
+  name: "List rows",
+  slug: "list-rows",
+  group: "data",
+  summary: "A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, its orange line drawing in as you point.",
+  styles: `
+/* List rows: one thing a row, hairlines between. A row that's a link brightens a little under the pointer, a faint slab cut by the edge
+   rule, and the cover's orange line draws in along its foot from the left, a light running ahead; leaving, it runs on out. */
+.list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.list-rows > li + li { border-top: var(--divider); }
+.list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px 12px; color: var(--ink); text-decoration: none; }
+.list-row.is-link { --face-colour: transparent; background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s; -webkit-tap-highlight-color: transparent; }
+.list-row > :not(.cut-line):not(.list-row-line) { position: relative; z-index: 2; }
+.list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
+.list-row-title { font: var(--type-label); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row-detail { font: var(--type-facts); color: var(--muted); }
+.list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.list-row-line { position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
+.list-row-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; opacity: 0; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,246,228,0.95) 70%, rgba(255,255,255,0)); }
+.list-row.is-link:hover, .list-row.is-link.is-pointed { --face-colour: var(--ghost); }
+.list-row.is-link:hover > .list-row-line, .list-row.is-link.is-pointed > .list-row-line, .list-row.is-link:focus-visible > .list-row-line { transform: scaleX(1); transform-origin: left; transition: transform 0.42s cubic-bezier(.2,.8,.2,1); }
+.list-row.is-link:hover > .list-row-line::after, .list-row.is-link.is-pointed > .list-row-line::after { animation: row-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
+@keyframes row-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
+.list-row.is-link:active { --face-colour: var(--wash-press); }
+.list-row.is-link:focus-visible { outline: none; }
+.list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+@media (prefers-reduced-motion: reduce) { .list-row-line { transition: none; } .list-row-line::after { animation: none !important; } }
+`,
+  render: listRows,
+  examples: [
+    {
+      label: "Rows that go somewhere",
+      isWide: true,
+      markup: glassPane({ paneSize: "medium", body: listRows({ rows: [
+        { title: "Version 14", detail: "2 days ago · 312 files, 48 MB", href: "#list-rows", end: tag("Live", "new") },
+        { title: "Version 13", detail: "5 days ago · 309 files, 47 MB", href: "#list-rows", end: "Replaced" },
+        { title: "Version 15", detail: "An hour ago · 314 files, 49 MB", href: "#list-rows", end: tag("Held", "warning") },
+      ] }) }),
+    },
+    { label: "Pointed", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
+    { label: "Keyboard focus", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
+    { label: "Rows to read, not to open", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
+  ],
+});
+
+export interface StateNoteOptions {
+  title: string;
+  text: string;
+  /** What to do about it: a button from Actions. */
+  action?: Raw;
+}
+
+/** An empty state: what will be here and how it gets here, where a list has nothing yet. */
+export function emptyState(options: StateNoteOptions): Raw {
+  return html`<div class="state-note"><div class="state-words"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ?? ""}</div>`;
+}
+
+const STATE_STYLES = `
+/* An empty or problem state: a few words in the middle of where the content would be, what it is and what to do, and at most one
+   button for it. Never a picture. */
+.state-note { display: grid; justify-items: center; gap: var(--gap-words-control); padding: var(--gap-block-block) 0; text-align: center; }
+.state-note > .ico { width: 24px; height: 24px; color: var(--marked); }
+.state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; }
+.state-title { margin: 0; font: var(--type-name); color: var(--ink); }
+.state-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
+`;
+
+component({
+  name: "Empty state",
+  slug: "empty-state",
+  group: "data",
+  summary: "Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.",
+  styles: STATE_STYLES,
+  render: emptyState,
+  examples: [
+    { label: "With what starts it", markup: glassPane({ paneSize: "medium", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button" }) }) }) },
+    { label: "Words alone", markup: glassPane({ paneSize: "small", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
+  ],
+});
+
+/** A problem state: what went wrong where the content would be, and what to do (Try again). */
+export function problemState(options: StateNoteOptions): Raw {
+  return html`<div class="state-note problem">${icon("warning")}<div class="state-words"><p class="state-title">${options.title}</p><p class="state-text">${options.text}</p></div>${options.action ?? ""}</div>`;
+}
+
+component({
+  name: "Problem state",
+  slug: "problem-state",
+  group: "data",
+  summary: "Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.",
+  styles: "",
+  render: problemState,
+  examples: [
+    { label: "With what to do", markup: glassPane({ paneSize: "medium", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button" }) }) }) },
+  ],
+});
+
+/** A loading state: a hairline with a light running along it, and what's coming, where the content will be. Never a spinner over content. */
+export function loadingState(options: { label: string }): Raw {
+  return html`<div class="loading-state" role="status"><span class="loading-line" aria-hidden="true"></span><span class="loading-label">${options.label}</span></div>`;
+}
+
+component({
+  name: "Loading state",
+  slug: "loading-state",
+  group: "data",
+  summary: "Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.",
+  styles: `
+/* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
+   under it. Under reduced motion the light rests in the middle. */
+.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) 0; }
+.loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
+.loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run 1.3s cubic-bezier(.45,0,.25,1) infinite; }
+@keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.loading-label { font: var(--type-facts); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
+`,
+  render: loadingState,
+  examples: [{ label: "Loading", markup: glassPane({ paneSize: "small", body: loadingState({ label: "Getting your versions" }) }) }],
+});

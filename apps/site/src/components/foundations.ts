@@ -35,7 +35,7 @@ const LIGHT_GLASS = `color-scheme: light;
   /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
      so it takes that glass's --line: a var() in a custom property is read where it's set. */
   --divider: 1px solid var(--line);
-  --tag-new: #BFE8CF; --tag-new-ink: #0E5530; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
+  --tag-new: #BFE8CF; --tag-new-ink: #0E5530; --tag-warning: #F6DEA4; --tag-warning-ink: #6A4700; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
@@ -66,7 +66,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
-  --tag-new: rgba(52, 211, 120, 0.22); --tag-new-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
+  --tag-new: rgba(52, 211, 120, 0.22); --tag-new-ink: #A6F0C6; --tag-warning: rgba(245, 176, 40, 0.24); --tag-warning-ink: #F8D68C; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
@@ -269,6 +269,11 @@ export const ICONS = {
     '<g class="on-light"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></g><g class="on-smoked"><path d="M15.5 12.6A6.6 6.6 0 0 1 7.4 4.5a6.6 6.6 0 1 0 8.1 8.1z"/></g>',
     ' stroke-width="1.8"',
   ),
+  trash: stroke("0 0 20 20", '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.2 5.5l.8 11h8l.8-11"/><path d="M8.5 8.6v5M11.5 8.6v5"/>'),
+  close: stroke("0 0 20 20", '<path d="M5 5l10 10M15 5 5 15"/>', ' stroke-width="1.8"'),
+  check: stroke("0 0 20 20", '<path d="M4.2 10.4l3.9 3.9 7.7-8.6"/>', ' stroke-width="2.2"'),
+  copy: stroke("0 0 20 20", '<path d="M7 7h9.5v9.5H7z"/><path d="M13 7V3.5H3.5V13H7"/>'),
+  warning: stroke("0 0 20 20", '<path d="M10 2.8 18.2 17H1.8z"/><path d="M10 8v4.2M10 14.6v.1"/>'),
   passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
@@ -335,8 +340,8 @@ export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
 export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
 
-/** A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated), "count" the buttons' face (unread topics), "glass" a sliver of the menus' glass (the rail's labels). data.ts's Tag shows it. */
-export type TagTone = "new" | "count" | "glass";
+/** A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated), "count" the buttons' face (unread topics, or plain words), "warning" amber (Held, Over the limit), "glass" a sliver of the menus' glass (the rail's labels). data.ts's Tag shows it. */
+export type TagTone = "new" | "count" | "warning" | "glass";
 export const tag = (words: string | number, tone: TagTone): Raw => html`<span class="tag ${tone}${tone === "glass" ? " glass" : ""}">${String(words)}</span>`;
 
 export interface ColourChoice {
@@ -367,6 +372,26 @@ export const COLOUR_PICKER_SCRIPT = `/* colour pickers */(function () {
   });
 })();
 `;
+
+export interface SheetMarkupOptions {
+  /** Unique on the page: what opens it names it (aria-controls). */
+  id: string;
+  title: string;
+  body: Raw;
+  /** Its close button (actions.ts's iconButton), in a form that closes the sheet without a script. */
+  closeButton: Raw;
+  /** Shown in place, not over the page: the gallery's still copies. */
+  isShown?: boolean;
+}
+
+/**
+ * A sheet (panes.ts's Sheet shows it): a <dialog> of the panes' glass over the dimmed page, with its title and a close button at its
+ * top. Its buttons come from actions.ts, so the markup is shared here, where both actions.ts (a delete's confirm step) and panes.ts
+ * can reach it. SHEET_SCRIPT opens it from any button that names it (aria-controls); Esc and its close button close it natively.
+ */
+export function sheetMarkup(options: SheetMarkupOptions): Raw {
+  return html`<dialog class="sheet glass" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="24 20 24 20"${options.isShown ? raw(" open") : ""}>${EDGE}<div class="sheet-in"><div class="sheet-head"><h2 class="sheet-title" id="${options.id}-title">${options.title}</h2><form class="sheet-close" method="dialog">${options.closeButton}</form></div>${options.body}</div></dialog>`;
+}
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');

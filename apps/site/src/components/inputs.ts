@@ -628,3 +628,408 @@ component({
     },
   ],
 });
+
+/* ---- Longer words, picks from a list, yes or no, one of a few, and a number on a scale. ---- */
+
+export interface LongFieldOptions {
+  name: string;
+  label: string;
+  /** Unique on the page. Defaults to field-<name>. */
+  id?: string;
+  /** What it holds already. */
+  text?: string;
+  placeholder?: string;
+  /** How many lines tall it starts; it grows with its words up to 12, then scrolls. */
+  rowCount: number;
+  /** At most this many characters; the count shows once 80% of them are used. */
+  maximumCharacterCount?: number;
+  isRequired?: boolean;
+  error?: string;
+  state?: "is-focused";
+}
+
+/** The count's words: "1,620 of 2,000". */
+const lengthWords = (characterCount: number, maximumCharacterCount: number) => `${characterCount.toLocaleString("en-US")} of ${maximumCharacterCount.toLocaleString("en-US")}`;
+
+/** A long field: the cut field for more than a line (a description, patch notes, a reply), growing with its words, with a count near its limit. */
+export function longField(options: LongFieldOptions): Raw {
+  const id = options.id ?? `field-${options.name}`;
+  const characterCount = options.text?.length ?? 0;
+  const isCountShown = options.maximumCharacterCount !== undefined && characterCount >= options.maximumCharacterCount * 0.8;
+  const describedBy = [options.maximumCharacterCount !== undefined ? `${id}-count` : "", options.error ? `${id}-error` : ""].filter(Boolean).join(" ");
+  const className = ["field", "long", "cut-carved", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="cut-field"><label for="${id}">${options.label}</label>
+<span class="${className}" data-cut-line="10">${CUT_LINE}<textarea id="${id}" name="${options.name}" rows="${options.rowCount}" data-long-field${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.isRequired ? raw(" required") : ""}${options.error ? raw(' aria-invalid="true"') : ""}${describedBy ? html` aria-describedby="${describedBy}"` : ""}>${options.text ?? ""}</textarea></span>
+${options.maximumCharacterCount !== undefined ? html`<p class="long-count" id="${id}-count"${isCountShown ? "" : raw(" hidden")}>${lengthWords(characterCount, options.maximumCharacterCount)}</p>` : ""}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
+}
+
+/** A long field grows with its words, from its rows up to 12 lines, then scrolls; its count shows from 80% of its limit. */
+export const LONG_FIELD_SCRIPT = `/* long fields */(function () {
+  var MOST_LINES = 12;
+  function fit(area) {
+    var css = getComputedStyle(area), line = parseFloat(css.lineHeight) || 24, frame = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
+    area.style.height = "auto";
+    var least = line * (Number(area.getAttribute("rows")) || 2) + frame, most = line * MOST_LINES + frame;
+    area.style.height = Math.max(least, Math.min(area.scrollHeight, most)) + "px";
+    var limit = Number(area.getAttribute("maxlength")), count = document.getElementById(area.id + "-count");
+    if (!limit || !count) return;
+    count.hidden = area.value.length < limit * 0.8;
+    count.textContent = area.value.length.toLocaleString("en-US") + " of " + limit.toLocaleString("en-US");
+  }
+  document.querySelectorAll("textarea[data-long-field]").forEach(fit);
+  document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches("textarea[data-long-field]")) fit(event.target); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { document.querySelectorAll("textarea[data-long-field]").forEach(fit); });
+})();
+`;
+
+const LONG_STYLES = `
+/* A long field: the cut field, as tall as its words, from its rows up to 12 lines (LONG_FIELD_SCRIPT), then it scrolls on its rail.
+   Its words are the reading face at 16px, so phones don't zoom in; the count of characters shows under it near the limit. */
+.field.long { height: auto; align-items: stretch; }
+.field.long textarea { position: relative; z-index: 2; display: block; flex: 1; min-width: 0; width: 100%; padding: 14px 16px; resize: none; overflow-y: auto;
+  font: 400 16px/1.5 var(--body); color: var(--ink); caret-color: var(--run-lo);
+  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
+.field.long:hover textarea { --face-colour: var(--field-hover); }
+.field.long textarea:focus, .field.long.is-focused textarea { outline: none; --face-colour: var(--field-focus); }
+.field.long textarea::placeholder { color: var(--muted); }
+.field.long.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.long-count { margin: 0; align-self: flex-end; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
+`;
+
+const PATCH_NOTES = "Rebalanced the second boss: its slam now telegraphs half a second earlier, and the arena's pillars break after three hits instead of five.";
+
+component({
+  name: "Long field",
+  slug: "long-field",
+  group: "inputs",
+  summary: "More than a line of words: a game's description, patch notes, a reply. It grows with what's written, and counts the characters only once the limit is near.",
+  styles: LONG_STYLES,
+  render: longField,
+  examples: [
+    { label: "Empty", markup: examplePane(longField({ id: "example-long-empty", name: "patch_notes", label: "What's new", placeholder: "What changed in this version", rowCount: 3, maximumCharacterCount: 2000 })) },
+    { label: "Filled", markup: examplePane(longField({ id: "example-long-filled", name: "patch_notes", label: "What's new", text: PATCH_NOTES, rowCount: 3, maximumCharacterCount: 2000 })) },
+    { label: "Focused", markup: examplePane(longField({ id: "example-long-focused", name: "patch_notes", label: "What's new", text: PATCH_NOTES, rowCount: 3, state: "is-focused" })), isStill: true },
+    { label: "Near its limit: the count shows", markup: examplePane(longField({ id: "example-long-count", name: "patch_notes", label: "What's new", text: PATCH_NOTES, rowCount: 3, maximumCharacterCount: 160 })) },
+    { label: "Error", markup: examplePane(longField({ id: "example-long-error", name: "description", label: "Description", rowCount: 3, error: "Say what the game is in a line or more." })) },
+  ],
+});
+
+export interface SelectChoice {
+  label: string;
+  /** What the form sends when it's picked. */
+  choiceValue: string;
+}
+
+export interface SelectFieldOptions {
+  name: string;
+  label: string;
+  choices: SelectChoice[];
+  /** The choice picked now; left out, the first. */
+  pickedValue?: string;
+  /** Unique on the page. Defaults to field-<name>. */
+  id?: string;
+  /** What kind of thing it picks, like a cut field's. Left out, the words start at the edge. */
+  icon?: IconName;
+  error?: string;
+  state?: "is-focused";
+}
+
+/** A select field: a cut field holding the system's own list, so a phone opens its own picker. For one of many (a region, a language); one of a few is Choice cards or a Switch. */
+export function selectField(options: SelectFieldOptions): Raw {
+  const id = options.id ?? `field-${options.name}`;
+  const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
+  return html`<div class="cut-field"><label for="${id}">${options.label}</label>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<select id="${id}" name="${options.name}"${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.choices.map((choice) => html`<option value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" selected") : ""}>${choice.label}</option>`)}</select><span class="select-chev">${icon("chevron-down")}</span></span>
+${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
+}
+
+const REGIONS: SelectChoice[] = [
+  { label: "Nearest to each player", choiceValue: "nearest" },
+  { label: "Europe", choiceValue: "europe" },
+  { label: "North America", choiceValue: "north-america" },
+  { label: "Asia Pacific", choiceValue: "asia-pacific" },
+];
+
+component({
+  name: "Select field",
+  slug: "select-field",
+  group: "inputs",
+  summary: "One of many, from a list: a region, a language, a category. The list is the system's own, so a phone opens its own picker; for one of a few, use Choice cards or a Switch.",
+  styles: `
+/* A select field: the cut field, holding the system's own select with its arrow hidden; the birthday field's chevron sits at its end. */
+.field.select select { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 48px 0 52px; appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: 500 18px var(--display); color: var(--ink); text-overflow: ellipsis;
+  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
+.field.select.no-icon select { padding-left: 18px; }
+.field.select:hover select { --face-colour: var(--field-hover); }
+.field.select select:focus, .field.select.is-focused select { outline: none; --face-colour: var(--field-focus); }
+.field.select option { color: #14171C; background: #fff; }
+.select-chev { position: absolute; z-index: 3; right: 18px; display: inline-flex; color: var(--ink); pointer-events: none; }
+.select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
+`,
+  render: selectField,
+  examples: [
+    { label: "Picked", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
+    { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", icon: "people" })) },
+    { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
+    { label: "Error", markup: examplePane(selectField({ id: "example-select-error", name: "room_region", label: "Where rooms run", choices: REGIONS, error: "Pick where your rooms run to go on." })) },
+  ],
+});
+
+/** The gallery's fixed states for what you press that holds a value (a box, a card, a switch). */
+type PressState = "is-pointed" | "is-pressed" | "is-focused";
+
+export interface CheckFieldOptions {
+  name: string;
+  label: string;
+  isChecked?: boolean;
+  /** A line under its label, saying what it changes. */
+  hint?: string;
+  /** Unique on the page. Defaults to check-<name>. */
+  id?: string;
+  state?: PressState;
+}
+
+/** A check field: a box to tick, for a yes or no that's sent with its form (I agree, Email me replies). On a page that saves at once, use a Toggle. */
+export function checkField(options: CheckFieldOptions): Raw {
+  const id = options.id ?? `check-${options.name}`;
+  return html`<label class="check${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="check-box cut-carved" data-cut-line="6">${CUT_LINE}<input class="check-input" type="checkbox" id="${id}" name="${options.name}" value="yes"${options.isChecked ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}>${icon("check")}</span><span class="check-words"><span class="check-label">${options.label}</span>${options.hint ? html`<span class="check-hint" id="${id}-hint">${options.hint}</span>` : ""}</span></label>`;
+}
+
+/** What you press that holds a value: its states, still, then one to try and one on a loop. */
+/** Each copy gets its own key (for its ids and names), so copies of radios never share a group. */
+const pressExamples = (render: (state: PressState | undefined, exampleKey: string) => Raw, loopKind: "check" | "choice" | "toggle") => [
+  { label: "Rest", markup: render(undefined, "rest"), isStill: true },
+  { label: "Pointed", markup: render("is-pointed", "pointed"), isStill: true },
+  { label: "Pressed", markup: render("is-pressed", "pressed"), isStill: true },
+  { label: "Keyboard focus", markup: render("is-focused", "focused"), isStill: true },
+  { label: "Try it", markup: render(undefined, "try") },
+  { label: "On a loop", markup: html`<span data-state-loop="${loopKind}">${render(undefined, "loop")}</span>`, isStill: true },
+];
+
+component({
+  name: "Check field",
+  slug: "check-field",
+  group: "inputs",
+  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns white with an orange tick. On a page that saves at once, use a Toggle.",
+  styles: `
+/* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the box turns white like a
+   switch's slab and holds an orange tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
+   the system's own; the whole line is its label, so a press anywhere on it ticks it. */
+.check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
+  --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
+.check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
+.check:hover .check-box, .check.is-pointed .check-box { --face-colour: var(--field-hover); }
+.check-box:has(.check-input:checked) { --face-colour: #fff; color: var(--run); }
+.check-box:has(.check-input:checked) > .ico { transform: scale(1); }
+.check-box:has(.check-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.check:active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
+.check:active .check-box, .check.is-pressed .check-box { box-shadow: var(--press-shade); }
+.check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; }
+.check-label { font: var(--type-words); color: var(--ink); }
+.check-hint { font: var(--type-note); color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .check-box > .ico { transition: none; } }
+`,
+  render: checkField,
+  examples: [
+    ...pressExamples((state, exampleKey) => checkField({ id: `example-check-${exampleKey}`, name: "reply_emails", label: "Email me replies", state }), "check"),
+    { label: "Ticked", markup: checkField({ id: "example-check-ticked", name: "reply_emails", label: "Email me replies", isChecked: true }) },
+    { label: "With a hint", markup: examplePane(checkField({ id: "example-check-hint", name: "rules_agreed", label: "I've read the content rules", hint: "Games break them only by what's in them, never by taste.", isChecked: true })) },
+  ],
+});
+
+export interface ChoiceCard {
+  label: string;
+  choiceValue: string;
+  /** A line on what it means. */
+  text: string;
+  icon?: IconName;
+}
+
+export interface ChoiceCardsOptions {
+  name: string;
+  /** The question, as the group's legend. */
+  label: string;
+  choices: ChoiceCard[];
+  pickedValue?: string;
+  /** Unique on the page. Defaults to choice-<name>. */
+  id?: string;
+  /** The gallery's fixed states, on the first card. */
+  state?: PressState;
+}
+
+/** Choice cards: one of a few, each needing a line to say what it means (who can see a game, how rooms run). Radios as cut glass cards. */
+export function choiceCards(options: ChoiceCardsOptions): Raw {
+  const id = options.id ?? `choice-${options.name}`;
+  return html`<fieldset class="choices"><legend>${options.label}</legend><div class="choice-cards">${options.choices.map(
+    (choice, choiceIndex) =>
+      html`<label class="choice-card cut-raised${choiceIndex === 0 && options.state ? ` ${options.state}` : ""}" data-cut-line="10">${CUT_LINE}<input class="choice-input" type="radio" name="${options.name}" id="${id}-${choice.choiceValue}" value="${choice.choiceValue}"${choice.choiceValue === options.pickedValue ? raw(" checked") : ""}>${choice.icon ? icon(choice.icon) : ""}<span class="choice-words"><span class="choice-label">${choice.label}</span><span class="choice-text">${choice.text}</span></span></label>`,
+  )}</div></fieldset>`;
+}
+
+const VISIBILITIES: ChoiceCard[] = [
+  { label: "Listed", choiceValue: "listed", text: "On Zaisma's shelves and in search, for anyone.", icon: "people" },
+  { label: "Unlisted", choiceValue: "unlisted", text: "Only people with its link can find it.", icon: "eye" },
+  { label: "Private", choiceValue: "private", text: "Only you and your testers.", icon: "lock" },
+];
+
+component({
+  name: "Choice cards",
+  slug: "choice-cards",
+  group: "inputs",
+  summary: "One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. The picked card turns white with the orange line, like a switch's slab.",
+  styles: `
+/* Choice cards: radios as raised slabs of clearer glass, the cut buttons' face, cut by the edge rule. Pointing brightens one; the
+   picked one is the switch's white slab with its orange line along the foot. The real radio lies over the card, unseen, so the arrow
+   keys move between them as the system's do. */
+.choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
+.choices > legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-control-stack); }
+.choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s; }
+.choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
+.choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
+.choice-words { display: grid; gap: var(--gap-words-words); }
+.choice-label { font: var(--type-label); color: var(--ink); }
+.choice-text { font: var(--type-note); color: var(--muted); }
+.choice-card:hover, .choice-card.is-pointed { --face-colour: var(--btn-hover); }
+.choice-card:active, .choice-card.is-pressed { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.choice-card:active > .cut-line, .choice-card.is-pressed > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* Picked: the switch's slab, white with the orange line along its foot, its words and icon in full ink. */
+.choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); color: var(--ink); }
+.choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
+.choice-card:has(.choice-input:checked) > .cut-line { --band-bottom: transparent; }
+.choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+`,
+  render: choiceCards,
+  examples: [
+    ...pressExamples((state, exampleKey) => choiceCards({ id: `example-choice-${exampleKey}`, name: `visibility_${exampleKey}`, label: "Who can see it", choices: VISIBILITIES.slice(0, 2), pickedValue: "unlisted", state }), "choice"),
+    { label: "Three, in a pane", markup: glassPane({ paneSize: "medium", body: choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" }) }), isWide: true },
+  ],
+});
+
+export interface ToggleOptions {
+  name: string;
+  label: string;
+  isOn: boolean;
+  /** A line under its label, saying what it changes. */
+  hint?: string;
+  /** Unique on the page. Defaults to toggle-<name>. */
+  id?: string;
+  state?: PressState;
+}
+
+/** A toggle: on or off for a setting that takes effect as it's saved (Cloud saves, Show me online). A checkbox underneath, sent with its form, so it needs no script to post. */
+export function toggle(options: ToggleOptions): Raw {
+  const id = options.id ?? `toggle-${options.name}`;
+  return html`<label class="toggle${options.state ? ` ${options.state}` : ""}" for="${id}"><span class="toggle-words"><span class="toggle-label">${options.label}</span>${options.hint ? html`<span class="toggle-hint" id="${id}-hint">${options.hint}</span>` : ""}</span><span class="toggle-slot cut-carved" data-cut-line="8">${CUT_LINE}<input class="toggle-input" type="checkbox" role="switch" id="${id}" name="${options.name}" value="on"${options.isOn ? raw(" checked") : ""}${options.hint ? html` aria-describedby="${id}-hint"` : ""}><span class="toggle-slab cut-raised" data-cut-line="6" data-cut-ends="start end" aria-hidden="true">${CUT_LINE}</span></span></label>`;
+}
+
+component({
+  name: "Toggle",
+  slug: "toggle",
+  group: "inputs",
+  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It's a checkbox in its form, so it posts without a script.",
+  styles: `
+/* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real
+   checkbox (role switch) lies over the slot, unseen; the words before it are its label, so a press on them flips it too. */
+.toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
+.toggle-label { font: var(--type-words); color: var(--ink); }
+.toggle-hint { font: var(--type-note); color: var(--muted); }
+.toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-colour: var(--well); background: var(--face-colour); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-colour 0.3s; }
+.toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+/* The slab is solid, so the orange behind it never tints it. */
+.toggle-slab { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape);
+  transition: transform 0.4s var(--spring), filter 0.2s; }
+.toggle-slot:has(.toggle-input:checked) { --face-colour: var(--run); }
+.toggle-slot:has(.toggle-input:checked) > .toggle-slab { transform: translateX(24px); }
+.toggle:hover .toggle-slab, .toggle.is-pointed .toggle-slab { filter: brightness(1.06); }
+.toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { filter: brightness(0.94); box-shadow: var(--press-shade); }
+.toggle-slot:has(.toggle-input:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.toggle-slot:has(.toggle-input:checked:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
+@media (prefers-reduced-motion: reduce) { .toggle-slab { transition: none; } .toggle-slot { transition: none; } }
+`,
+  render: toggle,
+  examples: [
+    ...pressExamples((state, exampleKey) => html`<div style="width:min(340px,100%)">${toggle({ id: `example-toggle-${exampleKey}`, name: "cloud_saves", label: "Cloud saves", isOn: true, state })}</div>`, "toggle"),
+    { label: "Off", markup: html`<div style="width:min(340px,100%)">${toggle({ id: "example-toggle-off", name: "shown_online", label: "Show me online", isOn: false })}</div>` },
+    { label: "With a hint, in a pane", markup: examplePane(toggle({ id: "example-toggle-hint", name: "cloud_saves_pane", label: "Cloud saves", hint: "Players keep their progress on any device.", isOn: true })) },
+  ],
+});
+
+export interface SliderOptions {
+  name: string;
+  label: string;
+  minimumNumber: number;
+  maximumNumber: number;
+  stepNumber: number;
+  pickedNumber: number;
+  /** What the number counts, shown after it: "players", "%", "s". */
+  unit: string;
+  /** Unique on the page. Defaults to slider-<name>. */
+  id?: string;
+  state?: "is-focused" | "is-pressed";
+}
+
+/** The number with its unit: "40%", "16 players". */
+const numberWords = (pickedNumber: number, unit: string) => `${pickedNumber.toLocaleString("en-US")}${unit === "%" ? "%" : ` ${unit}`}`;
+
+/** A slider: a number on a scale (players in a room, a volume), dragged or stepped with the arrow keys. The system's own range input, drawn as Zaisma's. */
+export function slider(options: SliderOptions): Raw {
+  const id = options.id ?? `slider-${options.name}`;
+  const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
+  return html`<div class="slider${options.state ? ` ${options.state}` : ""}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}" data-slider><span class="slider-thumb cut-raised" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span></div></div>`;
+}
+
+/** A slider's fill and number follow its thumb. */
+export const SLIDER_SCRIPT = `/* sliders */(function () {
+  function follow(input) {
+    var box = input.closest(".slider"), min = Number(input.min), max = Number(input.max), output = box.querySelector("output"), unit = output.getAttribute("data-unit");
+    box.style.setProperty("--fill", ((Number(input.value) - min) / Math.max(1e-9, max - min)).toFixed(4));
+    output.textContent = Number(input.value).toLocaleString("en-US") + (unit === "%" ? "%" : " " + unit);
+  }
+  document.addEventListener("input", function (event) { if (event.target.matches && event.target.matches("input[data-slider]")) follow(event.target); });
+  window.addEventListener("pageshow", function () { document.querySelectorAll("input[data-slider]").forEach(follow); });
+})();
+`;
+
+component({
+  name: "Slider",
+  slug: "slider",
+  group: "inputs",
+  summary: "A number on a scale: players in a room, a volume. Dragged, tapped or stepped with the arrow keys; the number shows with its unit as it moves. There are no knobs: this covers them.",
+  styles: `
+/* A slider: a hairline track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
+   unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. */
+.slider { --thumb: 26px; display: grid; gap: var(--gap-words-control); }
+.slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
+.slider-head > label { font: var(--type-label); color: var(--ink-2); }
+.slider-head > output { font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
+.slider-track { position: relative; height: var(--thumb); }
+.slider-line, .slider-fill { position: absolute; top: calc(50% - 1px); height: 2px; left: calc(var(--thumb) / 2); pointer-events: none; }
+.slider-line { right: calc(var(--thumb) / 2); background: var(--line); }
+.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 4px; top: calc(50% - 2px); background: linear-gradient(90deg, #E9820C, var(--run)); }
+.slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
+.slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
+.slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
+  background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape); transition: filter 0.2s; }
+.slider:hover .slider-thumb { filter: brightness(1.06); }
+.slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: brightness(0.94); box-shadow: var(--press-shade); }
+.slider-input:focus-visible + .slider-thumb > .cut-line polygon, .slider.is-focused .slider-thumb > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+`,
+  render: slider,
+  examples: [
+    { label: "Rest", markup: examplePane(slider({ id: "example-slider-rest", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 16, unit: "players" })) },
+    { label: "Pressed", markup: examplePane(slider({ id: "example-slider-pressed", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 64, unit: "players", state: "is-pressed" })), isStill: true },
+    { label: "Keyboard focus", markup: examplePane(slider({ id: "example-slider-focus", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 40, unit: "%", state: "is-focused" })), isStill: true },
+    { label: "At its ends", markup: examplePane(html`${slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" })}${slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" })}`) },
+  ],
+});

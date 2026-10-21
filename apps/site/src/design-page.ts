@@ -218,7 +218,12 @@ export const GALLERY_SCRIPT = pageScript(
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
   });
-  document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
+  // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
+  document.addEventListener("submit", function (event) {
+    if (!event.target.closest(".example-stage") || event.target.getAttribute("method") === "dialog" || (event.submitter && event.submitter.getAttribute("formmethod") === "dialog")) return;
+    event.preventDefault();
+    var sheet = event.target.closest("dialog.sheet"); if (sheet && sheet.open) sheet.close();
+  });
   // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {
     var gl = canvas.getContext("webgl", { antialias: true });
@@ -365,7 +370,7 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", cover: ".cover", switch: ".tab-switch" };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", text: ".text-btn", check: ".check", choice: ".choice-card", toggle: ".toggle", row: ".list-row", cover: ".cover", switch: ".tab-switch" };
   var MOVE_MS = 650, PRESS_MS = 180;
   function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
   function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
