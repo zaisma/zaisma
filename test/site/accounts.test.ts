@@ -241,10 +241,14 @@ afterEach(() => vi.unstubAllGlobals());
 
 // --- A browser with a cookie jar ---
 
+// Browsers made so far, so each gets an address no other has.
+let browserCount = 0;
+
 class Browser {
   jar = new Map<string, string>();
-  // Each browser gets its own address, so the sign-in rate limit doesn't spill between tests.
-  ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  // Each browser gets its own address, so the sign-in rate limit doesn't spill between tests: counted out, never drawn at random,
+  // since two of the file's hundreds of browsers drawing the same address shared a limit and failed now and then.
+  ip = `10.0.${Math.floor(browserCount / 250) % 250}.${browserCount++ % 250}`;
   /** What the browser says it is, and where Cloudflare says it is (request.cf), for the security log. */
   userAgent: string | null = null;
   cf: Record<string, unknown> | null = null;
