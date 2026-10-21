@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macroquad sample</title>
+<style>html, body, canvas { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #08080f; } canvas { position: absolute; }</style>
+</head>
+<body>
+<canvas id="glcanvas" tabindex="1"></canvas>
+<script>var register_plugin; // mq_js_bundle.js 0.4.16 assigns this undeclared in strict mode (its quad_net plugin)</script>
+<script src="mq_js_bundle.js"></script>
+<script>
+miniquad_add_plugin({
+  register_plugin(importObject) {
+    importObject.env.zaisma_sample_started = () => {
+      window.zaismaEngineSample = { engine: "macroquad", version: "0.4.16", started: true };
+    };
+  },
+  name: "zaisma_sample",
+  version: 1,
+});
+load("macroquad-sample.wasm");
+</script>
+</body>
+</html>

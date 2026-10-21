@@ -39,7 +39,7 @@ function buildOf(engine: string) {
 
 describe("engine samples", () => {
   it("has a web export from each engine Zaisma says runs unchanged, with what made it", () => {
-    expect(engines).toEqual(expect.arrayContaining(["godot", "phaser", "three", "unity"]));
+    expect(engines).toEqual(expect.arrayContaining(["bevy", "godot", "macroquad", "phaser", "three", "unity"]));
     for (const engine of engines) {
       expect(existsSync(join(ENGINES, engine, "build/index.html")), `${engine}/build/index.html`).toBe(true);
       expect(existsSync(join(ENGINES, engine, "README.md")), `${engine}/README.md`).toBe(true);
