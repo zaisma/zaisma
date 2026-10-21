@@ -291,23 +291,36 @@ async function inTurns<Answer>(tasks: (() => Promise<Answer>)[], parallelCount: 
   return answers;
 }
 
+const shaByPathOf = (input: Pick<GatherInput, "texts" | "pictures">) =>
+  new Map<string, string>([...input.texts.map((file) => [file.path, file.sha256] as const), ...input.pictures.map((picture) => [picture.path, picture.sha256] as const)]);
+
+/** The files an earlier version's readers read that this version still has unchanged, so their evidence is reused. */
+function reusedShas(input: Pick<GatherInput, "previous">, shaByPath: Map<string, string>): Set<string> {
+  const present = new Set(shaByPath.values());
+  // A file whose earlier items have a subject no longer in its closed list (player_text's changed) is read again.
+  const staleShas = new Set((input.previous?.evidence ?? []).filter((evidenceItem) => evidenceItem.source === "reader" && !isCurrentSubject(evidenceItem)).map((evidenceItem) => evidenceItem.file_sha256));
+  return new Set((input.previous?.readFileSha256s ?? []).filter((sha256) => present.has(sha256) && !staleShas.has(sha256)));
+}
+
+/** How many code files and pictures gatherEvidence would read afresh: 0 means its reads call no model (no small review). */
+export function newReadCount(input: Pick<GatherInput, "texts" | "pictures" | "previous">): number {
+  const readShas = reusedShas(input, shaByPathOf(input));
+  return input.texts.filter((file) => !readShas.has(file.sha256)).length + chooseReadPictures(input.pictures).filter((picture) => !readShas.has(picture.sha256)).length;
+}
+
 /**
  * Reads a version: files whose hash an earlier version's readers read keep that evidence, and the rest are
  * read in chunks, a few calls at a time, with the pictures. `onCall` hears each call's cost as it's made.
  */
 export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadCode; readPictures: ReadPictures }, onCall: (costCents: number) => Promise<void> = async () => {}): Promise<GatheredEvidence> {
-  const shaByPath = new Map<string, string>([...input.texts.map((file) => [file.path, file.sha256] as const), ...input.pictures.map((picture) => [picture.path, picture.sha256] as const)]);
+  const shaByPath = shaByPathOf(input);
   const checkItems = input.readerContext.checkItems.map((evidenceItem) => ({ ...evidenceItem, file_sha256: shaByPath.get(evidenceItem.path) ?? "" }));
 
   // Evidence an earlier version's readers found in files that haven't changed, under their paths now.
-  const previouslyRead = new Set(input.previous?.readFileSha256s ?? []);
   const pathsBySha = new Map<string, string[]>();
   for (const [path, sha256] of shaByPath) pathsBySha.set(sha256, [...(pathsBySha.get(sha256) ?? []), path]);
   const reused: EvidenceItem[] = [];
-  const readShas = new Set<string>();
-  // A file whose earlier items have a subject no longer in its closed list (player_text's changed) is read again.
-  const staleShas = new Set((input.previous?.evidence ?? []).filter((evidenceItem) => evidenceItem.source === "reader" && !isCurrentSubject(evidenceItem)).map((evidenceItem) => evidenceItem.file_sha256));
-  for (const sha256 of previouslyRead) if (pathsBySha.has(sha256) && !staleShas.has(sha256)) readShas.add(sha256);
+  const readShas = reusedShas(input, shaByPath);
   for (const evidenceItem of input.previous?.evidence ?? []) {
     if (evidenceItem.source !== "reader" || !readShas.has(evidenceItem.file_sha256)) continue;
     for (const path of pathsBySha.get(evidenceItem.file_sha256)!) reused.push({ ...evidenceItem, path });

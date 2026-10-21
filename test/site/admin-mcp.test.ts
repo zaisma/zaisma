@@ -344,6 +344,18 @@ describe("admin MCP", () => {
     expect(out.game).toMatchObject({ slug: "test-game", review_status: "live", multiplayer_mode: "none", game_server_name: null });
     expect(out.report_groups).toHaveLength(3);
     expect(out.versions[0].is_live).toBe(true);
+    expect(out.versions[0]).toMatchObject({ replaced_by_version_id: null, changes_since: null });
+
+    // A held version says what changed since the hold it answers; zip uploads have no file lists.
+    const game = (await env.DB.prepare("SELECT id FROM games WHERE slug = 'test-game'").first<{ id: string }>())!;
+    const report = (code: string) => JSON.stringify({ finished_at_ms: 1, decision: "held", findings: [{ stage: "ai", severity: "hold", code, message: "x" }], outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: null, is_child_safety: false });
+    const insert = "INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, judged_at_ms) VALUES (?, ?, 'none', 0, 0, 'held', ?, ?, ?)";
+    await env.DB.batch([
+      env.DB.prepare(insert).bind("version_heldforgore01", game.id, report("ai_lifelike_gore"), Date.now() + 1000, Date.now()),
+      env.DB.prepare(insert).bind("version_thefixheld001", game.id, report("ai_other"), Date.now() + 2000, Date.now()),
+    ]);
+    const held = await data("get_game", { slug: "test-game" });
+    expect(held.versions[0]).toMatchObject({ id: "version_thefixheld001", changes_since: { version_id: "version_heldforgore01", added_paths: [], added_path_count: 0 } });
     expect(await refusal("get_game", { slug: "nothere" })).toMatchObject({ code: "no_game", field: "slug" });
     expect(await refusal("get_game", { game: "test-game" })).toMatchObject({ code: "unknown_field", fix: expect.stringContaining("Did you mean slug?") });
   });

@@ -190,6 +190,7 @@ export const VERSION = object({
   created_at: isoTime(),
   review_reason: nullable(reviewReason("A person's or a report's decision: why a person rejected it, or a report paused it. null otherwise.")),
   findings: list(FINDING, "What the scan found that holds or rejects it."),
+  replaced_by_version_id: nullable(idOf("version", "The newer version that replaced this one while it waited; null when none did.")),
 });
 
 /** What the game check finds (packages/cli/check.mjs): the same answer from check_game, POST /check and zaisma check --json. */
@@ -962,6 +963,19 @@ const ADMIN_VERSION = object({
   findings: list(
     object({ code: text("Which check found it: a code from REVIEW_CODES, or one only Zaisma sees, like known_illegal_image."), severity: FINDING_SEVERITY, message: text("For Zaisma's eyes."), path: nullable(text()) }),
     "Everything the scan found but notes, as Zaisma sees it.",
+  ),
+  replaced_by_version_id: nullable(idOf("version", "The newer version that replaced this one while it waited; null when none did.")),
+  changes_since: nullable(
+    describe(object({
+      version_id: idOf("version", "The version it's compared with: the held one it answers, or else the game's newest earlier scanned version."),
+      added_paths: list(text(), "Files added since, sorted, at most 50."),
+      changed_paths: list(text(), "Files changed since, sorted, at most 50."),
+      removed_paths: list(text(), "Files removed since, sorted, at most 50."),
+      added_path_count: countOf(),
+      changed_path_count: countOf(),
+      removed_path_count: countOf(),
+    }),
+    "For a held version: what changed since the version it's compared with. The lists are empty for zip uploads, whose files can't be compared. null for versions that aren't held."),
   ),
 });
 const HISTORY_EVENT = object({

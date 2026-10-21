@@ -110,7 +110,7 @@ export async function versionsForGame(database: D1Database, gameId: string): Pro
 
 export async function heldVersions(database: D1Database): Promise<(Version & { slug: string; title: string })[]> {
   const { results } = await database
-    .prepare("SELECT versions.*, games.slug, games.title FROM versions JOIN games ON games.id = versions.game_id WHERE versions.scan_status IN ('held', 'scanning') ORDER BY versions.created_at_ms DESC")
+    .prepare("SELECT versions.*, games.slug, games.title FROM versions JOIN games ON games.id = versions.game_id WHERE versions.scan_status IN ('held', 'scanning') AND (versions.replaced_by_version_id IS NULL OR json_extract(versions.scan_report, '$.is_child_safety') = 1) ORDER BY versions.created_at_ms DESC")
     .all<Version & { slug: string; title: string }>();
   return results;
 }

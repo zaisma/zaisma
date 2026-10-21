@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REVIEW_LIMITS, chunkText, isTweak, keepQuotedItems, reviewCostCents, type EvidenceItem } from "@zaisma/core";
+import { REVIEW_LIMITS, chunkText, isSameItem, isTweak, keepQuotedItems, reviewCostCents, type EvidenceItem } from "@zaisma/core";
 
 const item = (fields: Partial<EvidenceItem>): EvidenceItem => ({ kind: "connects_to", subject: "api.example.invalid", detail: "d", path: "game.js", quote: "", file_sha256: "", source: "reader", ...fields });
 
@@ -50,6 +50,15 @@ describe("isTweak", () => {
     expect(isTweak([item({ kind: "player_text", subject: "read_by_others" })], held, true)).toBe(false);
     expect(isTweak([item({ kind: "asks_player", subject: "email" })], [...held, item({ kind: "asks_player", subject: "email" })], true)).toBe(false);
     expect(isTweak([item({ kind: "content", subject: "crypto" })], held, true)).toBe(false);
+  });
+});
+
+describe("isSameItem", () => {
+  it("is the same item only with the same kind, subject, path and quote", () => {
+    expect(isSameItem(item({}), item({ detail: "Said another way.", file_sha256: "other" }))).toBe(true);
+    expect(isSameItem(item({}), item({ path: "other.js" }))).toBe(false);
+    expect(isSameItem(item({}), item({ quote: "another line" }))).toBe(false);
+    expect(isSameItem(item({}), item({ subject: "other.example.invalid" }))).toBe(false);
   });
 });
 
