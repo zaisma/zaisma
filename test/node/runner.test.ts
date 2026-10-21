@@ -1,5 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { startServer } from "../../packages/game-server/bin/node.js";
 import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/index.ts";
@@ -7,7 +10,7 @@ import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass }
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://arena.zaismausercontent.com";
 const signing = await loadSigningKey(await generateSigningKey());
-const server = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey] });
+const server = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null });
 await new Promise((r) => server.wss.once("listening", r));
 const port = (server.wss.address() as { port: number }).port;
 afterAll(() => server.close());
@@ -52,7 +55,7 @@ const until = async (client: { next: () => Promise<any> }, type: string) => {
 };
 
 async function serve(gameServer: object) {
-  const own = startServer({ server: gameServer, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey] });
+  const own = startServer({ server: gameServer, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null });
   await new Promise((r) => own.wss.once("listening", r));
   return { own, at: (own.wss.address() as { port: number }).port };
 }
@@ -156,7 +159,7 @@ describe("Node runner", () => {
       lookedUp.push(playerId);
       return playerId === "player_owl" ? { id: playerId, name: "Night_Owl" } : null;
     };
-    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], profiles });
+    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles });
     await new Promise((r) => own.wss.once("listening", r));
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string) => {
@@ -180,7 +183,7 @@ describe("Node runner", () => {
   it("finds blocks between accounts in their passes, and tells both players' games", async () => {
     const checked: boolean[] = [];
     const watcher = defineGameServer({ setup: () => ({}), onJoin: (_state, player, room) => void (player.id === "player_mia" && checked.push(room.hasBlockBetween("player_kit", "player_mia"))) });
-    const own = startServer({ server: watcher, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], profiles: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }) });
+    const own = startServer({ server: watcher, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }) });
     await new Promise((r) => own.wss.once("listening", r));
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string, playerTag: string, blockTagIds: string[]) => {
@@ -207,7 +210,7 @@ describe("Node runner", () => {
   it("finds friends between accounts in their passes, for room.areFriends", async () => {
     const checked: boolean[] = [];
     const watcher = defineGameServer({ setup: () => ({}), onJoin: (_state, player, room) => void (player.id !== "player_kit" && checked.push(room.areFriends("player_kit", player.id))) });
-    const own = startServer({ server: watcher, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], profiles: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }) });
+    const own = startServer({ server: watcher, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles: async (playerId: string) => ({ id: playerId, name: playerId.slice(7) }) });
     await new Promise((r) => own.wss.once("listening", r));
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string, playerTag: string, friendTagIds: string[]) => {
@@ -241,8 +244,55 @@ describe("Node runner", () => {
     expect(await old.next()).toMatchObject({ type: "error", code: "no_hello" });
   });
 
+  it("brings rooms back with their state after a restart, from its room state file", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "zaisma-room-states-")), "rooms.sqlite");
+    const racer = defineGameServer({
+      ticksPerSec: 50,
+      stateSaveIntervalSec: 1,
+      setup: () => ({ tickCount: 0, restored: null as unknown }),
+      onTick: (state) => void state.tickCount++,
+      onRestored: (state, restoreInfo, room) => void (state.restored = { ...restoreInfo, awayReasons: room.players.map((player) => room.awayReason(player.id)) }),
+      onMessage: (state, player, _message, room) => room.send(player.id, { tickCount: state.tickCount, restored: state.restored }),
+    });
+    const start = async () => {
+      const own = startServer({ server: racer, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: file });
+      await new Promise((r) => own.wss.once("listening", r));
+      return { own, at: (own.wss.address() as { port: number }).port };
+    };
+    const first = await start();
+    const lucas = connect(ORIGIN, "/v1/rooms/arena/RSTRTN", first.at);
+    await lucas.open;
+    lucas.say({ type: "hello", pass: await pass("lucas") });
+    expect((await lucas.next()).type).toBe("welcome");
+    // Emma plays a little and leaves: she isn't brought back, though the state doesn't say she left.
+    const emma = connect(ORIGIN, "/v1/rooms/arena/RSTRTN", first.at);
+    await emma.open;
+    emma.say({ type: "hello", pass: await pass("emma") });
+    expect((await emma.next()).type).toBe("welcome");
+    await new Promise((r) => setTimeout(r, 1100));
+    emma.ws.close(1000);
+    await emma.closed;
+    await new Promise((r) => setTimeout(r, 50));
+    // A clean stop saves every room, so nothing is lost.
+    await first.own.close();
+    const tickCountAtStop = first.own.rooms.get("RSTRTN").core.state.tickCount;
+    expect(tickCountAtStop).toBeGreaterThan(0);
+
+    const second = await start();
+    const back = connect(ORIGIN, "/v1/rooms/arena/RSTRTN", second.at);
+    await back.open;
+    back.say({ type: "hello", pass: await pass("lucas") });
+    expect((await back.next()).type).toBe("welcome");
+    back.say({ type: "message", data: "how" });
+    const how = (await until(back, "message")).data;
+    expect(how.tickCount).toBeGreaterThanOrEqual(tickCountAtStop);
+    expect(how.restored).toMatchObject({ lostDurationSec: 0, awayReasons: ["lost"] });
+    back.ws.close();
+    await second.own.close();
+  });
+
   it("won't start a game server with an option it doesn't take", () => {
-    expect(() => startServer({ server: { tickRate: 20, setup: () => ({}) }, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [] })).toThrow(
+    expect(() => startServer({ server: { tickRate: 20, setup: () => ({}) }, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [], roomStateFile: null })).toThrow(
       "tickRate isn't a game server option",
     );
   });

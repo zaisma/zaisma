@@ -1376,3 +1376,65 @@ describe("room browsing", () => {
     a.ws.close(1000);
   });
 });
+
+describe("a real-time room's saved state", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM live_rooms; DELETE FROM games;");
+  });
+
+  it("is written in chunks with one put and read back whole, and not at all past 32 MB, which the game's logs say", async () => {
+    await addGame("racer", { server: "arena" });
+    const a = await join("racer", "RCRSTV");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("racer:RCRSTV"));
+    const result = await runInDurableObject(stub, async (room: Room, state) => {
+      const inside = room as any;
+      const core = inside.core;
+      const printed: string[] = [];
+      inside.printed = (lines: { text: string }[]) => printed.push(...lines.map((line) => line.text));
+      // 3 MB of state: six chunks of 512 KB of text, under the 2 MB a stored value may be.
+      core.state = { ...core.state, track: "x".repeat(3 * 1024 * 1024) };
+      await inside.save(true);
+      const saved = await state.storage.get<any>("saved");
+      // A fresh copy of the room, as after a restart, reads it back whole.
+      const restarted = new (room.constructor as any)(state, e);
+      await state.blockConcurrencyWhile(async () => {});
+      const readBack = restarted.saved;
+      // Smaller again: the chunks past the new count go in the same write.
+      core.state = { ...core.state, track: "short" };
+      await inside.save(true);
+      const keysAfter = [...(await state.storage.list({ prefix: "stateChunk:" })).keys()];
+      // Past 32 MB: nothing written, one log line, however often it tries.
+      core.state = { ...core.state, track: "y".repeat(33 * 1024 * 1024) };
+      await inside.save(true);
+      await inside.save(true);
+      const afterTooBig = await state.storage.get<string>("stateChunk:0");
+      inside.stopTicking();
+      return { stateChunkCount: saved.stateChunkCount, matchPlayerIds: saved.matchPlayers.map((player: any) => player.id), trackSizeBytes: readBack.track.length, keysAfter, isStillShort: JSON.parse(afterTooBig!).track === "short", printed };
+    });
+    expect(result).toEqual({
+      stateChunkCount: 7,
+      matchPlayerIds: [a.player.id],
+      trackSizeBytes: 3 * 1024 * 1024,
+      keysAfter: ["stateChunk:0"],
+      isStillShort: true,
+      printed: ["Zaisma: this room's state is over 32 MB, so it isn't saved and a restart starts it fresh."],
+    });
+    a.ws.close(1000);
+  });
+
+  it("is gone once the match ends, so the room never wakes with it", async () => {
+    await addGame("finisher", { server: "arena" });
+    const a = await join("finisher", "FNSHRS");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("finisher:FNSHRS"));
+    const keys = await runInDurableObject(stub, async (room: Room, state) => {
+      const inside = room as any;
+      await inside.save(true);
+      const before = [...(await state.storage.list({ prefix: "stateChunk:" })).keys()];
+      inside.core.end("Over");
+      await inside.finish();
+      return { before, after: [...(await state.storage.list({ prefix: "stateChunk:" })).keys()], saved: await state.storage.get("saved") };
+    });
+    expect(keys).toEqual({ before: ["stateChunk:0"], after: [], saved: { hasEnded: true } });
+    await a.closed;
+  });
+});

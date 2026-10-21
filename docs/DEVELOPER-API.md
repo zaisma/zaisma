@@ -617,6 +617,16 @@ A blip is the most common thing that goes wrong online, so a player whose connec
 
 Real-time rooms notice a silent drop within seconds (their probes); turn-based rooms keep the slower 75-second check, so they can sleep between moves.
 
+### Restarts
+
+Zaisma restarts its rooms whenever Zaisma itself is updated, and a match carries on:
+
+- **Saved every few seconds:** a real-time room saves its game server's state every `stateSaveIntervalSec` (5 by default, 1 to 60), only when it changed, and once more when everyone walks away or leaves; a turn-based room saves after every change, as always. A state over 32 MB as JSON isn't saved: the game's logs say so once, and a restart starts that room fresh.
+- **Back a few seconds behind:** the restarted room starts from the last save instead of `setup`, and `onRestored(state, restoreInfo, room)` runs once: `restoreInfo.savedAt` (an ISO time) and `restoreInfo.lostDurationSec`, the seconds of play since then that are lost. Use it to resync clocks or tell players.
+- **Players come back as dropped players:** everyone who was in the match is away with reason `lost` (`room.awayReason` answers it in `onRestored`), `onAway` runs for each, and they have the whole `reconnectTimeoutSec` from the restart. The room closes their connections with code `1012`, the SDK reconnects to the same room by itself, and `onBack` runs for each one back; anyone who isn't leaves as `lost` (above).
+- **A room that empties** keeps its saved state for a day, so players rejoining it find the match as it was (`onRestored` runs then too). A match that ends keeps nothing.
+- **On your own server** the Node runner saves to its `--room-state` file (`zaisma-room-states.sqlite`) the same way, and saves every room when it's stopped, so a clean restart loses nothing.
+
 ### Walking away
 
 Players who walk away stop holding seats and running matches, with no code:
