@@ -343,7 +343,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 /**
  * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
  * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
- * your finger is off the screen), the page glides on: to the top when you were scrolling up, past the change when you were scrolling down. A bar over a
+ * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. A bar over a
  * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
@@ -354,15 +354,13 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
     // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
     target.style.overflowAnchor = "none";
     function at() { return box ? box.scrollTop : window.scrollY; }
-    // Where the page rested before this scroll, so the glide knows which way you were going; nothing glides while a finger is down.
-    var restY = at(), isTouching = false, timer = 0;
+    // Nothing glides while a finger is down.
+    var isTouching = false, timer = 0;
     function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
     function settle() {
       if (isTouching) return;
-      var y = at(), isGoingDown = y >= restY;
-      if (y <= 0 || y >= SETTLE_PX) { restY = y; return; }
-      restY = isGoingDown ? SETTLE_PX : 0;
-      scroller.scrollTo({ top: restY, behavior: still.matches ? "auto" : "smooth" });
+      var y = at();
+      if (y > 0 && y < SETTLE_PX) scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" });
     }
     scroller.addEventListener("scroll", function () {
       sync();

@@ -93,24 +93,25 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 
 export const GALLERY_STYLES = `
 /* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labelled cells. */
-html { scroll-padding-top: 96px; }
+/* Where things rest under the bar: its inset, its height and the gap between blocks, so the stuck index sits where it sat at the top. */
+html { --gallery-bar-height: 68px; --under-gallery-bar: calc(var(--pad-pane) + var(--gallery-bar-height) + var(--gap-block-block)); scroll-padding-top: var(--under-gallery-bar); }
 body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
 .stage { padding-top: var(--pad-pane); }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
-.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
+.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: var(--gallery-bar-height); display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
   --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-bar > .cut-btn { margin-left: auto; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.gallery-index { position: sticky; top: 100px; align-self: start; padding: var(--pad-inner-pane); }
+.gallery-index { position: sticky; top: var(--under-gallery-bar); align-self: start; padding: var(--pad-inner-pane); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
 /* The group's name is already the current place in the index (or the tabs on a phone), so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: 96px; }
+.component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: var(--under-gallery-bar); }
 .component-name { margin: 0; font: var(--type-section); }
 .component-summary { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); }

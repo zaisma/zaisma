@@ -266,10 +266,13 @@ component({
   group: "panes",
   summary: "A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.",
   styles: `
-/* A tray: the pane above holds the words, square along its foot; the tray hangs from it, thinner and clearer (--glass-tray, less blur), and holds the rest. */
+/* A tray: the pane above holds the words, square along its foot; the tray runs on from it with no rim of its own along the top. It's
+   the same glass, light or smoked, only thinner and muted, so the pane stands out and the tray stays in the background: a clearer
+   tint (--glass-tray), less blur, the colours behind it less lifted, and a fainter rim, its bevel as wide. */
 .tray-group { display: flex; flex-direction: column; }
 .tray-head { padding: var(--pad-pane); }
-.tray { --glass-tint: var(--glass-tray); --glass-blur: 10px; padding: var(--pad-pane); }
+.tray { --glass-tint: var(--glass-tray); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-pane); }
+.tray > .edge { opacity: 0.45; }
 .tray-sample-title { margin: 0; font: var(--type-section); }
 .tray-sample-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--gap-block-block); }
 `,
