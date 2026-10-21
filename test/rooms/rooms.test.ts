@@ -643,9 +643,70 @@ describe("rooms", () => {
     ]);
     expect(closedCode).toBe(4003);
     expect(sentCount).toBeGreaterThan(100);
-    expect((await until(quick, (m) => m.type === "players" && m.players.length === 1)).players[0].id).toBe(quick.player.id);
+    // slow stays in the match, reconnecting, and the room carries on for quick.
+    const players = (await until(quick, (m) => m.type === "players" && m.players.some((p: any) => p.awayReason === "lost"))).players;
+    expect(players.map((p: any) => [p.id, p.awayReason])).toEqual([[slow.player.id, "lost"], [quick.player.id, null]]);
     quick.ws.close(1000);
   }, 20_000);
+
+  it("keeps a player whose connection dropped in the match until they're back, or their time runs out", async () => {
+    await addGame("arena");
+    const a = await join("arena", "DRPRMA");
+    const b = await join("arena", "DRPRMA");
+    await until(a, (m) => m.type === "players" && m.players.length === 2);
+    // b's connection drops (not closed on purpose): a sees them reconnecting.
+    b.ws.close(3000);
+    const dropped = await until(a, (m) => m.type === "players" && m.players.some((p: any) => p.awayReason === "lost"));
+    expect(dropped.players.map((p: any) => [p.id, p.awayReason])).toEqual([[a.player.id, null], [b.player.id, "lost"]]);
+
+    // b's game reconnects with the same pass: they're playing again, and a hears it.
+    const back = await connect("arena", "DRPRMA");
+    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    expect(await back.next()).toMatchObject({ type: "welcome", players: [{ id: a.player.id, awayReason: null }, { id: b.player.id, awayReason: null }] });
+    await until(a, (m) => m.type === "players" && m.players.every((p: any) => p.awayReason === null));
+
+    // Dropped again, and this time the time runs out: the room's alarm takes them out of the match.
+    back.ws.close(3000);
+    await until(a, (m) => m.type === "players" && m.players.some((p: any) => p.awayReason === "lost"));
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("arena:DRPRMA"));
+    await runInDurableObject(stub, async (room: Room) => {
+      const core = (room as any).core;
+      expect(core.nextReconnectDeadlineMs()).toBeGreaterThan(Date.now() + 25_000);
+      for (const id of core.reconnectUntilMs.keys()) core.reconnectUntilMs.set(id, Date.now() - 1);
+    });
+    await runDurableObjectAlarm(stub);
+    expect((await until(a, (m) => m.type === "players" && m.players.length === 1)).players[0].id).toBe(a.player.id);
+    a.ws.close(1000);
+  });
+
+  it("wakes for players whose connection dropped when nobody else is connected, then empties", async () => {
+    await addGame("arena");
+    const a = await join("arena", "MPTYRM");
+    const b = await join("arena", "MPTYRM");
+    await until(a, (m) => m.type === "players" && m.players.length === 2);
+    b.ws.close(3000);
+    await until(a, (m) => m.type === "players" && m.players.some((p: any) => p.awayReason === "lost"));
+    a.ws.close(3000);
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("arena:MPTYRM"));
+    for (let i = 0; i < 40; i++) {
+      const isKept = await runInDurableObject(stub, async (_room: Room, state) => Object.keys((await state.storage.get<any>("room"))?.reconnecting ?? {}).length === 2);
+      if (isKept) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await runInDurableObject(stub, async (room: Room, state) => {
+      expect(Object.keys((await state.storage.get<any>("room")).reconnecting).sort()).toEqual([a.player.id, b.player.id].sort());
+      // The room wakes when the first of them runs out of time, not a day later.
+      expect(await state.storage.getAlarm()).toBeLessThanOrEqual(Date.now() + 30_000);
+      const core = (room as any).core;
+      for (const id of core.reconnectUntilMs.keys()) core.reconnectUntilMs.set(id, Date.now() - 1);
+    });
+    await runDurableObjectAlarm(stub);
+    await runInDurableObject(stub, async (room: Room, state) => {
+      expect((room as any).core.players.size).toBe(0);
+      expect((await state.storage.get<any>("room")).reconnecting).toBeUndefined();
+      expect(await state.storage.getAlarm()).toBeGreaterThan(Date.now() + 3600_000);
+    });
+  });
 
   it("needs a valid pass first, from the game's origin", async () => {
     await addGame("arena");
@@ -898,6 +959,35 @@ describe("turn-based rooms", () => {
     }
     expect(board[38]).toBe(1);
     expect(board[39]).toBe(2);
+  });
+
+  it("keep a player whose connection dropped through a sleep, and give them the board when they're back", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = await join("four", "DRPSLP");
+    const b = await join("four", "DRPSLP");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("four:DRPSLP"));
+    a.ws.send(JSON.stringify({ type: "message", data: { column: 3 } }));
+    await until(b, (m) => m.type === "message" && m.data.board[38] === 1);
+    a.ws.close(3000);
+    await until(b, (m) => m.type === "players" && m.players.some((p: any) => p.awayReason === "lost"));
+
+    // The room sleeps: it wakes with only the players it has connections for, and its saved room.
+    await runInDurableObject(stub, async (room: Room, state) => {
+      const saved = await state.storage.get<{ state: unknown }>("saved");
+      expect(Object.keys((await state.storage.get<any>("room")).reconnecting)).toEqual([a.player.id]);
+      (room as any).core = null;
+      (room as any).saved = saved!.state;
+    });
+    const back = await connect("four", "DRPSLP");
+    back.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    expect(await back.next()).toMatchObject({ type: "welcome", players: [{ id: b.player.id, awayReason: null }, { id: a.player.id, awayReason: null }] });
+    // onBack sends the board as it is, with a still in seat 1.
+    const shared = await until(back, (m) => m.type === "message" && m.data.board);
+    expect(shared.data.board[38]).toBe(1);
+    expect(shared.data.seatPlayerIds).toEqual([a.player.id, b.player.id]);
+    await until(b, (m) => m.type === "players" && m.players.every((p: any) => p.awayReason === null));
+    back.ws.close(1000);
+    b.ws.close(1000);
   });
 });
 
@@ -1182,9 +1272,9 @@ describe("room browsing", () => {
     });
     await runDurableObjectAlarm(stub);
     expect(await b.closed).toBe(4003);
-    await until(a, (m) => m.type === "players" && m.players.length === 1 && m.players[0].id === a.player.id);
-    // Not playing now, but their seat is held for when they reconnect.
-    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 1 });
+    await until(a, (m) => m.type === "players" && m.players.some((p: any) => p.id === b.player.id && p.awayReason === "lost"));
+    // Not playing now, but still in the match while they reconnect.
+    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 0 });
     const back = await connect("pinger", "PNGRMA");
     back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
