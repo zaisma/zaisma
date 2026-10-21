@@ -373,7 +373,7 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-cue { display: flex; justify-content: center; }
 .home-cue .text-words > svg { order: 2; animation: home-cue-drift 1.6s ease-in-out infinite; }
 @keyframes home-cue-drift { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
-.home-pane .tray { padding-block: var(--pad-tray); }
+.home-pane .tray { padding-block: var(--gap-words-words); }
 .home:not(.is-staged-wide) .home-pane .tray { height: 0; padding-block: 0; border: 0; overflow: hidden; visibility: hidden; }
 @media (min-width: 761px) {
   html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }

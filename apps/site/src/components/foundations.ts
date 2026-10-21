@@ -359,6 +359,9 @@ component({
   background: radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%),
     radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base); }
 .backdrop.is-framed { position: absolute; }
+/* Under the page, a backdrop runs past the window by twice the glass's blur on every side: glass running off the screen's edge blurs
+   what's really there, instead of repeating the edge's last row of pixels, which flickers as a shader moves across it. */
+.backdrop:not(.is-framed) { inset: calc(-2 * var(--glass-blur)); width: calc(100% + 4 * var(--glass-blur)); height: calc(100% + 4 * var(--glass-blur)); }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }

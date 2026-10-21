@@ -125,7 +125,7 @@ function measureStage() {
   const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
   // On a wide screen the tray with "More games" sits under the staged pane, so it's kept on screen too (measured from what's on it,
   // since a docked pane's tray is tucked away).
-  const trayPx = isPhone() ? 0 : cue.offsetHeight + 2 * (parseFloat(getComputedStyle(home).getPropertyValue("--pad-tray")) || 16);
+  const trayPx = isPhone() ? 0 : cue.offsetHeight + 2 * (parseFloat(getComputedStyle(home).getPropertyValue("--gap-words-words")) || 8);
   home.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - stageTray.offsetHeight - openPx - pane.head.offsetHeight + coverPx + trayPx) + "px");
 }
 // Staged on a wide screen, the pane is a tray's head: square at its foot, the tray running on under it. Docked, or on a phone, the tray
