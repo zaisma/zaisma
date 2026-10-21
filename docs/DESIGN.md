@@ -82,7 +82,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
   - **In a pane's middle, it's square.** A swatch in the middle of the color pane.
   - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the color pane's top left is cut only there.
   - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details.
-  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
+  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom. In a pane that scrolls inside itself, gaps are measured against the whole scrolled content, so how far it's scrolled never changes a cut.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
   Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
