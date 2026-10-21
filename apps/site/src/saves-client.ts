@@ -177,6 +177,15 @@ export const SAVES_SCRIPT = pageScript("saves", `
     }, 6000);
   }
 
+  // The game page reloads the game in place (a version published "now"), at query: through the restore
+  // page, so its progress carries over. A guest's game has nothing to restore, so the page opens it itself.
+  window.reloadGameThroughSaves = function (query) {
+    if (guest || !frame) return false;
+    SAVES.query = query;
+    openThroughRestore();
+    return true;
+  };
+
   // Called by play(): start the game through the restore page instead of directly.
   window.startSaves = function (f) {
     frame = f;
@@ -411,9 +420,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       }
       return;
     } else if (res && res.status === 413) {
-      paused = true;
-      tell({ step: "pause" });
-      say("This game's save is over 5 MB, so it stays on this device.");
+      overLimit();
       return;
     } else if (res && res.status === 401) {
       paused = true;
@@ -540,6 +547,13 @@ export const SAVES_SCRIPT = pageScript("saves", `
     failed();
   };
 
+  // The save is past the limit (the server said so, or the game's script stopped reading at it).
+  function overLimit() {
+    paused = true;
+    tell({ step: "pause" });
+    say("This game's save is over 5 MB, so it stays on this device.");
+  }
+
   addEventListener("message", (e) => {
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
     const m = e.data;
@@ -563,6 +577,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       if (!paused && cloud && !(cloud instanceof Promise)) tell({ step: "sync", text: synced });
     }
     else if (m.step === "save" && typeof m.text === "string" && m.text !== synced && cloud && !(cloud instanceof Promise)) store(m.text);
+    else if (m.step === "over_limit" && !paused && cloud && !(cloud instanceof Promise)) overLimit();
   });
 })();
 `);

@@ -32,6 +32,9 @@ export const CLI_PUBLISH_POLL_SEC = 15;
 export const REQUEST_TIMEOUT_MS = 15_000;
 export const ATTEMPT_COUNT = 4;
 export const RETRY_WAIT_MS = 3000;
+// A game's address answers its pages with a redirect to its version's own address (<base>_zaisma/versions/<id>/);
+// checks of the game's page follow it on the same origin, at most this many times.
+export const MAXIMUM_REDIRECT_COUNT = 3;
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const asHeaders = (headers) => (typeof headers?.get === "function" ? headers : new Headers(headers ?? {}));
@@ -144,16 +147,29 @@ export function bucketAccessProblems(devUrlOutput, domainListOutput) {
 const passed = (name, isSecurity, note) => ({ name, isPass: true, isSecurity, note });
 const failed = (name, isSecurity, problems) => ({ name, isPass: false, isSecurity, note: `${name}: ${problems.join(", ")}` });
 
+/** fetch without following redirects, except to the same origin when isSameOriginRedirectFollowed (up to MAXIMUM_REDIRECT_COUNT). */
+async function fetchOnce(url, requestInit, isSameOriginRedirectFollowed) {
+  let address = url;
+  for (let redirectCount = 0; ; redirectCount++) {
+    const response = await fetch(address, { ...requestInit, redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const location = response.headers.get("location");
+    if (!isSameOriginRedirectFollowed || response.status < 300 || response.status > 399 || !location || redirectCount === MAXIMUM_REDIRECT_COUNT) return response;
+    const next = new URL(location, address);
+    if (next.origin !== new URL(url).origin) return response;
+    address = next.href;
+  }
+}
+
 /**
  * One address with its tries. A thrown fetch and a status of 500 or more are always retried; a problem
  * on any other answer only when isRetriedOnProblem. Answers { problems, response, body, error }.
  */
-async function probe(url, requestInit, findProblems, { isRetriedOnProblem = true, attemptCount = ATTEMPT_COUNT, retryWaitMs = RETRY_WAIT_MS } = {}) {
+async function probe(url, requestInit, findProblems, { isRetriedOnProblem = true, isSameOriginRedirectFollowed = false, attemptCount = ATTEMPT_COUNT, retryWaitMs = RETRY_WAIT_MS } = {}) {
   let last = { problems: [], response: null, body: "", error: null };
   for (let attempt = 0; attempt < attemptCount; attempt++) {
     if (attempt) await wait(retryWaitMs);
     try {
-      const response = await fetch(url, { ...requestInit, redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      const response = await fetchOnce(url, requestInit, isSameOriginRedirectFollowed);
       const body = await response.text();
       last = { problems: findProblems(response, body), response, body, error: null };
       if (!last.problems.length) return last;
@@ -223,7 +239,8 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
   return Promise.all([
     checkUrl("zaisma.com headers", `${SITE_URL}/`, {}, headerCheck(siteHeaderProblems), security),
     checkUrl("game page headers", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, headerCheck(siteHeaderProblems), security),
-    checkUrl("game domain headers", CHECK_GAME_URL, {}, headerCheck(gameHeaderProblems), security),
+    // The game's page, at its version's own address.
+    checkUrl("game domain headers", CHECK_GAME_URL, {}, headerCheck(gameHeaderProblems), { ...security, isSameOriginRedirectFollowed: true }),
     checkUrl("zaisma.com over http", `http://zaisma.com/g/${CHECK_GAME_SLUG}?from=ship`, {}, (response) => httpsRedirectProblems(response, `${SITE_URL}/g/${CHECK_GAME_SLUG}?from=ship`), security),
     checkUrl("game domain over http", `http://${CHECK_GAME_SLUG}.${GAME_DOMAIN}/`, {}, (response) => httpsRedirectProblems(response, CHECK_GAME_URL), security),
     checkPrivateCheckGame({ zaismaKey, ...retryOptions }),

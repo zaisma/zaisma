@@ -108,6 +108,14 @@ interface VersionJson {
   review_reason: ReviewReasonJson | null;
   findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
   replaced_by_version_id: string | null;
+  performance_check: PerformanceCheckJson | null;
+}
+interface PerformanceCheckJson {
+  check_status: "waiting" | "checking" | "checked" | "over_daily_limit" | "could_not_run";
+  loading_duration_sec: number | null;
+  start_download_size_bytes: number | null;
+  start_memory_size_bytes: number | null;
+  notes: { code: string; message: string; path: string | null; fix: string }[];
 }
 
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
@@ -320,8 +328,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
-      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, {});
-      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at") });
+      // "Update running games now": live matches switch now instead of at their next match.
+      const matchUpdate = field("match_update_mode") === "now" ? { match_update_mode: "now" } : {};
+      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, matchUpdate);
+      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
       return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
     }
@@ -376,7 +386,7 @@ export const notice = (messages: { done?: string; error?: string }) =>
 /** A time, from the API (ISO) or the database (milliseconds), shown in the reader's own time zone. */
 export const when = (instant: string | number) => html`<time datetime="${new Date(instant).toISOString()}" data-local>${new Date(instant).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
 
-const sizeText = (sizeBytes: number) => (sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(sizeBytes / 1024))} KB`);
+const sizeText = (sizeBytes: number) => (sizeBytes >= 1024 ** 3 ? `${(sizeBytes / 1024 ** 3).toFixed(1)} GB` : sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(sizeBytes / 1024))} KB`);
 
 function coverOf(images: ImageJson[]): ImageJson | undefined {
   const covers = images.filter((i) => i.kind === "cover" && i.review_status !== "rejected");
@@ -835,9 +845,9 @@ function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   if (version.scan_status === "approved" && !version.is_live) {
     acts = html`<div class="row">
 ${version.preview_url ? html`<a class="btn ghost" href="${version.preview_url}" target="_blank" rel="noopener" title="For you and your AI: each link works for a day">Preview</a>` : ""}
-<form method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button></form>
+<form class="row" method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
 ${version.preview_url ? html`<details class="later"><summary>Preview links</summary><form class="row" method="post" action="${action("end-previews")}">${sectionField(section)}<span class="muted">Each preview link is for you and your AI and works for a day. Shared one too widely? Turn them all off; Preview gets a fresh one.</span><button class="btn ghost" type="submit">Turn off preview links</button></form></details>` : ""}
-${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><button class="btn ghost" type="submit">Schedule</button></form></details>`}
+${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
@@ -858,8 +868,27 @@ ${findings.length
           (finding) => html`<li>${finding.message}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}<br><span class="muted">${finding.content_rule ? html`${ruleLink(finding.content_rule)} · ` : ""}<code>${finding.code}</code></span></li>`,
         )}</ul>${fixes.map((fix) => html`<p class="fix">${fixForPeople(slug, fix)}</p>`)}</div>`
       : ""}
+${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
 ${scheduled}${acts}
 </li>`;
+}
+
+/** How a passed version started in Chrome, with its notes folded away: they never hold it. */
+function performanceLine(check: PerformanceCheckJson | null): Raw | string {
+  if (!check) return "";
+  if (check.check_status === "waiting" || check.check_status === "checking") return html`<p class="muted">Checking how it starts in Chrome…</p>`;
+  if (check.check_status === "over_daily_limit") return html`<p class="muted">Not started in Chrome: today's 20 runs are used. Versions are measured again from midnight UTC.</p>`;
+  if (check.check_status === "could_not_run") return html`<p class="muted">Chrome couldn't run it on Zaisma's side; nothing for you to fix.</p>`;
+  const numbers = [
+    check.loading_duration_sec === null ? "nothing drawn" : `first frame after ${check.loading_duration_sec} s`,
+    check.start_download_size_bytes === null ? "" : `${sizeText(check.start_download_size_bytes)} before it`,
+    check.start_memory_size_bytes === null ? "" : `${sizeText(check.start_memory_size_bytes)} memory`,
+  ].filter(Boolean);
+  return html`<div class="started"><p>Started in Chrome: ${numbers.join(" · ")}</p>${check.notes.length
+    ? html`<details class="later"><summary>${check.notes.length} ${check.notes.length === 1 ? "note" : "notes"}</summary><ul class="started-notes">${check.notes.map(
+        (note) => html`<li>${note.message}${note.path ? html` <span class="muted">(${note.path})</span>` : ""}<br><span class="fix">${note.fix}</span> <span class="muted"><code>${note.code}</code></span></li>`,
+      )}</ul></details>`
+    : ""}</div>`;
 }
 
 function detailsForm(slug: string, game: GameJson): Raw {
@@ -1332,6 +1361,11 @@ const STYLES = `
 .version-notes{margin:0;color:var(--text-2);white-space:pre-wrap}
 .findings{margin:0;padding-left:18px;color:var(--warn);display:grid;gap:6px}
 .findings .muted{color:var(--muted);font-size:13px}
+.started{display:grid;gap:2px}
+.started>p{color:var(--text-2)}
+.started-notes{margin:0 0 4px;padding-left:18px;display:grid;gap:8px;font-size:14px}
+.started-notes .fix{color:var(--text-2)}
+.started-notes code{font-size:12px}
 .reason{display:grid;gap:6px}
 .reason p{margin:0}
 .reason .fix{color:var(--text-2)}

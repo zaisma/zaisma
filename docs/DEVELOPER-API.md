@@ -142,6 +142,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `files_missing` | 409 | Some of the version's files haven't been sent yet. |
 | `bad_patch_notes` | 400 | patch_notes isn't text of up to 2,000 characters. |
 | `bad_publish_when_approved` | 400 | publish_when_approved isn't true or false. |
+| `bad_match_update_mode` | 400 | match_update_mode isn't next_match or now, or it came without publish_when_approved. |
 | `version_limit` | 429 | The game has had 20 versions in the last day. |
 | `no_content_length` | 411 | A file was sent without a Content-Length header. |
 | `file_needs_parts` | 413 | A file over 95 MB was sent in one go. |
@@ -617,6 +618,26 @@ A blip is the most common thing that goes wrong online, so a player whose connec
 
 Real-time rooms notice a silent drop within seconds (their probes); turn-based rooms keep the slower 75-second check, so they can sleep between moves.
 
+### Updates
+
+A version you publish (or roll back to) reaches running matches at their next match, or now: `match_update_mode` `"next_match"` (the default) or `"now"` on `publish_version`, on `upload_files` and `POST /games/:slug/versions` with `publish_when_approved`, `zaisma publish --match-update-mode now`, or Update running games now on the dashboard.
+
+- **Now, in a match:** every live room of the game hears it within seconds (a room that slept through it finds it within a minute of waking). Players' games get the room's `versionUpdate` event, `{ versionId, appliesAt, isReloading }`, to show a countdown or save. Without `onVersionUpdate`, the match switches 10 seconds later. With `onVersionUpdate(state, versionUpdate, room)`, the room waits for your game server: call `room.applyVersionUpdate()` at a good moment, like the end of a round, or it switches at `versionUpdate.forcedAt`, 5 minutes on.
+- **The switch:** the room saves, its connections close with code `4004`, and the new version's game server starts from the saved state: `onRestored(state, restoreInfo, room)` runs with `restoreInfo.savedVersionId`, the version that saved it, so you can bring an older state up to date (or `room.end()` the match if you can't). When only the game server changed, players' games reconnect by themselves in a second or two. When the game's own files changed (`isReloading`), the game page reloads the game in place at the new version, with its save, and `Zaisma.joinRoom()` with no code brings the player back into the same room. Players come back as dropped players do (away, reason `lost`, for `reconnectTimeoutSec`, then a held seat), so a slow reload still finds its place. The game page's bar says Updating meanwhile; nothing covers the game.
+- **Now, not in a match** (a single-player game, or a menu): never forced. The game page notices within 2 minutes. A game listening to `Zaisma.versions.on("update", (update) => …)` switches when it says, with `update.apply()` (at a checkpoint, back at its menu), and the page reloads it with its save; otherwise the bar beside the game shows Update, and the player taps it when they're ready, or gets the new version the next time they open the game.
+- **Next match:** nothing changes for running matches: a room keeps the version it started on until its match ends.
+- **On your own server** `onVersionUpdate` never runs and `room.applyVersionUpdate()` does nothing: the game page still reloads players' games after a `now` publish when they're not in a match, and you restart your server to switch it (the Node runner brings its matches back, below).
+
+### Restarts
+
+Zaisma restarts its rooms whenever Zaisma itself is updated, and a match carries on:
+
+- **Saved every few seconds:** a real-time room saves its game server's state every `stateSaveIntervalSec` (5 by default, 1 to 60), only when it changed, and once more when everyone walks away or leaves; a turn-based room saves after every change, as always. A state over 32 MB as JSON isn't saved: the game's logs say so once, and a restart starts that room fresh.
+- **Back a few seconds behind:** the restarted room starts from the last save instead of `setup`, and `onRestored(state, restoreInfo, room)` runs once: `restoreInfo.savedAt` (an ISO time) and `restoreInfo.lostDurationSec`, the seconds of play since then that are lost. Use it to resync clocks or tell players.
+- **Players come back as dropped players:** everyone who was in the match is away with reason `lost` (`room.awayReason` answers it in `onRestored`), `onAway` runs for each, and they have the whole `reconnectTimeoutSec` from the restart. The room closes their connections with code `1012`, the SDK reconnects to the same room by itself, and `onBack` runs for each one back; anyone who isn't leaves as `lost` (above).
+- **A room that empties** keeps its saved state for a day, so players rejoining it find the match as it was (`onRestored` runs then too). A match that ends keeps nothing.
+- **On your own server** the Node runner saves to its `--room-state` file (`zaisma-room-states.sqlite`) the same way, and saves every room when it's stopped, so a clean restart loses nothing.
+
 ### Walking away
 
 Players who walk away stop holding seats and running matches, with no code:
@@ -744,7 +765,7 @@ Every game has its own SQLite database, part of its hosting: the one its game se
 
 ## Cloud saves
 
-A signed-in player's progress in a game with cloud saves on is mirrored to their account from the game's own browser saves, with no code (see "Cloud saves" in the README). You and your AI reach every player's save here, by player ID: list them, read them, fix them, reset them, and go back to earlier versions. Saves stay apart from the game database, and each stays tied to its player: deleted with their account, never shown to other games. A save is the game's localStorage, and its IndexedDB databases when it keeps any (Unity, Godot and localForage do).
+A signed-in player's progress in a game with cloud saves on is mirrored to their account from the game's own browser saves, with no code (see "Cloud saves" in the README). You and your AI reach every player's save here, by player ID: list them, read them, fix them, reset them, and go back to earlier versions. Saves stay apart from the game database, and each stays tied to its player: deleted with their account, never shown to other games. A save is the game's localStorage, and its IndexedDB databases when it keeps any (Unity, Godot and localForage do). Copying it never slows the game: only what the game changed is read again, in a worker off the thread that draws the game, and a save past 5 MB stays on the device and is read no further. Keep downloaded files in a database with "cache" in its name (like Unity's UnityCache), which saves skip, so they never count toward the save.
 
 | Call | What it does |
 | --- | --- |
@@ -949,9 +970,9 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | --- | --- |
 | `POST /games/:slug/uploads` | Send the file list, `{"files": [{"path", "sha256", "size_bytes"}]}`. Answers `file_count`, `size_bytes` and the hashes you haven't sent yet (`missing_file_hashes`). |
 | `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. Answers `storage_status`: `stored_now`, or `already_stored` when you sent it before. |
-| `POST /games/:slug/versions` | Make the version from the same list, plus `patch_notes` (up to 2,000 characters) and optionally `"publish_when_approved": true`, which needs `version_access` `publish` (an upload key gets `key_not_allowed`). |
-| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), and `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`. |
-| `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"scheduled_publish_at": "2026-11-01T17:00:00Z"}` (an ISO time; numbers are refused) it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. Answers with the `game` and the `version`. |
+| `POST /games/:slug/versions` | Make the version from the same list, plus `patch_notes` (up to 2,000 characters) and optionally `"publish_when_approved": true`, which needs `version_access` `publish` (an upload key gets `key_not_allowed`), with `match_update_mode` for when it goes live (below; only with `publish_when_approved`, else `bad_match_update_mode`). |
+| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `match_update_mode` (how running matches get it when it goes live by itself), `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), and `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`, and `performance_check`: how it started in Chrome (see How it started in Chrome, below). |
+| `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"scheduled_publish_at": "2026-11-01T17:00:00Z"}` (an ISO time; numbers are refused) it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. `match_update_mode` says when running matches get it: `"next_match"` (the default: they finish on the version they started, and new matches get it) or `"now"` (every live match switches within seconds, in the same room; see [Updates](#updates)); a scheduled publish keeps the choice, and the version's `match_update_mode` shows it. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/preview-links` | Turn off every preview link handed out so far for this version, and every browser that opened one. The next `preview_url` works again. Answers with the `version`. |
 
@@ -964,13 +985,43 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 - Drafts nobody publishes are deleted after 30 days, and files no version uses after a day. Held and rejected versions are kept.
 - Publishing doesn't change visibility: a draft game stays hidden until you set it to `listed` or `unlisted`.
 
+### How it started in Chrome
+
+A minute after a version passes the scan, Zaisma has opened it in headless Chrome through its own preview link and says how it started, and what would make it much smaller, as the version's `performance_check` (in `get_version`, `get_game`, the upload command and the dashboard). They're notes: they never hold a version, and there's no score. Chrome there runs on a computer with no graphics card, so loading, memory and errors are like a player's, and frame rate isn't measured.
+
+| Field | What it holds |
+| --- | --- |
+| `check_status` | `waiting` (it passed and waits for Chrome, usually under a minute), `checking`, `checked`, `over_daily_limit` (not measured: your 20 runs today are used; versions are measured again from midnight UTC) or `could_not_run` (Chrome couldn't run it on Zaisma's side; nothing for you to fix). |
+| `checked_at` | When the run finished, or `null`. |
+| `browser_description` | Where it ran, like `Chrome 141 on a computer with no graphics card`. |
+| `loading_duration_sec` | Seconds from opening the game until it drew its first frame (the first draw on a canvas the page shows: WebGL, WebGL 2, 2D or WebGPU); `null` when nothing was drawn. A game that hasn't drawn after 10 seconds, with nothing downloading, gets one click, since many wait for one. |
+| `start_download_size_bytes`, `start_file_count` | What was downloaded before the first frame, as sent (compressed), and how many files. |
+| `start_memory_size_bytes` | JavaScript and WebAssembly memory 5 seconds after the first frame; graphics memory isn't counted. |
+| `longest_start_task_duration_ms` | The longest the page froze in one go while starting. |
+| `notes` | Each `{ code, message, path, saved_size_bytes, fix }`: `saved_size_bytes` is about how much smaller the download gets with the fix, `null` when it isn't about size or can't be told. Run notes first, then asset notes; `[]` when there's nothing to say. |
+
+`performance_check` is `null` for versions from before it ran. Every version is measured, free, up to 20 runs a day per developer; past that a version just isn't, and nothing waits. There's no call to run it again: the next upload is measured.
+
+| Code | Meaning |
+| --- | --- |
+| `error_at_start` | The game threw an error while starting (up to 5, with the file and line). |
+| `missing_file_at_start` | The game asked for a file that isn't in the version while starting. |
+| `blocked_at_start` | An address the game loaded or connected to was blocked while starting. |
+| `no_frame_drawn` | Nothing was drawn in 120 seconds, even after a click. A game that waits for something only a player does is fine. |
+| `big_download_at_start` | Players download 200 MB or more before the first frame. |
+| `long_freeze_at_start` | The page froze for 2 seconds or more in one go while starting. |
+| `images_could_be_ktx2` | A WebGL or WebGPU game's PNG, JPEG and WebP textures of 1 MB or more, 16 MB or more in all, would be about 8 MB or more smaller as KTX2 (Basis Universal ETC1S, about 2 bits a pixel with mipmaps), and take about a quarter of the graphics memory. |
+| `audio_could_be_opus` | 8 MB or more of WAV and AIFF audio, which would be much smaller compressed (estimated as Ogg Opus at 96 kbps). |
+| `models_could_be_smaller` | 8 MB or more of glTF models with no mesh compression (meshopt or Draco). |
+| `development_build` | An engine's development or debug build, bigger and slower for players: Godot exported with Export With Debug. |
+
 ### Checking a game
 
 Before uploading, the check says everything in a game that Zaisma would refuse, or that won't work inside Zaisma's game frame, each with how to fix it. It's the same check everywhere (`packages/cli/check.mjs`): `zaisma check <folder>` on a folder, with no key and nothing sent; the MCP's `check_game` with the same files as `upload_files`; and this call. `zaisma upload` runs it first.
 
 | Call | What it does |
 | --- | --- |
-| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200) and `omitted_problem_count`. Any key, read included; it changes nothing. |
+| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200), `omitted_problem_count` and `performance_notes`. Any key, read included; it changes nothing. |
 
 Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path, quote, fix }`: `problem_kind` is `refused` (Zaisma refuses the upload as it is) or `broken` (it uploads, but that part won't work on Zaisma); `is_fixed_by_upload_command` says `zaisma upload` fixes it itself, in what it sends (`upload_files` and the API send files as they are); `quote` is the text it's about, up to 120 characters, to search the file for. The file-list codes are the API's own error codes.
 
@@ -996,6 +1047,8 @@ Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path
 | `outside_frame` | broken | no | A frame of another site, which games can't show. |
 | `blocked_feature` | broken | no | Camera, microphone, screen capture, location, payments, USB, serial, Bluetooth or HID, which games on Zaisma can't use. |
 
+`performance_notes` are the asset notes of How it started in Chrome (`images_could_be_ktx2`, `audio_could_be_opus`, `models_could_be_smaller`, `development_build`), each `{ code, message, path, saved_size_bytes, fix }`. They never stop an upload, and `zaisma check` prints them under "Could be smaller" without changing its exit code. Image sizes, sound lengths and models are read from the files' first bytes, so the API, which gets only sizes for them, gives only `development_build`; `zaisma check` gives them all.
+
 - **Threaded engine builds** (Godot with Thread Support, Unity with Native C/C++ Multithreading, Rust built with `atomics`) need cross-origin isolation, which game pages don't have, so they don't start: export without threads, the default in Godot 4.3 and newer and in Unity.
 - **Outside addresses** found while the code runs can be a file or the game's own server, so the check doesn't guess: a server goes in `own_server_urls` (`zaisma own-servers`, or `update_game`), a file in the game. The check never adds a server by itself.
 - What a game's code is checked for skips engine and library output (Unity's `.framework.js` and `.loader.js`, a `.js` beside a `.wasm` of the same name or its `_bg.wasm` (wasm-bindgen and Trunk), macroquad's `mq_js_bundle.js`, `*.min.js`), which mentions dialogs or cameras without the game using them, and comments, which say what code could do rather than what it does. A dialog shown only when the game fails to load, like the one in Unity's page template, isn't a problem: the game itself works.
@@ -1011,7 +1064,9 @@ Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
 
 Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.
 
-Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Your game's pages open at their version's own address, `/_zaisma/versions/<version_id>/`, so the files they load by a relative path are kept by the player's browser for good and a returning player's game starts without asking about them; a file named by its full path (`/Build/game.data`) still works and is checked on each visit. Read the room code and other settings from the query (`location.search`), which is kept, not from the path. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+
+The files a version needed before its first frame in its run in Chrome are preloaded with its page (up to 20, besides the ones the page names itself), so an engine's loader doesn't fetch them one after another. And on its zaisma.com page they start downloading before Play, up to 100 MB, on computers and on Android phones and tablets on Wi-Fi; never on other phones and tablets, with Data Saver, or for tester links and accounts-only games.
 
 ## The upload command
 

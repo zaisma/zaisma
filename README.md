@@ -186,6 +186,8 @@ A player whose connection drops stays in the match first, as away with reason `l
 
 A player who walks away, or whose connection stays lost, leaves the match (`onLeave` with `leaveInfo.reason`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `joinInfo.isReturning`. Held seats count toward `maximumPlayerCount`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
 
+When Zaisma restarts its rooms (every update to Zaisma does), a real-time match comes back where it was a few seconds before, and its players reconnect into it: the room saves its state every `stateSaveIntervalSec` (5 by default, 1 to 60), and `onRestored(state, restoreInfo, room)` runs once with `restoreInfo.lostDurationSec`, the seconds of play lost, so you can resync clocks or tell your players. Turn-based rooms save after every move, so they lose nothing. Publishing with `match_update_mode: "now"` moves every live match to the new version the same way, within seconds; your game server can hold it until the end of a round with `onVersionUpdate` ([Updates](docs/DEVELOPER-API.md#updates)).
+
 Your game server picks what happens:
 
 ```ts
@@ -197,6 +199,9 @@ export default {
   awayMode: "lobby",         // send players who walk away back to the room that made this one (room.reserve); "hold" is the default
   onAway(state, player, room, reason) {},  // reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
   onBack(state, player, room) {},          // a player onAway kept, or whose connection dropped, came back: send them the full state
+  stateSaveIntervalSec: 5,   // how often a real-time room saves its state, for a restart to come back with (default 5, 1 to 60)
+  onRestored(state, restoreInfo, room) {}, // the room restarted with its saved state: restoreInfo.savedAt, lostDurationSec and savedVersionId
+  onVersionUpdate(state, versionUpdate, room) {}, // a version published "now" is coming: call room.applyVersionUpdate() at a good moment, or it switches at versionUpdate.forcedAt
 };
 ```
 
@@ -306,7 +311,7 @@ The same game server runs on your own machine with Node 23.6 or later:
 node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080 --database ./zaisma-database.sqlite
 ```
 
-`room.database` there is that SQLite file, made the first time the game uses it (`zaisma-database.sqlite` where you start it, unless `--database` says otherwise).
+`room.database` there is that SQLite file, made the first time the game uses it (`zaisma-database.sqlite` where you start it, unless `--database` says otherwise). Its rooms save their states in another, `--room-state` (`zaisma-room-states.sqlite` by default), so a restarted server brings its matches back as Zaisma's rooms do; stopping it (Ctrl-C, or a restart's SIGTERM) saves every room first, so nothing is lost.
 
 Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma (the dashboard's Your own servers, `update_game` with `own_server_urls`, or `zaisma own-servers <slug> wss://play.example.com`; live at once, and the game's menu names it), and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too. A pass proves only who the player is: its `sub` is the player's ID (`player_…`), `kind` is `account` (a signed-in Zaisma account, with the same ID in every game) or `guest` (a new ID for each pass), and `aud` is the game. A guest's pass also carries their generated `name`; an account's name comes from its public profile at `https://rooms.zaisma.com/v1/players/<id>`, which the Node runner looks up for you. Game servers see the same `kind` on every player.
 

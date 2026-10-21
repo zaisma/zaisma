@@ -10,6 +10,7 @@ import { dirname, extname, join, posix, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createBrotliDecompress, createGunzip } from "node:zlib";
 import { CHECKED_TEXT_EXTENSIONS, GAME_FILE_EXTENSIONS, PRECOMPRESSED_EXTENSIONS, checkGameFiles, extensionOf, findOutsideReferences } from "./check.mjs";
+import { assetHeadSizes } from "./performance.mjs";
 
 const API = (process.env.ZAISMA_API || "https://zaisma.com").replace(/\/+$/, "");
 const KEY = process.env.ZAISMA_KEY || "";
@@ -21,6 +22,9 @@ const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git
 /** How long upload waits for the scan (200 checks, 3 seconds apart) before it says it's still scanning. ZAISMA_SCAN_CHECK_INTERVAL_MS is for tests. */
 const SCAN_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 3000;
 const SCAN_CHECK_COUNT = 200;
+/** How long upload then waits for the version's run in Chrome (30 checks, 5 seconds apart); the same variable speeds it up in tests. */
+const PERFORMANCE_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 5000;
+const PERFORMANCE_CHECK_COUNT = 30;
 /** The most SQL database import sends at once (a single bigger statement goes on its own; the API takes up to 5 MB). ZAISMA_DUMP_PART_SIZE_BYTES is for tests. */
 const DUMP_PART_SIZE_BYTES = Number(process.env.ZAISMA_DUMP_PART_SIZE_BYTES) || 4 * 1024 * 1024;
 /** What upload downloads into a game from outside sites: at most this many files, each up to this size, each within this time. */
@@ -98,13 +102,17 @@ const COMMANDS = {
       game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
+      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
   versions: { about: "List a game's versions and preview links", arguments: [{ name: "slug" }], flags: {} },
   publish: {
     about: "Publish a version that passed, or roll back to an older one",
     arguments: [{ name: "slug" }, { name: "version_id" }],
-    flags: { "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' } },
+    flags: {
+      "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' },
+      "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
+    },
   },
   unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
   visibility: { about: "Set who can see a game: everyone (listed), people with the link (unlisted), or only you and tester links (private, draft)", arguments: [{ name: "slug" }, { name: "visibility", choices: VISIBILITIES }], flags: {} },
@@ -439,7 +447,10 @@ async function walk(root) {
   return { files, hiddenPaths };
 }
 
-/** A game's folder for the check and the upload: each file's path, where it is, its size and, for the checked text files, its text. */
+/**
+ * A game's folder for the check and the upload: each file's path, where it is, its size and, for the checked text
+ * files, its text; and for the notes on files that could be smaller, the first bytes of images, sounds and models.
+ */
 async function readGameFolder(folder) {
   if (!(await stat(folder).catch(() => null))?.isDirectory()) refuse("not_a_folder", { message: `${folder} isn't a folder.`, field: "folder", fix: "Give the folder with the game's index.html at the top, like ./build." });
   const { files: fullPaths, hiddenPaths } = await walk(folder);
@@ -447,6 +458,18 @@ async function readGameFolder(folder) {
   for (const full of fullPaths) {
     const path = relative(folder, full).split(sep).join("/");
     files.push({ path, full, sizeBytes: (await stat(full)).size, contentText: CHECKED_TEXT_EXTENSIONS.includes(extensionOf(path)) ? await readFile(full, "utf8") : null });
+  }
+  const headSizes = assetHeadSizes(files);
+  for (const file of files) {
+    if (file.contentText !== null || !headSizes.has(file.path)) continue;
+    const handle = await open(file.full, "r");
+    try {
+      const headBytes = new Uint8Array(headSizes.get(file.path));
+      const { bytesRead: readByteCount } = await handle.read(headBytes, 0, headBytes.length, 0);
+      file.headBytes = headBytes.subarray(0, readByteCount);
+    } finally {
+      await handle.close();
+    }
   }
   return { files, hiddenPaths };
 }
@@ -484,6 +507,13 @@ function printProblems(problems, groups = PROBLEM_GROUPS) {
   }
 }
 
+/** Notes on files that could be much smaller: never a problem, so they never change the exit code. */
+function printSmallerNotes(notes) {
+  if (!notes.length) return;
+  say("Could be smaller:");
+  for (const note of notes) say(`  · ${note.message} Fix: ${note.fix}`);
+}
+
 /** zaisma check: the problems, or the answer with --json. Ends with problems_found when one isn't fixed by the upload command. */
 async function checkFolder({ folder }, flags) {
   const answer = await checkGame(await readGameFolder(folder), flags.game ?? null);
@@ -492,6 +522,7 @@ async function checkFolder({ folder }, flags) {
   else {
     printProblems(answer.problems);
     if (answer.omitted_problem_count) console.log(`…and ${answer.omitted_problem_count} more.`);
+    printSmallerNotes(answer.performance_notes);
     console.log(
       hasProblems
         ? "Fix what's above, then check again."
@@ -708,7 +739,7 @@ async function sendInParts(file, progress) {
   await api("POST", `/files/${file.sha256}/parts/done`, { upload_id: start.upload_id, parts });
 }
 
-const readableSize = (sizeBytes) => (sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.ceil(sizeBytes / 1024)} KB`);
+const readableSize = (sizeBytes) => (sizeBytes >= 1024 ** 3 ? `${(sizeBytes / 1024 ** 3).toFixed(1)} GB` : sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.ceil(sizeBytes / 1024)} KB`);
 const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
 /** A running count of what's sent, for people watching; left out with --json, where stdout is only the answer. */
 const showProgress = (text) => isJson || process.stdout.write(`\r  ${text}   `);
@@ -763,12 +794,18 @@ async function sendVersion(slug, fixedFiles, flags) {
   );
   if (todo.length && !isJson) process.stdout.write("\n");
 
-  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true });
+  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}) });
   const versionId = answer.version.id;
   say(`Version ${versionId} is being scanned. This usually takes under a minute…`);
 
   for (let i = 0; i < SCAN_CHECK_COUNT && answer.version.scan_status === "scanning"; i++) {
     await sleep(SCAN_CHECK_INTERVAL_MS);
+    answer = await api("GET", `/games/${slug}/versions/${versionId}`);
+  }
+  // A passed version is opened in Chrome next, usually within a minute: its numbers and notes come before the preview.
+  const isRunning = (checked) => ["waiting", "checking"].includes(checked.version.performance_check?.check_status);
+  for (let i = 0; i < PERFORMANCE_CHECK_COUNT && answer.version.scan_status === "approved" && isRunning(answer); i++) {
+    await sleep(PERFORMANCE_CHECK_INTERVAL_MS);
     answer = await api("GET", `/games/${slug}/versions/${versionId}`);
   }
   const { version } = answer;
@@ -779,6 +816,8 @@ async function sendVersion(slug, fixedFiles, flags) {
   }
   if (version.scan_status === "approved") {
     if (isJson) return EXIT_CODES.done;
+    if (isRunning(answer)) console.log(`Still checking how it starts in Chrome; zaisma versions ${slug} --json shows it.`);
+    else printPerformance(version);
     if (version.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
     else {
       console.log(`Passed. Your private preview: ${version.preview_url}`);
@@ -791,6 +830,26 @@ async function sendVersion(slug, fixedFiles, flags) {
     printReasons(version);
   }
   return version.scan_status === "held" ? EXIT_CODES.held : EXIT_CODES.rejected;
+}
+
+/** How a version started in Chrome, and what would make it smaller: nothing when it wasn't measured (a zip, or over the day's runs). */
+function printPerformance(version) {
+  const check = version.performance_check;
+  if (!check) return;
+  if (check.check_status === "over_daily_limit") return console.log("Not started in Chrome: today's 20 runs are used. Versions are measured again from midnight UTC.");
+  if (check.check_status === "could_not_run") return console.log("Chrome couldn't run it on Zaisma's side; nothing for you to fix.");
+  console.log(`Started in ${check.browser_description.replace(/^Chrome \d+ on a computer with no graphics card$/, "Chrome (a standard computer, no graphics card)")}`);
+  const numbers = [
+    check.loading_duration_sec === null ? "Nothing drawn" : `First frame after ${check.loading_duration_sec} s`,
+    check.start_download_size_bytes === null ? null : `${readableSize(check.start_download_size_bytes)} downloaded before it`,
+    check.start_memory_size_bytes === null ? null : `${readableSize(check.start_memory_size_bytes)} memory at start`,
+  ];
+  console.log(`  ${numbers.filter(Boolean).join(" · ")}`);
+  const smaller = new Set(["images_could_be_ktx2", "audio_could_be_opus", "models_could_be_smaller", "development_build"]);
+  for (const note of check.notes.filter((note) => !smaller.has(note.code))) console.log(`  ${note.message} Fix: ${note.fix}`);
+  const notes = check.notes.filter((note) => smaller.has(note.code));
+  if (notes.length) console.log("  Could be smaller:");
+  for (const note of notes) console.log(`  · ${note.message} Fix: ${note.fix}`);
 }
 
 /** Why a version is held or rejected: a person's or a report's decision, then what the scan found, each with its code and rule, then what to do. */
@@ -1586,12 +1645,14 @@ async function run({ command, values, flags, globalFlags, rest }) {
   if (command === "publish") {
     const { slug, version_id: versionId } = values;
     const scheduledPublishAt = flags["scheduled-publish-at"] === undefined ? undefined : checkPublishTime(flags["scheduled-publish-at"]);
-    const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : undefined);
+    const matchUpdateMode = flags["match-update-mode"];
+    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}) };
+    const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, Object.keys(publishBody).length ? publishBody : undefined);
     if (isJson) return printAnswer(answer);
     const { game, version } = answer;
     if (scheduledPublishAt) console.log(`Version ${versionId} will go live at ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
     else {
-      console.log(`Version ${versionId} is live at ${game.page_url}`);
+      console.log(`Version ${versionId} is live at ${game.page_url}${matchUpdateMode === "now" ? "; running matches switch to it within seconds" : ""}`);
       if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it to everyone with: zaisma visibility ${slug} listed`);
     }
     return EXIT_CODES.done;

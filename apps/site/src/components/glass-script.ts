@@ -8,6 +8,8 @@
  *   A callback watching several elements runs once for the ones that changed together. batch(work), when given, wraps every callback of
  *   the same batch that is due together, so they can read the page once before any of them writes.
  * - resize(callback, batch) and scroll(callback): callback() on the window's resize, and on any scroll anywhere (captured, passive).
+ * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
+ *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
 export const WATCH_SCRIPT = `/* watch */(function () {
@@ -45,7 +47,21 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       entries.push({ callback: callback, batch: batch });
     },
     resize: function (callback, batch) { watchWindow("resize", resizeCallbacks, callback, batch); },
-    scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); }
+    scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
+    each: function (selector, callback) {
+      var wired = new WeakSet();
+      function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
+      document.querySelectorAll(selector).forEach(wire);
+      pageCallbacks.push(function (changes) {
+        changes.forEach(function (change) {
+          change.addedNodes.forEach(function (node) {
+            if (node.nodeType !== 1 || !node.isConnected) return;
+            if (node.matches(selector)) wire(node);
+            node.querySelectorAll(selector).forEach(wire);
+          });
+        });
+      });
+    }
   };
   new MutationObserver(function (changes) { pageCallbacks.slice().forEach(function (callback) { callback(changes); }); })
     .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "open", "hidden"] });
@@ -243,6 +259,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // What holds a control: the nearest pane, tray or control round it. data-on-no-pane stops the search (a gallery example's stage:
   // what's shown in it is shown on no pane, even when the stage sits on a tray).
   function holderOf(el) { var found = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line], [data-on-no-pane]"); return found && !found.hasAttribute("data-on-no-pane") ? found : null; }
+  // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .own-scroll),
+  // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
+  function contentRectOf(el, holder) {
+    var p = rectOf(holder), scroller = el.closest(".own-scroll");
+    if (!scroller || scroller === holder || !holder.contains(scroller) || scroller.scrollHeight <= scroller.clientHeight + 1) return p;
+    var s = rectOf(scroller), top = s.top - scroller.scrollTop;
+    return { top: top, bottom: top + scroller.scrollHeight, left: p.left, right: p.right };
+  }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
@@ -256,7 +280,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.min(cut, Math.round(Math.min(w, h) * 0.25)); });
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
-    var r = rectOf(el), p = rectOf(holder), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
+    var r = rectOf(el), p = contentRectOf(el, holder), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;

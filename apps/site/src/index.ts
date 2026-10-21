@@ -17,12 +17,14 @@ import { handlePlayed, home } from "./home.ts";
 import { handlePlays } from "./plays.ts";
 import { gamePage, legal, previewPage, testerEnter, testerPage } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
+import { liveVersionAnswer } from "./game-updates.ts";
 import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
 import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
+import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
@@ -114,10 +116,11 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const profile = await handleProfiles(request, env, path);
   if (profile) return profile;
 
-  const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms|\/qr-code\.svg)?$/);
+  const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms|\/qr-code\.svg|\/live-version)?$/);
   if (game) {
     const [, slug, sub] = game as unknown as [string, string, string | undefined];
     if (sub === "/rooms" && method === "GET") return roomsFragment(env, slug, request);
+    if (sub === "/live-version" && method === "GET") return liveVersionAnswer(env, slug);
     if (sub === "/qr-code.svg" && method === "GET") return qrCodeImage(env, await gameBySlug(env.DB, slug), request);
     const report = sub === "/report";
     if (!sub && method !== "POST") return gamePage(env, slug, request);
@@ -162,6 +165,8 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
+    // Versions to open in Chrome have a queue of their own (zaisma-performance, or its stand-in in tests).
+    if (batch.queue.startsWith("zaisma-performance")) return handlePerformanceBatch(batch as MessageBatch<PerformanceJob>, env);
     const scans: Message<ScanJob>[] = [];
     for (const message of batch.messages) {
       const body = message.body;

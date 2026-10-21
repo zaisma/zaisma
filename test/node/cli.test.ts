@@ -96,7 +96,7 @@ describe("closed flags", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("doesn't take --patch-note");
     expect(result.stderr).toContain("Did you mean --patch-notes?");
-    expect(result.stderr).toContain("--game, --patch-notes, --publish-when-approved and --json");
+    expect(result.stderr).toContain("--game, --patch-notes, --publish-when-approved, --match-update-mode and --json");
     expect(result.stderr).toContain("(unknown_field)");
     expect(calls).toEqual([]);
   });
@@ -596,6 +596,48 @@ describe("exit codes", () => {
     });
   }
 
+  it("upload waits for the version's run in Chrome, then says how it started and what could be smaller", async () => {
+    const check = (checkStatus: string) => ({
+      check_status: checkStatus,
+      checked_at: checkStatus === "checked" ? "2026-10-21T12:00:00Z" : null,
+      browser_description: "Chrome 141 on a computer with no graphics card",
+      loading_duration_sec: checkStatus === "checked" ? 9.1 : null,
+      start_download_size_bytes: checkStatus === "checked" ? 610 * 1024 * 1024 : null,
+      start_file_count: checkStatus === "checked" ? 12 : null,
+      start_memory_size_bytes: checkStatus === "checked" ? 1.2 * 1024 ** 3 : null,
+      longest_start_task_duration_ms: checkStatus === "checked" ? 800 : null,
+      notes:
+        checkStatus === "checked"
+          ? [
+              { code: "missing_file_at_start", message: "The game asked for Build/levels/forest.bundle while starting, and it isn't in this version.", path: "Build/levels/forest.bundle", saved_size_bytes: null, fix: "Upload it." },
+              { code: "audio_could_be_opus", message: "95 MB of WAV and AIFF audio could be about 10 MB as Ogg Opus.", path: null, saved_size_bytes: 89_000_000, fix: "Convert it." },
+            ]
+          : [],
+    });
+    uploadAnswers("approved");
+    let checkCount = 0;
+    answers["GET /games/sky-hopper/versions/version_8f3k2m9q1x7c4v6b"] = () => ({ status: 200, body: { version: { ...version("approved"), performance_check: check(++checkCount > 3 ? "checked" : "checking") } } });
+    const result = await zaisma(["upload", folder, "--game", "sky-hopper"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      [
+        "Started in Chrome (a standard computer, no graphics card)",
+        "  First frame after 9.1 s · 610.0 MB downloaded before it · 1.2 GB memory at start",
+        "  The game asked for Build/levels/forest.bundle while starting, and it isn't in this version. Fix: Upload it.",
+        "  Could be smaller:",
+        "  · 95 MB of WAV and AIFF audio could be about 10 MB as Ogg Opus. Fix: Convert it.",
+        "Passed. Your private preview:",
+      ].join("\n"),
+    );
+
+    // A run that doesn't finish in time is left to zaisma versions, with the same exit code.
+    uploadAnswers("approved");
+    answers["GET /games/sky-hopper/versions/version_8f3k2m9q1x7c4v6b"] = { status: 200, body: { version: { ...version("approved"), performance_check: check("waiting") } } };
+    const waiting = await zaisma(["upload", folder, "--game", "sky-hopper"]);
+    expect(waiting.exitCode).toBe(0);
+    expect(waiting.stdout).toContain("Still checking how it starts in Chrome; zaisma versions sky-hopper --json shows it.");
+  });
+
   it("lists them in the help", async () => {
     const result = await zaisma(["help"]);
     expect(result.exitCode).toBe(0);
@@ -624,6 +666,23 @@ describe("check and automatic fixes", () => {
   /** Every file in a folder with its bytes, to show it wasn't changed. */
   const snapshot = (folder: string) => Object.fromEntries((readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[]).filter((entry) => entry.isFile()).map((entry) => [join(entry.parentPath, entry.name), readFileSync(join(entry.parentPath, entry.name)).toString("base64")]));
   const threaded = { "index.html": "<!doctype html><script>const GODOT_THREADS_ENABLED = true;</script>", "index.wasm": "" };
+
+  it("says what could be smaller, read from the files' first bytes, without changing the exit code", async () => {
+    // A minute of CD-quality WAV, 10 MB.
+    const sound = Buffer.alloc(10 * 1024 * 1024);
+    sound.write("RIFF", 0);
+    sound.write("WAVEfmt ", 8);
+    sound.writeUInt32LE(16, 16);
+    sound.writeUInt32LE(176_400, 28);
+    sound.write("data", 36);
+    sound.writeUInt32LE(sound.length - 44, 40);
+    const result = await zaisma(["check", gameFolder({ "index.html": '<!doctype html><script src="game.js"></script>', "game.js": "// the game", "music/theme.wav": sound })], { key: "" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Could be smaller:\n  · 10 MB of WAV and AIFF audio could be about 1 MB as Ogg Opus. Fix: Convert it (ffmpeg");
+    expect(result.stdout).toContain("Ready to upload: 3 files");
+    const answer = json((await zaisma(["check", gameFolder({ "index.html": "<!doctype html>", "music/theme.wav": sound }), "--json"], { key: "" })).stdout);
+    expect(answer.performance_notes).toEqual([expect.objectContaining({ code: "audio_could_be_opus", path: "music/theme.wav" })]);
+  });
 
   it("needs no key and sends nothing: a clean folder passes, one with a threaded build ends with 6 and says how to fix it", async () => {
     const clean = await zaisma(["check", gameFolder({ "index.html": '<!doctype html><canvas></canvas><script src="game.js"></script>', "game.js": "// the game" })], { key: "" });

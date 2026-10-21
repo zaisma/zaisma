@@ -139,6 +139,13 @@ export interface Room {
    * Every player's game sees the same in its player list (awayReason).
    */
   awayReason(playerId: string): AwayReason | null;
+  /**
+   * Switch to the new version now, with onVersionUpdate: at a good moment, like the end of a round. The
+   * room saves, every player's game reconnects (reloading at the new version when its files changed) and
+   * the new version's onRestored carries on from the state. Does nothing when no update is coming, and on
+   * your own server.
+   */
+  applyVersionUpdate(): void;
 }
 
 export interface BroadcastOptions {
@@ -291,6 +298,11 @@ export interface GameServer<S = any> {
    */
   reconnectTimeoutSec?: number;
   /**
+   * How often a real-time room saves its state, in seconds: 1 to 60, default 5. A restarted room comes
+   * back with the last saved state (onRestored). Turn-based rooms save after every change and ignore it.
+   */
+  stateSaveIntervalSec?: number;
+  /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. setupData
    * is what room.reserve() passed when another room made this one, and null otherwise. Rooms need it;
    * a game server that only answers requests (onRequest) or runs on schedules can leave it out.
@@ -380,6 +392,45 @@ export interface GameServer<S = any> {
    * the "ending" event. Never runs on your own server.
    */
   onEnding?(state: S, room: Room): HandlerResult<S>;
+  /**
+   * The room restarted (Zaisma restarts its rooms on every update, and your own server may restart) and
+   * came back with the state it last saved: restoreInfo.savedAt says when, and restoreInfo.lostDurationSec
+   * how many seconds of play since then are lost, so you can resync clocks or tell your players. Runs
+   * once, instead of setup. The players who were in the match come back as away (reason "lost"): onAway
+   * runs for each after this, and onBack as each reconnects, or onLeave if they aren't back within
+   * reconnectTimeoutSec.
+   */
+  onRestored?(state: S, restoreInfo: RestoreInfo, room: Room): HandlerResult<S>;
+  /**
+   * The developer published a version with match_update_mode "now", and this match moves to it. With
+   * this handler the room waits for you: call room.applyVersionUpdate() at a good moment, like the end of
+   * a round, or it switches at versionUpdate.forcedAt, 5 minutes on. Without it, it switches 10 seconds
+   * after the notice. Each player's game hears it too (the room's "versionUpdate" event), to show a
+   * countdown or save. Never runs on your own server.
+   */
+  onVersionUpdate?(state: S, versionUpdate: VersionUpdate, room: Room): HandlerResult<S>;
+}
+
+/** What onVersionUpdate hears: the version the match moves to, and when it switches at the latest (an ISO time). */
+export interface VersionUpdate {
+  versionId: string;
+  forcedAt: string;
+}
+
+/**
+ * What onRestored hears: when the state it came back with was saved (an ISO time), how many seconds of
+ * play since then are lost, and the version of the game that saved it (null on your own server), which
+ * differs from the one running after an update, so the game can bring an older state up to date.
+ */
+export interface RestoreInfo {
+  savedAt: string;
+  lostDurationSec: number;
+  savedVersionId: string | null;
+}
+
+/** A restored room's restoreInfo, from when its state was saved and the version that saved it. */
+export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null): RestoreInfo {
+  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
 }
 
 /**
@@ -419,6 +470,7 @@ export const GAME_SERVER_OPTIONS = [
   "awayMode",
   "seatHoldDurationSec",
   "reconnectTimeoutSec",
+  "stateSaveIntervalSec",
   "setup",
   "onJoin",
   "canJoin",
@@ -430,6 +482,8 @@ export const GAME_SERVER_OPTIONS = [
   "onBytes",
   "onTick",
   "onEnding",
+  "onRestored",
+  "onVersionUpdate",
   "onRequest",
   "schedules",
   "onSchedule",
@@ -472,6 +526,15 @@ export const ROOM_LIMITS = {
   /** How long a player whose connection dropped stays in the match by default, and at most (reconnectTimeoutSec). */
   defaultReconnectTimeoutSec: 30,
   maximumReconnectTimeoutSec: 300,
+  /** How often a real-time room saves its state by default, and the range (stateSaveIntervalSec). */
+  defaultStateSaveIntervalSec: 5,
+  minimumStateSaveIntervalSec: 1,
+  maximumStateSaveIntervalSec: 60,
+  /** A match moving to a version published "now": its notice without onVersionUpdate, and the longest onVersionUpdate can hold it. */
+  versionUpdateNoticeSec: 10,
+  maximumVersionUpdateHoldSec: 300,
+  /** A real-time room's state bigger than this as JSON isn't saved, and a restart starts it fresh. */
+  maximumSavedStateSizeBytes: 32 * 1024 * 1024,
   /** How often a ticking room probes each player, for their ping and the room's clock. */
   probeIntervalSec: 2,
   /** A probe left unanswered this long drops the player: their connection stopped or fell too far behind. */
@@ -538,7 +601,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     }
   }
   checkSchedules(server.schedules, typeof server.onSchedule === "function");
-  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec } = server;
+  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
   }
@@ -558,6 +621,9 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   }
   if (reconnectTimeoutSec !== undefined && !(typeof reconnectTimeoutSec === "number" && reconnectTimeoutSec >= 0 && reconnectTimeoutSec <= ROOM_LIMITS.maximumReconnectTimeoutSec)) {
     throw bad("reconnectTimeoutSec", `reconnectTimeoutSec is ${JSON.stringify(reconnectTimeoutSec)}.`, `Give seconds from 0 (leave at once) to ${ROOM_LIMITS.maximumReconnectTimeoutSec}, like 30.`);
+  }
+  if (stateSaveIntervalSec !== undefined && !(typeof stateSaveIntervalSec === "number" && stateSaveIntervalSec >= ROOM_LIMITS.minimumStateSaveIntervalSec && stateSaveIntervalSec <= ROOM_LIMITS.maximumStateSaveIntervalSec)) {
+    throw bad("stateSaveIntervalSec", `stateSaveIntervalSec is ${JSON.stringify(stateSaveIntervalSec)}.`, `Give a number of seconds from ${ROOM_LIMITS.minimumStateSaveIntervalSec} to ${ROOM_LIMITS.maximumStateSaveIntervalSec}, like ${ROOM_LIMITS.defaultStateSaveIntervalSec}, or leave it out for ${ROOM_LIMITS.defaultStateSaveIntervalSec}.`);
   }
   return server;
 }
@@ -616,6 +682,8 @@ export type ServerMessage =
   | { type: "welcome"; me: Player; players: ListedPlayer[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
+  // A version published "now": coming at appliesAt (an ISO time), then now, just before the room closes its connections (VERSION_UPDATE_CLOSE_CODE). isReloading: the game's files changed, so it reloads.
+  | { type: "versionUpdate"; step: "coming" | "now"; versionId: string; appliesAt: string; isReloading: boolean }
   | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
   | { type: "away"; reason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
   | { type: "kicked"; message: string; isKeptOut: boolean }
@@ -749,6 +817,8 @@ export interface Transport {
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
   secrets?: Readonly<Record<string, string>>;
+  /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
+  applyVersionUpdate?(): void;
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -793,6 +863,8 @@ export const REFUSED_CLOSE_CODE = 4001;
 export const SEAT_GONE_CLOSE_CODE = 4002;
 /** Close code for a connection that stopped answering or fell too far behind; the SDK reconnects. */
 export const NO_ANSWER_CLOSE_CODE = 4003;
+/** Close code for a match switching to a version published "now"; the SDK reconnects, or the page reloads the game first. */
+export const VERSION_UPDATE_CLOSE_CODE = 4004;
 
 /**
  * A binary frame as the room sends it: one byte, the length of fromPlayerId in UTF-8 bytes (0 for the
@@ -909,6 +981,10 @@ export class RoomCore<S = any> {
   private pairChangeCount = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
+  /** A version published "now" this match is moving to, once the transport started it (startVersionUpdate). */
+  versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean } | null = null;
+  /** When a real-time room's state was last saved, set by the transport after each save; null until it has been. */
+  savedAtMs: number | null = null;
   isListed = true;
   isOpen = true;
   friendJoinsEnabled = true;
@@ -972,12 +1048,23 @@ export class RoomCore<S = any> {
    * startOptions.start makes a reserved room: closed, open only to the players it was made for, and
    * set up with its setup data. A saved room (startOptions.room) wakes as it was, with
    * startOptions.presence saying when each of its players was last heard from and the idle check
-   * their game asked for.
+   * their game asked for. A restarted real-time room (startOptions.restoreInfo, with its saved state)
+   * skips setup: startOptions.lostPlayers, the players in its match at the save who aren't connected,
+   * come back as away (reason "lost"), and onRestored runs once.
    */
   constructor(
     server: GameServer<S>,
     transport: Transport,
-    startOptions: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; presence?: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }>; now?: () => number } = {},
+    startOptions: {
+      state?: S;
+      players?: Player[];
+      room?: SavedRoom;
+      start?: RoomStart;
+      presence?: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }>;
+      restoreInfo?: RestoreInfo;
+      lostPlayers?: Player[];
+      now?: () => number;
+    } = {},
   ) {
     this.server = server;
     this.transport = transport;
@@ -1027,6 +1114,15 @@ export class RoomCore<S = any> {
       this.setupData = start.setupData ?? null;
       this.keepOut(start.keptOut);
       this.lobbyRoomCode = start.lobbyRoomCode ?? null;
+    }
+    // A restarted room's players who aren't connected: in the match until leave() below makes them away, as a dropped connection does.
+    const restoreInfo = startOptions.state !== undefined ? startOptions.restoreInfo : undefined;
+    const lostPlayers = restoreInfo ? (startOptions.lostPlayers ?? []).filter((player) => !startOptions.players?.some((connected) => connected.id === player.id) && !this.held.has(player.id)) : [];
+    for (const player of lostPlayers) {
+      this.players.set(player.id, player);
+      this.presence.set(player.id, newPresence(this.now(), {}));
+      this.kept.delete(player.id);
+      this.reconnectUntilMs.delete(player.id);
     }
     for (const player of this.players.values()) this.remember(player.id);
     // A room waking up: its players were told their blocks before it slept.
@@ -1086,8 +1182,35 @@ export class RoomCore<S = any> {
       pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,
       serverTimeMs: () => this.now(),
       awayReason: (playerId) => (this.players.has(playerId) ? (this.kept.get(playerId) ?? null) : null),
+      applyVersionUpdate: () => {
+        if (this.versionUpdate) this.soon(() => this.transport.applyVersionUpdate?.());
+      },
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
+    if (restoreInfo) this.restored(restoreInfo, lostPlayers);
+  }
+
+  /**
+   * A restarted room's players who aren't connected are away as lost, with the whole reconnectTimeoutSec
+   * from now, whatever they had before the restart; then onRestored runs, and onAway for each.
+   */
+  private restored(restoreInfo: RestoreInfo, lostPlayers: Player[]): void {
+    const reconnectTimeoutSec = this.server.reconnectTimeoutSec ?? ROOM_LIMITS.defaultReconnectTimeoutSec;
+    if (reconnectTimeoutSec > 0) {
+      for (const player of lostPlayers) {
+        this.kept.set(player.id, "lost");
+        this.reconnectUntilMs.set(player.id, this.now() + reconnectTimeoutSec * 1000);
+      }
+    }
+    this.run(() => this.server.onRestored?.(this.state, restoreInfo, this.api));
+    for (const player of lostPlayers) {
+      // With reconnectTimeoutSec 0, they leave at once, as a dropped connection does.
+      if (reconnectTimeoutSec === 0) this.leave(player.id, "lost");
+      else if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, "lost"));
+    }
+    this.listingChanged = true;
+    this.dirty = true;
+    this.broadcastPlayers();
   }
 
   /** What a sleeping room saves besides the game's state. */
@@ -1868,6 +1991,23 @@ export class RoomCore<S = any> {
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
     this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
+  }
+
+  /**
+   * The match moves to a version published "now": every player hears it's coming at appliesAt, and when
+   * isHeld (a game server with onVersionUpdate) the game server hears it too and may switch sooner.
+   */
+  startVersionUpdate(versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean }, isHeld: boolean): void {
+    if (this.ended || this.versionUpdate?.versionId === versionUpdate.versionId) return;
+    this.versionUpdate = versionUpdate;
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "coming", ...versionUpdate } satisfies ServerMessage));
+    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { versionId: versionUpdate.versionId, forcedAt: versionUpdate.appliesAt }, this.api));
+  }
+
+  /** The switch is happening: every player hears it just before the room closes their connections. */
+  tellVersionUpdateNow(): void {
+    if (!this.versionUpdate) return;
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "now", ...this.versionUpdate } satisfies ServerMessage));
   }
 
   /**

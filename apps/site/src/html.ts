@@ -7,9 +7,9 @@ import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
-import { cutButton } from "./components/actions.ts";
+import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame } from "./components/data.ts";
-import { backdrop } from "./components/foundations.ts";
+import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 
@@ -568,6 +568,8 @@ export interface LayoutOptions {
   viewer?: Pick<Viewer, "account"> | null;
   /** The body is built in Zaisma's look: no Steel around it. */
   isRebuilt?: boolean;
+  /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
+  stage?: Raw;
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
@@ -591,7 +593,7 @@ ${styleTags(SITE_STYLE)}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
-${backdrop()}
+${options.stage ?? backdrop()}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, options)}
@@ -627,6 +629,13 @@ export function siteFooter(): Raw {
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {
   const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${cutButton("Back to games", { href: "/" })}</div>` });
+  return new Response(response.body, { status: httpStatus, headers: response.headers });
+}
+
+/** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
+export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
+  const body = glassPane({ paneSize: "medium", body: html`<h1>${title}</h1><p>${text}</p>${runButton("Back to games", { href: "/", isFullWidth: true })}` });
+  const response = layout(env, { title, body, isRebuilt: true });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 

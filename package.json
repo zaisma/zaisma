@@ -24,6 +24,9 @@
     "components:minify": "node scripts/minify-components.mjs",
     "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },
+  "overrides": {
+    "@puppeteer/browsers": "3.2.5"
+  },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.0",
     "@cloudflare/workers-types": "^5.20261011.1",

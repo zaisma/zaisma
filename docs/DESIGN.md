@@ -82,7 +82,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
   - **In a pane's middle, it's square.** A swatch in the middle of the color pane.
   - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the color pane's top left is cut only there.
   - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details.
-  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
+  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom. In a pane that scrolls inside itself, gaps are measured against the whole scrolled content, so how far it's scrolled never changes a cut.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
   Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. Game covers follow the rule too (`data-cut-line` on `.cover-art`): near a pane's corner a cover takes its cut, in the middle of a pane it's square, so no picture is a plain rectangle against a cut corner. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
@@ -180,6 +180,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
 - **Spacing**: Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
+- **City** (`cityStage(options?: CityStageOptions)`, `city.ts`): Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.
+  - `options`: `isFramed?: boolean`
 
 ### Actions
 
@@ -201,7 +203,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Inputs
 
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
-  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `isPasswordShown?: boolean`, `state?: "is-focused"`
+  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isPasswordShown?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.
@@ -217,7 +219,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
   - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `id?: string`, `icon?: IconName`, `error?: string`, `state?: "is-focused" | "is-open"`
 - **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a white tick. On a page that saves at once, use a Toggle.
-  - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `id?: string`, `state?: PressState`
+  - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `id?: string`, `state?: PressState`
 - **Choice cards** (`choiceCards(options: ChoiceCardsOptions)`, `choices.ts`): One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.
   - `options`: `name: string`, `label: string`, `choices: ChoiceCard[]`, `pickedValue?: string`, `id?: string`, `isCompact?: boolean`, `state?: PressState`
 - **Toggle** (`toggle(options: ToggleOptions)`, `choices.ts`): On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It's a checkbox in its form, so it posts without a script.
@@ -232,7 +234,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Navigation
 
 - **Header** (`header(options: HeaderOptions)`, `navigation.ts`): The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.
-  - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isLogoOnly?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `id?: string`
+  - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `id?: string`
 - **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.
   - `options`: `username: string`, `pictureMarkup: Raw`, `menuId: string`, `isMenuOpen?: boolean`, `state?: "is-focused"`
 - **Footer** (`footer()`, `navigation.ts`): The end of every page: for game developers, the forum, the source and the rules.
@@ -294,7 +296,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 How the larger ones behave:
 
-- **Header** (`header`): a floating slab of glass, inset from every edge, that slims as the page scrolls. The logo, the tabs (a framed Switch: Home, and Your games once its page is built), the page's own search when it has one, and you: Sign in (the runner), or your picture and name opening the account menu (Your profile, Friends, Developer, Settings, Sign out). On a developer page (the dashboard, the forum, `/developers`) the Developer and Forum tabs open out of the end of the tabs; leaving folds them away. Pages are separate loads, so the header remembers whether they were open (`sessionStorage` `zaisma-nav`) and opens or folds them from there. On a phone it's two rows: the logo, search and you on top, the tabs below.
+- **Header** (`header`): a floating slab of glass, inset from every edge, that slims as the page scrolls. The logo, the tabs (a framed Switch: Home, and Your games once its page is built), the page's own search when it has one, and you: Sign in (the runner), or your picture and name opening the account menu (Your profile, Friends, Developer, Settings, Sign out). On a developer page (the dashboard, the forum, `/developers`) the Developer and Forum tabs open out of the end of the tabs; leaving folds them away. Pages are separate loads, so the header remembers whether they were open (`sessionStorage` `zaisma-nav`) and opens or folds them from there. On sign-in's pages it holds the logo alone: no tabs and no end. On a phone it's two rows: the logo, search and you on top, the tabs below.
 - **Runner button** (`runButton`): the one orange slab, for the page's main action. Every other button is a Cut button, clear glass with cut ends.
 - **Switch** (`tabSwitch`): a carved well with a white slab and the orange line under the one you're on.
 - **Rail** (`rail`): Zaisma's own scrollbar, a slim glass thumb on a hairline, for a scrolling box, the page, or a row that scrolls sideways. On a phone the page's rail clears the screen's edge.
@@ -312,3 +314,5 @@ How the larger ones behave:
 ## Backgrounds
 
 Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colors, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).
+
+**Scenes.** A live 3D scene is the page only where its job is a first impression. The city (`cityStage()` and `CITY_SCRIPT`, `components/city.ts`) is the sign-in's scene: signing in, making an account and every step between are one glass pane in front of it (on the right on a wide screen, full width at the bottom on a phone). Moving between those steps never loads a new page: `CITY_PANE_SCRIPT` swaps the next step into the pane in place, so the scene runs on unbroken; only leaving sign-in loads a page. It runs on phones too, at a lower resolution, draws at most about 3.2 million pixels on any screen, and steps down further on a slow device. It shows at once as a placeholder, its first frame tiny and blurred inside the page itself, and nothing half-made shows over it: the live city starts as soon as the page has painted, and once it runs smoothly it sharpens in out of the placeholder from that same frame before the camera sets off. Its still, a full render of the same city by day and by night (`brand/sign-in/`), stands in for reduced motion, no WebGL and a device that can't keep the city smooth even at its lowest step; it's loaded only then, and takes the placeholder's place once it has wholly loaded.

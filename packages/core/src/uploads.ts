@@ -201,6 +201,20 @@ export function toManifest(files: UploadFile[], found: Map<string, "shared" | "o
   return manifest;
 }
 
+/**
+ * Returning players skip file checks: a version's files also have an address of their own,
+ * <base>_zaisma/versions/<version_id>/<path>, and its pages are served there, so the files they name by a
+ * relative path never change at their address and the browser keeps them for good. Pages are still checked on
+ * every load, so a takedown or a new version applies at once.
+ */
+const VERSION_ADDRESS_PATTERN = /^_zaisma\/versions\/([^/]+)\/(.*)$/s;
+
+/** The version and the path inside it, when a path inside a game is under a version's own address. */
+export function readVersionAddress(path: string): { versionId: string; path: string } | null {
+  const match = VERSION_ADDRESS_PATTERN.exec(path);
+  return match ? { versionId: match[1]!, path: match[2]! } : null;
+}
+
 /** Where a version's file lives in the games bucket: under its prefix (zip uploads) or as a shared blob. */
 export function fileKey(version: Pick<Version, "kind" | "r2_prefix">, manifest: Manifest | null, path: string): string | null {
   if (version.kind !== "files") return `${version.r2_prefix}/${path}`;

@@ -1,8 +1,10 @@
 import type { CompressJob, ListingCheckJob, ScanJob, ShaderCheckJob } from "@zaisma/core";
+import type { PerformanceJob } from "./performance-check.ts";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
 import type { GameStorageService } from "../../rooms/src/game-storage.ts";
+import type { GameRoomsService } from "../../rooms/src/room-updates.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
@@ -14,10 +16,12 @@ export interface Env {
   /** Cloudflare Images, for each game picture's share card JPEG; without it the card is the picture itself. */
   IMAGES?: ImagesBinding;
   SCAN_QUEUE: Queue<ScanJob | ListingCheckJob | ShaderCheckJob>;
-  /** Cloudflare Browser Rendering, which draws every shader a game sends before anyone sees it (shader-check.ts). */
+  /** Cloudflare Browser Rendering, which draws every shader a game sends before anyone sees it (shader-check.ts) and opens every version that passes (performance-check.ts). */
   BROWSER?: Fetcher;
   /** Brotli copies of game files to make (compress.ts). */
   COMPRESS_QUEUE: Queue<CompressJob>;
+  /** Versions to open in headless Chrome once they pass (performance-check.ts). */
+  PERFORMANCE_QUEUE: Queue<PerformanceJob>;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
   /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */
@@ -26,6 +30,8 @@ export interface Env {
   GAME_SERVER_WEBHOOKS?: Service<GameServerWebhookService>;
   /** Deleting a game's database, secrets and game server storage, in the rooms Worker (game-deletion.ts). */
   GAME_STORAGE?: Service<GameStorageService>;
+  /** Every game's live rooms, in the rooms Worker, told when a version goes live with match_update_mode "now" (match-updates.ts). */
+  GAME_ROOMS?: Service<GameRoomsService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */

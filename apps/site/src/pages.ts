@@ -31,6 +31,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
+import { GAME_UPDATES_SCRIPT, UPDATE_BAR_STYLE, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { JOIN_OFF_STYLES } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
@@ -334,6 +335,7 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 /* Players: how many are in the room, beside the label; a corner badge on the icon where labels hide. */
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
 .ctl .count[hidden]{display:none}
+${raw(UPDATE_BAR_STYLE)}
 iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
 /* The game takes the keys while it's played: no focus ring around it. */
 iframe:focus-visible{outline:none}
@@ -423,6 +425,7 @@ ${siteHeader(env, { viewer })}
   ${multiplayer ? html`<button class="ctl" id="players-open" type="button" title="Players" aria-haspopup="dialog" aria-controls="players">${raw(ICON_PLAYERS)}<span class="label">Players</span><span class="count" hidden></span></button>` : ""}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
   ${hasRoomCodes ? html`<button class="ctl room-open" id="room-open" type="button" title="Room code, or join a room" aria-haspopup="dialog" aria-expanded="false" aria-controls="room-dialog">${raw(ICON_HASH)}<b id="room-open-text">Join</b></button>` : ""}
+  ${isClosed ? "" : raw(updateBarButtons())}
   <button class="ctl" id="share" type="button" title="Share" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
@@ -485,6 +488,7 @@ ${hasRoomCodes
   <p id="join-leaves" hidden>It leaves the room you're in.</p></form>
 </dialog>`
       : ""}
+${isClosed ? "" : raw(connectionPlate())}
 <dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
   <div class="q-head">
     <strong>${game.title}</strong>
@@ -530,6 +534,8 @@ ${pageData("game-page-data", {
       room_code: inRoom ? code : "",
       is_multiplayer: multiplayer,
       frame_url: frameUrl,
+      // Game files start before Play, on the game's own address: never for tester links or accounts-only games, which need a cookie first.
+      warm_url: tester || isAccountsOnly || isClosed ? null : `${gameUrl(env, game.slug)}_zaisma/warm`,
       is_accounts_only: isAccountsOnly,
       frame_query: roomQuery,
       devices,
@@ -554,6 +560,7 @@ ${isClosed
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
+          GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });
@@ -839,6 +846,8 @@ function play() {
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
   document.body.classList.add("playing");
+  // The warm-up's downloads are the game's by now: the game's own requests share what's still coming.
+  if (warming) setTimeout(() => { warming.remove(); warming = null; }, 30000);
   // Friends see what the player is playing (friends-now.ts), but not a tester link's game.
   if (!gamePage.tester_token) document.body.dataset.presenceGame = gamePage.slug;
   scrollTo(0, 0);
@@ -860,6 +869,26 @@ if (gamePage.is_accounts_only) {
 }
 const playStart = document.getElementById("play");
 if (playStart) playStart.onclick = play;
+// Game files start before Play: while the player reads the page, the files the game needs first download, up to
+// 100 MB, in a hidden frame on the game's own address (the browser keeps each site's cache apart). On computers, and
+// on Android phones and tablets that say they're on Wi-Fi; never on other phones and tablets, or with Data Saver.
+let warming = null;
+function warmUp() {
+  const connection = navigator.connection;
+  const isComputer = !matchMedia("(pointer: coarse)").matches;
+  const isAndroidOnWifi = /Android/.test(navigator.userAgent) && connection && (connection.type === "wifi" || connection.type === "ethernet");
+  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi)) return;
+  warming = document.createElement("iframe");
+  warming.src = gamePage.warm_url;
+  warming.setAttribute("sandbox", "allow-scripts allow-same-origin");
+  warming.hidden = true;
+  warming.setAttribute("aria-hidden", "true");
+  warming.tabIndex = -1;
+  warming.title = "";
+  document.body.appendChild(warming);
+}
+if (document.readyState === "complete") setTimeout(warmUp, 1000);
+else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {

@@ -23,8 +23,8 @@ export interface HeaderOptions {
   account?: { username: string; pictureMarkup: Raw } | null;
   /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
   isOnDeveloperPage: boolean;
-  /** Sign-in's header: only the logo, straight on the scene, with a halo that keeps it legible. */
-  isLogoOnly?: boolean;
+  /** Sign-in's pages: the logo alone, with no tabs and nothing at the end, so nothing leads away from signing in but the logo home. */
+  isOnSignInPage?: boolean;
   /** Tabs of the page's own in place of Zaisma's (the admin pages'). */
   ownTabs?: SwitchTab[];
   /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
@@ -44,7 +44,6 @@ export function header(options: HeaderOptions): Raw {
   const id = options.id ?? "top";
   const account = options.account ?? null;
   const wordmark = logo("wordmark");
-  if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${wordmark}</header>`;
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
   const menuItems: DropdownItem[] = account
@@ -59,13 +58,13 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${wordmark}
-  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
-  <div class="end">${
+  ${options.isOnSignInPage ? "" : html`<div class="end">${
     account
       ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
       : runButton("Sign in", { href: "/signin" })
-  }</div>
+  }</div>`}
 </header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
 }
 
@@ -158,16 +157,6 @@ const HEADER_STYLES = `
   .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 
-/* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
-.top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
-  background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
-.top.is-logo-only .logo { --logo-height: 30px; filter: var(--logo-halo); }
-@media (max-width: 760px) {
-  /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
-  .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
-  .top.is-logo-only .logo { margin-left: 0; }
-  .top.is-logo-only .logo { --logo-height: 26px; }
-}
 @media (prefers-reduced-motion: reduce) {
   /* The header's glass still changes as all glass does: only its movement stops. */
   .top { transition: var(--glass-transition); }
@@ -184,7 +173,7 @@ export const HEADER_SCRIPT = pageScript(
   "header",
   `(function () {
   var phone = function () { return window.innerWidth <= 760; };
-  var headers = Array.prototype.slice.call(document.querySelectorAll("header.top:not(.is-logo-only)"));
+  var headers = Array.prototype.slice.call(document.querySelectorAll("header.top"));
   headers.forEach(function (top) {
     /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
 
@@ -368,6 +357,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
     window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
+    // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
+    if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
     var drag = null;
     function start(event, jump) {
       event.preventDefault();
@@ -530,7 +521,7 @@ component({
     { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
     { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
     { label: "Compact, after scrolling", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
-    { label: "Logo only, on sign-in", isWide: true, isStill: true, markup: html`<div class="header-frame logo-frame"><div class="backdrop is-framed" aria-hidden="true"></div>${header({ id: "example-top-logo", current: null, isOnDeveloperPage: false, isLogoOnly: true })}</div>` },
+    { label: "On sign-in", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });
 

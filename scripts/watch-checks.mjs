@@ -29,7 +29,7 @@ const options = { attemptCount: WATCH_ATTEMPT_COUNT, retryWaitMs: WATCH_RETRY_WA
 export function runWatchChecks() {
   return Promise.all([
     checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe")), options),
-    checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), options),
+    checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { ...options, isSameOriginRedirectFollowed: true }),
     checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && body.includes('"keys"')), options),
     checkUrl(
       "MCP",

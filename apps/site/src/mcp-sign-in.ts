@@ -1,4 +1,7 @@
 import {
+  ACCESS_AREAS,
+  ACCESS_LEVELS,
+  AREA_ACCESS_CHOICES,
   MAXIMUM_CONNECTED_APP_COUNT,
   accountById,
   b64url,
@@ -19,11 +22,14 @@ import {
   type KeyScope,
   type Passkey,
 } from "@zaisma/core";
-import { PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, accessChoices, keyMakingState, keyScopeFromForm, passkeyStep, passkeyTapFromForm, type PasskeyState } from "./account.ts";
+import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, keyMakingState, keyScopeFromForm, passkeyTapFromForm, type PasskeyState } from "./account.ts";
+import { glassPane } from "./components/foundations.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { checkField, choiceCards, selectField } from "./components/inputs.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
-import { html, layout, message, raw, scriptTags } from "./html.ts";
+import { glassMessage, html, layout, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { PASSKEY_SCRIPT, checkPasskeyTap, usedChallengeCookie } from "./passkeys.ts";
 import { logAccountChange, logSecurityEvent, seedKeyPlace, whereOfPerson } from "./security-log.ts";
@@ -287,7 +293,7 @@ export async function authorizeMcp(request: Request, env: Env): Promise<Response
   const form = isPost ? await request.formData() : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));
-  if ("brokenLinkReason" in checked) return message(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Remove Zaisma from the app's connectors and add it again.`, 400);
+  if ("brokenLinkReason" in checked) return glassMessage(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Remove Zaisma from the app's connectors and add it again.`, 400);
   if ("error" in checked) return redirect(backUrl(env, checked.redirectUrl, checked.state, { error: checked.error, error_description: checked.description }));
   // Every connection asks, with a passkey tap: there's no remembered yes to answer without a page.
   if (checked.prompt === "none") return redirect(backUrl(env, checked.redirectUrl, checked.state, { error: "consent_required", error_description: "Connecting to Zaisma always asks the developer." }));
@@ -353,7 +359,8 @@ async function createCode(env: Env, checked: Allowed, account: Account, name: st
 /**
  * "Connect Claude to your games": what the app may do is already Full, on all games, never ending, and Change opens
  * a key's choices in place. Continue taps the passkey (adding one first when there's none), and the app can never
- * make keys. Where it goes back to is named, since that's the real check of who's asking.
+ * make keys. Where it goes back to is named, since that's the real check of who's asking. Plain glass over Zaisma's
+ * own background, built from the gallery's components.
  */
 async function connectPage(env: Env, checked: Allowed, account: Account, error?: string): Promise<Response> {
   const { games, passkeyState, approvesFromAtMs } = await keyMakingState(env, account.id);
@@ -362,34 +369,82 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
   return layout(env, {
     title: `Connect ${name} to your games · Zaisma`,
     isPrivate: true,
+    isRebuilt: true,
     viewer: { account },
     // The answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
-    body: html`<div class="narrow">
-<h1>Connect ${name} to your games</h1>
-<p class="lead">as ${account.username}</p>
-<form method="post" action="/oauth/authorize" id="connect-form" class="stack" data-passkey-state="${passkeyState}" data-again="${authorizePath(checked.parameters)}">
+    body: glassPane({
+      paneSize: "medium",
+      label: `Connect ${name}`,
+      body: html`<h1>Connect ${name} to your games</h1>
+<p>as ${account.username}</p>
+<form method="post" action="/oauth/authorize" id="connect-form" data-passkey-state="${passkeyState}" data-again="${authorizePath(checked.parameters)}">
 ${AUTHORIZE_FIELDS.filter((field) => checked.parameters[field]).map((field) => html`<input type="hidden" name="${field}" value="${checked.parameters[field]!}">`)}
 ${PASSKEY_TAP_FIELDS}
-<div class="note"><p><strong id="connect-summary">Full, all my games, never ends</strong> · <a href="#connect-choices" id="connect-change">Change</a></p></div>
-<div id="connect-choices" hidden>
-${accessChoices(games, null)}
+<p><strong id="connect-summary">Full, all my games, never ends</strong> · <span id="connect-change">${textLink("Change", "#connect-choices")}</span></p>
+<div id="connect-choices" class="pane-stack" hidden>
+${accessChoiceCards(games)}
 </div>
-<p class="muted">It can't make API keys. After this you go back to <strong>${backTo.host}</strong>.</p>
+<p>It can't make API keys. After this you go back to <strong>${backTo.host}</strong>.</p>
 ${connectButtons(passkeyState, approvesFromAtMs)}
-<p class="error" id="connect-error" role="alert"${error ? "" : raw(" hidden")}>${error ?? ""}</p>
+<p class="field-error" id="connect-error" role="alert"${error ? "" : raw(" hidden")}>${error ?? ""}</p>
 </form>
-<p class="muted small">You can remove it any time from <a href="/account#developer">your account</a>, with your API keys.</p>
-${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}
-</div>`,
+<p>You can remove it any time from ${textLink("your account", "/account#developer")}, with your API keys.</p>
+${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`,
+    }),
   });
 }
 
+const ENDS_CHOICES = [
+  { label: "Never", choiceValue: "" },
+  { label: "In 7 days", choiceValue: "7" },
+  { label: "In 30 days", choiceValue: "30" },
+  { label: "In 90 days", choiceValue: "90" },
+  { label: "In a year", choiceValue: "365" },
+];
+
+/**
+ * A key's choices, as the gallery's components, with the same fields the account page's key sends (keyScopeFromForm reads both):
+ * when it ends, what it can do, which games, and for Custom each area. ACCESS_CHOICES_SCRIPT keeps them in step.
+ */
+function accessChoiceCards(games: { slug: string; title: string }[]): Raw {
+  return html`<section class="pane-stack" data-step="what">
+${selectField({ id: "connect-ends", name: "ends_after_days", label: "Ends", choices: ENDS_CHOICES, pickedValue: "" })}
+${choiceCards({ id: "connect-level", name: "access_level", label: "What it can do", pickedValue: "full", choices: ACCESS_LEVELS.map((level) => ({ label: LEVEL_LABELS[level][0], choiceValue: level, text: LEVEL_LABELS[level][1] })) })}
+</section>
+<section class="pane-stack" data-step="games" hidden>
+${choiceCards({
+    id: "connect-games",
+    name: "game_scope",
+    label: "Which games",
+    pickedValue: "all",
+    choices: [{ label: "All my games", choiceValue: "all", text: "And games you make later." }, ...(games.length ? [{ label: "Only these games", choiceValue: "some", text: "It can't make games, sign-in apps or webhooks." }] : [])],
+  })}
+${games.length ? html`<div class="pane-stack" data-access-games>${games.map((game) => checkField({ id: `connect-game-${game.slug}`, name: "game_slugs", checkValue: game.slug, label: game.title }))}</div>` : ""}
+</section>
+<section class="pane-stack" data-step="areas" hidden>
+${ACCESS_AREAS.map((area) =>
+    choiceCards({
+      id: `connect-${area}`,
+      name: area,
+      label: AREA_LABELS[area][0],
+      pickedValue: "read",
+      isCompact: true,
+      choices: (AREA_ACCESS_CHOICES[area] as readonly string[]).map((choice) => ({ label: CHOICE_LABELS[choice]!, choiceValue: choice })),
+    }),
+  )}
+</section>`;
+}
+
 function connectButtons(passkeyState: PasskeyState, approvesFromAtMs: number | null) {
-  const cancel = html`<button class="btn ghost" type="submit" name="decision" value="cancel">Cancel</button>`;
-  if (passkeyState === "waiting" && approvesFromAtMs !== null) return html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p><div class="row">${cancel}</div>`;
-  return html`${passkeyStep(passkeyState, approvesFromAtMs, { title: "First, add a passkey", sub: "Connecting an app needs your passkey, so someone who learns your password can't connect one.", waitingFor: "connect apps" })}
-<div class="row"><button class="btn" type="button" id="connect-go" autofocus>Continue with passkey</button>${cancel}</div>`;
+  const cancel = cutButton("Cancel", { type: "submit", name: "decision", buttonValue: "cancel" });
+  if (passkeyState === "waiting" && approvesFromAtMs !== null) return html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p><div class="control-row">${cancel}</div>`;
+  const firstPasskey =
+    passkeyState === "ready"
+      ? ""
+      : html`<section class="pane-stack" data-step="passkey" hidden><h2>First, add a passkey</h2><p>Connecting an app needs your passkey, so someone who learns your password can't connect one.</p>${passkeyState === "waiting" && approvesFromAtMs !== null ? html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` : html`<div id="passkey-first">${cutButton("Add a passkey", { type: "button", isFullWidth: true })}</div>`}</section>`;
+  return html`${firstPasskey}
+<div class="control-row">${runButton("Connect", { type: "button", name: "connect_step", buttonValue: "connect" })}${cancel}</div>`;
 }
 
 // The summary follows the choices; Continue adds a passkey first when there's none, then taps it for this connection.
@@ -405,17 +460,20 @@ const CONNECT_APP_SCRIPT = pageScript("connect-app", `(() => {
     form.querySelector('[data-step="games"]').hidden = false;
     form.querySelector('[data-step="areas"]').hidden = !choices.isCustom();
     const level = form.querySelector('input[name="access_level"]:checked');
-    const levelWords = level ? level.nextElementSibling.firstChild.textContent.trim() : "";
+    const levelWords = level ? level.closest(".choice-card").querySelector(".choice-label").textContent.trim() : "";
     const picked = [...form.querySelectorAll('input[name="game_slugs"]:checked')];
-    const gameWords = !choices.isSome() ? "all my games" : picked.length === 1 ? "only " + picked[0].nextElementSibling.textContent.trim() : picked.length + " games";
-    const ends = form.ends_after_days;
-    const endWords = ends.value ? "ends " + ends.selectedOptions[0].textContent.trim().replace(/^In/, "in") : "never ends";
+    const gameWords = !choices.isSome() ? "all my games" : picked.length === 1 ? "only " + picked[0].closest(".check").querySelector(".check-label").textContent.trim() : picked.length + " games";
+    const ends = form.querySelector('input[name="ends_after_days"]');
+    const endWords = ends.value ? "ends " + document.querySelector("#connect-ends .select-value").textContent.trim().replace(/^In/, "in") : "never ends";
     $("connect-summary").textContent = levelWords + ", " + gameWords + ", " + endWords;
   }
   $("connect-change").onclick = (event) => { event.preventDefault(); $("connect-choices").hidden = false; $("connect-change").hidden = true; show(); };
   form.addEventListener("change", show);
+  // The select field's pick is a hidden field, which sends no change of its own.
+  form.addEventListener("click", () => setTimeout(show, 0));
   zaismaPasskeyFirst({ added: form.dataset.again, waiting: form.dataset.again }, stop);
-  const go = $("connect-go");
+  // Connect taps the passkey first, so it only sends the form once that's done; it's never a submit button.
+  const go = form.querySelector('button[name="connect_step"]');
   if (go) go.onclick = async () => {
     $("connect-error").hidden = true;
     const said = choices.gamesProblem();

@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type MultiplayerMode, type PlayerReportReason, type ReportReason, type ReviewStatus, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type MatchUpdateMode, type MultiplayerMode, type PlayerReportReason, type ReportReason, type ReviewStatus, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
 import { randomKey } from "./game-access.ts";
 import type { ReviewReason } from "./review.ts";
@@ -51,7 +51,7 @@ export async function createGame(
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
     id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, own_server_urls: "[]", owner_id: ownerId ?? null, cloud_saves_enabled: 1, account_offer_enabled: 1, deleted_account_erase_enabled: 1, friend_joins_enabled: 1, quick_joined_at_ms: null, game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null,
-    visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: randomKey(32), is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, cleared_title: null, listing_check_requested_at_ms: null, listing_checked_at_ms: null, glass_tint_color: null, created_at_ms: now(), updated_at_ms: now(),
+    visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: randomKey(32), is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, cleared_title: null, listing_check_requested_at_ms: null, listing_checked_at_ms: null, glass_tint_color: null, live_version_match_update_mode: "next_match", live_version_published_at_ms: null, has_live_version_game_file_changes: 1, created_at_ms: now(), updated_at_ms: now(),
   };
   game.listing_check_requested_at_ms = game.created_at_ms;
   await database
@@ -86,11 +86,11 @@ export async function setReviewStatus(database: D1Database, id: string, reviewSt
 
 export async function createVersion(
   database: D1Database,
-  version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean },
+  version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean; matchUpdateMode?: MatchUpdateMode },
 ): Promise<void> {
   await database
-    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, created_at_ms, scan_queued_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?, ?)")
-    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, now(), now())
+    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, match_update_mode, created_at_ms, scan_queued_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?, ?, ?)")
+    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, version.matchUpdateMode ?? "next_match", now(), now())
     .run();
 }
 
@@ -119,13 +119,19 @@ export async function saveScan(database: D1Database, versionId: string, scanStat
   await database.prepare("UPDATE versions SET scan_status = ?, scan_report = COALESCE(?, scan_report) WHERE id = ?").bind(scanStatus, report ? JSON.stringify(report) : null, versionId).run();
 }
 
-/** Make a version the one players get. A removed or held game stays hidden. */
-export async function publishVersion(database: D1Database, version: Version): Promise<void> {
+/**
+ * Make a version the one players get, with when running matches get it (matchUpdateMode, by default the
+ * version's own, as a publish-later or publish-when-approved set it). A removed or held game stays hidden.
+ */
+export async function publishVersion(database: D1Database, version: Version, matchUpdateMode: MatchUpdateMode = version.match_update_mode ?? "next_match"): Promise<void> {
+  const publishedAtMs = now();
   await database.batch([
-    database.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?, scheduled_publish_at_ms = NULL WHERE id = ?").bind(now(), version.id),
+    database.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?, scheduled_publish_at_ms = NULL, match_update_mode = 'next_match' WHERE id = ?").bind(publishedAtMs, version.id),
     database
-      .prepare("UPDATE games SET live_version_id = ?, review_status = CASE WHEN review_status IN ('removed', 'held') THEN review_status ELSE 'live' END, updated_at_ms = ? WHERE id = ?")
-      .bind(version.id, now(), version.game_id),
+      .prepare(
+        "UPDATE games SET live_version_id = ?, live_version_match_update_mode = ?, live_version_published_at_ms = ?, review_status = CASE WHEN review_status IN ('removed', 'held') THEN review_status ELSE 'live' END, updated_at_ms = ? WHERE id = ?",
+      )
+      .bind(version.id, matchUpdateMode, publishedAtMs, publishedAtMs, version.game_id),
   ]);
 }
 

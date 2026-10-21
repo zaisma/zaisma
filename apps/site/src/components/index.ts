@@ -8,6 +8,8 @@ import { BIRTHDAY_SCRIPT, COPY_SCRIPT, DATE_TIME_SCRIPT, FIELD_SCRIPT, FILE_DROP
 import { COMPACT_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, ROW_SCRIPT, SCROLL_FADE_SCRIPT } from "./navigation.ts";
 import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, SHEET_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { CHART_SCRIPT } from "./data.ts";
+// The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it.
+import "./city.ts";
 
 /*
  * The components, bundled for the pages: importing this module defines every one of them (each group file
