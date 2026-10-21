@@ -596,7 +596,12 @@ component({
 /* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
 .foot p { margin: 0 0 0 auto; }
-@media (max-width: 760px) { .foot p { margin: 0; } }
+/* On a phone it stacks, centered: the mark, the links two by two, then the license. */
+@media (max-width: 760px) {
+  .foot { flex-direction: column; align-items: center; padding: var(--pad-pane); text-align: center; }
+  .foot nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-items: center; gap: var(--gap-words-words) var(--gap-block-block); width: 100%; }
+  .foot p { margin: 0; }
+}
 `,
   render: footer,
   examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],

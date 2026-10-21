@@ -76,7 +76,7 @@ describe("the home page", () => {
 
   it("links a cover to its game's page and the pane's Play and Details to the game", async () => {
     const { text } = await homePage();
-    expect(text).toContain('<a class="cover-art" href="/g/home-one"');
+    expect(text).toContain('<a class="cover-art" data-cut-line="0" href="/g/home-one"');
     expect(text).toMatch(/<a class="shell run-wrap" href="\/g\/home-one\?play"/);
     expect(text).toMatch(/<a class="shell cut-btn[^"]*" href="\/g\/home-one"/);
   });

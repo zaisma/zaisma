@@ -85,7 +85,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
   - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
-  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
+  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. Game covers follow the rule too (`data-cut-line` on `.cover-art`): near a pane's corner a cover takes its cut, in the middle of a pane it's square, so no picture is a plain rectangle against a cut corner. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
 
 ## Spacing
 

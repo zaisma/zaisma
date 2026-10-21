@@ -214,9 +214,9 @@ export async function home(env: Env, request: Request): Promise<Response> {
 <div class="home-pane" id="home-pane">${glassPane({
         paneSize: "medium",
         label: "The game in focus",
-        body: html`<div class="home-head"><h1 id="home-title">${first.title}</h1><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p></div>
+        body: html`<div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
 <div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
-<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div>`,
+<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div>`,
       })}</div>
 <div class="home-shelf">${glassPane({
         paneSize: "full",
@@ -334,23 +334,29 @@ html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS}
 html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
-.home-window { grid-column: 1 / -1; grid-row: 1; height: max(300px, calc(100svh - var(--header-room) - 200px)); }
+/* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
+   the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
+.home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
   transition: transform 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
 .home-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
-.home-pane .pane-in { gap: 0; opacity: 0; transition: opacity 0.25s; }
+.home-pane > .glass-pane > .pane-in { gap: 0; opacity: 0; transition: opacity 0.25s; }
 .is-home-ready .home-pane .pane-in { opacity: 1; }
-.home-head h1 { margin: 0; font: var(--type-title); text-wrap: balance; }
-.home-facts { margin: var(--gap-words-words) 0 0; font: var(--type-words); }
+/* The game's cover is its face here: its title and studio are on it, as the studio drew them, over a background that stays a background.
+   The title is still the page's heading, for screen readers; a game without a cover shows it in words instead. */
+.home-head h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font: var(--type-title); text-wrap: balance; }
+.home-head.has-cover h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.home-head:not(.has-cover) .home-art { display: none; }
+.home-facts { margin: 0; font: var(--type-words); }
 .home-actions { margin-top: var(--gap-block-block); }
-/* At the top of the page the pane is compact: the title, one line, Play and Details. Scrolling (or choosing a cover) opens the rest below the buttons,
+/* At the top of the page the pane is compact: the cover, Play and Details. Scrolling (or choosing a cover) opens the rest below the buttons,
    so the buttons never move on a wide screen. */
 .home-more { height: 0; overflow: hidden; transition: height 0.42s cubic-bezier(.2,.8,.2,1); }
-.home-more-in { padding-top: var(--gap-block-block); opacity: 0; transition: opacity 0.2s; }
+.home-more-in { display: flex; flex-direction: column; gap: var(--gap-block-block); padding-top: var(--gap-block-block); opacity: 0; transition: opacity 0.2s; }
+.home-facts:empty, #home-glance:empty { display: none; }
 .is-pane-open .home-more { height: var(--more-h, auto); }
 .is-pane-open .home-more-in { opacity: 1; transition: opacity 0.3s 0.1s; }
-.home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: var(--gap-block-block); }
-.home-more-in > #home-glance:empty + .home-description { margin-top: 0; }
+.home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
 @media (max-height: 640px) and (min-width: 761px) { .home-description { display: none; } }
 /* The shelf: one long sheet of glass with every row on it. */
 .home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
@@ -360,7 +366,7 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-row-head > .steps { margin-left: auto; }
 .home-row-head > .tab-switch { margin-left: var(--gap-words-control); }
 /* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
-.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: var(--gap-words-words) var(--gap-words-words) var(--gap-block-block); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
+.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
 .home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
@@ -381,7 +387,6 @@ canvas.backdrop.is-shown { opacity: 1; }
 @media (max-width: 1100px) { .home { grid-template-columns: 340px minmax(0, 1fr); } .home-head h1 { font: var(--type-heading); } }
 @media (max-width: 760px) {
   .home { display: block; }
-  .home-window { height: max(220px, calc(100svh - var(--header-room) - 300px)); }
   .home-pane { position: relative; top: auto; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }

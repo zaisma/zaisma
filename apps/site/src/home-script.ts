@@ -74,7 +74,7 @@ const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b
 const playedAt = (slug) => { const entry = played.find((each) => each.slug === slug); return entry ? entry.played_at_ms : 0; };
 
 /* ---- The pane: the game in focus, at a glance ---- */
-const pane = { title: $("home-title"), facts: $("home-facts"), glance: $("home-glance"), description: $("home-description"), box: $("home-pane"), more: $("home-more"), moreIn: $("home-more-in") };
+const pane = { head: $("home-head"), art: $("home-art"), title: $("home-title"), facts: $("home-facts"), glance: $("home-glance"), description: $("home-description"), box: $("home-pane"), more: $("home-more"), moreIn: $("home-more-in") };
 const playLink = pane.box.querySelector("a.run-wrap"), detailsLink = pane.box.querySelector("a.cut-btn");
 const playLabel = playLink.querySelector(".face > span:not([class])");
 let focusSlug = "", hasChosen = false;
@@ -83,6 +83,9 @@ function glanceItem(kind, ...parts) { const item = make("li", kind); item.append
 function fillPane(game) {
   const at = playedAt(game.slug);
   pane.title.textContent = game.title;
+  // Its cover is its face; without one, its title in words.
+  pane.head.classList.toggle("has-cover", Boolean(game.cover));
+  if (game.cover) pane.art.src = game.cover;
   pane.facts.textContent = [game.developer ? "by " + game.developer : "", game.modes].filter(Boolean).join(" · ");
   const items = [];
   if (game.playing_now_player_count >= DATA.minimum_playing_now_player_count) {
@@ -110,6 +113,14 @@ function fillPane(game) {
 }
 function measureMore() { pane.box.style.setProperty("--more-h", pane.moreIn.offsetHeight + "px"); }
 if (window.ResizeObserver) new ResizeObserver(measureMore).observe(pane.moreIn); else addEventListener("resize", measureMore);
+// The window above the pane leaves the compact pane whole on screen, with room for a cover (taller than any title in words), so Play is
+// in view as the page opens on any screen; measured as it opens and when the window changes size, never as focus moves, so nothing shifts.
+function measureStage() {
+  const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
+  const coverPx = Math.max(pane.head.clientWidth * 9 / 16, pane.head.offsetHeight);
+  pane.box.parentElement.style.setProperty("--home-pane-h", Math.ceil(pane.box.offsetHeight - openPx - pane.head.offsetHeight + coverPx) + "px");
+}
+addEventListener("resize", measureStage);
 
 /* The pane opens when the page scrolls (wanting more) and shuts again back at the top, where Play and Details sit on the art. */
 function openPane(shouldReveal) {
@@ -246,7 +257,7 @@ function coverFor(game, list, at) {
   const cover = make("div", "cover"), art = make("a", "cover-art"), image = make("img");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
-  art.href = "/g/" + game.slug; art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
+  art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
   image.src = game.cover || DATA.placeholder_cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
   if (!game.cover) cover.classList.add("is-placeholder");
   art.append(image);
@@ -370,6 +381,7 @@ if (guest && !isSignedIn) guest.hidden = false;
 fillContinue();
 // The opening script chose it in the page's head, before the first paint.
 setFocus(bySlug[root.dataset.homeStart] ? root.dataset.homeStart : GAMES[0].slug);
+measureStage();
 document.body.classList.add("is-home-ready");
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
