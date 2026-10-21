@@ -180,6 +180,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
 - **Spacing**: Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
+- **City** (`cityStage(options?: CityStageOptions)`, `city.ts`): Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.
+  - `options`: `isFramed?: boolean`
 
 ### Actions
 
@@ -201,7 +203,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Inputs
 
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
-  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `isPasswordShown?: boolean`, `state?: "is-focused"`
+  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isPasswordShown?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.
@@ -217,7 +219,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
   - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `id?: string`, `icon?: IconName`, `error?: string`, `state?: "is-focused" | "is-open"`
 - **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a white tick. On a page that saves at once, use a Toggle.
-  - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `id?: string`, `state?: PressState`
+  - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `id?: string`, `state?: PressState`
 - **Choice cards** (`choiceCards(options: ChoiceCardsOptions)`, `choices.ts`): One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.
   - `options`: `name: string`, `label: string`, `choices: ChoiceCard[]`, `pickedValue?: string`, `id?: string`, `isCompact?: boolean`, `state?: PressState`
 - **Toggle** (`toggle(options: ToggleOptions)`, `choices.ts`): On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It's a checkbox in its form, so it posts without a script.
@@ -312,3 +314,5 @@ How the larger ones behave:
 ## Backgrounds
 
 Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colors, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).
+
+**Scenes.** A live 3D scene is the page only where its job is a first impression. The city (`cityStage()` and `CITY_SCRIPT`, `components/city.ts`) is the sign-in's scene: signing in, making an account and every step between are one glass pane in front of it (on the right on a wide screen, full width at the bottom on a phone). It runs on phones too, at a lower resolution, and steps down further on a slow device. Its still, a render of the same city by day and by night (`brand/sign-in/`), shows first and covers reduced motion, no WebGL and a device that can't keep the city smooth even at its lowest step.

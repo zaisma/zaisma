@@ -1,5 +1,6 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, pageData, raw, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { headScriptTags, html, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -49,7 +50,7 @@ function section(each: Component, theme: GalleryTheme): Raw {
 const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
   cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}`, icon: "light-dark", isLabelHidden: true });
 
-function head(title: string): Raw {
+function head(title: string, group: ComponentGroup): Raw {
   return html`<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
@@ -58,7 +59,7 @@ function head(title: string): Raw {
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -86,7 +87,7 @@ export function designPage(env: Env, url: URL): Response | null {
   const page = html`<!doctype html>
 <html lang="en">
 <head>
-${head(`${groupName} · Design · Zaisma`)}
+${head(`${groupName} · Design · Zaisma`, group)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}

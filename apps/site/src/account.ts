@@ -63,6 +63,7 @@ import {
   UsernameTakenError,
   type Account,
   type AgeBand,
+  type Game,
   type SocialMode,
   type SocialSetting,
   type SocialSettings,
@@ -105,7 +106,13 @@ import { checkEmailCode, sendEmailCode, waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
-import { html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
+import { cityStage, CITY_SCRIPT } from "./components/city.ts";
+import { glassPane } from "./components/foundations.ts";
+import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
+import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
+import { header } from "./components/navigation.ts";
+import { notice } from "./components/panes.ts";
 import { pageScript } from "./page-scripts.ts";
 import { foundWords } from "./leaked-keys.ts";
 import { emailAskBox, isEmailAskDue, markSecurityAlertsSeen, securityAlertsBox, skipEmailAsk } from "./security-alerts.ts";
@@ -144,7 +151,6 @@ import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnsti
  * device it happened on.
  */
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCK_DURATION_SEC = 24 * 3600;
 const JOIN_DURATION_SEC = 3600;
@@ -160,6 +166,7 @@ const PATHS = [
   "/join/age",
   "/join/account",
   "/join/username",
+  "/join/play",
   "/api/username-check",
   "/account",
   "/account/kept",
@@ -218,7 +225,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
 
   // A session cookie that no longer works (signed out on every device, or a new password elsewhere): clear it, so the header stops saying signed in.
   if (path === "/signin" && !post) return session ? done(redirect(next ?? "/account")) : withCookies(await signinPage(env, next), readCookie(request, env, "zaisma") ? clearSessionCookies(env) : []);
-  if (path === "/signin/email" && !post) return done(session ? redirect(next ?? "/account") : emailSigninPage(env, next));
+  if (path === "/signin/email" && !post) return done(session ? redirect(next ?? "/account") : await emailSigninPage(env, next));
 
   // --- Google and Discord ---
   const withProvider = path.match(/^\/signin\/with\/([a-z]+)$/)?.[1];
@@ -281,15 +288,15 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   if (path === "/signin/email" && post) {
     if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
     const email = field("email", 320).toLowerCase();
-    if (!EMAIL.test(email)) return emailSigninPage(env, next, "Enter your email address.");
-    if (!(await passesBotCheck("email_code"))) return emailSigninPage(env, next, BOT_CHECK_FAILED, email);
+    if (!EMAIL.test(email)) return await emailSigninPage(env, next, "Enter your email address.");
+    if (!(await passesBotCheck("email_code"))) return await emailSigninPage(env, next, BOT_CHECK_FAILED, email);
     // Only an address on an account gets a code; any other is answered the same, so the form doesn't say who has one.
     const userId = await authUserIdByEmail(env, email);
     const account = userId ? await accountById(env.DB, userId) : null;
     const sent = userId === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account?.id ?? null, kind: "sign_in", reason: "sign_in" });
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
     if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502);
-    return codePage(env, email, next);
+    return await codePage(env, email, next);
   }
 
   // A code from /signin/email, or from Confirm it's you on the account page.
@@ -298,7 +305,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const email = field("email", 320).toLowerCase();
     const accountId = await checkEmailCode(env, email, field("code", 20).replace(/\D/g, ""), "sign_in");
     const kind = field("kind", 20) === "confirm" ? "confirm" : "signin";
-    if (!accountId) return codePage(env, email, next, CODE_DIDNT_WORK, kind);
+    if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
     if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on our side. Get a new code in a minute and try again.", 502);
     await recordProof(env, signedIn, "email_code");
@@ -306,18 +313,35 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   }
 
   // --- Making an account ---
+  // The birthday, then a username and a password (or Google or Discord, then a username), which makes the account; then, for 16 and
+  // over, how they play, which only sets the preset (the account starts on the band's default, so leaving there keeps it).
+  if (path === "/join/play") {
+    const account = session ? await accountById(env.DB, session.userId) : null;
+    if (!account) return done(redirect(`/join${nextQuery(next)}`));
+    const after = next ?? "/account?welcome";
+    if (account.age_band === "13-15") return done(redirect(after));
+    if (!post) return done(await joinPlayPage(env, next, account));
+    const socialMode = field("social_mode", 40);
+    if (!isSocialMode(socialMode) || !socialModesFor(account.age_band).includes(socialMode)) return done(await joinPlayPage(env, next, account, "Choose one of these."));
+    if (!(await updateAccount(env.DB, account.id, { socialSettings: socialModeSettings(socialMode, account.age_band) }))) return done(await joinPlayPage(env, next, account, account.social_stopped_at_ms ? socialStoppedNotice(account.social_stopped_reason) : "Choose one of these."));
+    return done(redirect(after));
+  }
+
   if (path.startsWith("/join")) {
     const account = session ? await accountById(env.DB, session.userId) : null;
     if (account) return done(redirect(next ?? "/account"));
 
     if (path === "/join" && !post) {
       const via = new URL(request.url).searchParams.get("with") ?? "";
-      return done(agePage(env, next, undefined, isProvider(via) ? via : undefined));
+      return done(await agePage(env, next, undefined, isProvider(via) ? via : undefined));
     }
 
     if (path === "/join/age" && post) {
-      const ageYearCount = ageOn({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) }, new Date());
-      if (ageYearCount === null) return done(agePage(env, next, "Choose your full birth date."));
+      // The wheels send the birthday as one YYYY-MM-DD; a form without the script sends its parts.
+      const [yearText = "", monthText = "", dayText = ""] = /^\d{4}-\d{2}-\d{2}$/.test(field("birthday", 10)) ? field("birthday", 10).split("-") : [field("year"), field("month"), field("day")];
+      const birthday = { yearNumber: Number(yearText), monthNumber: Number(monthText), dayNumber: Number(dayText) };
+      const ageYearCount = ageOn(birthday, new Date());
+      if (ageYearCount === null) return done(await agePage(env, next, "Choose your full birth date."));
       const band = ageBand(ageYearCount);
       if (!band) {
         // Under 13: no account. Anything Supabase already holds (a half-finished sign-in) is deleted now.
@@ -329,67 +353,69 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
         return withCookies(tooYoungPage(env), cookies);
       }
       // Under 18, the birth date goes with the join steps to the new account, which keeps it until 18.
-      const birthDate = band === "18+" ? undefined : birthDateText({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) });
+      const birthDate = band === "18+" ? undefined : birthDateText(birthday);
       const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, birth_date: birthDate })), { maximumAgeSec: JOIN_DURATION_SEC });
       // They came from Google or Discord: go straight back there (it won't ask again), then pick a username.
       const via = field("with");
       if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
       // Already signed in (Google or Discord, or an email code, but never finished): just the username.
-      return withCookies(session ? joinUsernamePage(env, next, band) : await joinAccountPage(env, next, band), [...(session?.cookies ?? []), cookie]);
+      return withCookies(session ? await joinUsernamePage(env, next) : await joinAccountPage(env, next), [...(session?.cookies ?? []), cookie]);
     }
 
     const band = joinBand(request, env);
     if (!band) return done(redirect(`/join${nextQuery(next)}`));
+    // Made: 16 and over choose how they play next; 13–15 go straight on.
+    const afterMade = band === "13-15" ? (next ?? "/account?welcome") : `/join/play${nextQuery(next)}`;
 
-    if (path === "/join/account" && !post) return done(session ? redirect(`/join/username${nextQuery(next)}`) : await joinAccountPage(env, next, band));
+    if (path === "/join/account" && !post) return done(session ? redirect(`/join/username${nextQuery(next)}`) : await joinAccountPage(env, next));
 
     if (path === "/join/account" && post) {
       if (session) return done(redirect(`/join/username${nextQuery(next)}`));
       if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
-      const socialMode = chosenSocialMode(band, field("social_mode", 40));
       const wanted = field("username", 40);
       const password = passwordField();
-      const again = async (error: string, suggestions: string[] = []) => joinAccountPage(env, next, band, error, { username: wanted, socialMode, suggestions });
+      const again = async (problem: Pick<JoinGiven, "usernameError" | "passwordError"> | string, suggestions: string[] = []) =>
+        typeof problem === "string" ? joinAccountPage(env, next, problem, { username: wanted, suggestions }) : joinAccountPage(env, next, undefined, { username: wanted, suggestions, ...problem });
       const checked = checkUsername(wanted);
-      if ("error" in checked) return await again(checked.error, await suggestUsernames(env.DB, wanted));
-      if (await isUsernameTaken(env.DB, checked.username)) return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      if ("error" in checked) return await again({ usernameError: checked.error }, await suggestUsernames(env.DB, wanted));
+      if (await isUsernameTaken(env.DB, checked.username)) return await again({ usernameError: takenText(checked.username) }, await suggestUsernames(env.DB, checked.username));
       const problem = await newPasswordProblem(password, checked.username);
-      if (problem) return await again(problem);
+      if (problem) return await again({ passwordError: problem });
       // Last, so a token isn't spent on a form that comes back for another reason.
       if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
       const made = await createPasswordUser(env, password);
       if (!made) return message(env, "Couldn't make your account", "Something went wrong on our side. Try again in a minute.", 502);
       try {
-        await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode, hasPassword: true });
+        await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode: defaultSocialMode(band), hasPassword: true });
       } catch (error) {
         if (!(error instanceof UsernameTakenError)) throw error;
         await deleteAuthUser(env, made.userId);
-        return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+        return await again({ usernameError: takenText(checked.username) }, await suggestUsernames(env.DB, checked.username));
       }
       const signedIn = await signInWithPassword(env, made.email, password, connectionAddress);
       const cookies = [setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }), await recordSignIn(request, env, made.userId, "password", { isNewAccount: true })];
       if (typeof signedIn === "string") return withCookies(redirect(`/signin${nextQuery(next)}`), cookies);
       await recordProof(env, signedIn, "password");
-      return withCookies(redirect(next ?? "/account?welcome"), [...cookies, ...sessionCookies(env, signedIn)]);
+      return withCookies(redirect(afterMade), [...cookies, ...sessionCookies(env, signedIn)]);
     }
 
-    if (path === "/join/username" && !post) return done(session ? joinUsernamePage(env, next, band) : redirect(`/join/account${nextQuery(next)}`));
+    if (path === "/join/username" && !post) return done(session ? await joinUsernamePage(env, next) : redirect(`/join/account${nextQuery(next)}`));
 
     if (path === "/join/username" && post && session) {
-      const socialMode = chosenSocialMode(band, field("social_mode", 40));
       const wanted = field("username", 40);
-      const again = async (error: string, suggestions: string[] = []) => done(joinUsernamePage(env, next, band, error, { username: wanted, socialMode, suggestions }));
+      const again = async (problem: Pick<JoinGiven, "usernameError"> | string, suggestions: string[] = []) =>
+        done(typeof problem === "string" ? await joinUsernamePage(env, next, problem, { username: wanted, suggestions }) : await joinUsernamePage(env, next, undefined, { username: wanted, suggestions, ...problem }));
       const checked = checkUsername(wanted);
-      if ("error" in checked) return await again(checked.error, await suggestUsernames(env.DB, wanted));
-      if (await isUsernameTaken(env.DB, checked.username)) return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      if ("error" in checked) return await again({ usernameError: checked.error }, await suggestUsernames(env.DB, wanted));
+      if (await isUsernameTaken(env.DB, checked.username)) return await again({ usernameError: takenText(checked.username) }, await suggestUsernames(env.DB, checked.username));
       if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
       try {
-        await createAccount(env.DB, { id: session.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode });
+        await createAccount(env.DB, { id: session.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode: defaultSocialMode(band) });
       } catch (error) {
         if (!(error instanceof UsernameTakenError)) throw error;
-        return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+        return await again({ usernameError: takenText(checked.username) }, await suggestUsernames(env.DB, checked.username));
       }
-      return withCookies(redirect(next ?? "/account?welcome"), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }), await recordSignIn(request, env, session.userId, null, { isNewAccount: true })]);
+      return withCookies(redirect(afterMade), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }), await recordSignIn(request, env, session.userId, null, { isNewAccount: true })]);
     }
     return done(redirect("/join"));
   }
@@ -412,7 +438,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const query = new URL(request.url).searchParams;
     return done(await accountPage(env, session, query.has("welcome"), undefined, undefined, query));
   }
-  if (path === "/account/kept" && !post) return done(await keptPage(env, account.username, new URL(request.url).searchParams.get("game")));
+  if (path === "/account/kept" && !post) return done(await keptPage(env, account, new URL(request.url).searchParams.get("game")));
 
   // Download your data: everything about the account as one .zip, built while it downloads. A stolen session alone can't take it.
   if (path === "/account/data.zip" && !post) {
@@ -458,7 +484,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (!(await passesBotCheck("email_code"))) return done(await accountPage(env, session, false, BOT_CHECK_FAILED));
     const sent = await sendEmailCode(env, { email, accountId: account.id, kind: "sign_in", reason: "confirm" });
     if (sent !== "sent") return done(redirect("/account?confirm-failed#signing-in"));
-    return done(codePage(env, email, back, undefined, "confirm"));
+    return done(await codePage(env, email, back, undefined, "confirm"));
   }
 
   if ((path === "/account/password" || path === "/account/email" || path === "/account/email/remove" || path === "/account/delete") && post && !confirmation.isConfirmed) return done(redirect("/account?confirm-first#signing-in"));
@@ -501,14 +527,14 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const sent = holder === undefined ? "failed" : await sendEmailCode(env, { email, accountId: account.id, kind: "add_email", reason: "add_email" });
     if (sent === "too-many") return done(message(env, "Slow down", "We've sent a lot of codes. Wait a few minutes and try again.", 429));
     if (sent === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502));
-    return done(codePage(env, email, null, undefined, "email"));
+    return done(await codePage(env, email, null, undefined, "email"));
   }
 
   if (path === "/account/email/code" && post) {
     if (await limited(env, request)) return done(message(env, "Slow down", SLOW_DOWN, 429));
     const email = field("email", 320).toLowerCase();
     const codeAccountId = await checkEmailCode(env, email, field("code", 20).replace(/\D/g, ""), "add_email");
-    if (codeAccountId !== account.id) return done(codePage(env, email, null, "That code didn't work. Check it, or go back and try again.", "email"));
+    if (codeAccountId !== account.id) return done(await codePage(env, email, null, "That code didn't work. Check it, or go back and try again.", "email"));
     const isSet = await setEmail(env, account.id, email);
     if (isSet === "taken") return done(await accountPage(env, session, false, EMAIL_TAKEN));
     if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on our side. Try again in a minute.", 502));
@@ -716,12 +742,6 @@ function joinBirthDate(request: Request, env: Env): string | undefined {
   }
 }
 
-/** The social mode picked while joining, when the band can choose it; otherwise the band's default. 13–15 never choose. */
-function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
-  if (!band) return "solo_focused";
-  return band !== "13-15" && isSocialMode(given) && socialModesFor(band).includes(given) ? given : defaultSocialMode(band);
-}
-
 // --- Pages ---
 
 const COLOR_THEME_LABELS: Record<ColorTheme, string> = { system: "System", light: "Light", dark: "Dark" };
@@ -754,12 +774,20 @@ const USERNAME_SCRIPT = pageScript("username-check", `(() => {
   const input = document.getElementById("username-box"), status = document.getElementById("username-status"), box = document.getElementById("username-suggestions");
   if (!input || !status || !box) return;
   let timer = null, asked = input.value.trim();
-  const show = (text, kind) => { status.textContent = text; status.className = "hint" + (kind ? " " + kind : ""); };
+  // In the city's look (a template of a cut button to copy, and the field's own hint and error lines), or the account page's.
+  const template = document.getElementById("username-suggestion");
+  const show = (text, kind) => {
+    status.textContent = text;
+    if (template) { status.className = kind === "bad" ? "field-error" : "field-hint"; if (kind === "bad") status.setAttribute("role", "alert"); else status.removeAttribute("role"); }
+    else status.className = "hint" + (kind ? " " + kind : "");
+  };
   const suggest = (names) => {
     box.replaceChildren();
-    if (names.length) box.append(Object.assign(document.createElement("span"), { textContent: "Free:" }));
+    if (names.length && !template) box.append(Object.assign(document.createElement("span"), { textContent: "Free:" }));
     for (const name of names) {
-      const button = Object.assign(document.createElement("button"), { type: "button", className: "btn ghost", textContent: name });
+      let button;
+      if (template) { button = template.content.firstElementChild.cloneNode(true); button.value = name; button.querySelector(".face > span:last-child").textContent = name; }
+      else button = Object.assign(document.createElement("button"), { type: "button", className: "btn ghost", textContent: name });
       button.dataset.username = name;
       box.append(button);
     }
@@ -779,40 +807,118 @@ const USERNAME_SCRIPT = pageScript("username-check", `(() => {
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 350); });
   box.addEventListener("click", (event) => {
-    const chosen = event.target.closest("button[data-username]");
+    const chosen = event.target.closest("button[data-username], button[value]");
     if (!chosen) return;
-    input.value = chosen.dataset.username;
+    input.value = chosen.dataset.username || chosen.value;
     input.focus();
     check();
   });
 })();`);
 
+/**
+ * The game that asked the player to sign in: a game opens the tab with next going back to /account/kept?game=<slug>
+ * (perhaps inside another next, as Forgot your password's is). Only a game any stranger can see is named; a made-up
+ * slug, or a private one, finds none and the pane is the plain one.
+ */
+async function askingGame(env: Env, next: string | null): Promise<Game | null> {
+  let path = next;
+  for (let depthIndex = 0; path && depthIndex < 3; depthIndex++) {
+    const url = new URL(path, "https://zaisma.com");
+    if (url.pathname === "/account/kept") {
+      const slug = url.searchParams.get("game");
+      const game = slug && /^[a-z0-9-]+$/.test(slug) ? await gameBySlug(env.DB, slug) : null;
+      return game && game.review_status !== "pending" && game.visibility !== "draft" && game.visibility !== "private" ? game : null;
+    }
+    path = url.searchParams.get("next");
+  }
+  return null;
+}
+
+interface SignInPageOptions {
+  /** The game that asked the player to sign in (askingGame). */
+  game?: Game | null;
+  httpStatus?: number;
+  hasTurnstileCheck?: boolean;
+  /** Who is looking, once they're signed in (You're in). */
+  account?: Account | null;
+}
+
+/**
+ * Signing in and making an account, and every step between: one glass pane over the city (docs/DECISIONS.md, "Signing in happens
+ * in the city, on every device"), with only the logo above it.
+ */
+function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptions = {}): Response {
+  const response = layout(env, {
+    title: `${title} · Zaisma`,
+    stage: cityStage(),
+    isBare: true,
+    isRebuilt: true,
+    isPrivate: true,
+    hasTurnstileCheck: options.hasTurnstileCheck,
+    viewer: options.account === undefined ? undefined : { account: options.account },
+    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isLogoOnly: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div></div>
+${scriptTags(CITY_SCRIPT, BACK_TO_GAME_SCRIPT, ...(options.hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}`,
+  });
+  return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });
+}
+
+/** A pane's heading, and when a game asked, the line that says so. */
+const paneHeading = (title: string, game: Game | null | undefined) => html`<h1>${title}</h1>${game ? html`<p>${game.title} asked you to sign in.</p>` : ""}`;
+
+/** Sign in or Make an account, at the top of both, with next kept. */
+const signInSwitch = (current: "signin" | "join", next: string | null) =>
+  tabSwitch({
+    label: "Sign in or make an account",
+    switchSize: "big",
+    tabs: [
+      { label: "Sign in", href: `/signin${nextQuery(next)}`, isCurrent: current === "signin" },
+      { label: "Make an account", href: `/join${nextQuery(next)}`, isCurrent: current === "join" },
+    ],
+  });
+
+/**
+ * The guest way, at the pane's foot: Continue as guest, home; or, when a game asked, back to it as a guest, closing this tab
+ * (BACK_TO_GAME_SCRIPT) so the game carries on in its own. After an "or" of its own unless the ways in above already had one.
+ */
+function guestWay(game: Game | null | undefined, hasOr = true): Raw {
+  const button = game ? html`<div data-back>${guestButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play` })}</div>` : guestButton("Continue as guest", { href: "/" });
+  return html`${hasOr ? html`<p class="or">or</p>` : ""}${button}`;
+}
+
+/** A problem with the whole form rather than one field (the invisible check, too many tries). */
+const paneProblem = (text?: string) => (text ? notice({ text, tone: "problem", isInPlace: true }) : "");
+
+/** The passkey's way in: shown by PASSKEY_SIGN_IN_SCRIPT where the browser has passkeys, with the ways in round it. */
+const passkeyWay = (next: string, isAutofill: boolean) =>
+  html`<div id="passkey-go" data-next="${next}"${isAutofill ? raw(" data-autofill") : ""} hidden>${glassButton("Sign in with a passkey", { icon: "passkey" })}</div>`;
+
+const providerButtons = (providers: Provider[], next: string | null) =>
+  html`${providers.map((provider) => glassButton(`Continue with ${PROVIDERS[provider]}`, { href: `/signin/with/${provider}${nextQuery(next)}`, icon: provider }))}`;
+
 async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200, login = ""): Promise<Response> {
   const providers = await providersOn(env);
-  return page(
+  const game = await askingGame(env, next);
+  return signInPage(
     env,
     "Sign in",
-    html`<h1>Sign in</h1>
-${errorParagraph(error)}
-<form class="stack" method="post" action="/signin" id="signin-form">
+    html`${signInSwitch("signin", next)}
+${paneHeading("Welcome back", game)}
+<form method="post" action="/signin" id="signin-form">
 ${nextField(next)}
-<label>Username<input name="username" value="${login}" autocomplete="username webauthn" autocapitalize="off" autocorrect="off" spellcheck="false" required${login ? "" : raw(" autofocus")}></label>
-<label>Password<input type="password" name="password" autocomplete="current-password" required${login ? raw(" autofocus") : ""}></label>
-${showPasswordToggle()}
+${cutField({ id: "signin-username", name: "username", label: "Username", type: "text", icon: "person", text: login, autocomplete: "username webauthn", isRequired: true })}
+${cutField({ id: "signin-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "current-password", isRequired: true, error })}
 ${botCheck(env, "sign_in")}
-<button class="btn" type="submit">Sign in</button>
+${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
+<p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
-<p class="muted"><a href="/signin/email${nextQuery(next)}">Forgot your password?</a></p>
-<div class="ways" id="ways"${providers.length ? "" : raw(" hidden")}>
-<p class="or"><span>or</span></p>
-<button class="btn ghost" type="button" id="passkey-go" data-next="${next ?? "/"}" data-autofill hidden>${raw(ICON_PASSKEY)}Sign in with a passkey</button>
-${providerLinks(providers, next)}
-<p class="error" role="alert" id="passkey-error" hidden></p>
+<div class="ways-in" id="ways"${providers.length ? "" : raw(" hidden")}>
+<p class="or">or</p>
+<div class="ways">${passkeyWay(next ?? "/", true)}${providerButtons(providers, next)}</div>
+<p class="field-error" role="alert" id="passkey-error" hidden></p>
 </div>
-<p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. Most games play without one.</p>
-${scriptTags(SHOW_PASSWORD_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    httpStatus,
-    Boolean(env.TURNSTILE_SITE_KEY),
+${guestWay(game, false)}
+${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
+    { game, httpStatus, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
   );
 }
 
@@ -820,53 +926,60 @@ ${scriptTags(SHOW_PASSWORD_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
  * Forgot your password: a code to the account's email, or a passkey. After it, a window on the account
  * page asks for a new password, then goes on to wherever they were headed.
  */
-function emailSigninPage(env: Env, next: string | null, error?: string, given = ""): Response {
+async function emailSigninPage(env: Env, next: string | null, error?: string, given = ""): Promise<Response> {
   const back = `/account?new-password${next ? `&next=${encodeURIComponent(next)}` : ""}`;
-  return page(
+  const game = await askingGame(env, next);
+  return signInPage(
     env,
     "Forgot your password?",
-    html`<h1>Forgot your password?</h1>
-<p class="lead">Get back in with the email or a passkey on your account, then set a new password.</p>
-${errorParagraph(error)}
-<form class="stack" method="post" action="/signin/email" id="code-form">
+    html`${paneHeading("Forgot your password?", game)}
+<p>Get back in with the email or a passkey on your account, then set a new password.</p>
+<form method="post" action="/signin/email" id="code-form">
 ${nextField(back)}
-<label>Email<input type="email" name="email" value="${given}" autocomplete="email" required autofocus></label>
+${cutField({ id: "signin-email", name: "email", label: "Email", type: "email", icon: "mail", text: given, autocomplete: "email", isRequired: true, error })}
 ${botCheck(env, "email_code")}
-<button class="btn" type="submit">Email me a code</button>
+${runButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
 </form>
-<div class="ways" id="ways" hidden>
-<p class="or"><span>or</span></p>
-<button class="btn ghost" type="button" id="passkey-go" data-next="${back}">${raw(ICON_PASSKEY)}Sign in with a passkey</button>
-<p class="error" role="alert" id="passkey-error" hidden></p>
+<div class="ways-in" id="ways" hidden>
+<p class="or">or</p>
+<div class="ways">${passkeyWay(back, false)}</div>
+<p class="field-error" role="alert" id="passkey-error" hidden></p>
 </div>
-<p class="muted">Added neither? Then the account can't be recovered, but you can always <a href="/join">make a new one</a>.</p>
+<p class="note">Added neither? Then the account can't be recovered, but you can always ${textLink("make a new one", `/join${nextQuery(next)}`)}.</p>
+${guestWay(game)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    error ? 400 : 200,
-    Boolean(env.TURNSTILE_SITE_KEY),
+    { game, httpStatus: error ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
   );
-}
-
-const ICON_PROVIDER: Record<Provider, string> = {
-  google:
-    '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>',
-  discord:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25.08.08 0 0 0-.08-.04 19.74 19.74 0 0 0-4.88 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 5.99 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.23-1.99a.08.08 0 0 0-.04-.1 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1-.01-.12l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.79 8.18 1.79 12.06 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1 0 .12c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.1c.36.7.77 1.36 1.22 1.99a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
-};
-
-function providerLinks(providers: Provider[], next: string | null): Raw {
-  return html`${providers.map((provider) => html`<a class="btn ghost" href="/signin/with/${provider}${nextQuery(next)}">${raw(ICON_PROVIDER[provider])}Continue with ${PROVIDERS[provider]}</a>`)}`;
 }
 
 /** What a code is for: signing in, confirming it's you on the account page, or adding an email. */
 type CodeKind = "signin" | "confirm" | "email";
 
-function codePage(env: Env, email: string, next: string | null, error?: string, kind: CodeKind = "signin"): Response {
+async function codePage(env: Env, email: string, next: string | null, error?: string, kind: CodeKind = "signin"): Promise<Response> {
   const lead = {
     signin: html`If <strong>${email}</strong> is on a Zaisma account, a code is on its way.`,
     confirm: html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.`,
     email: html`We sent a code to <strong>${email}</strong>. Enter it to add the email to your account.`,
   }[kind];
-  const back = { signin: html`<a href="/signin/email${nextQuery(next)}">try again</a>`, confirm: html`<a href="/account#signing-in">go back</a> and try again`, email: html`<a href="/account#signing-in">go back</a> and try again` }[kind];
+  // Signing in with a code is a step of signing in, so it's in the city; confirming and adding an email are the account page's.
+  if (kind === "signin") {
+    const game = await askingGame(env, next);
+    return signInPage(
+      env,
+      "Check your email",
+      html`${paneHeading("Check your email", game)}
+<p>${lead}</p>
+<form method="post" action="/signin/code">
+${nextField(next)}
+<input type="hidden" name="email" value="${email}">
+${cutField({ id: "signin-code", name: "code", label: "Code", type: "text", icon: "lock", autocomplete: "one-time-code", inputMode: "numeric", isRequired: true, error })}
+${runButton("Continue", { isFullWidth: true, isBig: true })}
+</form>
+<p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>
+${guestWay(game)}`,
+      { game, httpStatus: error ? 400 : 200 },
+    );
+  }
   return page(
     env,
     "Check your email",
@@ -880,35 +993,29 @@ ${kind === "confirm" ? html`<input type="hidden" name="kind" value="confirm">` :
 <label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,12}" maxlength="12" required autofocus></label>
 <button class="btn" type="submit">Continue</button>
 </form>
-<p class="muted">No email after a minute? Check spam, or ${back}.</p>`,
+<p class="muted">No email after a minute? Check spam, or ${html`<a href="/account#signing-in">go back</a> and try again`}.</p>`,
     error ? 400 : 200,
   );
 }
 
-function birthFields(): Raw {
-  const currentYearNumber = new Date().getUTCFullYear();
-  return html`<div class="row birth">
-<label>Month<select name="month" required><option value="">Month</option>${MONTHS.map((monthName, i) => html`<option value="${i + 1}">${monthName}</option>`)}</select></label>
-<label>Day<select name="day" required><option value="">Day</option>${Array.from({ length: 31 }, (_, i) => html`<option>${i + 1}</option>`)}</select></label>
-<label>Year<select name="year" required><option value="">Year</option>${Array.from({ length: 100 }, (_, i) => html`<option>${currentYearNumber - i}</option>`)}</select></label>
-</div>`;
-}
-
-function agePage(env: Env, next: string | null, error?: string, via?: Provider): Response {
-  return page(
+/** The first step of making an account: the birthday, on the wheels. Each starts blank, so nothing suggests an age. */
+async function agePage(env: Env, next: string | null, error?: string, via?: Provider): Promise<Response> {
+  const game = await askingGame(env, next);
+  return signInPage(
     env,
     "Make an account",
-    html`<h1>Make an account</h1>
-<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own username. Most games play without one."}</p>
-${errorParagraph(error)}
-<form class="stack" method="post" action="/join/age">
+    html`${signInSwitch("join", next)}
+${paneHeading("Make an account", game)}
+<p>${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own username."}</p>
+<form method="post" action="/join/age" id="age-form">
 ${nextField(next)}
 ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
-<fieldset><legend>When's your birthday?</legend>${birthFields()}</fieldset>
-<p class="muted">Your birthday is never shown to anyone.</p>
-<button class="btn" type="submit">Next</button>
+${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, state: error ? "marked" : undefined })}
+<p class="note">Your birthday is never shown to anyone.</p>
+${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>
-<p class="muted">Have an account? <a href="/signin${nextQuery(next)}">Sign in</a>.</p>`,
+${guestWay(game)}`,
+    { game, httpStatus: error ? 400 : 200 },
   );
 }
 
@@ -941,15 +1048,27 @@ const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
   open_and_social: "I like meeting new players.",
 };
 
-function joinSocialModeFields(band: AgeBand | null, current: SocialMode | undefined): Raw | string {
-  if (!band || band === "13-15") return "";
-  const chosen = current ?? defaultSocialMode(band);
-  return html`<fieldset class="choices"><legend>How do you play?</legend>
-${socialModesFor(band).map(
-    (socialMode) => html`<label class="check"><input type="radio" name="social_mode" value="${socialMode}"${socialMode === chosen ? raw(" checked") : ""}> <span>${SOCIAL_MODE_LABELS[socialMode]}<small class="hint">${JOIN_SOCIAL_MODE_LINES[socialMode]}</small></span></label>`,
-  )}
-</fieldset>
-<p class="hint">You can change this any time on your account page.</p>`;
+/**
+ * The last step of making an account, for 16 and over, whichever way they came in: How do you play? The account
+ * already exists (made at the step before, on the band's default), so this only sets the preset; leaving here keeps
+ * the default, which is the one shown picked.
+ */
+async function joinPlayPage(env: Env, next: string | null, account: Account, error?: string): Promise<Response> {
+  const game = await askingGame(env, next);
+  const current = socialModeOf(socialSettingsOf(account), account.age_band);
+  return signInPage(
+    env,
+    "How do you play?",
+    html`${paneHeading("How do you play?", game)}
+<form method="post" action="/join/play" class="is-play-step">
+${nextField(next)}
+${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode] })) })}
+${paneProblem(error)}
+<p class="note">You can change this any time in Settings.</p>
+${runButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
+</form>`,
+    { game, httpStatus: error ? 400 : 200, account },
+  );
 }
 
 /** Each social setting on the account page: what it's called, and what it covers. */
@@ -1007,11 +1126,12 @@ const SOCIAL_SETTINGS_SCRIPT = pageScript("social-settings", `(() => {
 
 const USERNAME_HINT = "Everyone sees it, and it's how friends find you. Don't use your real name.";
 
-/** What a join form shows again when it comes back: what they typed (never the password), and free usernames. */
+/** What a join form shows again when it comes back: what they typed (never the password), free usernames, and what was wrong with which. */
 interface JoinGiven {
   username?: string;
-  socialMode?: SocialMode;
   suggestions?: string[];
+  usernameError?: string;
+  passwordError?: string;
 }
 
 /**
@@ -1020,59 +1140,73 @@ interface JoinGiven {
  */
 const botCheck = (env: Env, action: TurnstileAction) => (env.TURNSTILE_SITE_KEY ? html`<input type="hidden" name="turnstile_token"><div data-bot-check="${action}" data-site-key="${env.TURNSTILE_SITE_KEY}"></div>` : "");
 
-/** The second step: a username and a password, or Google or Discord instead. */
-async function joinAccountPage(env: Env, next: string | null, band: AgeBand, error?: string, given: JoinGiven = {}): Promise<Response> {
+/**
+ * The username, in the city's look: what it says as it's typed (free, taken, why not) under it, and free ones close
+ * to it to tap (USERNAME_SCRIPT, which copies the template's button for each). The server says the same when the form
+ * comes back, so it works without the script.
+ */
+function usernameCutField(given: JoinGiven): Raw {
+  const suggestions = given.suggestions ?? [];
+  const suggestion = (username: string) => cutButton(username, { type: "button", isSmall: true, buttonValue: username });
+  return html`<div class="cut-field">${cutField({ id: "username-box", name: "username", label: "Username", type: "text", icon: "person", text: given.username ?? "", autocomplete: "username", isRequired: true })}
+<p class="${given.usernameError ? "field-error" : "field-hint"}" id="username-status" data-resting="${USERNAME_HINT}"${given.usernameError ? raw(' role="alert"') : ""}>${given.usernameError ?? USERNAME_HINT}</p>
+<div class="control-row suggestions" id="username-suggestions"${suggestions.length ? "" : raw(" hidden")}>${suggestions.map(suggestion)}</div>
+<template id="username-suggestion">${suggestion("")}</template></div>`;
+}
+
+const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
+
+/** Step A: a username and a password, or Google or Discord instead. The account is made here. */
+async function joinAccountPage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
   const providers = await providersOn(env);
-  return page(
+  const game = await askingGame(env, next);
+  return signInPage(
     env,
-    "Make an account",
-    html`<h1>Make an account</h1>
-${errorParagraph(error)}
-${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p class="or"><span>or pick a username and password</span></p></div>` : ""}
-<form class="stack" method="post" action="/join/account" id="join-form">
+    "Pick a username",
+    html`${paneHeading("Pick a username", game)}
+${providers.length ? html`<div class="ways">${providerButtons(providers, next)}</div><p class="or">or a username and password</p>` : ""}
+<form method="post" action="/join/account" id="join-form">
 ${nextField(next)}
-${usernameField(given.username ?? "", USERNAME_HINT, given.suggestions ?? [])}
-<label>Password<input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required><span class="hint">${PASSWORD_HINT}</span></label>
-${showPasswordToggle()}
-${joinSocialModeFields(band, given.socialMode)}
+${usernameCutField(given)}
+${cutField({ id: "join-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "new-password", isRequired: true, hint: PASSWORD_HINT, error: given.passwordError })}
 ${botCheck(env, "join")}
-<button class="btn" type="submit">Make my account</button>
+${paneProblem(error)}
+${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>
-<p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>
-${scriptTags(USERNAME_SCRIPT, SHOW_PASSWORD_SCRIPT)}`,
-    error ? 400 : 200,
-    Boolean(env.TURNSTILE_SITE_KEY),
+${TERMS_LINE}
+${guestWay(game)}
+${scriptTags(USERNAME_SCRIPT)}`,
+    { game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
   );
 }
 
-/** After Google or Discord: just a username, since they sign in with those. */
-function joinUsernamePage(env: Env, next: string | null, band: AgeBand, error?: string, given: JoinGiven = {}): Response {
-  return page(
+/** Step A after Google or Discord: just a username, since they sign in with those. The account is made here. */
+async function joinUsernamePage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
+  const game = await askingGame(env, next);
+  return signInPage(
     env,
     "Pick a username",
-    html`<h1>Pick a username</h1>
-${errorParagraph(error)}
-<form class="stack" method="post" action="/join/username" id="join-form">
+    html`${paneHeading("Pick a username", game)}
+<form method="post" action="/join/username" id="join-form">
 ${nextField(next)}
-${usernameField(given.username ?? "", USERNAME_HINT, given.suggestions ?? [])}
-${joinSocialModeFields(band, given.socialMode)}
+${usernameCutField(given)}
 ${botCheck(env, "join")}
-<button class="btn" type="submit">Finish</button>
+${paneProblem(error)}
+${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>
-<p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>
+${TERMS_LINE}
 ${scriptTags(USERNAME_SCRIPT)}`,
-    error ? 400 : 200,
-    Boolean(env.TURNSTILE_SITE_KEY),
+    { game, httpStatus: error || given.usernameError ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
   );
 }
 
 function tooYoungPage(env: Env): Response {
-  return page(
+  return signInPage(
     env,
     "You can't make an account",
     html`<h1>You can't make an account</h1>
-<p class="lead">You can still play as a guest in any game that doesn't need one.</p>
-<a class="btn" href="/">Find a game</a>`,
+<p>You can still play as a guest in any game that doesn't need one.</p>
+${guestButton("Find a game", { href: "/" })}`,
   );
 }
 
@@ -1082,32 +1216,37 @@ const JOINED_SCRIPT = pageScript("joined", `(()=>{try{new BroadcastChannel("zais
 let p=[];try{p=JSON.parse(localStorage.getItem("zaisma:played")||"[]")}catch{}
 if(p.length)fetch("/api/me/played",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({played:p.slice(0,20).map(g=>({slug:g.slug,played_at_ms:g.played_at_ms??g.at}))})}).catch(()=>{})})();`);
 
-// This tab was opened by the game: go back to it, so it keeps running where the player left off.
-const KEPT_SCRIPT = pageScript("kept", `document.querySelector("[data-back]").addEventListener("click", (e) => {
-  if (!window.opener || window.opener.closed) return;
-  e.preventDefault();
-  const href = e.currentTarget.href;
-  try { window.opener.focus(); } catch {}
-  window.close();
-  // Some browsers won't close it: then just go to the game here.
-  setTimeout(() => (location.href = href), 300);
+// This tab was opened by a game: going back to it closes this tab, so the game keeps running where the player left off.
+// [data-back] is the link itself or holds it.
+const BACK_TO_GAME_SCRIPT = pageScript("back-to-game", `document.querySelectorAll("[data-back]").forEach((holder) => {
+  const link = holder.matches("a") ? holder : holder.querySelector("a");
+  if (!link) return;
+  link.addEventListener("click", (e) => {
+    if (!window.opener || window.opener.closed) return;
+    e.preventDefault();
+    try { window.opener.focus(); } catch {}
+    window.close();
+    // Some browsers won't close it: then just go to the game here.
+    setTimeout(() => (location.href = link.href), 300);
+  });
 });`);
 
 /** Where "Keep your progress" lands once the guest has an account (or signed in), in the tab it opened. */
-async function keptPage(env: Env, name: string, slug: string | null): Promise<Response> {
+async function keptPage(env: Env, account: Account, slug: string | null): Promise<Response> {
   const game = slug && /^[a-z0-9-]+$/.test(slug) ? await gameBySlug(env.DB, slug) : null;
   const back = game ? `/g/${game.slug}?play` : "/";
-  return page(
+  return signInPage(
     env,
     "You're in",
-    html`<h1>You're in, ${name}</h1>
-<p class="lead">${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
-${metalButton(game ? `Back to ${game.title}` : "Find a game", { href: back, dataAttributes: { back: "" } })}
-${scriptTags(JOINED_SCRIPT, KEPT_SCRIPT)}`,
+    html`<h1>You're in, ${account.username}</h1>
+<p>${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
+<div data-back>${runButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>
+${scriptTags(JOINED_SCRIPT)}`,
+    { account },
   );
 }
 
-const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
+export const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
   read: ["Read", "See games, versions, stats, the database, saves and the forum. Changes nothing."],
   upload: ["Upload", "Upload new versions as drafts, without publishing them or posting. For CI."],
   publish: ["Publish", "Upload and publish versions, change game details and tester links, and post on the forum. Can't run SQL, change saves, or change sign-in apps and webhooks."],
@@ -1116,7 +1255,7 @@ const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
 };
 
 /** Each area on the custom step: its name, and what it covers. */
-const AREA_LABELS: Record<AccessArea, [string, string]> = {
+export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   game_access: ["Games", "Details, images, visibility, tester links and secrets. Write also makes new games."],
   version_access: ["Versions", "Uploading, publishing, scheduling and rolling back."],
   stats_access: ["Stats", "Stats, player reports and history."],
@@ -1130,7 +1269,7 @@ const AREA_LABELS: Record<AccessArea, [string, string]> = {
 const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
 
 /** The common words for each choice, as GitHub's tokens say them. */
-const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };
+export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };
 
 /** What a key can do and on which games, in a few words, for the list of keys. */
 /**

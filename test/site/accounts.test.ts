@@ -324,18 +324,17 @@ describe("age and usernames", () => {
 describe("making an account", () => {
   it("asks the age first, then a username and password, and signs straight in", async () => {
     const b = new Browser();
-    expect(await (await b.go("/join")).text()).toContain("When's your birthday?");
+    expect(await (await b.go("/join")).text()).toContain("When&#39;s your birthday?");
     const agePage = await (await b.go("/join/age", BIRTH_ADULT)).text();
     expect(agePage).toContain("Username");
     expect(agePage).toContain('autocomplete="new-password"');
     expect(agePage).not.toContain('type="email"');
-    // 16 and over pick a social mode on the way in, friends-focused unless they choose another.
-    expect(agePage).toContain("How do you play?");
-    expect(agePage).toContain("I want to play and chat with my friends.");
+    // How they play is its own step, after the account is made.
+    expect(agePage).not.toContain("How do you play?");
 
     const done = await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD });
     expect(done.status).toBe(303);
-    expect(done.headers.get("location")).toBe("/account?welcome");
+    expect(done.headers.get("location")).toBe("/join/play");
     expect(b.jar.get("__Host-zaisma")).toMatch(/~r-/);
     expect(b.jar.get("__Host-zaisma_in")).toBe("1");
     expect(b.jar.has("__Host-zaisma_join")).toBe(false);
@@ -375,7 +374,7 @@ describe("making an account", () => {
     expect(again.status).toBe(400);
     const page = await again.text();
     expect(page).toContain("NIGHT_OWL is taken. Try another, or one of these.");
-    expect(page).toMatch(/data-username="NIGHT_OWL_?\d+"/);
+    expect(page).toMatch(/value="NIGHT_OWL_?\d+"/);
     expect(page).toContain('value="NIGHT_OWL"');
     expect(page).not.toContain(PASSWORD);
     expect(users.size).toBe(1);
@@ -389,7 +388,7 @@ describe("making an account", () => {
     expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "night_owl" })).text()).toContain("isn&#39;t your username");
     expect(users.size).toBe(0);
     // No rules about capitals, digits or symbols.
-    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "just some lowercase words" })).headers.get("location")).toBe("/account?welcome");
+    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "just some lowercase words" })).headers.get("location")).toBe("/join/play");
   });
 
   it("checks for a real browser", async () => {
@@ -407,21 +406,52 @@ describe("making an account", () => {
     }
     expect(users.size).toBe(0);
     expect(turnstileChecks).toEqual(["bad"]);
-    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/account?welcome");
+    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/join/play");
   });
 
-  it("lets 16 and over choose a social mode while joining, and starts 13 to 15 with no chat", async () => {
+  it("lets 16 and over choose how they play after the account is made, and starts 13 to 15 with no chat", async () => {
     const older = new Browser();
     await older.go("/join/age", { year: String(thisYear - 17), month: "1", day: "1" });
-    await older.go("/join/account", { turnstile_token: "test-token", username: "Open_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    // A social mode sent with the account step is ignored: the account starts on the band's default, which step B shows picked.
+    const made = await older.go("/join/account", { turnstile_token: "test-token", username: "Open_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    expect(made.headers.get("location")).toBe("/join/play");
+    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED });
+    const playPage = await (await older.go("/join/play")).text();
+    expect(playPage).toContain("How do you play?");
+    expect(playPage).toContain("I want to play and chat with my friends.");
+    expect(playPage).toMatch(/value="friends_focused" checked/);
+    expect(playPage).toContain("Make my account");
     // Open and social at 16–17: chat and friend requests from anyone, the rest with friends.
+    const chosen = await older.go("/join/play", { social_mode: "open_and_social" });
+    expect(chosen.headers.get("location")).toBe("/account?welcome");
     expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone", who_sees_profile: "anyone" });
+    // Anything else is refused, and the page says so.
+    const refused = await older.go("/join/play", { social_mode: "everyone" });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("Choose one of these.");
 
     const younger = new Browser();
     expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("How do you play?");
-    // A hand-made form can't give 13–15 open and social.
-    await younger.go("/join/account", { turnstile_token: "test-token", username: "Small_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    // 13–15 skip step B, and a hand-made form can't give them open and social there either.
+    const youngerMade = await younger.go("/join/account", { turnstile_token: "test-token", username: "Small_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    expect(youngerMade.headers.get("location")).toBe("/account?welcome");
+    expect((await younger.go("/join/play")).headers.get("location")).toBe("/account?welcome");
+    expect((await younger.go("/join/play", { social_mode: "open_and_social" })).headers.get("location")).toBe("/account?welcome");
     expect(await accountById(env.DB, await idOf("Small_Kite"))).toMatchObject({ age_band: "13-15", ...SOLO_FOCUSED });
+
+    // Without an account there's nothing to set: back to the start.
+    expect((await new Browser().go("/join/play")).headers.get("location")).toBe("/join");
+  });
+
+  it("takes the birthday from the wheels as one date", async () => {
+    const b = new Browser();
+    const answered = await b.go("/join/age", { birthday: `${thisYear - 30}-05-20` });
+    expect(await answered.text()).toContain("Pick a username");
+    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Wheel_Owl", password: PASSWORD })).headers.get("location")).toBe("/join/play");
+    expect(await accountById(env.DB, await idOf("Wheel_Owl"))).toMatchObject({ age_band: "18+" });
+    const wrong = await new Browser().go("/join/age", { birthday: "2010-02-30" });
+    expect(wrong.status).toBe(400);
+    expect(await wrong.text()).toContain('class="bday-field cut-carved is-marked"');
   });
 
   it("keeps the birth date only while under 18, and never an adult's", async () => {
@@ -808,7 +838,8 @@ describe("Google and Discord", () => {
     const usernamePage = await (await b.go("/join/username")).text();
     expect(usernamePage).toContain("Pick a username");
     expect(usernamePage).not.toContain('type="password"');
-    expect((await b.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" })).headers.get("location")).toBe("/account?welcome");
+    // Made with the band's default; 16 and over go on to how they play.
+    expect((await b.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" })).headers.get("location")).toBe("/join/play");
     expect(await accountById(env.DB, users.get("new@example.com")!)).toMatchObject({ username: "Lucky_Star", age_band: "18+", password_changed_at_ms: null });
   });
 
@@ -2101,17 +2132,56 @@ describe("cloud saves", () => {
       await b.go("/join/age", BIRTH_ADULT);
       return b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD, next: "/account/kept?game=owl-game" });
     })();
-    expect(joined.headers.get("location")).toBe("/account/kept?game=owl-game");
+    expect(joined.headers.get("location")).toBe("/join/play?next=%2Faccount%2Fkept%3Fgame%3Dowl-game");
+    expect((await b.go("/join/play", { social_mode: "friends_focused", next: "/account/kept?game=owl-game" })).headers.get("location")).toBe("/account/kept?game=owl-game");
     const page = await (await b.go("/account/kept?game=owl-game")).text();
     expect(page).toContain("You're in, Night_Owl");
-    expect(page).toContain('href="/g/owl-game?play" data-back=""');
-    expect(pageScriptNames(page)).toEqual(expect.arrayContaining(["joined", "kept"]));
+    expect(page).toMatch(/<div data-back><a class="shell run-wrap[^"]*" href="\/g\/owl-game\?play">/);
+    expect(pageScriptNames(page)).toEqual(expect.arrayContaining(["joined", "back-to-game"]));
     expect(await pageScriptText(page, (path) => SELF.fetch(`${SITE}${path}`))).toContain('BroadcastChannel("zaisma").postMessage("signed-in")');
     expect(await (await b.go("/account/kept?game=nope")).text()).toContain("Find a game");
     // A game that keeps its own saves: no word about progress saving to the account.
     await liveGame("own-saves", 0);
     const own = await (await b.go("/account/kept?game=own-saves")).text();
     expect(own).toContain("Go back to Owl Game to keep playing.</p>");
+  });
+
+  it("signs in over the city, naming the game that asked, with the guest way back to it", async () => {
+    await liveGame();
+    await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'owl-game'").run();
+    const plain = await (await new Browser().go("/signin")).text();
+    // One pane of glass over the city: its canvas, the still under it, the logo alone above, and the switch to making an account.
+    expect(plain).toContain('<div class="city-pane" data-city-pane>');
+    expect(plain).toContain('<canvas class="city"></canvas>');
+    expect(plain).toMatch(/<picture class="city-still is-day"><source media="\(max-width: 760px\) and \(orientation: portrait\)" srcset="\/sign-in\/city-day-phone\.webp">/);
+    expect(plain).toContain('<header class="top is-logo-only"');
+    expect(plain).toContain('<a href="/signin" aria-current="page">Sign in</a>');
+    expect(plain).toContain('<a href="/join">Make an account</a>');
+    expect(plain).toContain("Continue as guest");
+    expect(plain).not.toContain("asked you to sign in");
+    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in"]));
+    const stills = ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"];
+    for (const still of stills) expect(plain).toContain(`/sign-in/${still}`);
+
+    // A game's tab: the pane says the game asked, and the guest way goes back to it, on every pane of the way in.
+    const next = encodeURIComponent("/account/kept?game=owl-game");
+    for (const path of [`/signin?next=${next}`, `/join?next=${next}`, `/signin/email?next=${next}`]) {
+      const asked = await (await new Browser().go(path)).text();
+      expect(asked, path).toContain("<p>Owl Game asked you to sign in.</p>");
+      expect(asked, path).toContain('<div data-back><a class="shell guest-btn" href="/g/owl-game?play">');
+      expect(asked, path).toContain("Back to Owl Game as a guest");
+      expect(asked, path).not.toContain("Continue as guest");
+    }
+    // The switch keeps where they were going.
+    expect(await (await new Browser().go(`/signin?next=${next}`)).text()).toContain(`<a href="/join?next=${next}">Make an account</a>`);
+    // A made-up game, or one strangers can't see, isn't named.
+    for (const unknown of ["/account/kept?game=no-such-game", "/account/kept?game=Owl"]) {
+      const page = await (await new Browser().go(`/signin?next=${encodeURIComponent(unknown)}`)).text();
+      expect(page).toContain("Continue as guest");
+      expect(page).not.toContain("asked you to sign in");
+    }
+    await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE slug = 'owl-game'").run();
+    expect(await (await new Browser().go(`/signin?next=${next}`)).text()).not.toContain("Owl Game");
   });
 
   it("lets a game ask a guest to sign in beside it, in a new tab, and tells the game who they are", async () => {
@@ -3381,7 +3451,7 @@ describe("pages behind a sign-in run only the site's script files", () => {
     expect(await scriptsOf("/forum")).toEqual(expect.arrayContaining(["forum", "forum-posts"]));
     expect(await scriptsOf("/forum/new")).toEqual(expect.arrayContaining(["forum", "forum-posts"]));
     expect(await scriptsOf("/g/strict-own")).toEqual(expect.arrayContaining(["game-page", "saves", "sign-in-while-playing", "game-links", "game-autoplay"]));
-    expect(await scriptsOf("/account/kept?game=strict-own")).toEqual(expect.arrayContaining(["joined", "kept"]));
+    expect(await scriptsOf("/account/kept?game=strict-own")).toEqual(expect.arrayContaining(["joined", "back-to-game"]));
     await env.DB.prepare("DELETE FROM games WHERE id = 'g-strict-own'").run();
   });
 });

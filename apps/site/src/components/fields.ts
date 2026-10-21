@@ -23,6 +23,10 @@ export interface CutFieldOptions {
   isRequired?: boolean;
   /** What's wrong, under the field: the marked state, as when Next won't go on. */
   error?: string;
+  /** What to know about it, under the field, quieter (its id is <id>-hint, for a page script to update). An error takes its place. */
+  hint?: string;
+  /** "numeric": a phone shows its number pad (a code). */
+  inputMode?: "numeric";
   /** A password that starts shown (Show pressed). */
   isPasswordShown?: boolean;
   /** The gallery's fixed focus, so it sits still. */
@@ -34,11 +38,12 @@ export function cutField(options: CutFieldOptions): Raw {
   const id = options.id ?? `field-${options.name}`;
   const isPassword = options.type === "password";
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id }) : ""}</span>
-${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : ""}</div>`;
+<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id }) : ""}</span>
+${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint" id="${hintId}">${options.hint}</p>` : ""}</div>`;
 }
 
 export interface SearchFieldOptions {
@@ -397,6 +402,7 @@ const FIELD_STYLES = `
 .field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; font: var(--type-words); color: var(--marked); }
+.field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
 .field.with-toggle input { padding-right: 90px; }
 /* Show/Hide: a small cut button, a toggle, at the field's end. */
 .field > .cut-btn { position: absolute; z-index: 5; right: 8px; top: 8px; }
@@ -415,6 +421,7 @@ component({
     { label: "Focused", markup: examplePane(cutField({ id: "example-email-focused", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com", state: "is-focused" })), isStill: true },
     { label: "Password hidden", markup: examplePane(cutField({ id: "example-password-hidden", name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse" })) },
     { label: "Password shown", markup: examplePane(cutField({ id: "example-password-shown", name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", isPasswordShown: true })) },
+    { label: "With a hint", markup: examplePane(cutField({ id: "example-password-hint", name: "password", label: "Password", type: "password", icon: "lock", hint: "At least 8 characters. A few words you'll remember work well." })) },
     { label: "Error", markup: examplePane(cutField({ id: "example-username-error", name: "username", label: "Username", type: "text", icon: "person", text: "emma r", error: "Use letters, numbers and _ only, with no spaces." })) },
   ],
 });

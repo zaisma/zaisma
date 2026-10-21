@@ -317,7 +317,12 @@ describe("the connect page", () => {
     expect(text).toContain("as Pixel_Smith");
     expect(text).toContain("Full, all my games, never ends");
     expect(text).toContain("It can't make API keys. After this you go back to <strong>claude.test</strong>.");
-    expect(text).toContain('id="connect-go"');
+    expect(text).toContain('name="connect_step" value="connect"');
+    // Plain glass in Zaisma's look: a pane, the runner, and a key's choices as the gallery's choice cards, Full picked.
+    expect(text).toContain('<section class="glass glass-pane medium"');
+    expect(text).not.toContain('class="steel"');
+    expect(text).toMatch(/<input class="choice-input" type="radio" name="access_level" id="connect-level-full" value="full" checked>/);
+    expect(text).toContain('<input type="hidden" name="ends_after_days" value="">');
     expect(pageScriptNames(text)).toEqual(expect.arrayContaining(["passkeys", "access-choices", "connect-app"]));
     expect(page.headers.get("content-security-policy")).toContain("https://claude.test");
   });
@@ -336,7 +341,7 @@ describe("the connect page", () => {
     await new Device().addTo("dev-2", Date.now() + 86400_000);
     const waiting = await (await (await signedIn("dev-2")).go(authorizeLink(answer.client_id))).text();
     expect(waiting).toContain("Your new passkey can connect apps from");
-    expect(waiting).not.toContain('id="connect-go"');
+    expect(waiting).not.toContain('name="connect_step"');
   });
 });
 
