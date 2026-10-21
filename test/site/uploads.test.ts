@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { REVIEW_CODES, addImage, KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
+import { REVIEW_CODES, addImage, KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, brotliKeyOf, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { adminForm } from "../../apps/site/src/admin.ts";
@@ -52,7 +52,7 @@ async function push(files: Record<string, string>, extra: Record<string, unknown
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM blobs; DELETE FROM blob_owners; DELETE FROM owned_blobs; DELETE FROM game_access_passes; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM compressed_blobs; DELETE FROM blobs; DELETE FROM blob_owners; DELETE FROM owned_blobs; DELETE FROM game_access_passes; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   const all = await env.GAMES.list();
   if (all.objects.length) await env.GAMES.delete(all.objects.map((o) => o.key));
@@ -279,6 +279,10 @@ describe("daily cleanup", () => {
     await scan(held.version.id, hold);
     const lonely = enc("never used");
     await api(`/files/${await sha256Hex(lonely)}`, { method: "PUT", raw: lonely });
+    // A file's Brotli copy goes with it.
+    const lonelyKey = blobKey(await sha256Hex(lonely));
+    await env.GAMES.put(brotliKeyOf(lonelyKey), "copy");
+    await env.DB.prepare("INSERT INTO compressed_blobs (storage_key, brotli_size_bytes, compressed_at_ms) VALUES (?, 4, 0)").bind(lonelyKey).run();
 
     // A month and a day later.
     const later = Date.now() + 31 * 86400_000;
@@ -289,6 +293,8 @@ describe("daily cleanup", () => {
     expect(await versionById(env.DB, held.version.id)).not.toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc("let draft = 1;"))))).toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc("never used"))))).toBeNull();
+    expect(await env.GAMES.head(brotliKeyOf(lonelyKey))).toBeNull();
+    expect(await env.DB.prepare("SELECT 1 FROM compressed_blobs WHERE storage_key = ?").bind(lonelyKey).first()).toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc(GAME["index.html"]))))).not.toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc("let held = 1;"))))).not.toBeNull();
   });

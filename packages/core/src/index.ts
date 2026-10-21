@@ -23,6 +23,7 @@ export * from "./passkeys.ts";
 export * from "./security-log.ts";
 export * from "./developers.ts";
 export * from "./uploads.ts";
+export * from "./compression.ts";
 export * from "./rooms.ts";
 export * from "./game-database.ts";
 export * from "./text-filter.ts";

@@ -96,7 +96,7 @@ export function checkUploadList(input: unknown): UploadFile[] {
     if (path.split("/").some((part) => part.startsWith("."))) throw new UploadError(`${path} is hidden: a name in it starts with a dot.`, { code: "hidden_file", field, fix: "Leave hidden files and folders out of the upload." });
     const extension = extensionOf(path);
     if (extension === "gz" || extension === "br") {
-      throw new UploadError(`${path} is pre-compressed.`, { code: "precompressed_file", field, fix: "Turn off compression in your engine's build settings and upload again; Zaisma compresses files for you." });
+      throw new UploadError(`${path} is pre-compressed.`, { code: "precompressed_file", field, fix: "Turn off compression in your engine's build settings and upload again; Zaisma compresses files for players itself, even Unity and Godot data files." });
     }
     if (!(extension in CONTENT_TYPES)) {
       throw new UploadError(`${path}: .${extension || "(no extension)"} files aren't allowed in games.`, { code: "file_type_not_allowed", field, fix: `Leave it out. Games can have: ${Object.keys(CONTENT_TYPES).join(", ")}.` });
