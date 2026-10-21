@@ -1,5 +1,9 @@
 import {
   IMAGE_LIMITS,
+  IMAGE_KINDS,
+  isBackgroundShape,
+  dropChosenBackground,
+  shadersForGame,
   isSquare,
   MAXIMUM_GAME_COUNT_PER_OWNER,
   accountById,
@@ -71,6 +75,8 @@ import {
   versionById,
   type ScanReport,
   type UploadFile,
+  type PerformanceCheckRow,
+  type PerformanceReport,
   type Version,
   REPORT_REASONS,
   MAXIMUM_TESTER_LINK_COUNT,
@@ -151,6 +157,7 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shaderJson } from "./backgrounds-api.ts";
 import { exportDownload, exportSummary } from "./game-export.ts";
 import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
@@ -172,10 +179,13 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/api-keys                   your API keys: what they can do, when they end, their last use and whether they were turned off (a full key)
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
- *   GET    /api/dev/games/:slug                one game, with its images, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links
- *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
+ *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
+ *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot or background picture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
+ *   POST   /api/dev/games/:slug/shaders?screen=   send a background shader (the GLSL text as the body; see backgrounds-api.ts)
+ *   DELETE /api/dev/games/:slug/shaders/:id    remove one
+ *   PUT    /api/dev/games/:slug/backgrounds/:screen   choose what wide or phone shows: { "source", "image_id", "shader_id" }
  *   POST   /api/dev/check                      check a game's files before uploading: what Zaisma would refuse and what won't work (see check-api.ts)
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
  *   PUT    /api/dev/files/:sha256              send one file
@@ -229,7 +239,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  * Until the beta, the calls that make a game, send its files, make a version or publish one answer
  * publishing_not_open for accounts Zaisma hasn't added (isPublishing, set on /admin/publishing).
  *
- * Images are served from /img/:id once approved; owners can see their own before that.
+ * Images are served from /img/:id once approved, and shaders' sources, stills and frames from /shaders/:id/…; owners can see their own before that.
  */
 
 export interface Caller {
@@ -287,6 +297,7 @@ export const INTERNAL_ERROR = () =>
 
 export async function handleDeveloper(request: Request, env: Env, path: string, ctx?: ExecutionContext): Promise<Response | null> {
   if (path.startsWith("/img/")) return serveImage(request, env, path.slice(5));
+  if (path.startsWith("/shaders/")) return serveShaderFile(request, env, path.slice(9), (gameOwnerId) => isOwnerSignedIn(request, env, gameOwnerId));
   if (path !== "/api/dev" && !path.startsWith("/api/dev/")) return null;
   try {
     const caller = await authenticate(request, env);
@@ -494,7 +505,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -525,6 +536,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("visibility", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("screen"), body: "bytes" }),
+  call({ method: "DELETE", path: "/games/:slug/shaders/:shader_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", shader_id: "in_game" } }),
+  call({ method: "PUT", path: "/games/:slug/backgrounds/:screen", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", screen: "plain" }, body: { inputs: plainInputs("source", "image_id", "shader_id") } }),
   // Which of these files still need sending: it only answers hashes, so the list is plain.
   call({ method: "POST", path: "/check", reaches: "nothing_private", access: anyKey, body: { inputs: { files: plain, slug: naming("game") }, maximumSizeBytes: MAXIMUM_CHECK_BODY_SIZE_BYTES } }),
   call({ method: "POST", path: "/games/:slug/uploads", reaches: "game", access: needs("version_access", "upload"), isPublishing: true, pathParts: atGame, body: { inputs: plainInputs("files"), maximumSizeBytes: 4 * 1024 * 1024 } }),
@@ -886,6 +900,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/shaders") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
     const answered = await savesRoute(request, env, game!, pathValues.player_id, apiRoute.path.includes("/copies"), pathValues.save_copy_id, apiRoute.path.endsWith("/restore"), checked);
@@ -897,21 +912,26 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const isImages = apiRoute.path.startsWith("/games/:slug/images");
 
   if (!isImages && method === "GET") {
-    const [images, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
+    const [images, shaders, backgrounds, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
       imagesForGame(env.DB, game.id),
+      shadersForGame(env.DB, game.id),
+      backgroundsAnswer(env, game),
       versionsForGame(env.DB, game.id),
       testerLinks(env.DB, game.id),
       gameAlerts(env, [game]),
       playingNowCounts(env),
       game.multiplayer_mode !== "none" ? listRooms(env.DB, game.id) : null,
     ]);
+    const performanceChecks = await performanceChecksFor(env, versions.map((version) => version.id));
     return answer({
       game: gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
       // The exact number, whatever the public minimum: it's the developer's own game. As on the game page, the larger of browsers and rooms.
       playing_now_player_count: Math.max(playingNow.get(game.id) ?? 0, rooms?.playing.playerCount ?? 0),
       images: images.map((image) => imageJson(env, image)),
-      versions: versions.map((version) => versionJson(env, game, version)),
+      backgrounds,
+      shaders: shaders.map((shader) => shaderJson(env, shader)),
+      versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null)),
       testers: testers.map((link) => testerJson(env, link)),
     });
   }
@@ -988,8 +1008,12 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (isImages && method === "POST") {
     const kind = checked.query.get("kind") as ImageKind;
-    if (kind !== "cover" && kind !== "square" && kind !== "screenshot" && kind !== "share") {
-      throw new ApiError("bad_kind", { message: `kind ${JSON.stringify(kind)} isn't cover, square, screenshot or share.`, field: "kind", fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones), screenshot, or share (the picture shared links show instead of the cover, 1200 by 630 shows best) (?kind= in the API)." });
+    if (!IMAGE_KINDS.includes(kind)) {
+      throw new ApiError("bad_kind", {
+        message: `kind ${JSON.stringify(kind)} isn't cover, square, screenshot, share, background or phone_background.`,
+        field: "kind",
+        fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones), screenshot, share (the picture shared links show instead of the cover, 1200 by 630 shows best), background (the game's world behind the page on wide screens, no title on it) or phone_background (the same, composed for a tall phone screen) (?kind= in the API).",
+      });
     }
     const tooBig = () => new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
     const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
@@ -1008,6 +1032,16 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     }
     if (kind === "square" && (!isSquare(widthPx, heightPx) || widthPx < IMAGE_LIMITS.minimumSquareSidePx)) {
       throw new ApiError("not_square", { message: `The square cover is ${widthPx} by ${heightPx} px.`, field: "image_base64", fix: `Make it as wide as it is tall, at least ${IMAGE_LIMITS.minimumSquareSidePx} px, like 1024 by 1024; or send it as kind cover.` });
+    }
+    if ((kind === "background" || kind === "phone_background") && !isBackgroundShape(kind, widthPx, heightPx)) {
+      throw new ApiError("bad_background_shape", {
+        message: `The ${kind === "background" ? "wide" : "phone"} background is ${widthPx} by ${heightPx} px.`,
+        field: "image_base64",
+        fix:
+          kind === "background"
+            ? `Make it landscape, ${IMAGE_LIMITS.minimumWideBackgroundRatio} to ${IMAGE_LIMITS.maximumWideBackgroundRatio} times as wide as tall, at least ${IMAGE_LIMITS.minimumBackgroundLongSidePx} px wide, like 2560 by 1440; a portrait one is kind phone_background.`
+            : `Make it portrait, ${IMAGE_LIMITS.minimumPhoneBackgroundRatio} to ${IMAGE_LIMITS.maximumPhoneBackgroundRatio} times as tall as wide, at least ${IMAGE_LIMITS.minimumBackgroundLongSidePx} px tall, like 1440 by 3120; a landscape one is kind background.`,
+      });
     }
     // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
     // If matching fails, the picture waits for a person as usual.
@@ -1055,6 +1089,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const image = await imageById(env.DB, imageId);
     if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${imageId}.`, field: "image_id", fix: imageFix });
     await env.GAMES.delete([imageKey(image), cardImageKey(image)]);
+    await dropChosenBackground(env.DB, game.id, { imageId: image.id });
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
     await logCallerEvent(env, caller, "image_removed", { gameId: game.id, subjectName: image.kind });
@@ -1260,7 +1295,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await replaceWaitingVersions(env, game.id, versionId);
     await env.SCAN_QUEUE.send({ versionId });
     const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
-    return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
+    return [{ version: await versionAnswer(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
   }
 
   const versionFix = "get_game lists the game's versions with their IDs, newest first.";
@@ -1268,7 +1303,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   const version = id ? await versionById(env.DB, id) : null;
   if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: versionFix });
 
-  if (version && !isPublish && method === "GET") return [{ version: versionJson(env, game, version) }];
+  if (version && !isPublish && method === "GET") return [{ version: await versionAnswer(env, game, version) }];
 
   // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
   if (version && isPublish && method === "POST" && body.scheduled_publish_at !== undefined) {
@@ -1288,13 +1323,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
       version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
@@ -1321,7 +1356,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const nextSteps: NextStep[] = isHidden
       ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
       : [];
-    return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
 
   throw badMethod(method, new URL(request.url).pathname);
@@ -1649,6 +1684,9 @@ const HISTORY: Record<string, string | null> = {
   "image-removed": "Removed an image",
   "image-approved": "Image approved",
   "image-rejected": "Image not approved",
+  "shader-approved": "A background shader passed its check",
+  "shader-checked": "A background shader passed its check and waits for a person to look",
+  "shader-rejected": "A background shader didn't pass its check; see its review_reason",
   upload: "Uploaded a version",
   "scan-held": "A version was held for a person to look at; see the version's findings",
   "scan-rejected": "A version was rejected; see the version's findings",
@@ -1828,7 +1866,7 @@ async function endPreviewLinks(env: Env, game: Game, id: string, caller: Caller)
   }
   await audit(env.DB, game.id, "preview-links-ended", version.id, caller.actor);
   await logCallerEvent(env, caller, "preview_links_ended", { gameId: game.id, versionId: version.id });
-  return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+  return [{ version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
 }
 
 /**
@@ -2085,7 +2123,36 @@ function testerJson(env: Env, link: TesterLink) {
   };
 }
 
-export function versionJson(env: Env, game: Game, version: Version) {
+/** The versions' Chrome runs, by version ID, in one query. */
+export async function performanceChecksFor(env: Env, versionIds: string[]): Promise<Map<string, PerformanceCheckRow>> {
+  if (!versionIds.length) return new Map();
+  const { results } = await env.DB.prepare("SELECT * FROM performance_checks WHERE version_id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(versionIds)).all<PerformanceCheckRow>();
+  return new Map(results.map((row) => [row.version_id, row]));
+}
+
+/** A version's answer with its Chrome run, for one version. */
+export async function versionAnswer(env: Env, game: Game, version: Version) {
+  return versionJson(env, game, version, (await performanceChecksFor(env, [version.id])).get(version.id) ?? null);
+}
+
+/** How a version started in Chrome: null for zip versions and versions from before it ran. */
+function performanceCheckJson(row: PerformanceCheckRow | null) {
+  if (!row) return null;
+  const report: Omit<PerformanceReport, "start_files"> | null = row.report ? JSON.parse(row.report) : null;
+  return {
+    check_status: row.check_status,
+    checked_at: iso(row.checked_at_ms),
+    browser_description: report?.browser_description ?? "Chrome on a computer with no graphics card",
+    loading_duration_sec: report?.loading_duration_sec ?? null,
+    start_download_size_bytes: report?.start_download_size_bytes ?? null,
+    start_file_count: report?.start_file_count ?? null,
+    start_memory_size_bytes: report?.start_memory_size_bytes ?? null,
+    longest_start_task_duration_ms: report?.longest_start_task_duration_ms ?? null,
+    notes: report?.notes ?? [],
+  };
+}
+
+export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
   const preview = previewLinkToken(version);
   return {
     id: version.id,
@@ -2103,6 +2170,7 @@ export function versionJson(env: Env, game: Game, version: Version) {
     review_reason: versionReviewReason(version),
     findings: findingsFor(version),
     replaced_by_version_id: version.replaced_by_version_id,
+    performance_check: performanceCheckJson(performanceCheck),
   };
 }
 
@@ -2241,6 +2309,7 @@ export function gameJson(env: Env, game: Game) {
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
     // Why the title keeps the game off Zaisma's lists ("No slop"); null when nothing does.
     title_listing_reason: reasonAnswer(game.title_listing_reason),
+    glass_tint_color: game.glass_tint_color,
     updated_at: iso(game.updated_at_ms),
   };
 }
@@ -2409,6 +2478,13 @@ function imageJson(env: Env, image: GameImage) {
  * Covers and screenshots. Only real PNG, JPEG or WebP files are stored (checked by their bytes),
  * and they're sent with headers that stop a browser treating them as anything else.
  */
+/** Whether the browser asking is signed in as the account that owns the game: before review, only it sees the game's pictures. */
+async function isOwnerSignedIn(request: Request, env: Env, gameOwnerId: string | null): Promise<boolean> {
+  const session = await currentSession(request, env);
+  const owner = session ? await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(session.userId).first<{ id: string }>() : null;
+  return Boolean(owner) && owner!.id === gameOwnerId;
+}
+
 async function serveImage(request: Request, env: Env, imagePath: string): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   // /img/:id, or /img/:id/card.jpg: the picture made into a share card JPEG.
@@ -2422,9 +2498,7 @@ async function serveImage(request: Request, env: Env, imagePath: string): Promis
   let cacheControl = "public, max-age=3600";
   if (image.review_status !== "approved" || game.review_status === "removed") {
     // Before review only the owner sees it.
-    const session = await currentSession(request, env);
-    const owner = session ? await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(session.userId).first<{ id: string }>() : null;
-    if (!owner || owner.id !== game.owner_id) return notFound();
+    if (!(await isOwnerSignedIn(request, env, game.owner_id))) return notFound();
     cacheControl = "private, no-store";
   }
   if (isCard && image.review_status === "approved") {

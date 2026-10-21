@@ -43,7 +43,7 @@ describe("cloud saves on the game domain", () => {
     const script = await SELF.fetch(`${G}/saver/_zaisma/saves.js`);
     expect(script.headers.get("content-type")).toContain("javascript");
     const text = await script.text();
-    expect(text).toContain('var __ZAISMA_SAVES__ = {"site":"https://zaisma.test"}');
+    expect(text).toContain('var __ZAISMA_SAVES__ = {"site":"https://zaisma.test","saveLimitBytes":5242880}');
     expect(text).toContain("_zaisma\\/restore");
     const restore = await SELF.fetch(`${G}/saver/_zaisma/restore`);
     expect(await restore.text()).toContain('<script src="saves.js?v=6"></script>');

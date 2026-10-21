@@ -30,7 +30,7 @@ import {
   type Game,
   type WebhookEventKind,
 } from "@zaisma/core";
-import { bugReportJson, gameAlerts, playerReportJson, gameJson, gameServerErrorJson, signInAppJson, versionJson, type GameAlert, type GameServerErrorRow } from "./developer.ts";
+import { bugReportJson, gameAlerts, playerReportJson, gameJson, gameServerErrorJson, signInAppJson, versionAnswer, type GameAlert, type GameServerErrorRow } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -101,7 +101,7 @@ export async function tellWebhooks(
       kind,
       happened_at: iso(Date.now()),
       game: gameJson(env, game),
-      version: version ? versionJson(env, game, version) : null,
+      version: version ? await versionAnswer(env, game, version) : null,
       bug_report: parts.bugReport ? bugReportJson(parts.bugReport) : null,
       player_report: parts.playerReport ? playerReportJson(parts.playerReport) : null,
       game_server_error: parts.gameServerError ? gameServerErrorJson(parts.gameServerError) : null,

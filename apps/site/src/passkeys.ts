@@ -221,10 +221,11 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
  * { tap } or { error }. A page loads it before the part that uses it.
  */
 export const PASSKEY_SCRIPT = pageScript("passkeys", `
-const pkB64 = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-const pkBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-const pkPost = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }).then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) }));
-let pkWaiting = null;
+var pkB64 = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+var pkBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+var pkPost = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }).then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) }));
+// var, never const: a sign-in step swapped in place runs this again (CITY_PANE_SCRIPT), keeping a passkey request still waiting.
+var pkWaiting;
 async function zaismaPasskeySignIn(next, conditional) {
   if (pkWaiting) pkWaiting.abort();
   const waiting = (pkWaiting = new AbortController());
@@ -240,7 +241,7 @@ async function zaismaPasskeySignIn(next, conditional) {
   const r = cred.response;
   const res = await pkPost("/api/passkeys/signin", { id: cred.id, clientDataJSON: pkB64(r.clientDataJSON), authenticatorData: pkB64(r.authenticatorData), signature: pkB64(r.signature), userHandle: r.userHandle ? pkB64(r.userHandle) : "", next });
   if (!res.ok) return res.data.error || "That passkey didn't work. Sign in with your password instead.";
-  location.href = res.data.next;
+  if (window.zaismaPaneGo) window.zaismaPaneGo(res.data.next); else location.href = res.data.next;
   return null;
 }
 async function zaismaAddPasskey() {

@@ -316,6 +316,11 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
+  Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
+                  shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
+                  or choose a .glsl file to preview it before sending; the purple glass tint)
+                  ${SITE}/dashboard/arena/details#background  (a shader the check refused: "It flashes more than 3 times a second…")
+                  ${GAMES}/shard-dodge/_zaisma/background?screen=phone  (the shader runner alone, on the game's own site)
   Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
@@ -327,6 +332,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${testers.team ?? ""}  (Rocket Lab's newest build, not out yet, for two weeks)
                   ${testers.arena ?? ""}  (Arena, to try multiplayer through one)
                   Make, change and turn them off: ${SITE}/dashboard/rocket-lab/versions#testers
+  Started in Chrome ${SITE}/dashboard/texture-tour/versions  (Texture Tour's real run in this preview's Chrome: its first frame, a missing file
+                  and two files that could be smaller, under "2 notes"; each engine sample's under /dashboard/<sample>/versions;
+                  versions past the account's 20 runs today say so). On ${SITE}/g/texture-tour its first files download before Play.
   Preview links   ${SITE}/dashboard/rocket-lab/versions  (Preview on the unpublished build: a fresh link for a day; Preview links to turn them off)
   Your games      ${SITE}/dashboard
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
@@ -470,6 +478,9 @@ function withServer(example, name) {
 
 async function seed() {
   const jar = new Map();
+  // An upload waits for its run in Chrome with Node blocked (spawnSync), so the site may have closed the
+  // connection kept open for the next call: that one is sent again on a fresh connection.
+  const fetch = (url, init) => globalThis.fetch(url, init).catch(() => globalThis.fetch(url, init));
   const go = async (path, init = {}) => {
     const res = await fetch(SITE + path, {
       ...init,
@@ -524,6 +535,12 @@ async function seed() {
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
   await seedEngineSamples(api, upload);
   if (ENGINES_ONLY) return;
+  await seedStartedInChrome(api, upload);
+  // The rest of the account's 20 runs in Chrome today are used, so the other test games' versions say they weren't
+  // measured (and their uploads don't wait for Chrome).
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) INSERT OR IGNORE INTO performance_checks (version_id, owner_id, check_status, queued_at_ms, checked_at_ms) SELECT 'version_usedrun' || i, (SELECT owner_id FROM games WHERE slug = 'texture-tour'), 'checked', CAST(unixepoch('subsec') * 1000 AS INTEGER), NULL FROM n"],
+    { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
@@ -555,6 +572,22 @@ async function seed() {
       }
     }
   }
+  // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the looks drafts' Neon Drift shader, drawn by
+  // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
+  // the check refuses for flashing.
+  const { image: world } = await api("POST", "/games/shard-dodge/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
+  await go(`/admin/images/${world.id}/approve`, form({ reason: "" }));
+  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "image", image_id: world.id });
+  const sendShader = (slug, screen, file) => api("POST", `/games/${slug}/shaders?screen=${screen}`, new Uint8Array(readFileSync(join(ROOT, "scripts/preview/shaders", file))));
+  const { shader: neonDrift } = await sendShader("shard-dodge", "phone", "neon-drift.glsl");
+  await sendShader("arena", "wide", "strobe.glsl");
+  const isChecked = async () => (await api("GET", "/games/shard-dodge")).shaders.find((shader) => shader.id === neonDrift.id)?.review_status !== "pending";
+  for (let tryIndex = 0; tryIndex < 45 && !(await isChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
+  // Without a local browser, a person approves it, as on /admin (it then has no still or frames).
+  if (!(await isChecked())) await go(`/admin/shaders/${neonDrift.id}/approve`, form({ reason: "Preview test data" }));
+  await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
+  await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
+
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).
   await api("PATCH", "/games/tiny-farm", {
@@ -728,10 +761,115 @@ async function seedEngineSamples(api, upload) {
       await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
       await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
     }
-    samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [] });
+    // The upload waited for its run in Chrome too: what it saw, for engines:play to check.
+    samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
   }
   writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
 }
+/**
+ * Started in Chrome: a WebGL game with two big 2048×2048 PNG textures, a 10 MB WAV and a level it asks for at start
+ * but nobody uploaded, so its real run in the preview's Chrome gives a first frame, missing_file_at_start, and the
+ * KTX2 and Opus notes. Published, so its game page warms up its first files too.
+ */
+async function seedStartedInChrome(api, upload) {
+  const folder = join(STATE, "uploads", "texture-tour");
+  rmSync(folder, { recursive: true, force: true });
+  mkdirSync(join(folder, "textures"), { recursive: true });
+  mkdirSync(join(folder, "music"), { recursive: true });
+  for (const name of ["rock", "moss"]) writeFileSync(join(folder, "textures", `${name}.png`), noiseTexture(2048, name === "rock" ? 1 : 2));
+  const sound = Buffer.alloc(10 * 1024 * 1024);
+  sound.write("RIFF", 0);
+  sound.writeUInt32LE(sound.length - 8, 4);
+  sound.write("WAVEfmt ", 8);
+  sound.writeUInt32LE(16, 16);
+  sound.writeUInt16LE(1, 20);
+  sound.writeUInt16LE(2, 22);
+  sound.writeUInt32LE(44_100, 24);
+  sound.writeUInt32LE(176_400, 28);
+  sound.writeUInt16LE(4, 32);
+  sound.writeUInt16LE(16, 34);
+  sound.write("data", 36);
+  sound.writeUInt32LE(sound.length - 44, 40);
+  writeFileSync(join(folder, "music", "theme.wav"), sound);
+  writeFileSync(join(folder, "index.html"), '<!doctype html><title>Texture Tour</title><style>html,body{margin:0;height:100%;background:#111}canvas{width:100%;height:100%;display:block}</style><canvas id="view"></canvas><script src="game.js"></script>');
+  writeFileSync(
+    join(folder, "game.js"),
+    `// Texture Tour: two big textures on a turning quad, in WebGL.
+const canvas = document.getElementById("view");
+const gl = canvas.getContext("webgl");
+// The first level, which this version forgot to include.
+fetch("levels/forest.json").catch(() => {});
+const shader = (kind, source) => { const made = gl.createShader(kind); gl.shaderSource(made, source); gl.compileShader(made); return made; };
+const program = gl.createProgram();
+gl.attachShader(program, shader(gl.VERTEX_SHADER, "attribute vec2 p; uniform float t; varying vec2 uv; void main() { uv = p * 0.5 + 0.5; gl_Position = vec4(p.x * cos(t), p.y, 0.0, 1.0); }"));
+gl.attachShader(program, shader(gl.FRAGMENT_SHADER, "precision mediump float; varying vec2 uv; uniform sampler2D a; uniform sampler2D b; void main() { gl_FragColor = mix(texture2D(a, uv), texture2D(b, uv), uv.x); }"));
+gl.linkProgram(program);
+gl.useProgram(program);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+const texture = (unit, path) => new Promise((resolve) => {
+  const image = new Image();
+  image.onload = () => {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    resolve();
+  };
+  image.src = path;
+});
+Promise.all([texture(0, "textures/rock.png"), texture(1, "textures/moss.png")]).then(() => {
+  gl.uniform1i(gl.getUniformLocation(program, "a"), 0);
+  gl.uniform1i(gl.getUniformLocation(program, "b"), 1);
+  const frame = (timeMs) => {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform1f(gl.getUniformLocation(program, "t"), timeMs / 1000);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+});
+`,
+  );
+  const { game } = await api("POST", "/games", { title: "Texture Tour", description: "Two big textures on a turning quad: the preview's test of how a version starts in Chrome.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  upload(folder, game.slug, "First version.");
+  const [version] = (await api("GET", `/games/${game.slug}`)).versions;
+  if (version?.scan_status === "approved") {
+    await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
+    await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+  }
+}
+
+/** A square PNG of colored noise, which hardly compresses: a big texture KTX2 would shrink. */
+function noiseTexture(sizePx, seedNumber) {
+  let state = seedNumber;
+  const next = () => ((state = (Math.imul(state, 1103515245) + 12345) >>> 0) >>> 16) & 0xff;
+  const rows = [];
+  for (let y = 0; y < sizePx; y++) {
+    const row = Buffer.alloc(1 + sizePx * 3);
+    for (let x = 0; x < sizePx * 3; x++) row[1 + x] = next();
+    rows.push(row);
+  }
+  const chunk = (type, data) => {
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    out.write(type, 4, "latin1");
+    data.copy(out, 8);
+    out.writeUInt32BE(crc(Buffer.concat([Buffer.from(type, "latin1"), data])), 8 + data.length);
+    return out;
+  };
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(sizePx, 0);
+  head.writeUInt32BE(sizePx, 4);
+  head[8] = 8;
+  head[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", head), chunk("IDAT", deflateSync(Buffer.concat(rows), { level: 1 })), chunk("IEND", Buffer.alloc(0))]);
+}
+
 /**
  * Holds and takedowns, each saying why: an update the scan holds for packed code, one a person
  * rejected, a cover that wasn't approved, and a game taken down. Made like Zaisma makes them: the
