@@ -125,7 +125,7 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const own = options.isFramed
     ? html`<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row" data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
-  return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? html`<a href="${tab.href}"${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${inside(tab)}</button>`,
@@ -176,7 +176,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     }
     // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
     var isWaitingToSlide = false;
-    function settle() { if (isWaitingToSlide) return; var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
+    function settle() { if (isWaitingToSlide) return; var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); put(ghost, on); if (ring && focused) put(ring, focused); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
     // A switch of links that was on the last page too (the gallery's groups): once this page shows, its slab slides from the last page's tab
     // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
@@ -224,6 +224,14 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       });
     });
     sw.addEventListener("pointerleave", function () { sw.classList.remove("pointing"); });
+    // Keyboard focus: the ring takes the focused tab's place and shape, so the focus line follows its cut.
+    var ring = sw.querySelector(".focus-ring");
+    sw.addEventListener("focusin", function (event) {
+      var tab = event.target;
+      if (!ring || tab.parentElement !== sw || !tab.matches(":focus-visible")) return;
+      put(ring, tab); sw.classList.add("is-focus-shown");
+    });
+    sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
   });
 })();
 `;
@@ -494,7 +502,7 @@ component({
 .tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room, 18px); border: 0; background: none; cursor: pointer;
   font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
@@ -512,16 +520,24 @@ component({
 /* A tab that folds away into the end of the tabs and opens out of it again. */
 .tab-switch > .foldable { max-width: 160px; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
 .tab-switch > .foldable.folded { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
-.tab-switch > :focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
+/* Keyboard focus: a line round the focused tab that follows its cut, like the slab's (the focus ring, set by SWITCH_SCRIPT). */
+.tab-switch > :focus-visible { outline: none; }
+.tab-switch .focus-ring { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; z-index: 3; pointer-events: none; clip-path: var(--cut-shape); opacity: 0; }
+.tab-switch.small .focus-ring { top: 3px; bottom: 3px; }
+.tab-switch.vertical .focus-ring { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; }
+.tab-switch.vertical.small .focus-ring { left: 3px; right: 3px; }
+.tab-switch.is-focus-shown .focus-ring { opacity: 1; }
+.tab-switch .focus-ring .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
-.tab-switch.small > a, .tab-switch.small > button { padding: 0 14px; font-size: 14px; }
-/* The first and last tabs sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there. */
-.tab-switch:not(.vertical) > a:first-of-type, .tab-switch:not(.vertical) > button:first-of-type { padding-inline-start: calc(18px + var(--control-slant) / 2); }
-.tab-switch:not(.vertical) > a:last-of-type, .tab-switch:not(.vertical) > button:last-of-type { padding-inline-end: calc(18px + var(--control-slant) / 2); }
-.tab-switch.small:not(.vertical) > a:first-of-type, .tab-switch.small:not(.vertical) > button:first-of-type { padding-inline-start: calc(14px + var(--control-slant) / 2); }
-.tab-switch.small:not(.vertical) > a:last-of-type, .tab-switch.small:not(.vertical) > button:last-of-type { padding-inline-end: calc(14px + var(--control-slant) / 2); }
+.tab-switch.small > a, .tab-switch.small > button { --tab-room: 14px; font-size: 14px; }
+/* On the narrowest phones (320px wide), the tabs keep closer to their words so a switch of two long ones still fits. */
+@media (max-width: 380px) { .tab-switch > a, .tab-switch > button { --tab-room: 12px; } .tab-switch.small > a, .tab-switch.small > button { --tab-room: 8px; } }
+/* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
+   A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the slab, ghost and ring are spans). */
+.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not(span)) { padding-inline-start: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
+.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not(span)) { padding-inline-end: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and the ghost follows the pointer between them. */
 .tab-switch.vertical { flex-direction: column; height: auto; }
@@ -530,7 +546,6 @@ component({
 .tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; height: 40px; padding: 0 14px; text-align: left; }
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
-.tab-switch.vertical > :focus-visible { outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost, .tab-switch > .foldable { transition: none; } }
 `,
   render: tabSwitch,
