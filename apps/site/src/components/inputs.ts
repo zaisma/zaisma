@@ -174,9 +174,15 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
       if (el.redrawCut) el.redrawCut(isGliding && from.beside !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
     }
+    // A switch on its own (not framed, so it can't scroll) whose tabs don't fit keeps them closer to their words.
+    function fit() {
+      if (isVertical || sw.classList.contains("framed")) return;
+      sw.classList.remove("is-tight");
+      if (sw.scrollWidth > sw.clientWidth + 0.5) sw.classList.add("is-tight");
+    }
     // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
     var isWaitingToSlide = false;
-    function settle() { if (isWaitingToSlide) return; var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); put(ghost, on); if (ring && focused) put(ring, focused); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
+    function settle() { if (isWaitingToSlide) return; fit(); var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); put(ghost, on); if (ring && focused) put(ring, focused); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
     // A switch of links that was on the last page too (the gallery's groups): once this page shows, its slab slides from the last page's tab
     // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
@@ -532,8 +538,9 @@ component({
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 .tab-switch.small > a, .tab-switch.small > button { --tab-room: 14px; font-size: 14px; }
-/* On the narrowest phones (320px wide), the tabs keep closer to their words so a switch of two long ones still fits. */
-@media (max-width: 380px) { .tab-switch > a, .tab-switch > button { --tab-room: 12px; } .tab-switch.small > a, .tab-switch.small > button { --tab-room: 8px; } }
+/* Tight: a switch whose tabs don't fit their room (two long ones, on a 320px phone) keeps them closer to their words (SWITCH_SCRIPT says so). */
+.tab-switch.is-tight > a, .tab-switch.is-tight > button { --tab-room: 12px; }
+.tab-switch.small.is-tight > a, .tab-switch.small.is-tight > button { --tab-room: 8px; }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
    A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab, ghost and ring are hidden from readers, so they never count). */
 .tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
@@ -591,29 +598,28 @@ component({
   name: "Color picker",
   slug: "color-picker",
   group: "inputs",
-  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one stands on a raised slab with the orange line under it, and is named beside them.",
+  summary: "Pick one color from a few: a glass button's tint, the glass's hue. Plain swatches in a carved well, like the switch's tabs; the picked one keeps its whole color, with an orange bar under it, and is named beside them.",
   styles: `
 /* A color picker: plain swatches in a carved well, like the switch's tabs. A swatch is a control like any other, cut by the edge rule,
    so swatches side by side slant toward each other and the end ones follow the well's corners. */
 .color-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
-.color-well { position: relative; display: flex; flex: none; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.color-well { position: relative; display: flex; flex: none; padding: 4px 4px 13px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
+  --swatch-size: 32px; }
 .color-well .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
 .color-picker-name { margin-left: var(--gap-words-control); }
-.color-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: none; clip-path: var(--cut-shape); }
-/* The color itself, the swatch's whole face until it's picked. */
-.color-face { position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); transition: scale 0.35s var(--spring), translate 0.35s var(--spring); }
+.color-pick { position: relative; width: var(--swatch-size); height: var(--swatch-size); padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
 .color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; }
 /* Pointed at: a light rim inside its cut. */
 .color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
-/* Picked: it stands on a raised slab with the orange line under it, like the switch's, its color set into the slab. */
-.color-pick[aria-pressed="true"] { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
-.color-pick[aria-pressed="true"] > .color-face { scale: 0.66; translate: 0 -1.5px; }
-.color-pick[aria-pressed="true"] > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
-.color-pick[aria-pressed="true"] .cut-line polygon { stroke: transparent; }
+/* Picked: the swatch keeps its whole color, and an orange bar floats under its bottom edge in the well's bottom, slanting with it.
+   It glides to the next pick like the switch's slab (--picked-index, set by COLOR_PICKER_SCRIPT). */
+.color-mark { position: absolute; left: 0; bottom: 4px; width: calc(var(--swatch-size) - var(--control-slant) - 4px); height: 4px; background: var(--run); pointer-events: none;
+  transform-origin: 0 0; transform: translateX(calc(4.5px + var(--picked-index) * (var(--swatch-size) + var(--gap-control-row-boxes)))) skewX(-17deg);
+  transition: transform 0.45s var(--spring); }
 /* Keyboard focus: the orange line round its cut, like every control's. */
 .color-pick:focus-visible { outline: none; }
 .color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-@media (prefers-reduced-motion: reduce) { .color-face { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .color-mark { transition: none; } }
 `,
   render: colorPicker,
   examples: [

@@ -478,7 +478,7 @@ const OWN_GLASS = new Map<string, string>([
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a", ".tab-switch.is-tight > a", ".tab-switch.small.is-tight > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
