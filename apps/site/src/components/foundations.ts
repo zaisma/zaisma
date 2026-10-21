@@ -340,8 +340,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   /* The sign-in pane's glass, for any slab: cut corners and the drawn rim (dark hairline, polished edge, bevel band, faint rainbow fringe, bright cut facets). */
   function cutPoints(w, h, c, inset) {
     // A corner that isn't cut stays square all the way in, so its bands meet in a plain mitre, not a facet of their own.
-    var i = inset, k = c.map(function (cut) { return cut > 0 ? inset * 0.414 : 0; });
-    return [[i, c[0] + k[0]], [c[0] + k[0], i], [w - c[1] - k[1], i], [w - i, c[1] + k[1]], [w - i, h - c[2] - k[2]], [w - c[2] - k[2], h - i], [c[3] + k[3], h - i], [i, h - c[3] - k[3]]];
+    var i = inset, k = inset * 0.414, d = c.map(function (cut) { return cut > 0 ? cut + k : i; });
+    return [[i, d[0]], [d[0], i], [w - d[1], i], [w - i, d[1]], [w - i, h - d[2]], [w - d[2], h - i], [d[3], h - i], [i, h - d[3]]];
   }
   function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
   // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbours always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
