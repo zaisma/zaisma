@@ -31,7 +31,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
 import { blockSheet } from "./blocks.ts";
 import { playersSheet } from "./players-sheet.ts";
-import { PLAY_COUNTER_SCRIPT, ageRefusal } from "./plays.ts";
+import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { JOIN_OFF_STYLES } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
@@ -99,7 +99,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const accountNext = encodeURIComponent(`${here}${inRoom ? roomQuery : "?play"}`);
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
-  const [developer, pictures, updates, others, live] = await Promise.all([
+  const [developer, pictures, updates, others, live, playingNow] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -110,9 +110,11 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
     // Not on tester links: their rooms are reached by code and invite link.
     game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
+    playingNowCounts(env),
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
-  const playingNowPlayerCount = live ? live.playing.playerCount : 0;
+  // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
+  const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
   const shots = pictures.results.map((picture) => `/img/${picture.id}`);
   const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
@@ -435,7 +437,7 @@ ${siteHeader(env, { viewer })}
     ${developer ? html`<p class="by">by <a href="${profilePath(developer.name)}">${developer.name}</a></p>` : ""}
     ${tester || !canSignIn || isClosed ? "" : html`<div class="friends-here" id="friends-here" hidden></div>`}
     ${tester ? html`<p class="note tester">You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}</p>` : ""}
-    ${live ? playingLine(playingNowPlayerCount, Boolean(rooms)) : ""}
+    ${playingLine(playingNowPlayerCount, Boolean(rooms))}
     ${isClosed
       ? html`<div class="closed plate bevel" id="closed"><p>This game isn't open to your account.</p>${metalButton("Find other games", { href: "/", isFullWidth: true })}</div>`
       : metalButton("Play", { id: "play", isBig: true, isFullWidth: true, hasPlayIcon: true })}
@@ -802,9 +804,6 @@ const SECURITY_PAGE = `
 <h2>Something else</h2>
 <p>A game that breaks the rules, or anything about children's safety, goes to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>, not here. Copyright is on the <a href="/legal/dmca">DMCA page</a>.</p>
 `;
-
-/** Fewest players for "playing now" to show, so a new game never looks empty. */
-const MINIMUM_PLAYING_NOW_PLAYER_COUNT = 3;
 
 /**
  * The game page's script: Play, the pictures, tabs and rooms, the menu, Share, and what the game says
@@ -1273,7 +1272,7 @@ addEventListener("focus", checkSignedIn);
 document.addEventListener("visibilitychange", checkSignedIn);
 try { new BroadcastChannel("zaisma").addEventListener("message", (e) => e.data === "signed-in" && checkSignedIn()); } catch {}`);
 
-/** "151 playing now" under the title: everyone in the game's rooms, hidden ones too. */
+/** "151 playing now" under the title: the larger of everyone in the game's rooms (hidden ones too) and the browsers playing it. */
 function playingLine(playerCount: number, roomsHere: boolean): Raw {
   const hidden = playerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT ? raw(" hidden") : "";
   return roomsHere

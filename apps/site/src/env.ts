@@ -106,6 +106,8 @@ export interface Env {
   KEEP_OFFER_SECONDS?: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
   ROOM_LIST_CACHE_SECONDS?: string;
+  /** How long each place keeps a copy of how many people play each game now. 30 unless set (tests set 0). */
+  PLAYING_NOW_CACHE_SECONDS?: string;
   /** Supabase Auth. Without these, accounts are off and everything else still works. */
   SUPABASE_URL?: string;
   /** The only key Supabase answers (its publishable key is off), so every sign-in goes through Zaisma's limits and checks. */

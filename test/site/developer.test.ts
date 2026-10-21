@@ -6,6 +6,7 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { GAME } from "../../apps/site/src/schemas.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 import { letPublish } from "../helpers.ts";
+import { issueTicket } from "../../apps/site/src/plays.ts";
 
 const SITE = "https://zaisma.test";
 
@@ -202,7 +203,13 @@ describe("games", () => {
   it("sets where a game's rooms are listed, and turning it off takes them off lists at once", async () => {
     await api("/games", { body: { title: "Party Game" } });
     const g = (await gameBySlug(env.DB, "party-game"))!;
-    expect((await (await api("/games/party-game")).json<{ game: Record<string, unknown> }>()).game).toMatchObject({ multiplayer_mode: "none", room_browsing: "page" });
+    // One browser playing is under the public minimum of 3, but the developer gets the exact number.
+    await env.DB.exec("DELETE FROM play_tickets;");
+    await issueTicket(env.DB, g.id, { first: null, last: null, cfirst: null, clast: null });
+    const shown = await (await api("/games/party-game")).json<{ game: Record<string, unknown>; playing_now_player_count: number }>();
+    expect(shown.game).toMatchObject({ multiplayer_mode: "none", room_browsing: "page" });
+    expect(shown.playing_now_player_count).toBe(1);
+    await env.DB.exec("DELETE FROM play_tickets;");
     expect((await api("/games/party-game", { method: "PATCH", body: { room_browsing: "everywhere" } })).status).toBe(400);
     await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
     const res = await api("/games/party-game", { method: "PATCH", body: { room_browsing: "off" } });
