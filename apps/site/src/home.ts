@@ -361,12 +361,13 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 /* The shelf: one long sheet of glass with every row on it. */
 .home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
 .home-shelf > .glass-pane { width: 100%; }
-.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); min-height: 44px; }
+/* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
+.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
 .home-row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; }
 .home-row-head > .steps { margin-left: auto; }
 .home-row-head > .tab-switch { margin-left: var(--gap-words-control); }
 /* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
-.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
+.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
 .home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
@@ -391,6 +392,9 @@ canvas.backdrop.is-shown { opacity: 1; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }
   .home-row-head > .steps { display: none; }
+  /* Continue playing's sort switch takes its own line under the heading, across the row, instead of running past the pane. */
+  .home-row-head { flex-wrap: wrap; row-gap: var(--gap-words-control); }
+  .home-row-head > .tab-switch { flex: 1 1 100%; margin-left: 0; }
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
