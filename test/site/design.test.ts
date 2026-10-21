@@ -415,6 +415,18 @@ describe("components", () => {
     expect(markup).toContain('<input class="file-drop-input" type="file" id="drop-build" name="build" accept=".zip" aria-describedby="drop-build-hint">');
   });
 
+  it("cut a stacked control by its place in the whole scrolled content, never by how far the pane happens to be scrolled", () => {
+    // A tall pane scrolls inside itself (.own-scroll). Measured against the pane's visible box, the sign-in buttons below the fold had
+    // negative gaps and took the pane's bottom corners while Continue as guest, last, went square. Against the scrolled content,
+    // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
+    expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
+    expect(glassScriptSource).toContain('el.closest(".own-scroll")');
+    expect(glassScriptSource).toContain("top - scroller.scrollTop");
+    expect(glassScriptSource).toContain("top + scroller.scrollHeight");
+    expect(glassScriptSource).toContain("p = contentRectOf(el, holder)");
+    expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
+  });
+
   it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
     // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
     // rectangles and cut corners to the pass round the shader, whose arrays are that long.
