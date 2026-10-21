@@ -1,6 +1,7 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colourPicker, icon, type ColourChoice, type IconName } from "./foundations.ts";
+import { TINT_CHOICES, cutButton } from "./actions.ts";
 
 /*
  * Inputs: the cut field, search, the birthday wheels and the switch. From the sign-in draft (fields, the
@@ -35,7 +36,7 @@ export function cutField(options: CutFieldOptions): Raw {
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${CUT_LINE}<span class="show-words">${options.isPasswordShown ? "Hide" : "Show"}</span></button>` : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id }) : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : ""}</div>`;
 }
 
@@ -110,13 +111,13 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
 /** Show/Hide: shows the password it controls, and hides it again. */
 export const FIELD_SCRIPT = `/* fields */(function () {
   document.addEventListener("click", function (event) {
-    var show = event.target.closest && event.target.closest(".field .show");
+    var show = event.target.closest && event.target.closest(".field > .cut-btn[aria-controls]");
     if (!show) return;
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
     input.type = on ? "text" : "password";
     // Only its words change: the slab and its drawn edge stay.
-    show.querySelector(".show-words").textContent = on ? "Hide" : "Show";
+    show.querySelector(".face > span").textContent = on ? "Hide" : "Show";
     show.setAttribute("aria-pressed", String(on));
   });
 })();
@@ -143,13 +144,15 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     settle();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
     if (window.ResizeObserver) new ResizeObserver(settle).observe(sw); else window.addEventListener("resize", settle);
+    // A page script can pick a tab too (the gallery's Light or Dark, when the theme changes elsewhere).
+    sw.pickTab = function (tab) {
+      sw.classList.remove("pointing");
+      if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
+      put(slab, tab, true); put(ghost, tab, true);
+    };
     tabs.forEach(function (tab) {
       tab.addEventListener("pointerenter", function () { if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
-      tab.addEventListener("click", function () {
-        sw.classList.remove("pointing");
-        if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
-        put(slab, tab, true); put(ghost, tab, true);
-      });
+      tab.addEventListener("click", function () { sw.pickTab(tab); });
     });
     sw.addEventListener("pointerleave", function () { sw.classList.remove("pointing"); });
   });
@@ -277,7 +280,7 @@ const FIELD_STYLES = `
 /* Fields: the header's search field, bigger. A cut field of clearer glass with a drawn outline and a line icon saying what goes in it;
    pointing clears it a little, and typing in it whitens it and draws the outline in orange. Words are 16px, so phones don't zoom in. */
 .cut-field { display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.cut-field > label { font: 600 15px var(--display); color: var(--ink-2); }
+.cut-field > label { font: var(--type-label); color: var(--ink-2); }
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
   font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
@@ -293,19 +296,10 @@ const FIELD_STYLES = `
 .field > .cut-line polygon { stroke: var(--field-outline); }
 .field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
-.field-error { margin: 0; font: 500 15px var(--display); color: var(--marked); }
+.field-error { margin: 0; font: var(--type-words); color: var(--marked); }
 .field.with-toggle input { padding-right: 90px; }
-/* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
-/* Show/Hide: a small raised slab inside the field, like a cut button. While the password shows, it's sunk into the field, its light turned round. */
-.field .show > .show-words { position: relative; z-index: 2; }
-.field .show { position: absolute; z-index: 5; right: 8px; top: 8px; bottom: 8px; padding: 0 14px; border: 0; cursor: pointer;
-  font: 600 15px var(--display); color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour);
-  clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
-.field .show:hover { --face-colour: var(--btn-hover); color: var(--ink); }
-.field .show[aria-pressed="true"] { --face-colour: var(--btn-press); color: var(--ink); }
-.field .show[aria-pressed="true"] > .cut-line, .field .show:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
-.field .show:focus-visible { outline: none; color: var(--ink); }
-.field .show:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Show/Hide: a small cut button, a toggle, at the field's end. */
+.field > .cut-btn { position: absolute; z-index: 5; right: 8px; top: 8px; }
 `;
 
 const examplePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20">${body}</div>`;
@@ -365,7 +359,7 @@ component({
 /* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
 .bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 /* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
-.bday legend { padding: 0; margin-bottom: var(--gap-words-control); font: 600 18px var(--display); color: var(--ink); }
+.bday legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 52px; border: 0; cursor: pointer; text-align: left;
   font: 500 18px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
@@ -463,6 +457,62 @@ component({
     {
       label: "Links to pages",
       markup: tabSwitch({ label: "Your games", switchSize: "small", tabs: [{ label: "Played", href: "#switch", isCurrent: false }, { label: "Saved", href: "#switch", isCurrent: true }, { label: "Bought", href: "#switch", isCurrent: false }] }),
+    },
+  ],
+});
+
+
+component({
+  name: "Colour picker",
+  slug: "colour-picker",
+  group: "inputs",
+  summary: "Pick one colour from a few: a glass button's tint, the glass's hue. Swatches in a row slant toward each other like any controls; the picked one is outlined in ink and named beside them.",
+  styles: `
+/* A colour picker: a .control-row of swatches. A swatch is a control like any other, cut by the edge rule; its outline is its cut line. */
+.colour-picker { display: flex; align-items: center; gap: 0; font: var(--type-facts); color: var(--ink-2); --clear-swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+.colour-picker .colour-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
+.colour-picker-name { margin-left: var(--gap-words-control); }
+.colour-pick { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
+.colour-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
+.colour-pick:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
+.colour-pick:focus-visible { outline: none; }
+.colour-pick:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.colour-pick[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
+`,
+  render: colourPicker,
+  examples: [
+    { label: "Picked", markup: colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "indigo" }) },
+    { label: "Clear picked: a checker, the usual sign for see-through", markup: colourPicker({ label: "Tint", choices: TINT_CHOICES, pickedValue: "clear" }) },
+  ],
+});
+
+// Page settings sits with the switch and the colour picker, which it uses (foundations.ts can't import this file).
+/** Game-like colours for the gallery's hue example. */
+const HUE_CHOICES: ColourChoice[] = [
+  { name: "None", colourValue: "", swatch: "clear" },
+  { name: "Crimson", colourValue: "#C8384A", swatch: "#C8384A" },
+  { name: "Emerald", colourValue: "#2E9E6B", swatch: "#2E9E6B" },
+  { name: "Violet", colourValue: "#7A4FD8", swatch: "#7A4FD8" },
+  { name: "Gold", colourValue: "#D9A520", swatch: "#D9A520" },
+];
+
+
+component({
+  name: "Page settings",
+  slug: "page-settings",
+  group: "foundations",
+  summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
+  styles: "",
+  examples: [
+    {
+      label: "Light or dark: the whole gallery follows",
+      isWide: true,
+      markup: html`<div data-setting-theme>${tabSwitch({ label: "Light or dark", switchSize: "small", tabs: [{ label: "Light", tabValue: "light", isCurrent: true }, { label: "Dark", tabValue: "dark", isCurrent: false }] })}</div>`,
+    },
+    {
+      label: "Glass: its hue, on every piece of glass in the gallery at once",
+      isWide: true,
+      markup: html`<div data-setting-hue>${colourPicker({ label: "The glass's hue", choices: HUE_CHOICES, pickedValue: "" })}</div>`,
     },
   ],
 });

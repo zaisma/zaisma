@@ -162,6 +162,42 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("sets every word in a type token: no font or size is a number of its own", async () => {
+    // Words take one of Type's whole fonts (--type-*, foundations.ts). A control's own inside (its words, set by its size) and the
+    // few other fonts that aren't words on a page are NOT_TYPE below, named one by one; font-weight alone may change inside words.
+    const problems: string[] = [];
+    const checkDeclarations = (where: string, declarations: string) => {
+      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s{])(font|font-size|font-family):\s*([^;}]+)/g)) {
+        if (/^var\(--type-[a-z]+\)$/.test(value.trim()) || value.trim() === "inherit" || NOT_TYPE.has(`${where} | ${property}`)) continue;
+        problems.push(`${where} | ${property}: ${value.trim()}`);
+      }
+    };
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim(), declarations);
+    }
+    for (const { group } of COMPONENT_GROUPS) {
+      for (const [, style = ""] of (await page(groupPath(group))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("makes every link a Link: only .link underlines, and no other link is styled outside a control", () => {
+    // A link in words is textLink (actions.ts). Anything else you can follow is a control (a button, a tab, a place) or the logo:
+    // the only rules that style a bare link are a control's, in LINK_IN_CONTROL.
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      const decoration = /(?:^|[;\s])text-decoration(?:-line)?:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+      if (decoration && decoration !== "none" && !/:focus|is-focused/.test(selector) && !selector.split(",").every((each) => /^\.link\b/.test(each.trim()))) problems.push(`${selector}: text-decoration: ${decoration}`);
+      for (const each of selector.split(",").map((one) => one.trim())) {
+        const subject = each.split(/[\s>+~]+/).pop() ?? "";
+        if (/^a(?=$|[:.[])/.test(subject) && !LINK_IN_CONTROL.has(each.replace(/:[a-z-]+(\([^)]*\))?/g, ""))) problems.push(`${each}: styles a link of its own`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+
   it("puts controls side by side --gap-control-row-boxes apart (the edge rule's neighbour distance) and stacked --gap-control-stack apart", async () => {
     const problems: string[] = [];
     const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
@@ -234,7 +270,7 @@ describe("components", () => {
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
-    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toMatch(/<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="field-password" aria-pressed="false"><svg class="cut-line" aria-hidden="true"><polygon\/><\/svg><span class="show-words">Show<\/span><\/button>/);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.cutButton("Show", { type: "button", isSmall: true, isPressed: false, controls: "field-password" }).html);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');
@@ -263,18 +299,37 @@ const HAND_CUT = new Set<string>([
   ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
   ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
-  ".chip", ".place-count", ".cover-bar",
+  ".tag", ".cover-bar",
+]);
+
+const LINK_IN_CONTROL = new Set<string>([
+  // A tab: the header's tabs and a switch's.
+  ".nav a", ".nav a[aria-current=\"page\"]", ".nav:not(.is-ready) a[aria-current=\"page\"]", ".nav a.dev", ".nav a.dev.off", ".tab-switch > a",
+  ".tab-switch.big > a", ".tab-switch.small > a",
+]);
+
+const NOT_TYPE = new Set<string>([
+  "@font-face | font-family",
+  // A control's inside: its words, set by each control's size.
+  ".place | font", ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
+  ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
+  '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".nav a | font", ".top .end .run | font-size", ".me | font",
+  // A picture's initials, sized to the picture.
+  ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ".cover-meta .frame.xs .av::first-letter | font-size",
+  // A collapsed sidebar's heading is only its line.
+  ".sidebar.is-collapsed .sidebar-heading | font-size",
 ]);
 
 const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
-  ".place | gap", ".place | padding", ".place-count | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".glass-btn > .face | gap",
+  ".place | gap", ".place | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
   ".field.with-toggle input | padding-right", ".field .show | padding", '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-field .chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
   ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".logo | margin-left", ".nav a | padding", ".me | gap",
-  ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".rail-mark span | padding", ".chip | padding",
+  ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".sidebar-list | gap", ".menu | gap", ".menu hr | margin",

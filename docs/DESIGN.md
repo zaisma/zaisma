@@ -86,6 +86,38 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 `test/site/design.test.ts` checks both: no other number in any gap, padding or margin, and every row of controls `--gap-control-row-boxes` apart and every stack `--gap-control-stack` apart.
 
+## Type
+
+Applies where Spacing does. Every word outside a control's own inside is set in one of these whole fonts (`font: var(--type-…)`), defined once in `foundations.ts` and shown in the gallery's Type. Pick one by what the words are, never by the size that looks right.
+
+| Token | What the words are | Font |
+| --- | --- | --- |
+| `--type-title` | A game's title | Jost 600, 40px (32px on a phone) |
+| `--type-heading` | A pane's heading | Jost 600, 30px (26px on a phone) |
+| `--type-section` | A row's or a section's heading | Jost 600, 22px (20px on a phone) |
+| `--type-name` | A name in a pane, a menu's head | Jost 600, 17px |
+| `--type-label` | A field's label, the question a field answers | Jost 600, 15px |
+| `--type-words` | A line of words, an error | Jost 500, 15px |
+| `--type-reading` | A paragraph to read | System, 15px |
+| `--type-note` | A note under something, the footer | Jost 500, 14px |
+| `--type-facts` | Facts under a cover, a caption, a small heading (a sidebar's) | Jost 500, 13px |
+| `--type-tag` | A Tag | Jost 600, 12px |
+| `--type-code` | A token or a value | Monospace 600, 13px |
+
+- **Inside words, only the weight changes** (a name in bold in a glance line). Never the size.
+- **A control's inside keeps its own font**, set by each control's size (a button's label, a field's text, a tab), like its padding. A picture's initials are sized to the picture. Each one is named, with its reason, in `NOT_TYPE` in `test/site/design.test.ts`.
+- **Lines between two parts of one pane are `--divider`**, never a border of their own.
+
+## Small pieces
+
+Anything with a look of its own is a component in the gallery, or part of one, and every page uses that component. Never style one in place.
+
+- **A link in words is a Link** (`textLink`, `actions.ts`): ink, with an orange underline. In a list of links where nothing else is (the footer), it's quiet: plain until pointed at. Anything else you can follow is a control (a button, a tab, a place) or the logo. Only `.link` underlines, and only a control styles a bare link (`LINK_IN_CONTROL` in the test).
+- **A tag is a Tag** (`tag`, `foundations.ts`, shown in Data): `new` (Updated), `count` (unread topics on a place) or `glass` (the rail's labels).
+- **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
+- **One of a few colours is a Colour picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Colour pickers; light or dark is a Switch.
+- **Online is the Picture frame's** (`isOnline`); **you, signed in, are the Account button.**
+
 ## Components
 
 - **Buttons:** `.btn` (gunmetal plate with the cut corner), `.btn.light` (chrome), `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; the tilting metal plate for the main action. Any button that sends a form or opens a page shows the loader, the Z building itself (`.spin`, `brand/loader/zaisma-loader.svg`), and can't be pressed twice.

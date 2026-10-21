@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, MARK, WORDMARK, icon, placeMarkup, railMarkup, type IconName, type PlaceItem } from "./foundations.ts";
-import { runButton } from "./actions.ts";
+import { runButton, textLink } from "./actions.ts";
 import { searchField, type SearchFieldOptions } from "./inputs.ts";
 import { STAND_IN_COVERS, menu, type MenuItem } from "./panes.ts";
 import { pictureFrame } from "./data.ts";
@@ -62,10 +62,25 @@ export function header(options: HeaderOptions): Raw {
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
   <div class="end">${
     account
-      ? html`<button type="button" class="me" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${menuId}" aria-label="Your account, ${account.username}">${account.pictureMarkup}<span class="name">${account.username}</span><svg class="chev" viewBox="0 0 20 12" width="12" height="8" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></button>`
+      ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
       : runButton("Sign in", { href: "/signin" })
   }</div>
 </header>${account ? menu({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+}
+
+export interface AccountButtonOptions {
+  username: string;
+  /** Your picture: a Picture frame (data.ts), online. */
+  pictureMarkup: Raw;
+  /** The id of the account menu it opens. */
+  menuId: string;
+  isMenuOpen?: boolean;
+  state?: "is-focused";
+}
+
+/** You, signed in: your picture in its frame with your name and an arrow; it opens the account menu, a pane of the same glass. */
+export function accountButton(options: AccountButtonOptions): Raw {
+  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}<span class="name">${options.username}</span>${icon("chevron-down")}</button>`;
 }
 
 const HEADER_STYLES = `
@@ -122,13 +137,6 @@ const HEADER_STYLES = `
 .top .find ~ .end, .top .find-open ~ .end { margin-left: 0; }
 .top .nav + .end { margin-left: auto; }
 
-/* Signed in: your picture in a cut frame, with your name; it opens a pane of the same glass. */
-.me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
-.me:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-/* You're online: a small diamond on your picture's corner. */
-.me .frame::after { content: ""; position: absolute; z-index: 2; right: -2px; bottom: -2px; width: 11px; height: 11px; background: #3BB273; border: 2px solid var(--presence-ring); transform: rotate(45deg); }
-.me .chev { transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
-.me[aria-expanded="true"] .chev { transform: rotate(180deg); }
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
 .find-open { display: none; }
@@ -151,7 +159,7 @@ const HEADER_STYLES = `
   .nav a { flex: 1 0 auto; padding: 0 12px; }
   /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
   .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
-  .me .name { display: none; }
+  .top .me .name { display: none; }
 }
 
 /* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
@@ -243,10 +251,15 @@ export const HEADER_SCRIPT = pageScript(
 );
 
 /** The links at the foot of every page: what Zaisma is and its rules. */
+const FOOTER_LINKS: [string, string][] = [
+  ["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"],
+  ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"],
+];
+
 export function footer(): Raw {
   return html`<footer class="foot">
   <a class="mark" href="/" aria-label="Zaisma home">${MARK}</a>
-  <nav aria-label="More from Zaisma"><a href="/dashboard">For game developers</a><a href="/forum">Forum</a><a href="https://github.com/zaisma/zaisma">Source code</a><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/security">Security</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/legal/defamation">Defamation</a></nav>
+  <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
 </footer>`;
 }
@@ -285,7 +298,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
     var marks = !isPage ? [] : Array.prototype.map.call(document.querySelectorAll("[data-rail-mark]"), function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
-      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "glass"; name.textContent = part.getAttribute("data-rail-mark");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag glass"; name.textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
       mark.addEventListener("click", function () { window.scrollTo({ top: part.getBoundingClientRect().top + window.scrollY - offset(), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
       return { part: part, mark: mark };
@@ -463,7 +476,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
-const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md") };
+const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { isOnline: true }) };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
 
 component({
@@ -484,19 +497,37 @@ component({
 });
 
 component({
+  name: "Account button",
+  slug: "account-button",
+  group: "navigation",
+  summary: "You, at the header's end once you're signed in: your picture, online, with your name. It opens the account menu.",
+  styles: `
+/* Your picture in a cut frame, with your name and an arrow that turns as the menu opens. */
+.me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
+.me:focus-visible, .me.is-focused { outline: 2px solid var(--focus); outline-offset: 2px; }
+.me > .ico { width: 12px; height: 8px; stroke-width: 2.4; transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
+.me[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+`,
+  render: accountButton,
+  examples: [
+    { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }) },
+    { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },
+    { label: "Keyboard focus", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-focused" }), isStill: true },
+  ],
+});
+
+component({
   name: "Footer",
   slug: "footer",
   group: "navigation",
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
-.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
 .foot .mark { color: var(--ink); }
 .foot .mark svg { height: 17px; width: auto; display: block; opacity: 0.8; }
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
-.foot a { color: var(--ink-2); text-decoration: none; font: 500 14px var(--display); }
-.foot nav a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--run); text-underline-offset: 4px; text-decoration-thickness: 2px; }
-.foot a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.foot .mark:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .foot p { margin: 0 0 0 auto; }
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,
@@ -532,8 +563,8 @@ component({
 .rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-colour: var(--rail-mark); background: var(--face-colour); transition: --face-colour 0.2s, left 0.2s; }
 .rail-mark:hover::before { --face-colour: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
-.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
-  font: 600 12px var(--display); --glass-tint: var(--glass-menu);
+/* Its name is a Tag on glass (data.ts), wiped open from the rail. */
+.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); pointer-events: none;
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
   transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
@@ -595,8 +626,8 @@ component({
 .track { --fade-sideways-px: 56px; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
 .track > .cover { flex: 0 0 236px; scroll-snap-align: start; }
 .row-head { display: flex; align-items: center; gap: var(--gap-words-control); margin-bottom: var(--gap-words-control); min-height: 36px; }
-.row-head h2 { margin: 0; font: 600 22px var(--display); white-space: nowrap; color: var(--ink); }
-@media (max-width: 760px) { .track { --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } .row-head h2 { font-size: 20px; } }
+.row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
+@media (max-width: 760px) { .track { --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } }
 `,
   render: rowArrows,
   examples: [
@@ -644,7 +675,7 @@ component({
    you're on is a raised slab under its words, outlined in orange, cut to fit where it sits. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
 .sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: var(--pad-pane); display: grid; gap: var(--gap-block-block); align-content: start; }
-.sidebar-heading { margin: 0 0 var(--gap-words-control); padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
+.sidebar-heading { margin: 0 0 var(--gap-words-control); padding: 0 14px; font: var(--type-facts); color: var(--muted); }
 .sidebar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 /* Its places are the shared .place (foundations.ts). The place you're on: opening another place from the page's own sidebar slides its slab
    there from the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */

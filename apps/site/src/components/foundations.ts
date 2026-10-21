@@ -28,7 +28,9 @@ const LIGHT_GLASS = `color-scheme: light;
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   /* A one-colour mark on clear glass (Discord's): unset on light glass, so it keeps its own colour; white on smoked. */
   --clear-glass-mark: initial;
-  --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
+  /* What shows only on light glass, and only on smoked (the light-dark icon's sun and moon). */
+  --on-light: inline; --on-smoked: none;
+  --tag-new: #DDF2E5; --tag-new-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
@@ -57,8 +59,8 @@ const SMOKED_GLASS = `color-scheme: dark;
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
-  --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff;
-  --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
+  --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline;
+  --tag-new: rgba(52, 211, 120, 0.22); --tag-new-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   --edge-inner: rgba(255, 255, 255, 0.4); --edge-bevel: 0.4; --edge-rim: 0.85; --edge-fringe: 0.4;
   --edge-lit: rgba(240, 244, 250, 0.95); --edge-shade: rgba(160, 172, 192, 0.4); --edge-corner: rgba(214, 222, 236, 0.6);
@@ -148,8 +150,22 @@ export const TOKEN_STYLES = `
   --gap-block-block: 24px;
   --pad-pane: 24px;
   --pad-inner-pane: 12px;
+  /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
+  --type-title: 600 40px/1.04 var(--display);
+  --type-heading: 600 30px/1.1 var(--display);
+  --type-section: 600 22px/1.2 var(--display);
+  --type-name: 600 17px/1.3 var(--display);
+  --type-label: 600 15px/1.3 var(--display);
+  --type-words: 500 15px/1.35 var(--display);
+  --type-reading: 400 15px/1.5 var(--body);
+  --type-note: 500 14px/1.4 var(--display);
+  --type-facts: 500 13px/1.3 var(--display);
+  --type-tag: 600 12px/1 var(--display);
+  --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
+  /* The line between two parts of one pane (its head and its list, a list and the facts under it). */
+  --divider: 1px solid var(--line);
 }
-@media (max-width: 760px) { :root { --pad-pane: 18px; } }
+@media (max-width: 760px) { :root { --pad-pane: 18px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
@@ -179,8 +195,7 @@ export const TOKEN_STYLES = `
 .place:focus-visible { outline: none; }
 .place:focus-visible .cut-line polygon, .place[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .place-form { margin: 0; }
-.place-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--btn);
-  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.place > .tag { margin-left: auto; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
@@ -232,6 +247,8 @@ export const TOKEN_STYLES = `
 .cut-line .cut-band.on-top-left { fill: color-mix(in srgb, var(--band-top, transparent), var(--band-left, transparent)); }
 /* Line icons: drawn with the words' colour. */
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ico .on-light { display: var(--on-light); }
+.ico .on-smoked { display: var(--on-smoked); }
 `;
 
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
@@ -256,6 +273,12 @@ export const ICONS = {
   eye: stroke("0 0 20 20", '<path d="M1.8 10S5 4.5 10 4.5 18.2 10 18.2 10 15 15.5 10 15.5 1.8 10 1.8 10z"/><circle cx="10" cy="10" r="2.6"/>'),
   "chevron-down": stroke("0 0 20 12", '<path d="M2 2l8 8 8-8"/>', ' stroke-width="2.2"'),
   "chevron-right": stroke("0 0 12 20", '<path d="M2 2l8 8-8 8"/>', ' stroke-width="2.4"'),
+  // The sun on light glass, the moon on smoked (--on-light and --on-smoked): the theme a page is in.
+  "light-dark": stroke(
+    "0 0 20 20",
+    '<g class="on-light"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/></g><g class="on-smoked"><path d="M15.5 12.6A6.6 6.6 0 0 1 7.4 4.5a6.6 6.6 0 1 0 8.1 8.1z"/></g>',
+    ' stroke-width="1.8"',
+  ),
   play: '<svg class="play" viewBox="0 0 16 18" width="14" height="16" aria-hidden="true"><path d="M2 1.5l12 7.5-12 7.5z" fill="currentColor"/></svg>',
 } as const;
 export type IconName = keyof typeof ICONS;
@@ -282,6 +305,39 @@ export const MARK = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
 export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
 
+/** A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated), "count" the buttons' face (unread topics), "glass" a sliver of the menus' glass (the rail's labels). data.ts's Tag shows it. */
+export type TagTone = "new" | "count" | "glass";
+export const tag = (words: string | number, tone: TagTone): Raw => html`<span class="tag ${tone}${tone === "glass" ? " glass" : ""}">${String(words)}</span>`;
+
+export interface ColourChoice {
+  /** What it's called, said by a screen reader and shown beside the picker when it's picked. */
+  name: string;
+  /** The value a page script reads (data-colour-value). */
+  colourValue: string;
+  /** What the swatch shows: a colour, or "clear" for a checker (see-through, or none). */
+  swatch: string;
+}
+
+/** A colour picker (inputs.ts's Colour picker shows it): a row of cut swatches that slant toward each other, the picked one outlined in ink, its name beside them. */
+export function colourPicker(options: { label: string; choices: ColourChoice[]; pickedValue: string; extra?: Raw }): Raw {
+  const picked = options.choices.find((choice) => choice.colourValue === options.pickedValue);
+  return html`<div class="colour-picker" role="group" aria-label="${options.label}"${options.extra ?? ""}>${options.choices.map(
+    (choice) =>
+      html`<button type="button" class="colour-pick" data-cut-line="6" data-colour-value="${choice.colourValue}" aria-label="${choice.name}" aria-pressed="${choice === picked ? "true" : "false"}" style="--swatch:${choice.swatch === "clear" ? "var(--clear-swatch)" : choice.swatch}">${CUT_LINE}</button>`,
+  )}<span class="colour-picker-name" aria-live="polite">${picked?.name ?? ""}</span></div>`;
+}
+
+/** A pick moves the outline and the name; what the colour changes is the page's own script's (it reads data-colour-value). */
+export const COLOUR_PICKER_SCRIPT = `/* colour pickers */(function () {
+  document.addEventListener("click", function (event) {
+    var pick = event.target.closest && event.target.closest(".colour-pick"); if (!pick) return;
+    var picker = pick.closest(".colour-picker");
+    picker.querySelectorAll(".colour-pick").forEach(function (each) { each.setAttribute("aria-pressed", String(each === pick)); });
+    picker.querySelector(".colour-picker-name").textContent = pick.getAttribute("aria-label");
+  });
+})();
+`;
+
 /** A place in a sidebar or a menu: a link, or a button that posts a form (like Sign out). */
 export interface PlaceItem {
   label: string;
@@ -304,7 +360,7 @@ export function placeMarkup(place: PlaceItem, options: { isMenuItem?: boolean; i
   const shape = place.isCurrent ? raw(' aria-current="page"') : raw(' data-cut-line="8"');
   const role = options.isMenuItem ? raw(' role="menuitem" tabindex="-1"') : "";
   const titled = options.isCollapsed ? html` title="${place.label}" aria-label="${place.label}"` : "";
-  const inside = html`${place.isCurrent ? html`<span class="place-slab cut-raised" data-cut-line="8" data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${words}${place.badgeCount ? html`<span class="place-count">${place.badgeCount}</span>` : ""}`;
+  const inside = html`${place.isCurrent ? html`<span class="place-slab cut-raised" data-cut-line="8" data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${words}${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
   return place.action !== undefined
     ? html`<form class="place-form" method="post" action="${place.action}"><button type="submit"${shape}${role}${titled} class="place">${inside}</button></form>`
     : html`<a href="${place.href ?? "#"}"${place.extra ?? ""}${shape}${role}${titled} class="place">${inside}</a>`;
@@ -768,7 +824,7 @@ const SWATCHES: { token: string; note: string }[] = [
   { token: "--run", note: "What you act on" },
   { token: "--run-hi", note: "Its light" },
   { token: "--run-lo", note: "Its shade" },
-  { token: "--chip-face", note: "Updated tag" },
+  { token: "--tag-new", note: "A new thing's tag" },
   { token: "--danger", note: "A delete's confirm step only" },
 ];
 
@@ -784,49 +840,59 @@ component({
 /* Colour: the gallery's swatches. */
 .swatch-pane { width: 100%; }
 .swatches { list-style: none; margin: 0; padding: var(--pad-pane); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
-.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: 500 13px var(--display); }
+.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: var(--type-facts); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
-.swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
+.swatches code { font: var(--type-code); }
+.divider-sample { display: grid; padding: var(--pad-pane); width: min(300px, 100%); }
+.divider-sample strong { font: var(--type-name); }
+.divider-sample span { font: var(--type-facts); color: var(--muted); }
+.divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
     { label: "Every token", markup: swatches(), isWide: true },
+    {
+      label: "The divider: a line between two parts of one pane",
+      markup: html`<div class="glass divider-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>`,
+    },
   ],
 });
+
+/** The type tokens, each with what it's for and a line set in it. */
+const TYPE_TOKENS: { token: string; use: string; sample: string; isMuted?: boolean }[] = [
+  { token: "--type-title", use: "a game's title", sample: "Ashen Crown" },
+  { token: "--type-heading", use: "a pane's heading", sample: "Welcome back" },
+  { token: "--type-section", use: "a row, a section", sample: "Continue playing" },
+  { token: "--type-name", use: "a name in a pane, a menu's head", sample: "emma_r" },
+  { token: "--type-label", use: "a field's label, a question", sample: "When's your birthday?" },
+  { token: "--type-words", use: "a line of words, an error", sample: "Liam and Sofia are playing" },
+  { token: "--type-reading", use: "a paragraph to read", sample: "A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself." },
+  { token: "--type-note", use: "a note under something, a footer", sample: "Zaisma is open source, under the MIT license.", isMuted: true },
+  { token: "--type-facts", use: "facts under a cover, a caption, a small heading", sample: "2 hours ago · 1,204 playing", isMuted: true },
+  { token: "--type-tag", use: "a Tag", sample: "Updated" },
+  { token: "--type-code", use: "a token or a value", sample: "--gap-block-block" },
+];
 
 component({
   name: "Type",
   slug: "type",
   group: "foundations",
-  summary: "Jost for headings, names and controls; the system's own face for reading. Words are 16px in fields, so phones don't zoom in.",
+  summary: "Every word outside a control's own inside is set in one of these, picked by what the words are. Jost for display, the system's own face for reading; fields are 16px or more, so phones don't zoom in.",
   styles: `
-/* Type: Jost for display, the system face for body text. */
-.type-sample { width: 100%; display: grid; gap: var(--gap-block-block); color: var(--ink); }
-.type-sample .d40 { font: 600 40px/1.04 var(--display); letter-spacing: -0.01em; }
-.type-sample .d30 { font: 600 30px/1.1 var(--display); }
-.type-sample .d22 { font: 600 22px var(--display); }
-.type-sample .d17 { font: 500 17px var(--display); }
-.type-sample .d15 { font: 500 15px var(--display); }
-.type-sample .b15 { font: 15px/1.5 var(--body); color: var(--ink-2); max-width: 60ch; }
-.type-sample .b13 { font: 500 13px/1.3 var(--display); color: var(--muted); }
-.type-sample small { font: 500 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-left: var(--gap-words-words); }
-@media (max-width: 760px) { .type-sample small { display: block; margin: 0; } .type-sample .d40 { font-size: 32px; } }
+/* Type: each token, set in itself. */
+.type-sample { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-block-block); color: var(--ink); }
+.type-sample li { display: grid; gap: var(--gap-words-words); }
+.type-sample code { font: var(--type-code); color: var(--muted); }
+.type-sample .is-muted { color: var(--muted); }
+.type-sample p { margin: 0; max-width: 60ch; }
 `,
   examples: [
     {
-      label: "Sizes",
+      label: "Every token",
       isWide: true,
-      markup: html`<div class="type-sample">
-  <div class="d40">Ashen Crown<small>Jost 600, 40px: a game's title</small></div>
-  <div class="d30">Welcome back<small>Jost 600, 30px: a pane's heading</small></div>
-  <div class="d22">Continue playing<small>Jost 600, 22px: a row</small></div>
-  <div class="d17">Your profile<small>Jost 500, 17px: a menu, a wheel</small></div>
-  <div class="d15">Home · Your games<small>Jost 500, 15px: tabs, buttons</small></div>
-  <p class="b15">A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself as you open shortcuts.<small>System, 15px: reading</small></p>
-  <div class="b13">2 hours ago · 1,204 playing<small>Jost 500, 13px: facts under a cover</small></div>
-</div>`,
+      markup: html`<ul class="type-sample">${TYPE_TOKENS.map(({ token, use, sample, isMuted }) => html`<li><code>${token}: ${use}</code><p${isMuted ? raw(' class="is-muted"') : ""} style="font:var(${token})">${sample}</p></li>`)}</ul>`,
     },
   ],
 });
@@ -853,38 +919,7 @@ export function pageSettingsAttributes(settings: PageSettings): Raw {
   return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColour && HEX_COLOUR.test(hueColour) ? html` style="--glass-hue:${hueColour}"` : ""}`;
 }
 
-/** Game-like colours for the gallery's hue example. */
-const HUE_EXAMPLES: { label: string; hexColour: string }[] = [
-  { label: "Crimson", hexColour: "#C8384A" },
-  { label: "Emerald", hexColour: "#2E9E6B" },
-  { label: "Violet", hexColour: "#7A4FD8" },
-  { label: "Gold", hexColour: "#D9A520" },
-];
-
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
-
-component({
-  name: "Page settings",
-  slug: "page-settings",
-  group: "foundations",
-  summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
-  styles: `
-.setting-picks .hue-dot { position: relative; z-index: 2; width: 12px; height: 12px; border-radius: 50%; }
-.setting-picks [aria-pressed="true"] > .face { background: var(--btn-hover); box-shadow: inset 0 -3px 0 var(--run); }
-`,
-  examples: [
-    {
-      label: "Light or dark: the whole gallery follows",
-      isWide: true,
-      markup: html`<div class="setting-picks control-row" role="group" aria-label="Light or dark">${(["light", "dark"] as const).map((theme) => html`<button type="button" class="cut-btn shell" data-setting-theme="${theme}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>${theme === "light" ? "Light" : "Dark"}</span></span></button>`)}</div>`,
-    },
-    {
-      label: "Glass: its hue, on every piece of glass in the gallery at once",
-      isWide: true,
-      markup: html`<div class="setting-picks control-row" role="group" aria-label="The glass's hue"><button type="button" class="cut-btn shell" data-setting-hue="" aria-pressed="true"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>None</span></span></button>${HUE_EXAMPLES.map((hue) => html`<button type="button" class="cut-btn shell" data-setting-hue="${hue.hexColour}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<i class="hue-dot" style="background:${hue.hexColour}"></i><span>${hue.label}</span></span></button>`)}</div>`,
-    },
-  ],
-});
 
 component({
   name: "Glass",
@@ -898,8 +933,8 @@ component({
 .glass-strip > i:nth-child(1) { left: 6%; top: -30px; background: #F7931A; }
 .glass-strip > i:nth-child(2) { left: 38%; top: 40px; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
 .glass-strip > i:nth-child(3) { right: 8%; top: 10px; background: #1E9C8E; }
-.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: 500 15px/1.4 var(--display); }
-.glass-strip .glass strong { display: block; font: 600 17px var(--display); }
+.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
+.glass-strip .glass strong { display: block; font: var(--type-name); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
    What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */
@@ -919,14 +954,14 @@ component({
 .glass-window.is-moving { cursor: grabbing; }
 .glass-window:focus-visible { outline: none; }
 .glass-window:focus-visible .edge .hair, .glass-window:focus-visible .edge .rim { stroke: var(--focus); stroke-width: 2; }
-.glass-window strong { font: 600 17px var(--display); }
-.glass-window .glass-note { font: 500 14px/1.4 var(--display); color: var(--ink-2); }
-.glass-window .glass-size { margin-top: auto; font: 600 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.glass-window strong { font: var(--type-name); }
+.glass-window .glass-note { font: var(--type-note); color: var(--ink-2); }
+.glass-window .glass-size { margin-top: auto; font: var(--type-code); color: var(--muted); }
 .glass-window .glass-grip { position: absolute; z-index: 4; right: 0; bottom: 0; width: 30px; height: 30px; cursor: nwse-resize; color: var(--muted); }
 .glass-window .glass-grip svg { position: absolute; right: 0; bottom: 0; width: 30px; height: 30px; }
 @container (max-height: 120px) { .glass-window .glass-note { display: none; } }
 @container (max-height: 76px) { .glass-window .glass-size { display: none; } }
-@container (max-width: 150px) { .glass-window .glass-note { display: none; } .glass-window strong { font-size: 14px; } }
+@container (max-width: 150px) { .glass-window .glass-note { display: none; } .glass-window strong { font: var(--type-label); } }
 @media (prefers-reduced-motion: reduce) { .glass-play > i { animation: none; } }
 `,
   examples: [
@@ -984,8 +1019,8 @@ component({
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
-.backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: 500 14px/1.4 var(--display); color: var(--ink-2); }
-.backdrop-frame .glass strong { font: 600 17px var(--display); color: var(--ink); }
+.backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
+.backdrop-frame .glass strong { font: var(--type-name); color: var(--ink); }
 `,
   examples: [
     { label: "Zaisma's own: behind every page", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
@@ -1002,7 +1037,7 @@ component({
   styles: `
 /* Icons: the set, with names. */
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
-.icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); font: 500 13px var(--display); color: var(--ink-2); }
+.icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
 .icon-set .play { color: var(--ink); }
 `,

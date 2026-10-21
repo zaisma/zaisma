@@ -4,7 +4,7 @@ import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { CUT_LINE, EDGE, WORDMARK, backdrop, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
-import { cutButton, runButton } from "./components/actions.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
 import { sidebar } from "./components/navigation.ts";
@@ -33,18 +33,16 @@ function examples(each: Component): Raw {
 
 function section(each: Component, theme: GalleryTheme): Raw {
   return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
-<div class="component-head glass" data-glass data-glass-corners="24 20 24 20"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p></div>
+<div class="component-head glass" data-glass data-glass-corners="24 20 24 20"><h2 id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p>${each.summary}</p></div>
 ${examples(each)}
 </section>`;
 }
 
 /** The sun and the moon, from the sign-in draft's theme control. */
-const SUN = raw('<svg class="theme-sun" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>');
-const MOON = raw('<svg class="theme-moon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M15.5 12.6A6.6 6.6 0 0 1 7.4 4.5a6.6 6.6 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>');
 
 /** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. */
 const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
-  html`<a class="shell cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}${SUN}${MOON}</span></a>`;
+  cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}`, icon: "light-dark", isLabelHidden: true });
 
 function head(title: string): Raw {
   return html`<meta charset="utf-8">
@@ -95,7 +93,7 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 export const GALLERY_STYLES = `
 /* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labelled cells. */
 html { scroll-padding-top: 96px; }
-body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
+body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
 .stage { padding-top: var(--pad-pane); }
@@ -103,11 +101,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-words); padding: var(--pad-inner-pane);
   --glass-tint: var(--glass-top); }
 .gallery-bar .logo svg { height: 24px; }
-.gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: 1px solid var(--line); }
-.theme-button { margin-left: auto; }
-.theme-button > .face { width: 52px; padding: 0; }
-.theme-button .theme-sun, .theme-button .theme-moon { position: relative; z-index: 2; flex: none; }
-.stage[data-theme-choice="dark"] .theme-sun, .stage:not([data-theme-choice="dark"]) .theme-moon { display: none; }
+.gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
+.gallery-bar > .cut-btn { margin-left: auto; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
 .gallery-groups { display: none; }
@@ -116,17 +111,15 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: 96px; }
 .component-head { padding: var(--pad-pane); margin-bottom: var(--gap-block-block); }
-.component-head h2 { margin: 0; font: 600 24px var(--display); }
-.component-head h2 a { color: inherit; text-decoration: none; }
+.component-head h2 { margin: 0; font: var(--type-section); }
 .component-head p { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
-.component-head a:not(h2 a) { color: var(--ink); text-decoration-color: var(--run); text-underline-offset: 3px; }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
 .example-stage > * { max-width: 100%; }
 /* What the example is: a few quiet words just under it. */
 .example { gap: var(--gap-words-control); }
-.example-name { margin: 0; font: 500 12px/1.3 var(--display); color: var(--muted); }
+.example-name { margin: 0; font: var(--type-facts); color: var(--muted); }
 .example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 0; }
 .example-pane { width: min(380px, 100%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .example-wide { width: 100%; padding: var(--pad-pane); }
@@ -149,7 +142,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
 .stand-in-page { padding: 100px 18px 160px; }
-.stand-in-page h3 { margin: var(--gap-block-block) 0 var(--gap-words-control); font: 600 20px var(--display); color: var(--ink); }
+.stand-in-page h3 { margin: var(--gap-block-block) 0 var(--gap-words-control); font: var(--type-section); color: var(--ink); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
@@ -171,12 +164,9 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
   .gallery-bar.is-compact .logo svg { height: 18px; }
-  .gallery-title { font-size: 16px; }
-  .theme-button { flex: none; }
-  .theme-button > .face { height: 40px; width: 48px; transition: height 0.25s; }
-  .gallery-bar.is-compact .theme-button > .face { height: 36px; }
+  .gallery-bar > .cut-btn > .face { height: 40px; width: 48px; transition: height 0.25s; }
+  .gallery-bar.is-compact > .cut-btn > .face { height: 36px; }
   .component-section { scroll-margin-top: 130px; }
-  .component-head h2 { font-size: 20px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .cover-sample { width: 100%; }
   .menu-frame { height: 420px; }
@@ -205,10 +195,17 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another group's page keeps it.
-  var button = document.querySelector(".theme-button");
+  var button = document.querySelector(".gallery-bar > .cut-btn");
+  // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
+  function pickTheme(theme) {
+    document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
+      var tab = sw.querySelector('button[value="' + theme + '"]');
+      if (tab && tab.getAttribute("aria-pressed") !== "true" && sw.pickTab) sw.pickTab(tab);
+    });
+  }
   function apply(theme) {
     window.zaismaSettings.set({ theme: theme }, stage);
-    document.querySelectorAll("[data-setting-theme]").forEach(function (each) { each.setAttribute("aria-pressed", each.getAttribute("data-setting-theme") === theme ? "true" : "false"); });
+    pickTheme(theme);
     if (button) { button.href = location.pathname + query(theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
     document.querySelectorAll("[data-gallery-page], .gallery-groups a").forEach(function (link) {
       var url = new URL(link.href); link.href = url.pathname + query(theme) + url.hash;
@@ -216,7 +213,7 @@ export const GALLERY_SCRIPT = pageScript(
     history.replaceState(null, "", location.pathname + query(theme) + location.hash);
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".theme-button");
+    var link = event.target.closest && event.target.closest(".gallery-bar > .cut-btn");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
@@ -316,14 +313,12 @@ export const GALLERY_SCRIPT = pageScript(
   // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
   // Page settings: the stage carries the gallery's, so a pick here changes every component in it at once.
   document.addEventListener("click", function (event) {
-    var themePick = event.target.closest && event.target.closest("[data-setting-theme]");
-    if (themePick) { apply(themePick.getAttribute("data-setting-theme")); return; }
-    var huePick = event.target.closest && event.target.closest("[data-setting-hue]");
-    if (!huePick) return;
-    window.zaismaSettings.set({ glass: { hueColour: huePick.getAttribute("data-setting-hue") || null } }, stage);
-    document.querySelectorAll("[data-setting-hue]").forEach(function (each) { each.setAttribute("aria-pressed", each === huePick ? "true" : "false"); });
+    var themePick = event.target.closest && event.target.closest("[data-setting-theme] button");
+    if (themePick) { apply(themePick.value); return; }
+    var huePick = event.target.closest && event.target.closest("[data-setting-hue] .colour-pick");
+    if (huePick) window.zaismaSettings.set({ glass: { hueColour: huePick.getAttribute("data-colour-value") || null } }, stage);
   });
-  document.querySelectorAll("[data-setting-theme]").forEach(function (each) { each.setAttribute("aria-pressed", each.getAttribute("data-setting-theme") === stage.dataset.themeChoice ? "true" : "false"); });
+  pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
     var win = play.querySelector(".glass-window"), grip = win.querySelector(".glass-grip"), readout = win.querySelector(".glass-size");
     var MIN_W = 64, MIN_H = 40;
@@ -358,11 +353,8 @@ export const GALLERY_SCRIPT = pageScript(
   });
   // The glass button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
-    var swatch = event.target.closest && event.target.closest("[data-tint-choice]"); if (!swatch) return;
-    var box = swatch.closest("[data-tint-try]");
-    box.querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-tint-choice"));
-    box.querySelectorAll("[data-tint-choice]").forEach(function (each) { each.setAttribute("aria-pressed", String(each === swatch)); });
-    box.querySelector(".tint-name").textContent = swatch.getAttribute("aria-label");
+    var swatch = event.target.closest && event.target.closest("[data-tint-try] .colour-pick"); if (!swatch) return;
+    swatch.closest("[data-tint-try]").querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-colour-value"));
   });
 })();
 `,

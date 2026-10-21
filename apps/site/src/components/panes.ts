@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { EDGE, ago, icon, placeMarkup, type IconName, type PlaceItem } from "./foundations.ts";
+import { EDGE, ago, icon, placeMarkup, tag, type IconName, type PlaceItem } from "./foundations.ts";
 import { glanceFacts, pictureFrame, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { birthdayField, cutField } from "./inputs.ts";
@@ -54,7 +54,7 @@ function coverFacts(facts: GlanceFacts): Raw {
   const friends = facts.friends ?? [];
   const left =
     facts.playedAtMs !== undefined
-      ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`<span class="chip">Updated</span>` : ""}`
+      ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`${tag("Updated", "new")}` : ""}`
       : friends.length
         ? html`<span class="friends"><span class="faces control-row">${friends.map((friend) => pictureFrame(friend.username, "xs"))}</span><span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
         : "";
@@ -128,10 +128,10 @@ const MENU_STYLES = `
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
-.menu-head { display: flex; flex-direction: column; padding: 0 14px var(--gap-words-control); margin-bottom: var(--gap-words-control); border-bottom: 1px solid var(--line); }
-.menu-head strong { font: 600 17px var(--display); color: var(--ink); }
-.menu-head span { color: var(--muted); font-size: 13px; }
-.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+.menu-head { display: flex; flex-direction: column; padding: 0 14px var(--gap-words-control); margin-bottom: var(--gap-words-control); border-bottom: var(--divider); }
+.menu-head strong { font: var(--type-name); color: var(--ink); }
+.menu-head span { color: var(--muted); font: var(--type-facts); }
+.menu hr { border: 0; border-top: var(--divider); margin: 6px 4px; }
 @media (prefers-reduced-motion: reduce) { .menu { transition: var(--glass-transition); } }
 `;
 
@@ -145,7 +145,7 @@ const PANE_STYLES = `
 .glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); margin-right: 10px; }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
-.glass-pane h2 { margin: 0; font: 600 26px/1.1 var(--display); text-wrap: balance; }
+.glass-pane h2 { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }
 /* The scrollbar is a sliver of the same glass: a clear track, a bright bevelled thumb, kept clear of the cut corners. */
 @supports not selector(::-webkit-scrollbar) { .glass-pane > .pane-in { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.9) rgba(255,255,255,0.14); } }
@@ -177,7 +177,7 @@ const COVER_STYLES = `
 .cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
-.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: 500 13px/1.3 var(--display); color: var(--muted); white-space: nowrap; }
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: var(--type-facts); color: var(--muted); white-space: nowrap; }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
@@ -301,7 +301,7 @@ component({
   styles: `
 /* Spacing: the space each example is about, hatched over it. */
 .spacing-example { display: grid; gap: var(--gap-words-control); justify-items: start; width: 100%; }
-.spacing-example > code { font: 600 13px ui-monospace, Menlo, monospace; color: var(--ink); }
+.spacing-example > code { font: var(--type-code); color: var(--ink); }
 .spacing-mark { position: absolute; z-index: 6; pointer-events: none;
   background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 34%, transparent) 0 1.5px, transparent 1.5px 5px);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 40%, transparent); }
