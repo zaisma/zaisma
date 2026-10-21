@@ -119,9 +119,14 @@ if (window.ResizeObserver) new ResizeObserver(measureMore).observe(pane.moreIn);
 // cover (taller than any title in words), so Play is in view as the page opens on any screen; measured as it opens and when the window
 // changes size, never as focus moves, so nothing shifts.
 const home = pane.box.parentElement;
+// The staged pane's width as the page's CSS has it (--stage-w), measured on a stand-in, since a docked pane isn't at it.
+function stageWidthPx() {
+  const probe = make("div"); probe.style.cssText = "position:absolute;visibility:hidden;width:var(--stage-w)";
+  home.append(probe); const widthPx = probe.offsetWidth; probe.remove(); return widthPx;
+}
 function measureStage() {
   const openPx = pane.box.classList.contains("is-pane-open") ? pane.more.offsetHeight : 0;
-  const stagedPx = isPhone() ? pane.box.offsetWidth : Math.min(520, home.clientWidth);
+  const stagedPx = isPhone() ? pane.box.offsetWidth : stageWidthPx();
   const coverPx = Math.max((stagedPx - (pane.box.offsetWidth - pane.head.clientWidth)) * 9 / 16, pane.head.offsetHeight);
   // On a wide screen the tray with "More games" sits under the staged pane, so it's kept on screen too (measured from what's on it,
   // since a docked pane's tray is tucked away).

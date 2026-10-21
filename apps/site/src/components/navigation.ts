@@ -453,12 +453,20 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
     if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
-    function ends() {
-      var max = row.scrollWidth - row.clientWidth;
-      row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
-      row.classList.toggle("is-scrollable-sideways", max > 1);
+    // More that way is something shown running past that edge: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never
+    // counts, so a row whose box only rounds a few pixels wider than what it shows (a phone's emulator) never fades.
+    function shownSpan() {
+      var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity;
+      Array.prototype.forEach.call(row.querySelectorAll(":scope > *, :scope > * > *"), function (el) {
+        if (el.classList.contains("folded") || el.hasAttribute("aria-hidden") || el.children.length && el.parentElement === row && el.querySelector(":scope > a, :scope > button, :scope > .cover")) return;
+        var r = el.getBoundingClientRect(); if (r.width < 1 || /^(absolute|fixed)$/.test(getComputedStyle(el).position)) return;
+        left = Math.min(left, r.left); right = Math.max(right, r.right);
+      });
+      return left === Infinity ? { before: 0, after: 0 } : { before: box.left - left, after: right - box.right };
     }
-    row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }, { passive: true });
+    function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
+    function ends() { var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    row.addEventListener("scroll", fades, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
   });

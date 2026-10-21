@@ -333,7 +333,9 @@ html[data-home-start][style*="--home-tone"] body { background-color: var(--home-
 html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--home-glass-tint); }
 html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; container-type: inline-size;
-  --stage-w: min(520px, 100cqw); }
+  /* The staged pane: up to 520px, but no more than 45% of the page's width, and only as wide as leaves about a third of the window's
+     height for the world above it (its cover grows with it, 9 wide to 5 tall, the rest of it about 160px); never narrower than docked. */
+  --stage-w: max(390px, min(520px, 45cqw, (0.65 * (100svh - var(--header-room)) - 160px) * 1.78)); }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 /* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
    the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
