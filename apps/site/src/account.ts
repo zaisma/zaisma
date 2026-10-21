@@ -1201,14 +1201,16 @@ function usernameCutField(given: JoinGiven): Raw {
 
 const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
 
-/** Step A: a username and a password, or Google or Discord instead. The account is made here. */
+/** Step A: a username and a password, or Google or Discord instead (then a username on its own, joinUsernamePage). The account is made here. */
 async function joinAccountPage(env: Env, next: string | null, error?: string, given: JoinGiven = {}): Promise<Response> {
   const providers = await providersOn(env);
   const game = await askingGame(env, next);
+  // With Google or Discord to choose from, the step is choosing how you'll sign in; their way picks the username on the next step.
+  const title = providers.length ? "How will you sign in?" : "Pick a username";
   return signInPage(
     env,
-    "Pick a username",
-    html`${paneHeading("Pick a username", game)}
+    title,
+    html`${paneHeading(title, game)}
 ${providers.length ? html`<div class="ways">${providerButtons(providers, next)}</div><p class="or">or a username and password</p>` : ""}
 <form method="post" action="/join/account" id="join-form">
 ${nextField(next)}

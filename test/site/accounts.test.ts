@@ -453,7 +453,7 @@ describe("making an account", () => {
   it("takes the birthday from the wheels as one date", async () => {
     const b = new Browser();
     const answered = await b.go("/join/age", { birthday: `${thisYear - 30}-05-20` });
-    expect(await answered.text()).toContain("Pick a username");
+    expect(await answered.text()).toMatch(/<h1>(How will you sign in\?|Pick a username)<\/h1>/);
     expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Wheel_Owl", password: PASSWORD })).headers.get("location")).toBe("/join/play");
     expect(await accountById(env.DB, await idOf("Wheel_Owl"))).toMatchObject({ age_band: "18+" });
     const wrong = await new Browser().go("/join/age", { birthday: "2010-02-30" });
