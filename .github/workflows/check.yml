@@ -6,6 +6,10 @@
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
+# The engine exports take the longest, so a pull request runs them only when its branch changes code they play
+# (ENGINES_PATH in scripts/ship-github-check.mjs, the same paths as "What changed" below); a push to main always
+# runs them. A run that skipped them still passes "Tests and typecheck", and npm run ship counts it only with an
+# Engine exports pass on the main commit the pull request was cut from (applyEnginesProof, same file).
 # A pull request's run tests its branch exactly as it is, not merged with main: the ruleset makes a
 # branch up to date before it merges, so main's merge commit then has exactly the code that passed,
 # and npm run ship counts that run instead of waiting for the same tests on main.
@@ -31,6 +35,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
+      is_engines_changed: ${{ steps.diff.outputs.is_engines_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,14 +47,23 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           # A pull request: what its branch changed since it left main. A push: what the push changed.
           RANGE_DOTS: ${{ github.event_name == 'pull_request' && '...' || '..' }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "No earlier commit to compare with: running everything."
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
+            echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed_paths="$(git diff --name-only "$BASE_SHA$RANGE_DOTS$HEAD_SHA")"
           echo "$changed_paths"
+          # Every push to main plays the engine samples; a pull request, only when its branch changes code they play.
+          if [ "$EVENT_NAME" != pull_request ] || echo "$changed_paths" | grep -qE '^(apps/(site|games|compress)/|packages/(core|sdk|cli|game-server)/|migrations/|scripts/(preview|engines)/|test/engines/|\.github/workflows/check\.yml$|package(-lock)?\.json$)'; then
+            echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing the engine exports play changed: skipping them."
+            echo "is_engines_changed=false" >> "$GITHUB_OUTPUT"
+          fi
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
             echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
@@ -97,11 +111,11 @@ jobs:
       - run: npm run typecheck
 
   # The engine samples (test/engines) through the real upload command, scan and game page, on the
-  # preview with its stand-ins, played in headless Chrome (scripts/engines/play.mjs).
+  # preview with its stand-ins (seeded with only the samples), played in headless Chrome (scripts/engines/play.mjs).
   engines:
     name: Engine exports
     needs: changes
-    if: needs.changes.outputs.is_code_changed == 'true'
+    if: needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_engines_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -113,7 +127,7 @@ jobs:
           node-version: lts/*
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm run preview:start -- --reset
+      - run: npm run preview:start -- --reset --engines-only
       - run: npm run engines:play
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log .wrangler/preview/games.log || true
@@ -146,13 +160,18 @@ jobs:
       - env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
+          IS_ENGINES_CHANGED: ${{ needs.changes.outputs.is_engines_changed }}
           TESTS_RESULT: ${{ needs.tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
-          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$ENGINES_RESULT" = success ]; then exit 0; fi
+          # Engine exports passed, or was skipped because the pull request changed nothing it plays (a failure is never a skip).
+          engines_ok=false
+          if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi
+          if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1

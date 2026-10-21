@@ -2,6 +2,7 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { build } from "esbuild";
 import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
+import { BalancedShardSequencer } from "./test/shards.ts";
 
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
@@ -107,6 +108,8 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
 
 export default defineConfig({
   test: {
+    // GitHub's check runs the tests in six shards: dealt out by each file's cost, not by a hash of its path (test/shards.ts).
+    sequence: { sequencer: BalancedShardSequencer },
     projects: [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.

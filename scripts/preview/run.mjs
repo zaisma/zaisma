@@ -36,8 +36,13 @@ const EMAIL = "preview@zaisma.test";
 // The token Cloudflare's test keys answer for (the preview uses them).
 const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
-if (process.argv.includes("--reset")) rmSync(STATE, { recursive: true, force: true });
-const fresh = !existsSync(join(STATE, "seeded"));
+// --engines-only seeds only what npm run engines:play needs (one developer and the engine samples), for GitHub's
+// "Engine exports" job: no other test games, accounts, forum or pretend traffic. The marker file says which data this is.
+const ENGINES_ONLY = process.argv.includes("--engines-only");
+const SEEDED_MARKER = join(STATE, "seeded");
+const isEnginesOnlyData = () => existsSync(SEEDED_MARKER) && readFileSync(SEEDED_MARKER, "utf8").startsWith("engines-only");
+if (process.argv.includes("--reset") || (!ENGINES_ONLY && isEnginesOnlyData())) rmSync(STATE, { recursive: true, force: true });
+const fresh = !existsSync(SEEDED_MARKER);
 mkdirSync(STATE, { recursive: true });
 
 // Settings for the preview only. --env-file replaces .dev.vars, so your own settings stay out of it.
@@ -153,7 +158,18 @@ for (let steadyCount = 0, i = 0; steadyCount < 3 && i < 120; i++) {
 if (fresh) {
   console.log("Adding test games…");
   await seed();
-  writeFileSync(join(STATE, "seeded"), new Date().toISOString());
+  writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
+}
+if (ENGINES_ONLY) {
+  const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
+  console.log(`
+Zaisma preview is running. Only the engine samples are in it, and nothing here touches the live site.
+
+  Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ")}
+                  (npm run engines:play checks that each starts and draws; npm run preview:start -- --reset adds the rest of the test data)
+`);
+  // The servers and the every-20-seconds jobs above keep this process running until it's stopped.
+  await new Promise(() => {});
 }
 // Arena runs its own game server (the zaisma-server.js in its upload) in a sandbox, like an outside
 // developer's game would; Four in a Row uses the copy built into our rooms.
@@ -480,30 +496,17 @@ async function seed() {
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
     const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    let res = await send();
-    // The seed makes more calls than the developer API takes in a minute: wait as the answer says, and go on.
-    for (let attempt = 0; res.status === 429 && attempt < 6; attempt++) {
-      const waitSec = (await res.json()).error?.retry_after_sec ?? 10;
-      await new Promise((done) => setTimeout(done, waitSec * 1000));
-      res = await send();
-    }
+    const res = await send();
     const data = await res.json();
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
-  // Seeding goes faster than a developer's 120 calls a minute, so a refused upload (exit 1) waits out the minute and tries again.
-  const upload = (folder, slug, notes) => {
-    let result;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      result = spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
-        env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
-        stdio: "ignore",
-      });
-      if (result.status !== 1) break;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000);
-    }
-    return result;
-  };
+  // The preview's site has no developer rate limit (scripts/preview/workers/site.mjs), so seeding never waits on one.
+  const upload = (folder, slug, notes) =>
+    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
+      env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
+      stdio: "ignore",
+    });
   // Scans may still be running: approve as admin so the test data is ready at once.
   const approveNewest = async (slug) => {
     const { versions } = await api("GET", `/games/${slug}`);
@@ -513,6 +516,7 @@ async function seed() {
 
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
   await seedEngineSamples(api, upload);
+  if (ENGINES_ONLY) return;
 
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
