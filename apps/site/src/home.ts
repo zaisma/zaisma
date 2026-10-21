@@ -350,6 +350,10 @@ const HOME_STYLE = pageStyle("home", () => `
 .home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
 /* A game's background: a layer over Zaisma's own, fading in when it is ready. */
+/* Zaisma's own backdrop starts unseen and fades in when it's the first background (or after a few seconds, should the script not run). */
+canvas.backdrop { opacity: 0; transition: opacity 500ms ease; animation: home-backdrop-late 0s 4s forwards; }
+canvas.backdrop.is-shown { opacity: 1; }
+@keyframes home-backdrop-late { to { opacity: 1; } }
 .home-world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .home-world.is-shown { opacity: 1; }
 /* Play: Zaisma steps aside. The glass slides off to the edges and the game's page opens over the world in place. */
@@ -370,6 +374,6 @@ const HOME_STYLE = pageStyle("home", () => `
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-pane, .home-more, .home-more-in, .home-world, .home-game, .is-playing .home-shelf { transition: none !important; }
+  .home-pane, .home-more, .home-more-in, .home-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
 }
 `);

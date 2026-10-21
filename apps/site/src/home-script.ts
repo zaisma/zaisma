@@ -128,15 +128,17 @@ function dropLayers(keep) {
 function showWorld(slug, isInstant) {
   const game = bySlug[slug], background = backgroundOf(game);
   const key = background.source + "|" + (background.imageUrl || background.frameUrl || "");
+  const isFirst = !worldKey;
   worldSlug = slug;
   if (game.glass_tint_color) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
   if (key === worldKey) return;
   worldKey = key;
-  const fadeMs = isInstant || isReduced ? 0 : 500;
+  // The page opens on its plain color and the first background fades in over it, Zaisma's or the game's, so neither shows for a frame and is swapped.
+  const fadeMs = isReduced || (isInstant && !isFirst) ? 0 : 500;
   lastFadeMs = fadeMs;
   if (background.source === "zaisma") {
     // Back to Zaisma's own: the game's layer fades out over its canvas, which draws again, and the glass goes back to the theme's.
-    if (defaultBackdrop) defaultBackdrop.removeAttribute("data-backdrop-paused");
+    if (defaultBackdrop) { defaultBackdrop.removeAttribute("data-backdrop-paused"); defaultBackdrop.classList.add("is-shown"); }
     if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
     layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
     const leaving = layers.slice();
@@ -158,7 +160,8 @@ function showWorld(slug, isInstant) {
     setTimeout(() => {
       if (worldKey !== key) return;
       dropLayers(layer);
-      if (defaultBackdrop) defaultBackdrop.setAttribute("data-backdrop-paused", "");
+      // Zaisma's own waits shown underneath, so going back to it is only the game's fading out.
+      if (defaultBackdrop) { defaultBackdrop.setAttribute("data-backdrop-paused", ""); defaultBackdrop.classList.add("is-shown"); }
     }, fadeMs + 80);
   };
   if (background.source === "image") {
