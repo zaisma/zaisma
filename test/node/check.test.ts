@@ -20,7 +20,7 @@ const page = (body: string) => `<!doctype html><title>Sky Hopper</title>${body}`
 describe("the game check", () => {
   it("finds nothing in a plain canvas game, and adds up its files", () => {
     const answer = checkGameFiles(gameOf({ "index.html": page('<canvas></canvas><script src="game.js"></script><script src="_zaisma/v1.js"></script>'), "game.js": "const ctx = canvas.getContext('2d');", "assets/hero.png": 2048 }));
-    expect(answer).toEqual({ file_count: 3, size_bytes: answer.size_bytes, problems: [], omitted_problem_count: 0 });
+    expect(answer).toEqual({ file_count: 3, size_bytes: answer.size_bytes, problems: [], omitted_problem_count: 0, performance_notes: [] });
     expect(answer.size_bytes).toBe(gameOf({ "index.html": page('<canvas></canvas><script src="game.js"></script><script src="_zaisma/v1.js"></script>') })[0]!.sizeBytes + 36 + 2048);
   });
 

@@ -14,7 +14,7 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Apps that can't send a key connect by signing in instead. In claude.ai: Settings → Connectors → Add custom connector, with `https://zaisma.com/mcp`; ChatGPT and other apps the same way, wherever they add a remote MCP server. The app opens a Zaisma page where you choose what it may do and tap your passkey, then you're back in the app with every tool working. The key command above stays the way for Claude Code and the upload command.
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `check_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -101,7 +101,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | --- | --- | --- |
 | `no_player` | 404 | No account has that player ID: a guest's, or a deleted account's. |
 
-**Covers, screenshots and other images**
+**Covers, screenshots, backgrounds and other images**
 
 | Code | HTTP | Meaning |
 | --- | --- | --- |
@@ -114,6 +114,14 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `image_refused` | 422 | The image can't be used. |
 | `no_image` | 404 | The game has no image with that ID. |
 | `no_file` | 400 | A form on Zaisma's pages was sent without its image. |
+| `bad_background_shape` | 400 | A wide background is landscape (1.3 to 2.4 times as wide as tall), a phone background portrait (1.6 to 2.4 times as tall as wide), and its long side at least 1600 px. |
+| `not_a_shader` | 415 | A shader is UTF-8 text with a mainImage function, no #extension lines, no textures and no #version line. |
+| `shader_too_big` | 413 | The shader is over 16 KB. |
+| `no_shader` | 404 | The game has no shader with that ID. |
+| `bad_screen` | 400 | screen isn't wide or phone. |
+| `bad_background_source` | 400 | source isn't zaisma, image or shader, or wide (which only phone takes). |
+| `background_not_ready` | 409 | The image or shader isn't this game's, isn't approved yet, or is for the other screen. |
+| `bad_color` | 400 | The color isn't #RRGGBB. |
 
 **Uploading versions**
 
@@ -380,7 +388,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `link_flagged` | `malware` | Cloudflare lists the link's site for malware or phishing, so the link opens for nobody. |
 | `details_rejected` | picked | A person at Zaisma didn't approve the new title or description; the message says why. |
 
-**The listing check** (covers, screenshots and titles; see Covers, screenshots and share pictures)
+**The listing check** (covers, screenshots, backgrounds and titles; see Covers, screenshots and share pictures, and Backgrounds), **and the shader check** (see Backgrounds)
 
 | Code | Rule | Meaning |
 | --- | --- | --- |
@@ -391,6 +399,10 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `tag_in_title` | none | The title carries a tag instead of only naming the game: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. "+1" and "2x" are fine. |
 | `fake_reward` | `malware` | A cover, screenshot, title or description promises a fake reward or real-money bait, like free Robux, V-Bucks, gift cards or cash; the message quotes it. Players can't open the game until a person looks. |
 | `screenshot_not_from_game` | none | The screenshot has something added after it was captured, like a caption, an arrow or circle, a sticker, a pasted logo or a device frame, so it doesn't show. The game's own interface is fine. |
+| `text_on_background` | none | A background has no title, logo or text on it; those go on the cover. The message quotes what it found. |
+| `shader_does_not_compile` | none | The shader didn't compile; the message gives the first compiler error. |
+| `shader_too_slow` | none | The shader took too long to draw a frame in the check; the message says how long, and the most it can take. |
+| `shader_flashes` | none | The shader flashes more than 3 times a second, which can cause seizures. |
 
 | Rule | What it says |
 | --- | --- |
@@ -732,7 +744,7 @@ Every game has its own SQLite database, part of its hosting: the one its game se
 
 ## Cloud saves
 
-A signed-in player's progress in a game with cloud saves on is mirrored to their account from the game's own browser saves, with no code (see "Cloud saves" in the README). You and your AI reach every player's save here, by player ID: list them, read them, fix them, reset them, and go back to earlier versions. Saves stay apart from the game database, and each stays tied to its player: deleted with their account, never shown to other games. A save is the game's localStorage, and its IndexedDB databases when it keeps any (Unity, Godot and localForage do).
+A signed-in player's progress in a game with cloud saves on is mirrored to their account from the game's own browser saves, with no code (see "Cloud saves" in the README). You and your AI reach every player's save here, by player ID: list them, read them, fix them, reset them, and go back to earlier versions. Saves stay apart from the game database, and each stays tied to its player: deleted with their account, never shown to other games. A save is the game's localStorage, and its IndexedDB databases when it keeps any (Unity, Godot and localForage do). Copying it never slows the game: only what the game changed is read again, in a worker off the thread that draws the game, and a save past 5 MB stays on the device and is read no further. Keep downloaded files in a database with "cache" in its name (like Unity's UnityCache), which saves skip, so they never count toward the save.
 
 | Call | What it does |
 | --- | --- |
@@ -854,6 +866,40 @@ curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
   -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @cover.png
 ```
 
+## Backgrounds
+
+A game's background is its world behind Zaisma's glass: on the home while the game is in focus, and on its game page. Each screen has its own: **wide** (desktops and tablets) and **phone** (composed for a tall screen). Each shows a picture, a shader, or Zaisma's own background (white glass facets with orange nodes gliding over them, graphite in dark mode); phones show the wide one until they have their own. A background is separate from the cover and carries no title, logo or words: those go on the cover.
+
+| Call | What it does |
+| --- | --- |
+| `POST /games/:slug/images?kind=background` or `?kind=phone_background` | Send a background picture, as for covers. It's checked the same way, and a newly approved one replaces the old one of its kind, on the screen showing it too. |
+| `POST /games/:slug/shaders?screen=wide` or `?screen=phone` | Send a shader: the GLSL text as the request body. Answers 201 with the `shader` (`id`, `screen`, `review_status`, `review_reason`, `check_frame_ms`, `flash_count`, `still_url`, `frame_urls`, `source_url`, `size_bytes`, `created_at`), a `review_message` and `next_steps`. Zaisma keeps a screen's newest 4 shaders besides the one it shows. |
+| `DELETE /games/:slug/shaders/:shader_id` | Remove one; answers `removed_shader_id` and both `backgrounds`. A screen showing it goes back to its default. |
+| `PUT /games/:slug/backgrounds/:screen` | Choose what `wide` or `phone` shows: `{ "source": "image", "image_id" }`, `{ "source": "shader", "shader_id" }`, `{ "source": "zaisma" }`, or on phone `{ "source": "wide" }`. Only an approved picture of the screen's kind, or an approved shader sent for that screen (`background_not_ready` otherwise). Answers the `background` (`screen`, `source`, `image_id`, `shader_id`, `still_url`). |
+| `PATCH /games/:slug` with `glass_tint_color` | A color Zaisma tints its glass with over the background, as `#RRGGBB` (`bad_color` otherwise); `null` clears it. Zaisma still decides how thick the glass is, so words stay readable. |
+
+`get_game` answers `backgrounds` (both screens, wide first, with the defaults when nothing is chosen) and `shaders` (newest first), and the background pictures are in its `images`. Choosing is its own step, so look at a shader's still and frames, or preview it live in the dashboard's Background section, before it shows anywhere.
+
+**Pictures.** A wide background is landscape, 1.3 to 2.4 times as wide as tall, at least 1600 px wide, like 2560 by 1440; a phone background is portrait, 1.6 to 2.4 times as tall as wide, at least 1600 px tall, like 1440 by 3120 (`bad_background_shape` otherwise). Leave room for the glass on the left of a wide one and on the bottom half of a phone one.
+
+**Shaders** are Shadertoy's form, which AI writes well: one function, `void mainImage(out vec4 fragColor, in vec2 fragCoord)`, that gives each pixel its color, reading `iResolution` (the screen's size in pixels, a `vec3`) and `iTime` (seconds, a `float`) only. Write any helpers above it. No textures, mouse, audio, `#extension` or `#version` lines, and no `main()`: Zaisma adds them. UTF-8, up to 16 KB (`not_a_shader`, `shader_too_big`). The names stay Shadertoy's on purpose (see `shader` in [`docs/NAMING.md`](NAMING.md)).
+
+**The check.** Before anyone sees a shader, Zaisma draws it on a software renderer (headless Chromium on Cloudflare, WebGL through SwiftShader), in a page that loads nothing, usually within a minute:
+
+- It must compile (`shader_does_not_compile`, with the compiler's first error).
+- 90 frames at 640 by 360 (360 by 640 for phone) are timed. `check_frame_ms` is their median, scaled to the renderer's speed on Zaisma's own background in the same browser, and the most is 75 ms (`shader_too_slow`). Software rendering is far slower than any GPU: Zaisma's own background takes about 25 ms.
+- Their brightness is read for flashes: a change of at least 10% that turns back within 3 frames, as WCAG 2.3.1 counts them. More than 3 in any one second is refused (`shader_flashes`): flashing can cause seizures. `flash_count` is the most it counted.
+- A still frame at 2 seconds (1920 by 1080, or 1080 by 1920 for phone) and 6 frames over its first 30 seconds are saved (`still_url`, `frame_urls`), and go through the same safety checks as pictures: image matching, and the listing check, where words or a logo in them is `text_on_background`.
+
+**Running.** A chosen shader runs on the game's own site, in a frame behind Zaisma's glass, like any game file: at about half resolution and at most 30 frames a second, with fewer pixels, then a still frame, on a device that can't keep up, and its still alone under reduced motion and where WebGL can't run. The glass over it bends its light at the edges, and Zaisma picks light or smoked glass from its still, so words over it stay readable.
+
+```bash
+curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/shaders?screen=wide" \
+  -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @background.glsl
+curl -X PUT "https://zaisma.com/api/dev/games/sky-hopper/backgrounds/wide" \
+  -H "Authorization: Bearer $ZAISMA_KEY" -H "Content-Type: application/json" -d '{"source":"shader","shader_id":"shader_8f3k2m9q1x7c4v6b0n5z"}'
+```
+
 ## The developer forum
 
 Where developers and their AI talk with the people who build Zaisma, and with each other, about Zaisma itself (`apps/site/src/forum.ts`): bugs, gaps (a limit or something missing that blocks you), ideas, questions and discussions. The forum's pages at zaisma.com/forum are these same calls, and anyone can read what's public there. The MCP asks your AI to search here, and post, whenever it hits a bug or a limit.
@@ -904,7 +950,7 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | `POST /games/:slug/uploads` | Send the file list, `{"files": [{"path", "sha256", "size_bytes"}]}`. Answers `file_count`, `size_bytes` and the hashes you haven't sent yet (`missing_file_hashes`). |
 | `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. Answers `storage_status`: `stored_now`, or `already_stored` when you sent it before. |
 | `POST /games/:slug/versions` | Make the version from the same list, plus `patch_notes` (up to 2,000 characters) and optionally `"publish_when_approved": true`, which needs `version_access` `publish` (an upload key gets `key_not_allowed`). |
-| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), and `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`. |
+| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` and `preview_url_expires_at` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it), `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns), `replaced_by_version_id`: the newer version that replaced it while it waited, or `null`, and `performance_check`: how it started in Chrome (see How it started in Chrome, below). |
 | `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"scheduled_publish_at": "2026-11-01T17:00:00Z"}` (an ISO time; numbers are refused) it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/preview-links` | Turn off every preview link handed out so far for this version, and every browser that opened one. The next `preview_url` works again. Answers with the `version`. |
@@ -918,13 +964,43 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 - Drafts nobody publishes are deleted after 30 days, and files no version uses after a day. Held and rejected versions are kept.
 - Publishing doesn't change visibility: a draft game stays hidden until you set it to `listed` or `unlisted`.
 
+### How it started in Chrome
+
+A minute after a version passes the scan, Zaisma has opened it in headless Chrome through its own preview link and says how it started, and what would make it much smaller, as the version's `performance_check` (in `get_version`, `get_game`, the upload command and the dashboard). They're notes: they never hold a version, and there's no score. Chrome there runs on a computer with no graphics card, so loading, memory and errors are like a player's, and frame rate isn't measured.
+
+| Field | What it holds |
+| --- | --- |
+| `check_status` | `waiting` (it passed and waits for Chrome, usually under a minute), `checking`, `checked`, `over_daily_limit` (not measured: your 20 runs today are used; versions are measured again from midnight UTC) or `could_not_run` (Chrome couldn't run it on Zaisma's side; nothing for you to fix). |
+| `checked_at` | When the run finished, or `null`. |
+| `browser_description` | Where it ran, like `Chrome 141 on a computer with no graphics card`. |
+| `loading_duration_sec` | Seconds from opening the game until it drew its first frame (the first draw on a canvas the page shows: WebGL, WebGL 2, 2D or WebGPU); `null` when nothing was drawn. A game that hasn't drawn after 10 seconds, with nothing downloading, gets one click, since many wait for one. |
+| `start_download_size_bytes`, `start_file_count` | What was downloaded before the first frame, as sent (compressed), and how many files. |
+| `start_memory_size_bytes` | JavaScript and WebAssembly memory 5 seconds after the first frame; graphics memory isn't counted. |
+| `longest_start_task_duration_ms` | The longest the page froze in one go while starting. |
+| `notes` | Each `{ code, message, path, saved_size_bytes, fix }`: `saved_size_bytes` is about how much smaller the download gets with the fix, `null` when it isn't about size or can't be told. Run notes first, then asset notes; `[]` when there's nothing to say. |
+
+`performance_check` is `null` for versions from before it ran. Every version is measured, free, up to 20 runs a day per developer; past that a version just isn't, and nothing waits. There's no call to run it again: the next upload is measured.
+
+| Code | Meaning |
+| --- | --- |
+| `error_at_start` | The game threw an error while starting (up to 5, with the file and line). |
+| `missing_file_at_start` | The game asked for a file that isn't in the version while starting. |
+| `blocked_at_start` | An address the game loaded or connected to was blocked while starting. |
+| `no_frame_drawn` | Nothing was drawn in 120 seconds, even after a click. A game that waits for something only a player does is fine. |
+| `big_download_at_start` | Players download 200 MB or more before the first frame. |
+| `long_freeze_at_start` | The page froze for 2 seconds or more in one go while starting. |
+| `images_could_be_ktx2` | A WebGL or WebGPU game's PNG, JPEG and WebP textures of 1 MB or more, 16 MB or more in all, would be about 8 MB or more smaller as KTX2 (Basis Universal ETC1S, about 2 bits a pixel with mipmaps), and take about a quarter of the graphics memory. |
+| `audio_could_be_opus` | 8 MB or more of WAV and AIFF audio, which would be much smaller compressed (estimated as Ogg Opus at 96 kbps). |
+| `models_could_be_smaller` | 8 MB or more of glTF models with no mesh compression (meshopt or Draco). |
+| `development_build` | An engine's development or debug build, bigger and slower for players: Godot exported with Export With Debug. |
+
 ### Checking a game
 
 Before uploading, the check says everything in a game that Zaisma would refuse, or that won't work inside Zaisma's game frame, each with how to fix it. It's the same check everywhere (`packages/cli/check.mjs`): `zaisma check <folder>` on a folder, with no key and nothing sent; the MCP's `check_game` with the same files as `upload_files`; and this call. `zaisma upload` runs it first.
 
 | Call | What it does |
 | --- | --- |
-| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200) and `omitted_problem_count`. Any key, read included; it changes nothing. |
+| `POST /check` | Send `{"files": [{"path", "size_bytes", "content_text"}], "slug"}`: every file's path and size, with `content_text` for each `.html`, `.htm`, `.js`, `.mjs` and `.css` file and only for those (up to 8 MB in all). `slug` is optional: with a game you have, its own servers count as addresses the code may connect to, and the fixes name it. Answers `file_count`, `size_bytes`, `problems` (in file order, up to 200), `omitted_problem_count` and `performance_notes`. Any key, read included; it changes nothing. |
 
 Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path, quote, fix }`: `problem_kind` is `refused` (Zaisma refuses the upload as it is) or `broken` (it uploads, but that part won't work on Zaisma); `is_fixed_by_upload_command` says `zaisma upload` fixes it itself, in what it sends (`upload_files` and the API send files as they are); `quote` is the text it's about, up to 120 characters, to search the file for. The file-list codes are the API's own error codes.
 
@@ -950,6 +1026,8 @@ Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path
 | `outside_frame` | broken | no | A frame of another site, which games can't show. |
 | `blocked_feature` | broken | no | Camera, microphone, screen capture, location, payments, USB, serial, Bluetooth or HID, which games on Zaisma can't use. |
 
+`performance_notes` are the asset notes of How it started in Chrome (`images_could_be_ktx2`, `audio_could_be_opus`, `models_could_be_smaller`, `development_build`), each `{ code, message, path, saved_size_bytes, fix }`. They never stop an upload, and `zaisma check` prints them under "Could be smaller" without changing its exit code. Image sizes, sound lengths and models are read from the files' first bytes, so the API, which gets only sizes for them, gives only `development_build`; `zaisma check` gives them all.
+
 - **Threaded engine builds** (Godot with Thread Support, Unity with Native C/C++ Multithreading, Rust built with `atomics`) need cross-origin isolation, which game pages don't have, so they don't start: export without threads, the default in Godot 4.3 and newer and in Unity.
 - **Outside addresses** found while the code runs can be a file or the game's own server, so the check doesn't guess: a server goes in `own_server_urls` (`zaisma own-servers`, or `update_game`), a file in the game. The check never adds a server by itself.
 - What a game's code is checked for skips engine and library output (Unity's `.framework.js` and `.loader.js`, a `.js` beside a `.wasm` of the same name or its `_bg.wasm` (wasm-bindgen and Trunk), macroquad's `mq_js_bundle.js`, `*.min.js`), which mentions dialogs or cameras without the game using them, and comments, which say what code could do rather than what it does. A dialog shown only when the game fails to load, like the one in Unity's page template, isn't a problem: the game itself works.
@@ -965,7 +1043,9 @@ Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
 
 Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.
 
-Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+Zaisma sends every file that shrinks compressed with Brotli, Unity's and Godot's data files included, from a cache near players, and each file's ETag is its SHA-256, so a returning player downloads only what changed. Your game's pages open at their version's own address, `/_zaisma/versions/<version_id>/`, so the files they load by a relative path are kept by the player's browser for good and a returning player's game starts without asking about them; a file named by its full path (`/Build/game.data`) still works and is checked on each visit. Read the room code and other settings from the query (`location.search`), which is kept, not from the path. Upload files uncompressed (the upload command unpacks compressed exports itself); what you uploaded is what players' browsers end up with, what the scan reads and what export gives back.
+
+The files a version needed before its first frame in its run in Chrome are preloaded with its page (up to 20, besides the ones the page names itself), so an engine's loader doesn't fetch them one after another. And on its zaisma.com page they start downloading before Play, up to 100 MB, on computers and on Android phones and tablets on Wi-Fi; never on other phones and tablets, with Data Saver, or for tester links and accounts-only games.
 
 ## The upload command
 

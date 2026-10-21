@@ -110,6 +110,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `game` | `game_…` |
 | `version` | `version_…` |
 | `image` | `image_…` |
+| `shader` | `shader_…` |
 | `tester` | `tester_…` |
 | `topic` (known issues too) | `topic_…` |
 | `post` | `post_…` |
@@ -210,6 +211,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A game's link name, as in zaisma.com/g/<slug> | `slug` | `slug` |
 | A version of a game | `version_id` | |
 | A cover or screenshot | `image_id` | |
+| A game's world behind Zaisma's glass, for one screen, and what it shows | `background`: `screen`, `source` (`zaisma`, `image`, `shader`, and on phone `wide`), `image_id`, `shader_id`, `still_url`; pictures are images of `kind` `background` and `phone_background` | |
+| Which screen a background is for | `screen`: `wide` (desktops and tablets), `phone` (composed for a tall screen); errors `bad_screen`, `bad_background_source`, `background_not_ready` | |
+| A small program that paints a background live | `shader_id`; a shader's `check_frame_ms`, `flash_count`, `still_url`, `frame_urls`, `source_url`. Its source keeps Shadertoy's names on purpose (`mainImage`, `fragColor`, `fragCoord`, `iResolution`, `iTime`), the form AI already writes, so nothing is left to guess | |
+| The color Zaisma tints its glass with over a game's background | `glass_tint_color` (`#RRGGBB`), error `bad_color` | |
 | A tester link | `tester_id` | |
 | A forum topic, a post in it | `topic_id`, `post_id` | |
 | A game named on something else, like a forum topic | `game_slug` | |
@@ -262,6 +267,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | How many days a report or stats answer covers | `period_duration_days` | |
 | What the game check finds before an upload | `problems`, each `{ code, problem_kind, is_fixed_by_upload_command, message, path, quote, fix }`, `problem_kind` `refused` or `broken`; `omitted_problem_count` | |
 | A version's scan result, and what it found that holds or rejects it | `scan_status`: `scanning`, `held`, `approved`, `rejected`; `findings`, each `{ code, severity, message, content_rule, path, fix }` | |
+| How a version started in headless Chrome, and what would make it much smaller (notes, never holds) | `performance_check`: `{ check_status, checked_at, browser_description, loading_duration_sec, start_download_size_bytes, start_file_count, start_memory_size_bytes, longest_start_task_duration_ms, notes }`, `check_status` `waiting`, `checking`, `checked`, `over_daily_limit`, `could_not_run`; a performance note `{ code, message, path, saved_size_bytes, fix }`; the game check's `performance_notes`. Inside: `performance_checks.start_files`, each `{ path, destination, is_cors_request, downloaded_size_bytes }` | `PERFORMANCE_CHECK_LIMITS` |
 | The AI review's two daily limits, and a version that steps aside for a newer one | a large review (read and judged: `daily_large_reviews_used`) and a small review (read alone: `daily_small_reviews_used`), never "judged review"; `replaced_by_version_id` (`version_replaced`). Inside: `read_at_ms` (when a version's small review ran), `is_small_review` in a scan report, and in the admin MCP `changes_since` with `added_paths`, `changed_paths`, `removed_paths` and their `*_path_count` | `REVIEW_LIMITS.maximumLargeReviewsPerDay`, `maximumSmallReviewsPerDay` |
 | A sample game in the review test set, and what a run found | `is_honest`, `content_rule`, `protection`, `why` (in `case.json`); `outcome`: `held_bad`, `missed_bad`, `passed_honest`, `held_honest`, `inconsistent` (Zaisma's own code) | |
 | Zaisma's review of a game | `review_status`: `pending`, `live`, `held`, `removed` | |

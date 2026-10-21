@@ -1,4 +1,5 @@
 // Types for check.mjs, so the site imports the game check type-checked.
+import type { PerformanceNote } from "./performance.mjs";
 
 export type CheckProblemCode =
   | "no_index_html"
@@ -28,6 +29,8 @@ export interface CheckedFile {
   sizeBytes: number;
   /** The file's text for the checked text files (CHECKED_TEXT_EXTENSIONS), null for the rest. */
   contentText: string | null;
+  /** The first bytes performance.mjs's assetHeadSizes asks for; left out, its notes skip the file. */
+  headBytes?: Uint8Array | null;
 }
 
 export interface CheckProblem {
@@ -45,6 +48,7 @@ export interface GameCheck {
   size_bytes: number;
   problems: CheckProblem[];
   omitted_problem_count: number;
+  performance_notes: PerformanceNote[];
 }
 
 export type ReferenceKind = "script" | "module" | "style" | "file" | "import_map";

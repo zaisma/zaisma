@@ -1,11 +1,13 @@
 import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_HOUR_CPU_DURATION_SEC, PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC, PLAYER_HOUR_RELAYED_SIZE_BYTES, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
-import type { Env } from "./env.ts";
+import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
+import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
+import { EDGE } from "./components/foundations.ts";
 
 /**
  * The developer dashboard: your games, and a manager for each one. Every read and every change is a
@@ -44,6 +46,7 @@ interface GameJson {
   links: LinkJson[];
   details_waiting_for_review: { title: string | null; description: string | null } | null;
   title_listing_reason: ReviewReasonJson | null;
+  glass_tint_color: string | null;
   updated_at: string;
 }
 /** A registered link, as the API answers it (apps/site/src/schemas.ts, LINK). */
@@ -63,12 +66,32 @@ interface GameAlertJson {
 }
 interface ImageJson {
   id: string;
-  kind: "cover" | "square" | "screenshot" | "share";
+  kind: "cover" | "square" | "screenshot" | "share" | "background" | "phone_background";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
   listing_reason: ReviewReasonJson | null;
   image_url: string;
   created_at: string;
+}
+/** A background shader, and what each screen shows (apps/site/src/schemas.ts, SHADER and BACKGROUND). */
+interface ShaderJson {
+  id: string;
+  screen: "wide" | "phone";
+  review_status: "pending" | "approved" | "rejected";
+  review_reason: ReviewReasonJson | null;
+  check_frame_ms: number | null;
+  flash_count: number | null;
+  still_url: string | null;
+  frame_urls: string[];
+  source_url: string;
+  created_at: string;
+}
+interface BackgroundJson {
+  screen: "wide" | "phone";
+  source: "zaisma" | "image" | "shader" | "wide";
+  image_id: string | null;
+  shader_id: string | null;
+  still_url: string | null;
 }
 interface VersionJson {
   id: string;
@@ -85,6 +108,14 @@ interface VersionJson {
   review_reason: ReviewReasonJson | null;
   findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
   replaced_by_version_id: string | null;
+  performance_check: PerformanceCheckJson | null;
+}
+interface PerformanceCheckJson {
+  check_status: "waiting" | "checking" | "checked" | "over_daily_limit" | "could_not_run";
+  loading_duration_sec: number | null;
+  start_download_size_bytes: number | null;
+  start_memory_size_bytes: number | null;
+  notes: { code: string; message: string; path: string | null; fix: string }[];
 }
 
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
@@ -118,6 +149,10 @@ const DONE: Record<string, string> = {
   visibility: "Visibility changed.",
   image: "Image added. It shows on the game page once it's reviewed.",
   "image-removed": "Image removed.",
+  "background-sent": "Sent. It's checked in about a minute; refresh to see it here, then choose it.",
+  "background-chosen": "Background changed. It shows on the home and your game page now.",
+  "shader-removed": "Shader removed.",
+  tint: "Glass tint saved.",
   published: "Published. Players get this version now.",
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
@@ -189,7 +224,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   // A change comes back to the section its form is in, which a form says when it's on more than one.
   const sectionOfAction: Section =
     SECTIONS.find((each) => each.id === field("section"))?.id ??
-    (action === "/details" || action === "/links" || action === "/own-servers" || action.startsWith("/images") ? "details" : action.startsWith("/testers") || action.startsWith("/versions/") ? "versions" : "overview");
+    (action === "/details" || action === "/links" || action === "/own-servers" || action.startsWith("/images") || action.startsWith("/backgrounds") || action.startsWith("/shaders") || action === "/glass-tint" ? "details" : action.startsWith("/testers") || action.startsWith("/versions/") ? "versions" : "overview");
   try {
     if (action === "/details") {
       const saved = (await call("PATCH", `/games/${slug}`, {
@@ -241,6 +276,31 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const kind = (["screenshot", "square", "share"] as const).find((choice) => choice === field("kind")) ?? "cover";
       await call("POST", `/games/${slug}/images?kind=${kind}`, new Uint8Array(await file.arrayBuffer()));
       return back("details", "image", "#images");
+    }
+    if (action === "/backgrounds") {
+      const file = form.get("file");
+      if (!(file instanceof File) || file.size === 0) throw new ApiError("no_file", { message: "No picture or shader file was chosen.", field: "file", fix: "Choose a picture (PNG, JPEG or WebP) or a .glsl shader first." });
+      const screen = field("screen") === "phone" ? "phone" : "wide";
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // A shader is text; anything else is sent as a picture, and the API says what it isn't.
+      if (/\.(glsl|frag|txt)$/i.test(file.name) || file.type.startsWith("text/")) await call("POST", `/games/${slug}/shaders?screen=${screen}`, bytes);
+      else await call("POST", `/games/${slug}/images?kind=${screen === "phone" ? "phone_background" : "background"}`, bytes);
+      return back("details", "background-sent", "#background");
+    }
+    const backgroundPath = action.match(/^\/backgrounds\/(wide|phone)$/);
+    if (backgroundPath) {
+      const source = field("source");
+      await call("PUT", `/games/${slug}/backgrounds/${backgroundPath[1]}`, { source, ...(source === "image" ? { image_id: field("image_id") } : {}), ...(source === "shader" ? { shader_id: field("shader_id") } : {}) });
+      return back("details", "background-chosen", "#background");
+    }
+    const shaderPath = action.match(/^\/shaders\/([a-z0-9_]+)\/remove$/);
+    if (shaderPath) {
+      await call("DELETE", `/games/${slug}/shaders/${shaderPath[1]}`);
+      return back("details", "shader-removed", "#background");
+    }
+    if (action === "/glass-tint") {
+      await call("PATCH", `/games/${slug}`, { glass_tint_color: form.get("clear") ? null : field("glass_tint_color") });
+      return back("details", "tint", "#background");
     }
     const imagePath = action.match(/^\/images\/([a-z0-9_]+)\/remove$/);
     if (imagePath) {
@@ -324,7 +384,7 @@ export const notice = (messages: { done?: string; error?: string }) =>
 /** A time, from the API (ISO) or the database (milliseconds), shown in the reader's own time zone. */
 export const when = (instant: string | number) => html`<time datetime="${new Date(instant).toISOString()}" data-local>${new Date(instant).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
 
-const sizeText = (sizeBytes: number) => (sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(sizeBytes / 1024))} KB`);
+const sizeText = (sizeBytes: number) => (sizeBytes >= 1024 ** 3 ? `${(sizeBytes / 1024 ** 3).toFixed(1)} GB` : sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(sizeBytes / 1024))} KB`);
 
 function coverOf(images: ImageJson[]): ImageJson | undefined {
   const covers = images.filter((i) => i.kind === "cover" && i.review_status !== "rejected");
@@ -443,7 +503,7 @@ interface DatabaseJson {
     reset_date: string;
   };
 }
-type Loaded = { game: GameJson; alerts: GameAlertJson[]; images: ImageJson[]; versions: VersionJson[]; testers: TesterJson[] };
+type Loaded = { game: GameJson; alerts: GameAlertJson[]; images: ImageJson[]; backgrounds: BackgroundJson[]; shaders: ShaderJson[]; versions: VersionJson[]; testers: TesterJson[] };
 
 async function managerPage(
   env: Env,
@@ -473,7 +533,7 @@ async function managerPage(
   } else if (section === "versions") {
     body = versionsSection(slug, loaded);
   } else if (section === "details") {
-    body = detailsSection(slug, loaded, (await call("GET", `/games/${slug}/qr-code`)) as unknown as QrCodeJson);
+    body = detailsSection(slug, loaded, (await call("GET", `/games/${slug}/qr-code`)) as unknown as QrCodeJson, gameUrl(env, slug));
   } else if (section === "players") {
     const [reports, stats] = await Promise.all([call("GET", `/games/${slug}/reports`), call("GET", `/games/${slug}/stats?period_duration_days=30`)]);
     body = playersSection(game, reports as unknown as Reports, stats as unknown as Stats);
@@ -606,13 +666,14 @@ ${testersPanel(slug, game, testers, versions)}`;
 }
 
 /** What players see about the game, and how it plays on Zaisma; its cover and screenshots beside. */
-function detailsSection(slug: string, { game, images }: Loaded, qrCode: QrCodeJson): Raw {
+function detailsSection(slug: string, { game, images, backgrounds, shaders }: Loaded, qrCode: QrCodeJson, gameAddress: string): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
 <h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
-<aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images)}
+<aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
+<h2 class="rule-h" id="background">Background</h2>${backgroundPanel(slug, game, images, backgrounds, shaders, gameAddress)}
 <h2 class="rule-h" id="qr-code">QR code</h2>${qrCodePanel(slug, qrCode)}</aside>
 </div>`;
 }
@@ -807,8 +868,27 @@ ${findings.length
           (finding) => html`<li>${finding.message}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}<br><span class="muted">${finding.content_rule ? html`${ruleLink(finding.content_rule)} · ` : ""}<code>${finding.code}</code></span></li>`,
         )}</ul>${fixes.map((fix) => html`<p class="fix">${fixForPeople(slug, fix)}</p>`)}</div>`
       : ""}
+${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
 ${scheduled}${acts}
 </li>`;
+}
+
+/** How a passed version started in Chrome, with its notes folded away: they never hold it. */
+function performanceLine(check: PerformanceCheckJson | null): Raw | string {
+  if (!check) return "";
+  if (check.check_status === "waiting" || check.check_status === "checking") return html`<p class="muted">Checking how it starts in Chrome…</p>`;
+  if (check.check_status === "over_daily_limit") return html`<p class="muted">Not started in Chrome: today's 20 runs are used. Versions are measured again from midnight UTC.</p>`;
+  if (check.check_status === "could_not_run") return html`<p class="muted">Chrome couldn't run it on Zaisma's side; nothing for you to fix.</p>`;
+  const numbers = [
+    check.loading_duration_sec === null ? "nothing drawn" : `first frame after ${check.loading_duration_sec} s`,
+    check.start_download_size_bytes === null ? "" : `${sizeText(check.start_download_size_bytes)} before it`,
+    check.start_memory_size_bytes === null ? "" : `${sizeText(check.start_memory_size_bytes)} memory`,
+  ].filter(Boolean);
+  return html`<div class="started"><p>Started in Chrome: ${numbers.join(" · ")}</p>${check.notes.length
+    ? html`<details class="later"><summary>${check.notes.length} ${check.notes.length === 1 ? "note" : "notes"}</summary><ul class="started-notes">${check.notes.map(
+        (note) => html`<li>${note.message}${note.path ? html` <span class="muted">(${note.path})</span>` : ""}<br><span class="fix">${note.fix}</span> <span class="muted"><code>${note.code}</code></span></li>`,
+      )}</ul></details>`
+    : ""}</div>`;
 }
 
 function detailsForm(slug: string, game: GameJson): Raw {
@@ -967,7 +1047,8 @@ ${mode("online", "Online multiplayer", "Each on their own device. Leave the most
 </fieldset>`;
 }
 
-const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot", share: "Share picture" };
+const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot", share: "Share picture", background: "Background", phone_background: "Phone background" };
+const BACKGROUND_KINDS: ImageJson["kind"][] = ["background", "phone_background"];
 
 /**
  * Why Zaisma held, rejected or took something down: the reason in plain words, the content rule it's
@@ -988,9 +1069,17 @@ ${reason.content_rule ? html`<p class="muted">${ruleLink(reason.content_rule)}</
  */
 function fixForPeople(slug: string, fix: string): Raw {
   const message = `/forum/messages/new?${new URLSearchParams({ kind: "question", game_slug: slug })}`;
-  const parts = fix.split(/(message_zaisma(?: with the (?:game_slug|version_id))?|add_image|update_game)/);
+  const parts = fix.split(/(message_zaisma(?: with the (?:game_slug|version_id))?|add_image|add_shader|update_game)/);
   return html`${parts.map((part, i) =>
-    i % 2 === 0 ? part : part.startsWith("message_zaisma") ? html`<a href="${message}">message Zaisma</a>` : part === "add_image" ? html`<a href="/dashboard/${slug}/details#images">Add image</a>` : html`<a href="/dashboard/${slug}/details">the details here</a>`,
+    i % 2 === 0
+      ? part
+      : part.startsWith("message_zaisma")
+        ? html`<a href="${message}">message Zaisma</a>`
+        : part === "add_image"
+          ? html`<a href="/dashboard/${slug}/details#images">Add image</a>`
+          : part === "add_shader"
+            ? html`<a href="/dashboard/${slug}/details#background">Background</a>`
+            : html`<a href="/dashboard/${slug}/details">the details here</a>`,
   )}`;
 }
 
@@ -1036,6 +1125,61 @@ ${shown.length
 <p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it, and nothing else: no other words, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. <a href="/developers/covers">See covers that pass</a>. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game, its own interface included, with nothing added. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
+}
+
+const SCREEN_NAMES = { wide: "Wide screens", phone: "Phones" } as const;
+
+/**
+ * The game's background behind Zaisma's glass, for each screen: what shows now, the pictures and shaders it can show with what their
+ * check found, and a live preview behind a sample pane of glass. A shader previews in a frame on the game's own site, never here,
+ * whether it was sent or is a file not sent yet.
+ */
+function backgroundPanel(slug: string, game: GameJson, images: ImageJson[], backgrounds: BackgroundJson[], shaders: ShaderJson[], gameAddress: string): Raw {
+  const screenPanel = (background: BackgroundJson) => {
+    const screen = background.screen;
+    const kind = screen === "wide" ? "background" : "phone_background";
+    const pictures = images.filter((image) => image.kind === kind);
+    const screenShaders = shaders.filter((shader) => shader.screen === screen);
+    const nowText = background.source === "zaisma" ? "Zaisma's own" : background.source === "wide" ? "The same as wide screens" : background.source === "image" ? "Your picture" : "Your shader";
+    const choose = (source: string, extra: Record<string, string>, label: string) =>
+      html`<form method="post" action="/dashboard/${slug}/backgrounds/${screen}"><input type="hidden" name="source" value="${source}">${Object.entries(extra).map(([name, fieldValue]) => html`<input type="hidden" name="${name}" value="${fieldValue}">`)}<button class="link" type="submit">${label}</button></form>`;
+    const status = (reviewStatus: string, isShown: boolean) =>
+      isShown ? html` <span class="pill live">Showing</span>` : reviewStatus === "pending" ? html` <span class="pill pending">Being checked</span>` : reviewStatus === "rejected" ? html` <span class="pill held">Not passed</span>` : "";
+    const candidates = [
+      ...pictures.map((image) => {
+        const isShown = background.source === "image" && background.image_id === image.id;
+        return html`<figure><button class="bg-thumb" type="button" data-preview-picture="${image.review_status === "rejected" ? "" : image.image_url}" aria-label="Preview this picture">${image.review_status === "rejected" ? html`<span class="bevel-s"></span>` : html`<img class="bevel-s" src="${image.image_url}" alt="" loading="lazy">`}</button>
+<figcaption><span>Picture${status(image.review_status, isShown)}</span><span class="row">${image.review_status === "approved" && !isShown ? choose("image", { image_id: image.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/images/${image.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
+${image.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug, image.review_reason)}</div>` : ""}</figure>`;
+      }),
+      ...screenShaders.map((shader) => {
+        const isShown = background.source === "shader" && background.shader_id === shader.id;
+        return html`<figure><button class="bg-thumb" type="button" data-preview-source="${shader.source_url}" aria-label="Preview this shader live">${shader.still_url ? html`<img class="bevel-s" src="${shader.still_url}" alt="" loading="lazy">` : html`<span class="bevel-s"></span>`}</button>
+<figcaption><span>Shader${status(shader.review_status, isShown)}${shader.check_frame_ms !== null ? html` <span class="muted">${shader.check_frame_ms} ms a frame</span>` : ""}</span><span class="row">${shader.review_status === "approved" && !isShown ? choose("shader", { shader_id: shader.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/shaders/${shader.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
+${shader.frame_urls.length ? html`<p class="bg-frames">${shader.frame_urls.map((frameUrl, frameIndex) => html`<a href="${frameUrl}" target="_blank" rel="noopener"><img src="${frameUrl}" alt="Frame ${frameIndex + 1} of the check" loading="lazy"></a>`)}</p>` : ""}
+${shader.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug, shader.review_reason)}</div>` : ""}</figure>`;
+      }),
+    ];
+    return html`<div class="bg-screen" data-screen="${screen}">
+<h3>${SCREEN_NAMES[screen]}</h3>
+<div class="bg-now muted"><span>Shows now: <strong>${nowText}</strong></span>${background.source !== "zaisma" ? choose("zaisma", {}, "Use Zaisma's own") : ""}${screen === "phone" && background.source !== "wide" ? choose("wide", {}, "Same as wide screens") : ""}</div>
+${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>` : ""}
+<form class="stack" method="post" action="/dashboard/${slug}/backgrounds" enctype="multipart/form-data"><input type="hidden" name="screen" value="${screen}">
+<div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
+</div>`;
+  };
+  return html`<div class="bg-panel" data-game-address="${gameAddress}">
+<div class="bg-preview not-steel" aria-label="Live preview"${game.glass_tint_color ? raw(` style="--glass-hue:${game.glass_tint_color}"`) : ""}>
+<iframe class="backdrop is-framed" data-backdrop="frame" data-adapts-glass src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
+<img class="bg-picture" alt="" hidden>
+<div class="glass bg-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
+<p class="bg-note" role="status" hidden></p>
+</div>
+<p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>
+${backgrounds.map(screenPanel)}
+<form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${game.glass_tint_color ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${game.glass_tint_color ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
+<p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is a <code>.glsl</code> file with Shadertoy's <code>mainImage</code>, reading <code>iResolution</code> and <code>iTime</code>, up to 16 KB: it's drawn and checked before it can show, and players' browsers draw it at about half resolution, 30 frames a second. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
+</div>${scriptTags(BACKGROUND_PREVIEW_SCRIPT)}`;
 }
 
 interface Reports {
@@ -1217,6 +1361,11 @@ const STYLES = `
 .version-notes{margin:0;color:var(--text-2);white-space:pre-wrap}
 .findings{margin:0;padding-left:18px;color:var(--warn);display:grid;gap:6px}
 .findings .muted{color:var(--muted);font-size:13px}
+.started{display:grid;gap:2px}
+.started>p{color:var(--text-2)}
+.started-notes{margin:0 0 4px;padding-left:18px;display:grid;gap:8px;font-size:14px}
+.started-notes .fix{color:var(--text-2)}
+.started-notes code{font-size:12px}
 .reason{display:grid;gap:6px}
 .reason p{margin:0}
 .reason .fix{color:var(--text-2)}
@@ -1282,6 +1431,27 @@ input[type=file]::file-selector-button{background:var(--raised);color:var(--text
 
 /** Each game's sections: a rail on the left, tabs along the top on phones. */
 const GAME_STYLES = `
+.bg-preview{position:relative;aspect-ratio:16/9;overflow:hidden;background:#05070a;margin-bottom:8px}
+.bg-preview .backdrop{border:0}
+.bg-preview .bg-picture{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:0}
+.bg-preview [hidden]{display:none}
+.bg-preview .bg-sample{position:absolute;z-index:1;left:6%;top:24%;width:56%;padding:var(--pad-pane);display:flex;flex-direction:column;gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)}
+.bg-preview .bg-sample strong{font:var(--type-name);color:var(--ink)}
+.bg-note{position:absolute;z-index:2;left:8px;right:8px;bottom:8px;margin:0;padding:6px 10px;font-size:13px;background:rgba(10,12,16,.82);color:#f3f5f8}
+.bg-screen h3{margin:18px 0 4px;font-size:15px}
+.bg-now{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin:0 0 10px;font-size:14px}
+.bg-now span{margin-right:auto}
+.bg-screen form{display:inline}
+.bg-screen form.stack{display:grid}
+.bg-thumb{display:block;width:100%;padding:0;border:0;background:none;cursor:pointer}
+.bg-thumb span{display:block;aspect-ratio:16/9;background:var(--pic)}
+.bg-screen[data-screen="phone"] .bg-candidates{grid-template-columns:repeat(3,minmax(0,1fr))}
+.bg-screen[data-screen="phone"] .bg-candidates img,.bg-screen[data-screen="phone"] .bg-thumb span,.bg-screen[data-screen="phone"] .bg-frames img{aspect-ratio:9/16}
+.bg-screen[data-screen="phone"] figcaption{flex-wrap:wrap}
+.bg-frames{display:grid;grid-template-columns:repeat(6,1fr);gap:3px;margin:4px 0 0}
+.bg-frames img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.bg-tint{margin-top:16px;align-items:center}
+.bg-tint input[type=color]{width:40px;height:30px;padding:0;border:0;background:none;vertical-align:middle;margin-left:6px}
 .game-dash{display:grid;grid-template-columns:190px minmax(0,1fr);gap:32px;align-items:start}
 .sections{position:sticky;top:84px;display:grid;gap:2px}
 .sections a{position:relative;display:flex;align-items:center;min-height:40px;padding:0 12px;font-family:var(--display);font-weight:500;font-size:15px;color:var(--muted);text-decoration:none;white-space:nowrap}
@@ -1333,6 +1503,36 @@ const GAME_STYLES = `
 
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
 // The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.
+/**
+ * The Background section's live preview (backgroundPanel), built as the home and game page build theirs: a shader runs in a frame on the
+ * game's own site (apps/games/src/background.ts), posted its source by this page; the backdrop script (BACKDROP_SCRIPT) tells the frame
+ * where the real pane of glass is, and picks the pane's glass from a still. Pictures show over the frame. It starts with what wide screens
+ * show now, or Zaisma's own.
+ */
+const BACKGROUND_PREVIEW_SCRIPT = pageScript(
+  "background-preview",
+  `(()=>{const panel=document.querySelector(".bg-panel");if(!panel)return;
+const frame=panel.querySelector(".bg-preview iframe"),picture=panel.querySelector(".bg-picture"),note=panel.querySelector(".bg-note");
+const origin=new URL(frame.src).origin,ZAISMA=${JSON.stringify(`uniform float iDark;\n${SHADER_HELPERS}${ZAISMA_SHADER}`)};let ready=false,waiting=null,isChosen=false;
+const say=text=>{note.textContent=text||"";note.hidden=!text};
+// The glass over it is measured from a still: the picture, or the frame the shader hands back (the backdrop script reads data-backdrop-still).
+const measureFrom=url=>{if(url)frame.setAttribute("data-backdrop-still",url)};
+const run=source=>{isChosen=true;picture.hidden=true;say("");if(!ready){waiting=source;return}frame.contentWindow.postMessage({source},origin)};
+const show=url=>{isChosen=true;waiting=null;picture.src=url;picture.hidden=false;measureFrom(url);say("")};
+addEventListener("message",event=>{if(event.source!==frame.contentWindow||!event.data||!event.data.zaismaBackground)return;
+// Ready: what was chosen while it loaded, or Zaisma's own when nothing was.
+if(event.data.isReady){ready=true;if(waiting)run(waiting);else if(!isChosen){run(ZAISMA);isChosen=false}waiting=null}
+if(typeof event.data.stillDataUrl==="string"&&event.data.stillDataUrl.startsWith("data:image/")&&picture.hidden)measureFrom(event.data.stillDataUrl);
+if(event.data.compileError)say("It doesn't compile: "+event.data.compileError);
+if(event.data.error==="no_webgl")say("This browser can't run shaders here; players see its still frame instead.")});
+panel.addEventListener("click",event=>{const button=event.target.closest("[data-preview-source],[data-preview-picture]");if(!button)return;
+if(button.dataset.previewPicture)show(button.dataset.previewPicture);
+else fetch(button.dataset.previewSource,{credentials:"same-origin"}).then(response=>response.ok?response.text():Promise.reject()).then(run,()=>say("That shader couldn't be loaded."))});
+panel.querySelectorAll("[data-preview-file]").forEach(input=>input.addEventListener("change",()=>{const file=input.files[0];if(!file)return;const reader=new FileReader();
+if(/\\.(glsl|frag|txt)$/i.test(file.name)||file.type.startsWith("text/")){reader.onload=()=>run(String(reader.result));reader.readAsText(file)}else{reader.onload=()=>show(String(reader.result));reader.readAsDataURL(file)}}));
+const shown=panel.querySelector('.bg-screen[data-screen="wide"] .pill.live');if(shown){const button=shown.closest("figure").querySelector("[data-preview-source],[data-preview-picture]");if(button)button.click()}})();`,
+);
+
 const QR_PNG_SCRIPT = pageScript("qr-png", `const button = document.getElementById("qr-png");
 if (button) button.onclick = () => {
   const image = new Image();

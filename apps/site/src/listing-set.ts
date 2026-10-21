@@ -1,4 +1,4 @@
-import { REVIEW_CODES, type ImageKind } from "@zaisma/core";
+import { IMAGE_KINDS, REVIEW_CODES, type ImageKind } from "@zaisma/core";
 import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, type ListingPicture, type PictureOutcome, type WordsOutcome } from "./listing-judge.ts";
 
 /**
@@ -8,10 +8,9 @@ import { judgeListing, listingOutcomes, type ListingBrief, type ListingJudge, ty
  * storage, bundled for Node by the runner.
  */
 
-const IMAGE_KINDS: ImageKind[] = ["cover", "square", "share", "screenshot"];
 const MEDIA_TYPES: Record<string, ListingPicture["mediaType"]> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 /** What an item can come out as: fine, a person looks, or the code of the line it broke. */
-const LISTING_CODES = ["extra_text_on_cover", "overlay_on_cover", "famous_name", "cover_not_from_game", "tag_in_title", "fake_reward", "screenshot_not_from_game"] as const;
+const LISTING_CODES = ["extra_text_on_cover", "overlay_on_cover", "famous_name", "cover_not_from_game", "tag_in_title", "fake_reward", "screenshot_not_from_game", "text_on_background"] as const;
 export type ListingItemOutcome = "fine" | "person" | (typeof LISTING_CODES)[number];
 
 /** One case: its case.json and its pictures. The title is the item "title"; each picture is its path. */

@@ -109,3 +109,158 @@ describe("save history", () => {
     expect(copiesToDrop(old, 1e12).map((c) => c.id)).toEqual([`c${31 * 24}`]);
   });
 });
+
+/** A record's key in the stand-in: a number or a string. */
+type Key = number | string;
+
+/**
+ * A stand-in IndexedDB with what the saves script reads: databases(), open, transactions and getAll/getAllKeys
+ * with a range and a count. Keys are numbers or strings. getAllCount counts the batched reads, per store.
+ */
+function standInIndexedDB(databases: Record<string, { version: number; stores: Record<string, [Key, unknown][]> }>) {
+  const getAllCount: Record<string, number> = {};
+  const compare = (a: Key, b: Key) => (typeof a === typeof b ? (a < b ? -1 : a > b ? 1 : 0) : typeof a === "number" ? -1 : 1);
+  const request = () => ({ onsuccess: null as null | (() => void), onerror: null, onupgradeneeded: null as null | (() => void), result: null as unknown });
+  const indexedDB = {
+    databases: async () => Object.entries(databases).map(([name, database]) => ({ name, version: database.version })),
+    deleteDatabase(name: string) {
+      delete databases[name];
+      const deleting = request();
+      queueMicrotask(() => deleting.onsuccess?.());
+      return deleting;
+    },
+    open(name: string) {
+      const opening = request();
+      const isCreated = !databases[name];
+      if (isCreated) databases[name] = { version: 1, stores: {} };
+      const database = databases[name]!;
+      opening.result = {
+        version: database.version,
+        objectStoreNames: Object.keys(database.stores),
+        close() {},
+        transaction(storeNames: string[]) {
+          let pendingCount = 0;
+          let isEnded = false;
+          const transaction = { oncomplete: null as null | (() => void), onerror: null, onabort: null as null | (() => void), error: null, abort() {}, objectStore: (storeName: string) => store(storeName) };
+          transaction.abort = () => {
+            isEnded = true;
+            queueMicrotask(() => transaction.onabort?.());
+          };
+          const settle = () => {
+            if (--pendingCount === 0) queueMicrotask(() => { if (pendingCount === 0 && !isEnded) { isEnded = true; transaction.oncomplete?.(); } });
+          };
+          const store = (storeName: string) => {
+            if (!storeNames.includes(storeName)) throw new Error("not in this transaction");
+            const records = () => database.stores[storeName]!.slice().sort((a, b) => compare(a[0], b[0]));
+            const inRange = (range: { lower: Key; lowerOpen: boolean } | null, count: number) =>
+              records().filter(([key]) => !range || compare(key, range.lower) > (range.lowerOpen ? 0 : -1)).slice(0, count);
+            const answer = (result: () => unknown) => {
+              const reading = request();
+              pendingCount++;
+              queueMicrotask(() => {
+                if (isEnded) return;
+                reading.result = result();
+                reading.onsuccess?.();
+                settle();
+              });
+              return reading;
+            };
+            return {
+              name: storeName,
+              keyPath: null,
+              autoIncrement: false,
+              indexNames: [],
+              getAllKeys: (range: { lower: Key; lowerOpen: boolean } | null, count: number) => answer(() => inRange(range, count).map(([key]) => key)),
+              getAll: (range: { lower: Key; lowerOpen: boolean } | null, count: number) => {
+                // Only the batched reads count, not the whole reads the test compares with.
+                if (count !== undefined) getAllCount[storeName] = (getAllCount[storeName] ?? 0) + 1;
+                return answer(() => inRange(range, count).map(([, value]) => value));
+              },
+            };
+          };
+          return transaction;
+        },
+      };
+      queueMicrotask(() => {
+        if (isCreated) opening.onupgradeneeded?.();
+        opening.onsuccess?.();
+      });
+      return opening;
+    },
+  };
+  const IDBKeyRange = { lowerBound: (lower: Key, lowerOpen: boolean) => ({ lower, lowerOpen }) };
+  return { indexedDB, IDBKeyRange, getAllCount };
+}
+
+interface Reader {
+  readDatabases: () => Promise<unknown[]>;
+  databasesReader: () => (changed: { isAll: boolean; databases: string[]; stores: string[] }, maximumCharacterCount: number) => Promise<{ text?: string; isOverLimit?: boolean }>;
+  encode: Format["encode"];
+}
+function loadReader(databases: Parameters<typeof standInIndexedDB>[0]) {
+  const standIn = standInIndexedDB(databases);
+  let reader!: Reader;
+  new Function("__ZAISMA_SAVES__", "window", "indexedDB", "IDBKeyRange", source)({ site: "https://zaisma.test", test: (f: Reader) => (reader = f) }, globalThis, standIn.indexedDB, standIn.IDBKeyRange);
+  /** readIdbText's text: every database read whole. */
+  const wholeText = async () => {
+    const read = await reader.readDatabases();
+    if (!read.length) return "";
+    const pending: Promise<void>[] = [];
+    const encoded = reader.encode(read, pending, []);
+    await Promise.all(pending);
+    return JSON.stringify(encoded);
+  };
+  return { ...standIn, read: reader.databasesReader(), wholeText };
+}
+
+const everything = { isAll: true, databases: [], stores: [] };
+const nothingChanged = { isAll: false, databases: [], stores: [] };
+
+describe("cloud saves while the game plays", () => {
+  const manyRecords = () => Array.from({ length: 600 }, (_, i): [Key, unknown] => [`/idbfs/file-${String(i).padStart(4, "0")}`, { contents: new Uint8Array([i % 256]), when: new Date(i) }]);
+
+  it("writes exactly the text a whole read gives, a batch of records at a time", async () => {
+    const reader = loadReader({
+      "/idbfs": { version: 21, stores: { FILE_DATA: manyRecords(), EMPTY: [] } },
+      localforage: { version: 2, stores: { keyvaluepairs: [["level", 3], [7, { blob: new Blob([new Uint8Array([1, 2, 3])]) }]] } },
+      empty: { version: 1, stores: { nothing: [] } },
+      UnityCache: { version: 1, stores: { RESOURCES: [["big", new Uint8Array(10)]] } },
+    });
+    expect((await reader.read(everything, Infinity)).text).toBe(await reader.wholeText());
+    // 600 small records in batches of 16, 32, 64, 128, 256 and the last 104: six reads.
+    expect(reader.getAllCount.FILE_DATA).toBe(6);
+  });
+
+  it("reads again only the stores the game changed", async () => {
+    const databases = { "/idbfs": { version: 21, stores: { FILE_DATA: manyRecords(), OTHER: [["a", 1]] as [Key, unknown][] } } };
+    const reader = loadReader(databases);
+    await reader.read(everything, Infinity);
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, OTHER: 1 });
+    databases["/idbfs"].stores.OTHER.push(["b", 2]);
+    const changed = await reader.read({ isAll: false, databases: [], stores: ["/idbfs\nOTHER"] }, Infinity);
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, OTHER: 2 });
+    expect(changed.text).toBe(await reader.wholeText());
+    expect((await reader.read(nothingChanged, Infinity)).text).toBe(changed.text);
+    // Nothing changed: nothing read.
+    expect(reader.getAllCount).toEqual({ FILE_DATA: 6, OTHER: 2 });
+  });
+
+  it("drops a database the game deleted", async () => {
+    const databases: Parameters<typeof standInIndexedDB>[0] = { first: { version: 1, stores: { s: [["a", 1]] } }, second: { version: 1, stores: { s: [["b", 2]] } } };
+    const reader = loadReader(databases);
+    await reader.read(everything, Infinity);
+    delete databases.second;
+    const after = await reader.read({ isAll: false, databases: ["second"], stores: [] }, Infinity);
+    expect(after.text).toBe(await reader.wholeText());
+    expect(after.text).not.toContain('"second"');
+  });
+
+  it("stops reading once the save is past the limit", async () => {
+    const reader = loadReader({ "/idbfs": { version: 21, stores: { FILE_DATA: manyRecords() } } });
+    expect(await reader.read(everything, 1000)).toEqual({ isOverLimit: true });
+    // The first batch already passed the limit: the rest were never read.
+    expect(reader.getAllCount.FILE_DATA).toBe(1);
+    const whole = await reader.read(everything, Infinity);
+    expect(await reader.read(everything, whole.text!.length)).toEqual({ text: whole.text });
+  });
+});

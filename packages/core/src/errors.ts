@@ -63,7 +63,7 @@ export const ERROR_CODES = {
   // Players
   no_player: { httpStatus: 404, meaning: "No account has that player ID: a guest's, or a deleted account's." },
 
-  // Covers, screenshots and other images
+  // Covers, screenshots, backgrounds and other images
   bad_kind: { httpStatus: 400, meaning: "kind isn't one of the choices the call takes." },
   not_an_image: { httpStatus: 415, meaning: "The file isn't an image of a type the call takes." },
   image_too_big: { httpStatus: 413, meaning: "The image is over 5 MB." },
@@ -73,6 +73,14 @@ export const ERROR_CODES = {
   image_refused: { httpStatus: 422, meaning: "The image can't be used." },
   no_image: { httpStatus: 404, meaning: "The game has no image with that ID." },
   no_file: { httpStatus: 400, meaning: "A form on Zaisma's pages was sent without its image." },
+  bad_background_shape: { httpStatus: 400, meaning: "A wide background is landscape (1.3 to 2.4 times as wide as tall), a phone background portrait (1.6 to 2.4 times as tall as wide), and its long side at least 1600 px." },
+  not_a_shader: { httpStatus: 415, meaning: "A shader is UTF-8 text with a mainImage function, no #extension lines, no textures and no #version line." },
+  shader_too_big: { httpStatus: 413, meaning: "The shader is over 16 KB." },
+  no_shader: { httpStatus: 404, meaning: "The game has no shader with that ID." },
+  bad_screen: { httpStatus: 400, meaning: "screen isn't wide or phone." },
+  bad_background_source: { httpStatus: 400, meaning: "source isn't zaisma, image or shader, or wide (which only phone takes)." },
+  background_not_ready: { httpStatus: 409, meaning: "The image or shader isn't this game's, isn't approved yet, or is for the other screen." },
+  bad_color: { httpStatus: 400, meaning: "The color isn't #RRGGBB." },
 
   // Uploading versions
   bad_files: { httpStatus: 400, meaning: "files isn't a list of files in the shape the call takes." },

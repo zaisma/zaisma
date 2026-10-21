@@ -24,3 +24,8 @@ declare module "@zaisma/sdk/relay.js" {
   const source: string;
   export default source;
 }
+
+declare module "@zaisma/sdk/warm.js" {
+  const source: string;
+  export default source;
+}

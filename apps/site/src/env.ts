@@ -1,4 +1,5 @@
-import type { CompressJob, ListingCheckJob, ScanJob } from "@zaisma/core";
+import type { CompressJob, ListingCheckJob, ScanJob, ShaderCheckJob } from "@zaisma/core";
+import type { PerformanceJob } from "./performance-check.ts";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
@@ -13,9 +14,13 @@ export interface Env {
   ASSETS: Fetcher;
   /** Cloudflare Images, for each game picture's share card JPEG; without it the card is the picture itself. */
   IMAGES?: ImagesBinding;
-  SCAN_QUEUE: Queue<ScanJob | ListingCheckJob>;
+  SCAN_QUEUE: Queue<ScanJob | ListingCheckJob | ShaderCheckJob>;
+  /** Cloudflare Browser Rendering, which draws every shader a game sends before anyone sees it (shader-check.ts) and opens every version that passes (performance-check.ts). */
+  BROWSER?: Fetcher;
   /** Brotli copies of game files to make (compress.ts). */
   COMPRESS_QUEUE: Queue<CompressJob>;
+  /** Versions to open in headless Chrome once they pass (performance-check.ts). */
+  PERFORMANCE_QUEUE: Queue<PerformanceJob>;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
   /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */

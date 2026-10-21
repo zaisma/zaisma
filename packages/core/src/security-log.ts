@@ -45,6 +45,9 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   image_added: "Added an image",
   image_refused: "An image upload was refused",
   image_removed: "Removed an image",
+  shader_added: "Added a background shader",
+  shader_removed: "Removed a background shader",
+  background_chosen: "Chose a background",
   version_uploaded: "Uploaded a version",
   version_published: "Published a version",
   version_rolled_back: "Rolled back to an earlier version",
@@ -123,6 +126,9 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "image_added",
   "image_refused",
   "image_removed",
+  "shader_added",
+  "shader_removed",
+  "background_chosen",
   "version_uploaded",
   "version_published",
   "version_rolled_back",
@@ -152,7 +158,7 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
 ];
 
 /** Uploads keep their address for 90 days whether or not the account keeps where it's used from. */
-export const ALWAYS_ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = ["version_uploaded", "image_added", "image_refused"];
+export const ALWAYS_ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = ["version_uploaded", "image_added", "image_refused", "shader_added"];
 
 export const SECURITY_LOG_LIMITS = {
   keptDurationDays: 90,
