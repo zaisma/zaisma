@@ -8,9 +8,30 @@ import { CUT_LINE, MINUTE_MS, ago, icon, tag, type TagTone } from "./foundations
  * From the header draft (the face in the account button) and the home draft (the pane's glance list).
  */
 
-/** An account's picture (accountPicture, its initials for now) in the cut frame: near-white on light glass, darkened on smoked. Its shape is the edge rule's, like a control's. */
-export function pictureFrame(username: string, pictureSize: "xs" | "sm" | "md", options: { isOnline?: boolean } = {}): Raw {
-  return html`<span class="frame ${pictureSize}${options.isOnline ? " is-online" : ""}" data-cut-line="10" aria-hidden="true">${CUT_LINE}${accountPicture(username, pictureSize, { title: "" })}</span>`;
+export type PictureSize = "xs" | "sm" | "md";
+
+/** The slant where a picture in a row lies over the one behind it: the edge rule's, for a part declared beside the next (data-cut-beside). */
+const ROW_SLANT_PX: Record<PictureSize, number> = { xs: 6, sm: 8, md: 10 };
+
+/**
+ * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim, cut by the edge rule
+ * like a glass button. The picture sits inside the rim, cut to the same shape. isOverNext: it lies over the next picture in a row, so its end
+ * slants down onto it (pictureRow).
+ */
+export function pictureFrame(username: string, pictureSize: PictureSize, options: { isOnline?: boolean; isOverNext?: boolean } = {}): Raw {
+  const slant = ROW_SLANT_PX[pictureSize];
+  const beside = options.isOverNext ? raw(' data-cut-beside="end"') : "";
+  const frame = html`<span class="frame ${pictureSize} glass" data-glass data-cut-line="${slant}" data-glass-band="2"${beside} aria-hidden="true"><span class="frame-picture" data-cut-line="${slant}"${beside}>${accountPicture(username, pictureSize, { title: "" })}</span></span>`;
+  // The glass is clipped to its cut, so the online mark sits outside it, over its corner.
+  return options.isOnline ? html`<span class="frame-online">${frame}<span class="online-mark" aria-hidden="true"></span></span>` : frame;
+}
+
+/** Friends' pictures in a row, front to back: each lies over the next, slanting down onto it; past three, the rest are a +N at the back. */
+export function pictureRow(usernames: string[], pictureSize: PictureSize): Raw {
+  const shown = usernames.slice(0, 3), more = usernames.length - shown.length, count = shown.length + (more > 0 ? 1 : 0);
+  return html`<span class="picture-row ${pictureSize}">${shown.map(
+    (username, at) => html`<span class="picture-row-place" style="z-index:${count - at}">${pictureFrame(username, pictureSize, { isOverNext: at < count - 1 })}</span>`,
+  )}${more > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-cut-line="${ROW_SLANT_PX[pictureSize]}" data-glass-band="2" aria-hidden="true">+${more}</span></span>` : ""}</span>`;
 }
 
 /** Names as a sentence: "Liam", "Liam and Sofia", "Liam, Sofia and Noah". */
@@ -33,7 +54,7 @@ export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
   return html`<ul class="glance">${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
-    friends.length ? html`<li class="friends"><span class="faces control-row">${friends.map((friend) => pictureFrame(friend.username, "xs"))}</span><span><b>${nameList(friends.map((friend) => friend.username))}</b> ${friends.length > 1 ? "are" : "is"} playing</span></li>` : ""
+    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><b>${nameList(friends.map((friend) => friend.username))}</b> ${friends.length > 1 ? "are" : "is"} playing</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${ago(nowMs - facts.playedAtMs)}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${ago(nowMs - facts.updatedAtMs)}${facts.updatesHref ? html` · ${textLink("What's new", facts.updatesHref)}` : ""}</span></li>` : ""
   }</ul>`;
@@ -45,29 +66,28 @@ export const GLANCE_STYLES = `
 .glance li { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; }
 .glance b { font-weight: 600; color: var(--ink); }
 .glance .ico { color: var(--muted); stroke-width: 1.5; }
-/* Faces are a .control-row, so they slant toward each other by the edge rule like controls in a row. */
-.faces { display: inline-flex; flex: none; flex-wrap: nowrap; }
 `;
 
 component({
   name: "Picture frame",
   slug: "picture-frame",
   group: "data",
-  summary: "An account's picture, always in its cut frame: in the account button, beside a friend's name, on a profile.",
+  summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, on a profile. ",
   styles: `
-/* An account's picture in a cut frame: a ring of the glass's own light (near-white on light glass, darkened on smoked) around the picture.
-   Its shape is the edge rule's (--cut-shape), never corners of its own: square in the middle of a pane, cut where it meets a corner, slanted beside another. */
-.frame { --frame: 38px; position: relative; isolation: isolate; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none; }
-.frame.sm { --frame: 30px; }
-.frame.xs { --frame: 22px; }
-.frame > .cut-line polygon { stroke: var(--face-ring); stroke-width: 2; }
-.frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.4) var(--display); color: #fff; letter-spacing: 0.01em;
-  background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%));
-  clip-path: var(--cut-shape); }
+/* An account's picture in a small frame of the panes' glass with its drawn rim, cut by the edge rule (--cut-shape) like a glass button:
+   square in the middle of a pane, cut where it meets a corner. The picture fills it inside the rim, cut to the same shape. */
+.frame { --frame: 44px; --frame-rim: 3px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;
+  font: var(--type-tag); color: var(--ink); }
+.frame.sm { --frame: 32px; --frame-rim: 2px; }
+.frame.xs { --frame: 24px; --frame-rim: 2px; }
+.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: var(--frame-rim); clip-path: var(--cut-shape); }
+.frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
+  background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Online: a small green diamond on the picture's corner, ringed in the glass's light. */
-.frame.is-online::after { content: ""; position: absolute; z-index: 2; right: -2px; bottom: -2px; width: 11px; height: 11px; background: var(--online); border: 2px solid var(--presence-ring); transform: rotate(45deg); }
-/* The smallest shows only the first letter, as the drafts' friends' pictures do. */
-.frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
+.frame-online { position: relative; display: inline-flex; flex: none; }
+.frame-online > .online-mark { position: absolute; z-index: 4; right: -2px; bottom: -2px; width: 11px; height: 11px; background: var(--online); border: 2px solid var(--presence-ring); transform: rotate(45deg); }
+/* The smallest shows only the first letter. */
+.frame.xs .av { display: block; text-align: center; line-height: calc(var(--frame) - 2 * var(--frame-rim)); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
 `,
   render: pictureFrame,
@@ -75,7 +95,32 @@ component({
     { label: "Big", markup: pictureFrame("emma_r", "md") },
     { label: "Online", markup: pictureFrame("emma_r", "md", { isOnline: true }) },
     { label: "Small", markup: pictureFrame("Liam", "sm") },
-    { label: "Smallest, in a row", markup: html`<span class="faces control-row">${["Liam", "Sofia", "Noah", "Mia"].map((name) => pictureFrame(name, "xs"))}</span>` },
+    { label: "Smallest", markup: pictureFrame("Mia", "xs") },
+  ],
+});
+
+component({
+  name: "Picture row",
+  slug: "picture-row",
+  group: "data",
+  summary: "Friends' pictures together: front to back, each lying over the next with its end slanting down onto it, so every face shows whole. Past three, the rest are a +N.",
+  styles: `
+/* A row, front to back: each picture lies over the next by a little less than its slant, its end slanting down onto it, so the one behind shows almost whole
+   but where the one in front lies over it. Past three, a +N of the same glass sits at the back. */
+.picture-row { display: inline-flex; flex: none; }
+.picture-row-place { position: relative; display: inline-flex; }
+.picture-row-place + .picture-row-place { margin-left: calc(var(--frame-overlap) * -1); }
+.picture-row.md { --frame-overlap: 10px; }
+.picture-row.sm { --frame-overlap: 7px; }
+.picture-row.xs { --frame-overlap: 5px; }
+.frame.more { font-variant-numeric: tabular-nums; }
+`,
+  render: pictureRow,
+  examples: [
+    { label: "Three friends, front to back", markup: pictureRow(["Liam", "Sofia", "Noah"], "sm") },
+    { label: "Seven: three, then +4", markup: pictureRow(["Liam", "Sofia", "Noah", "Mia", "Lucas", "Emma", "Oliver"], "sm") },
+    { label: "Big, in a row", markup: pictureRow(["Liam", "Sofia", "Noah", "Mia"], "md") },
+    { label: "Smallest, in a row (a cover's facts)", markup: pictureRow(["Liam", "Sofia", "Noah", "Mia", "Lucas"], "xs") },
   ],
 });
 

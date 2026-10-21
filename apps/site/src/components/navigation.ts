@@ -96,7 +96,9 @@ const HEADER_STYLES = `
 }
 .top.is-compact { height: 58px; top: 8px; }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .nav, .top .find, .top .find input, .top .run, .top .me, .top .frame { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
+.top .nav, .top .find, .top .find input, .top .run, .top .me { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
+/* Your picture is glass, so its changes start with the glass's. */
+.top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
 .top.is-compact .nav, .top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
 .top.is-compact .run { font-size: 15px; }
 .top.is-compact .me .frame { --frame: 32px; }
