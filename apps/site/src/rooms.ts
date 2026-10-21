@@ -1,6 +1,7 @@
 import { checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, raw, securityHeaders, type Raw } from "./html.ts";
+import { playingNowCounts } from "./plays.ts";
 
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
@@ -43,7 +44,7 @@ function shownText(room: ListedRoom): { name: string | null; labels: [string, st
  * The Rooms panel's contents, also sent on its own to refresh the panel. "Press Play and the game finds
  * you one" only for a game that joins players by itself (isQuickJoining).
  */
-export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}): Raw {
+export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}, ticketPlayerCount = 0): Raw {
   const slug = game.slug;
   const open = list.rooms.filter((room) => room.isOpen);
   const { playerCount, roomCount, closedRoomCount } = list.playing;
@@ -79,7 +80,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
     : closedRoomCount
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${playerCount}" data-shown="${shownKey(list.region, picked)}">
+  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-shown="${shownKey(list.region, picked)}">
 ${head}
 ${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
 ${open.length ? html`<ol class="rooms">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
@@ -144,6 +145,7 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked });
   // The page says which room this player just left, so they don't see themselves in it while lists catch up.
   const left = readLeftParameter(query.get("left"));
-  const body = roomsPanel(game, left ? leaveOut(list, left) : list, picked);
+  // "Playing now" under the title is the larger of the rooms' players and the browsers playing (plays.ts).
+  const body = roomsPanel(game, left ? leaveOut(list, left) : list, picked, (await playingNowCounts(env)).get(game.id) ?? 0);
   return new Response(String(body), { headers: securityHeaders(env, { "Cache-Control": "private, max-age=10" }) });
 }

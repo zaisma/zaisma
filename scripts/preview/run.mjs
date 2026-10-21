@@ -250,6 +250,9 @@ spawnSync(
 );
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
+// home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
+seedPlayingNow();
 // Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
 // clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
 spawnSync(
@@ -283,6 +286,8 @@ await openTestRooms(ROOMS, GAMES, SITE).catch((err) => console.log(`Couldn't ope
 const pretend = () => spawn("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendRoomsSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 pretend();
 setInterval(pretend, 30 * 60_000);
+// The playing-now tickets, renewed every 2 minutes so they stay inside the 6-minute window while the preview runs.
+setInterval(() => seedPlayingNow(spawn), 2 * 60_000);
 
 // The site's every-5-minutes job (scheduled publishing, report triage), run every 20 seconds here.
 const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
@@ -307,6 +312,8 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Home            ${SITE}/
+  Playing now     ${SITE}/  (Shard Dodge's tile and the stage show the people icon and 5; Tiny Farm has 2, under the minimum, so shows none;
+                  ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
   Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
@@ -1119,6 +1126,15 @@ function seedFriendsNow() {
     `UPDATE games SET quick_joined_at_ms = ${Date.now()} WHERE slug = 'four-in-a-row'`,
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+function seedPlayingNow(run = spawnSync) {
+  const now = Date.now();
+  const tickets = (slug, playerCount) =>
+    Array.from({ length: playerCount }, (_, i) =>
+      `INSERT OR REPLACE INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player) SELECT 'play_ticket_preview${slug.replaceAll("-", "")}${i}', id, ${now}, ${now}, '${new Date(now).toISOString().slice(0, 10)}', 0, 0 FROM games WHERE slug = '${slug}'`);
+  const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2)];
+  run("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 
 /** A browser of its own, from this address: answers a function that posts as it. */

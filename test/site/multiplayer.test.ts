@@ -197,9 +197,9 @@ describe("room browsing on the game page", () => {
     // A game that lists no rooms on its page still says who's playing, without a link.
     await env.DB.prepare("UPDATE games SET room_browsing = 'off' WHERE id = ?").bind(id).run();
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain('<p class="badge live-now" id="playing-now">5 playing now</p>');
-    // Single-player games have no line at all.
+    // Single-player games have the line too, from the browsers playing them (plays.test.ts); hidden with nobody playing.
     await addGame("solo");
-    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain('id="playing-now"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).toContain('<p class="badge live-now" id="playing-now" hidden>0 playing now</p>');
   });
 
   it("shows names and labels that pass the text filter, with a Report button, and filters by labels", async () => {
