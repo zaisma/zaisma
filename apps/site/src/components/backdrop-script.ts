@@ -38,12 +38,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function readList() {
     isListStale = false; isPlaceStale = true;
     candidates = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (el) {
-      if (shownGlass) setGlass(el, shownGlass);
+      el.glassHost = hostOf(el);
+      if (el.glassHost && el.glassHost.shownGlass) setGlass(el, el.glassHost.shownGlass);
       var css = getComputedStyle(el);
       el.glassIsSmoked = /dark/.test(css.colorScheme || "");
       return css.visibility !== "hidden" && css.display !== "none" && Number(css.opacity) > 0.05;
     });
-    candidates.forEach(function (el) { el.glassHost = hostOf(el); if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
+    candidates.forEach(function (el) { if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
   }
   function glassCuts(el, width, height) {
     var short = Math.min(width, height);
@@ -72,13 +73,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   /*
    * Glass that adapts to its backdrop (data-adapts-glass): the colors of the whole backdrop are read once (a page's own shader after its
-   * first frame, a game's frame or picture from its still), and every piece of glass on the page takes the same glass: light (dark words)
-   * or smoked (light words), whichever can be thinner while every word keeps its contrast (4.5:1 for the quietest, 6:1 for the main
-   * ones) against the harsh side of the backdrop (its darker quarter under light glass, its brighter quarter under smoked), tinted a
-   * little with it. One choice for the whole page, never a pane's own from what happens to be under it, so a game's glass stays the same
-   * whatever its shader shows in a frame. Read again only when the theme turns or the still changes; glass that appears later gets it too.
+   * first frame, a game's frame or picture from its still), and every piece of glass over that backdrop takes the same glass: light (dark
+   * words) or smoked (light words), whichever can be thinner while every word keeps its contrast (4.5:1 for the quietest, 6:1 for the
+   * main ones) against the harsh side of the backdrop (its darker quarter under light glass, its brighter quarter under smoked), tinted a
+   * little with it. One choice for all the glass over a backdrop (the whole page, over a page's), never a pane's own from what happens to
+   * be under it, so a game's glass stays the same whatever its shader shows in a frame. Read again only when the theme turns or the still
+   * changes; glass that appears later gets it too.
    */
-  var shownGlass = null;
   function luminance(c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
   function contrast(a, b) { var la = luminance(a), lb = luminance(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); }
   function blend(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
@@ -106,20 +107,20 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else el.setAttribute("data-theme-choice", "light");
     el.style.setProperty("--glass-tint", pick.tint);
   }
-  function showGlass(colors) {
-    if (!colors.length) return;
-    shownGlass = pickGlass(colors); isListStale = true;
-    document.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { setGlass(el, shownGlass); });
+  function showGlass(layer, colors) {
+    var host = layer.canvas.parentElement; if (!colors.length || !host) return;
+    host.shownGlass = pickGlass(colors); isListStale = true;
+    host.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { if (hostOf(el) === host) setGlass(el, host.shownGlass); });
   }
   function sample(pixels) {
     var colors = [], step = 4 * Math.max(1, Math.floor(pixels.length / 4 / 2400));
     for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
     return colors;
   }
-  function adaptGlass(gl) {
+  function adaptGlass(gl, layer) {
     var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    showGlass(sample(pixels));
+    showGlass(layer, sample(pixels));
   }
   // A game's frame or picture: its glass is measured from the whole still, the same at every size of window.
   function adaptGlassFromStill(layer) {
@@ -129,7 +130,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var context = board.getContext("2d", { willReadFrequently: true });
     context.drawImage(picture, 0, 0, board.width, board.height);
     layer.isGlassAdapted = true;
-    try { showGlass(sample(context.getImageData(0, 0, board.width, board.height).data)); } catch (error) { /* a still from a site that doesn't allow reading it */ }
+    try { showGlass(layer, sample(context.getImageData(0, 0, board.width, board.height).data)); } catch (error) { /* a still from a site that doesn't allow reading it */ }
   }
   // A game's frame is told where the glass over it is, in its own CSS pixels from its bottom left (apps/games/src/background.ts).
   function tellFrame(layer) {
@@ -180,7 +181,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0; gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       // Read straight after the frame is drawn, while it's still in the buffer.
-      if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl); }
+      if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer); }
     };
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
@@ -300,7 +301,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       el.backdropLayer = null; isPlaceStale = true;
     },
     forgetGlass: function () {
-      shownGlass = null;
+      document.querySelectorAll(":has(> .backdrop)").forEach(function (host) { host.shownGlass = null; });
       document.querySelectorAll("[data-glass]").forEach(function (el) { el.glassPick = null; el.classList.remove("smoke"); el.removeAttribute("data-theme-choice"); el.style.removeProperty("--glass-tint"); });
     }
   };
