@@ -259,6 +259,11 @@ describe("the SDK's types say what the SDK does", () => {
     expect(fields(heard(room, "room", () => say(socket, { type: "room", room: settings })))).toEqual(fieldsOf("RoomSettings"));
     expect(fields(heard(room, "error", () => say(socket, { type: "error", code: "too_fast", message: "Slow down." })))).toEqual(fieldsOf("RoomError"));
     expect(fields(heard(room, "away", () => say(socket, { type: "away", reason: "idle", seatHoldDurationSec: 300 })))).toEqual(fieldsOf("Away"));
+    // The player list, as rooms send it: each player with why they aren't playing, the same in room.players.
+    const listedPlayers = [{ ...me, awayReason: null }, { id: "player_bo", name: "Bo", kind: "account", awayReason: "lost" }];
+    const players = heard(room, "players", () => say(socket, { type: "players", players: listedPlayers, hostPlayerId: null })) as unknown as Record<string, unknown>[];
+    expect(players.map(fields)).toEqual([fieldsOf("ListedPlayer"), fieldsOf("ListedPlayer")]);
+    expect(room.players).toEqual(listedPlayers);
     // The held seat runs out, then the player presses a key.
     const back = heard(room, "back", () => {
       socket.onclose!({ code: 4002, reason: "" });
@@ -841,6 +846,13 @@ describe("the SDK's types say what the SDK does", () => {
 
   it("what rooms send, as the game server and the rooms Worker declare it", () => {
     expect(fieldsOf("Player")).toEqual(fieldsOf("Player", GAME_SERVER));
+    expect(fieldsOf("ListedPlayer")).toEqual(fieldsOf("ListedPlayer", GAME_SERVER));
+    const awayReasons = (file: string) => {
+      const type = checker.getTypeOfSymbol(declaredType(file, "ListedPlayer").getProperty("awayReason")!);
+      return (type.isUnion() ? type.types : [type]).map((part) => (part.isStringLiteral() ? part.value : checker.typeToString(part))).sort();
+    };
+    expect(awayReasons(TYPES)).toEqual(["hidden", "idle", "lost", "null"]);
+    expect(awayReasons(TYPES)).toEqual(awayReasons(GAME_SERVER));
     expect(fieldsOf("RoomSettings")).toEqual(fieldsOf("RoomSettings", GAME_SERVER));
     expect(valuesOf("RoomErrorCode")).toEqual(valuesOf("RoomErrorCode", GAME_SERVER));
     expect(valuesOf("RequestErrorCode")).toEqual(valuesOf("RequestErrorCode", GAME_SERVER_REQUESTS));

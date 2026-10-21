@@ -635,8 +635,11 @@ declare namespace Zaisma {
     readonly roomCode: string;
     /** This player. */
     readonly me: Player;
-    /** Players in the room right now, in join order, this player included. */
-    readonly players: readonly Player[];
+    /**
+     * Players in the room right now, in join order, this player included, each with why they aren't
+     * playing (awayReason), like a player whose connection dropped and who has a few seconds to come back.
+     */
+    readonly players: readonly ListedPlayer[];
     /** The host's player ID, when the game server gives the host controls (the relay does), else null. */
     readonly hostPlayerId: string | null;
     /** Where the connection stands; the "connectionStatus" event says when it changes. */
@@ -771,8 +774,19 @@ declare namespace Zaisma {
      * they came from when the game server passed one player's bytes on (the relay always does), or null.
      */
     bytes: (bytes: Uint8Array, fromPlayerId: string | null) => void;
-    /** Players joined, left, walked away or came back; the same list as room.players. */
-    players: (players: readonly Player[]) => void;
+    /**
+     * Players joined, left, walked away or came back, or their connection dropped or came back; the same
+     * list as room.players.
+     * @example
+     * // Freeze a player whose connection dropped, and show them reconnecting, until they're back.
+     * room.on("players", (players) => {
+     *   for (const player of players) {
+     *     const body = bodies.get(player.id);
+     *     if (body) body.isFrozen = player.awayReason === "lost";
+     *   }
+     * });
+     */
+    players: (players: readonly ListedPlayer[]) => void;
     /** Where the connection stands, as room.connectionStatus. "away" while the player is out of the match. */
     connectionStatus: (connectionStatus: ConnectionStatus) => void;
     /** The match ended (the game server's room.end), with its message. The connection closes. */
@@ -825,6 +839,15 @@ declare namespace Zaisma {
     name: string;
     /** A signed-in Zaisma account, or a guest. */
     kind: PlayerKind;
+  }
+
+  /** A player in the room's list (room.players): who they are, and why they aren't playing. */
+  interface ListedPlayer extends Player {
+    /**
+     * Why this player isn't playing: "idle" or "hidden" (the game server kept them, onAway), or "lost"
+     * (their connection dropped and they have reconnectTimeoutSec to come back); null while they play.
+     */
+    awayReason: "idle" | "hidden" | "lost" | null;
   }
 
   /** A signed-in Zaisma account, or a guest. */

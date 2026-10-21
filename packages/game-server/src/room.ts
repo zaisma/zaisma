@@ -133,6 +133,12 @@ export interface Room {
    * the same moment for everyone.
    */
   serverTimeMs(): number;
+  /**
+   * Why a player in the room isn't playing, or null while they play: "idle" or "hidden" (your onAway
+   * kept them), or "lost" (their connection dropped and they have reconnectTimeoutSec to come back).
+   * Every player's game sees the same in its player list (awayReason).
+   */
+  awayReason(playerId: string): AwayReason | null;
 }
 
 export interface BroadcastOptions {
@@ -173,14 +179,23 @@ export interface JoinInfo {
   isReturning: boolean;
 }
 
-/** Why a player walked away: no input (idle), or the game hidden in a real-time room. */
-export type AwayReason = "idle" | "hidden";
+/**
+ * Why a player isn't playing: no input (idle), the game hidden in a real-time room, or lost: their
+ * connection dropped, and the room keeps them for reconnectTimeoutSec.
+ */
+export type AwayReason = "idle" | "hidden" | "lost";
+
+/** A player as the room lists them to every player's game: awayReason says why they aren't playing, or null while they play. */
+export interface ListedPlayer extends Player {
+  awayReason: AwayReason | null;
+}
 
 /**
- * Why a player left: left (closed the game or left the room), lost (their connection dropped, and
- * the room holds their seat), idle or hidden (they walked away, and the room holds their seat), kicked.
+ * Why a player left: left (closed the game or left the room), lost (their connection dropped and they
+ * weren't back within reconnectTimeoutSec, and the room holds their seat), idle or hidden (they walked
+ * away, and the room holds their seat), kicked.
  */
-export type LeaveReason = "left" | "lost" | AwayReason | "kicked";
+export type LeaveReason = "left" | AwayReason | "kicked";
 
 export interface LeaveInfo {
   reason: LeaveReason;
@@ -270,6 +285,12 @@ export interface GameServer<S = any> {
    */
   seatHoldDurationSec?: number;
   /**
+   * How long a player whose connection dropped stays in the match as away (reason "lost") before they
+   * leave it, in seconds: 0 to 300, 0 to take them out at once. Defaults to 30. Your onAway and onBack
+   * run, so you can freeze their character; held seats come after (seatHoldDurationSec).
+   */
+  reconnectTimeoutSec?: number;
+  /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. setupData
    * is what room.reserve() passed when another room made this one, and null otherwise. Rooms need it;
    * a game server that only answers requests (onRequest) or runs on schedules can leave it out.
@@ -329,12 +350,19 @@ export interface GameServer<S = any> {
   canJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): JoinAnswer | Promise<JoinAnswer>;
   /** After room.moveTo: who the other room took, and who it turned away and why. */
   onMoved?(state: S, moveResult: MoveResult, room: Room): HandlerResult<S>;
-  /** leaveInfo.reason says why they left; a player who lost their connection or walked away gets their seat held. */
+  /**
+   * leaveInfo.reason says why they left; a player who lost their connection or walked away gets their
+   * seat held. A dropped connection ("lost") first comes to onAway, and only here if they aren't back
+   * within reconnectTimeoutSec.
+   */
   onLeave?(state: S, player: Player, room: Room, leaveInfo: LeaveInfo): HandlerResult<S>;
   /**
-   * A player walked away. With onAway, they stay in the room and your game decides what happens:
-   * kick them, move them (room.moveTo) or keep them. They don't count as playing meanwhile, and a
-   * room where everyone is away stops ticking. onBack runs when they return.
+   * A player walked away (idle, hidden) or their connection dropped (lost). For idle and hidden, with
+   * onAway they stay in the room and your game decides what happens: kick them, move them
+   * (room.moveTo) or keep them. For lost, every game hears it, and the room decides when time's up:
+   * they stay for reconnectTimeoutSec, then leave (onLeave, reason "lost"); freeze their character
+   * meanwhile. They don't count as playing while away, and a room where everyone is away stops
+   * ticking. onBack runs when they return: send them what they missed.
    */
   onAway?(state: S, player: Player, room: Room, reason: AwayReason): HandlerResult<S>;
   onBack?(state: S, player: Player, room: Room): HandlerResult<S>;
@@ -390,6 +418,7 @@ export const GAME_SERVER_OPTIONS = [
   "idleTimeoutSec",
   "awayMode",
   "seatHoldDurationSec",
+  "reconnectTimeoutSec",
   "setup",
   "onJoin",
   "canJoin",
@@ -440,6 +469,9 @@ export const ROOM_LIMITS = {
   /** How long a seat is held by default, and at most (seatHoldDurationSec). */
   defaultSeatHoldDurationSec: 300,
   maximumSeatHoldDurationSec: 1800,
+  /** How long a player whose connection dropped stays in the match by default, and at most (reconnectTimeoutSec). */
+  defaultReconnectTimeoutSec: 30,
+  maximumReconnectTimeoutSec: 300,
   /** How often a ticking room probes each player, for their ping and the room's clock. */
   probeIntervalSec: 2,
   /** A probe left unanswered this long drops the player: their connection stopped or fell too far behind. */
@@ -506,7 +538,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     }
   }
   checkSchedules(server.schedules, typeof server.onSchedule === "function");
-  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec } = server;
+  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
   }
@@ -523,6 +555,9 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   if (awayMode !== undefined && awayMode !== "hold" && awayMode !== "lobby") throw bad("awayMode", `awayMode is ${JSON.stringify(awayMode)}.`, 'Give "hold" (hold their seat) or "lobby" (send them to the room that made this one).');
   if (seatHoldDurationSec !== undefined && !(typeof seatHoldDurationSec === "number" && seatHoldDurationSec >= 0 && seatHoldDurationSec <= ROOM_LIMITS.maximumSeatHoldDurationSec)) {
     throw bad("seatHoldDurationSec", `seatHoldDurationSec is ${JSON.stringify(seatHoldDurationSec)}.`, `Give seconds from 0 (no held seats) to ${ROOM_LIMITS.maximumSeatHoldDurationSec}, like 300.`);
+  }
+  if (reconnectTimeoutSec !== undefined && !(typeof reconnectTimeoutSec === "number" && reconnectTimeoutSec >= 0 && reconnectTimeoutSec <= ROOM_LIMITS.maximumReconnectTimeoutSec)) {
+    throw bad("reconnectTimeoutSec", `reconnectTimeoutSec is ${JSON.stringify(reconnectTimeoutSec)}.`, `Give seconds from 0 (leave at once) to ${ROOM_LIMITS.maximumReconnectTimeoutSec}, like 30.`);
   }
   return server;
 }
@@ -578,11 +613,11 @@ export interface RoomSettings {
  * they came from (0 for the game server), then that ID, then the bytes (bytesFrame).
  */
 export type ServerMessage =
-  | { type: "welcome"; me: Player; players: Player[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
+  | { type: "welcome"; me: Player; players: ListedPlayer[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
-  | { type: "players"; players: Player[]; hostPlayerId: string | null }
-  | { type: "away"; reason: AwayReason; seatHoldDurationSec: number }
+  | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
+  | { type: "away"; reason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
   | { type: "kicked"; message: string; isKeptOut: boolean }
   | { type: "room"; room: RoomSettings }
   | { type: "move"; roomCode: string }
@@ -646,6 +681,8 @@ export interface SavedRoom extends RoomSettings {
   expected?: Record<string, Expected>;
   held?: Record<string, Held>;
   kept?: Record<string, AwayReason>;
+  /** Players whose connection dropped, with when their time to come back runs out (reconnectTimeoutSec). */
+  reconnecting?: Record<string, Reconnecting>;
   lobbyRoomCode?: string;
   /** Blocks between the room's players from their accounts, as pairs of player IDs. */
   accountBlocks?: [string, string][];
@@ -660,7 +697,16 @@ export interface SavedRoom extends RoomSettings {
 /** A seat held for a player out of the match: who, why they're out, and until when. */
 export interface Held {
   player: Player;
-  reason: "lost" | AwayReason;
+  reason: AwayReason;
+  untilMs: number;
+}
+
+/**
+ * A player whose connection dropped, still in the match: who, and when their time to come back runs out.
+ * Saved with the room, so a room that sleeps and wakes, which finds its players by their connections, keeps them.
+ */
+export interface Reconnecting {
+  player: Player;
   untilMs: number;
 }
 
@@ -881,8 +927,10 @@ export class RoomCore<S = any> {
   readonly expected = new Map<string, Expected>();
   /** Seats held for players out of the match (walked away, or lost their connection) until they come back or it runs out. */
   readonly held = new Map<string, Held>();
-  /** Players who walked away that onAway kept in the room, and why. */
+  /** Players who walked away that onAway kept in the room, and players whose connection dropped (lost), and why. */
   readonly kept = new Map<string, AwayReason>();
+  /** Players whose connection dropped (kept as "lost"): when their time to reconnect runs out. */
+  readonly reconnectUntilMs = new Map<string, number>();
   /** The room that made this one, where awayMode "lobby" sends players who walk away. */
   lobbyRoomCode: string | null = null;
   /** Blocks between players from their accounts (Zaisma's own record, or passes on your own server), either way: pairKey(first, second). */
@@ -952,7 +1000,17 @@ export class RoomCore<S = any> {
       this.keepOut(saved.keptOut);
       for (const [id, expected] of Object.entries(saved.expected ?? {})) this.expected.set(id, expected);
       for (const [id, held] of Object.entries(saved.held ?? {})) if (!this.players.has(id)) this.held.set(id, held);
-      for (const [id, reason] of Object.entries(saved.kept ?? {})) if (this.players.has(id)) this.kept.set(id, reason);
+      // A room waking with its state keeps players whose connection dropped: they have no connection to be found by.
+      if (startOptions.state !== undefined) {
+        for (const [id, reconnecting] of Object.entries(saved.reconnecting ?? {})) {
+          if (this.players.has(id)) continue;
+          this.players.set(id, reconnecting.player);
+          this.presence.set(id, newPresence(this.now(), {}));
+          this.kept.set(id, "lost");
+          this.reconnectUntilMs.set(id, reconnecting.untilMs);
+        }
+      }
+      for (const [id, reason] of Object.entries(saved.kept ?? {})) if (this.players.has(id) && !this.kept.has(id) && reason !== "lost") this.kept.set(id, reason);
       this.lobbyRoomCode = saved.lobbyRoomCode ?? null;
       this.endsAt = saved.endsAt ?? null;
       for (const [first, second] of saved.accountBlocks ?? []) this.accountBlocks.add(pairKey(first, second));
@@ -1027,6 +1085,7 @@ export class RoomCore<S = any> {
       areFriends: (firstPlayerId, secondPlayerId) => this.areFriends(firstPlayerId, secondPlayerId),
       pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,
       serverTimeMs: () => this.now(),
+      awayReason: (playerId) => (this.players.has(playerId) ? (this.kept.get(playerId) ?? null) : null),
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
   }
@@ -1042,6 +1101,7 @@ export class RoomCore<S = any> {
       ...(this.expected.size ? { expected: Object.fromEntries(this.expected) } : {}),
       ...(this.held.size ? { held: Object.fromEntries(this.held) } : {}),
       ...(this.kept.size ? { kept: Object.fromEntries(this.kept) } : {}),
+      ...(this.reconnectUntilMs.size ? { reconnecting: Object.fromEntries([...this.reconnectUntilMs].map(([id, untilMs]) => [id, { player: this.players.get(id)!, untilMs }])) } : {}),
       ...(this.lobbyRoomCode ? { lobbyRoomCode: this.lobbyRoomCode } : {}),
       ...(this.endsAt ? { endsAt: this.endsAt } : {}),
       ...this.savedBlocks(),
@@ -1283,6 +1343,8 @@ export class RoomCore<S = any> {
     player: Player,
     joinOptions: { isListed?: boolean; friendJoinsEnabled?: boolean; joinData?: unknown; clientIdle?: ClientIdle } & RoomInfo = {},
   ): { isAllowed: true; isRejoin: boolean } | { isAllowed: false; code: RoomErrorCode; message?: string } {
+    // A player whose time to reconnect ran out while the room slept comes back to their held seat instead.
+    this.expireReconnects();
     const isRejoin = this.players.has(player.id);
     const door = this.door(player.id);
     if (door && !door.isAllowed) return door;
@@ -1298,6 +1360,12 @@ export class RoomCore<S = any> {
       if (joinOptions.friendJoinsEnabled === false) this.friendJoinsEnabled = false;
       Object.assign(this, tidyRoomInfo({ name: joinOptions.name, labels: joinOptions.labels }));
     }
+    // Back from a dropped connection: in the match again before the welcome, so it reaches them and lists them as playing.
+    const isReconnect = isRejoin && this.kept.get(player.id) === "lost";
+    if (isReconnect) {
+      this.kept.delete(player.id);
+      this.reconnectUntilMs.delete(player.id);
+    }
     this.players.set(player.id, player);
     this.remember(player.id);
     this.presence.set(player.id, newPresence(this.now(), joinOptions.clientIdle === undefined ? (this.presence.get(player.id)?.clientIdle ?? {}) : clientIdle(joinOptions.clientIdle)));
@@ -1312,13 +1380,15 @@ export class RoomCore<S = any> {
       this.listingChanged = true;
       this.run(() => this.server.onJoin?.(this.state, player, this.api, joinData, joinInfo));
       this.broadcastPlayers();
-    } else if (this.kept.has(player.id)) this.back(player.id);
+    } else if (isReconnect) this.cameBack(player);
+    else if (this.kept.has(player.id)) this.back(player.id);
     return { isAllowed: true, isRejoin };
   }
 
   /**
    * A player's connection closed: they left (closed the game, or followed a move), or it was lost. A
-   * lost player's seat is held for a while, so they can come straight back.
+   * lost player stays in the match as away for reconnectTimeoutSec (onAway, reason "lost"), then
+   * leaves it with their seat held for a while, so they can still come straight back.
    */
   leave(playerId: string, reason: "left" | "lost" = "left"): void {
     if (this.held.has(playerId)) {
@@ -1332,6 +1402,19 @@ export class RoomCore<S = any> {
     }
     const player = this.players.get(playerId);
     if (!player) return;
+    const reconnectTimeoutSec = this.server.reconnectTimeoutSec ?? ROOM_LIMITS.defaultReconnectTimeoutSec;
+    if (reason === "lost" && !this.ended && reconnectTimeoutSec > 0) {
+      // A second close, or the runtime's close after the room already dropped them, changes nothing.
+      if (this.kept.get(playerId) === "lost") return;
+      this.kept.set(playerId, "lost");
+      this.reconnectUntilMs.set(playerId, this.now() + reconnectTimeoutSec * 1000);
+      this.presence.get(playerId)?.unansweredProbes.clear();
+      this.listingChanged = true;
+      this.dirty = true;
+      if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, "lost"));
+      this.broadcastPlayers();
+      return;
+    }
     this.out(playerId);
     if (this.ended) return;
     if (reason === "lost") this.hold(player, "lost");
@@ -1343,6 +1426,7 @@ export class RoomCore<S = any> {
   private out(playerId: string): void {
     this.players.delete(playerId);
     this.kept.delete(playerId);
+    this.reconnectUntilMs.delete(playerId);
     this.presence.delete(playerId);
     this.buckets.delete(playerId);
     this.listingChanged = true;
@@ -1379,7 +1463,7 @@ export class RoomCore<S = any> {
    * longer), or their game hidden too long in a real-time room. The game's onAway decides; otherwise
    * they leave the match with their seat held, and with awayMode "lobby" are sent to the lobby.
    */
-  private walkAway(playerId: string, reason: AwayReason): void {
+  private walkAway(playerId: string, reason: Exclude<AwayReason, "lost">): void {
     const player = this.players.get(playerId);
     if (!player || this.ended || this.kept.has(playerId)) return;
     if (this.server.onAway) {
@@ -1407,9 +1491,8 @@ export class RoomCore<S = any> {
     const player = this.players.get(playerId);
     if (player) {
       if (!this.kept.delete(playerId)) return null;
-      this.listingChanged = true;
-      this.dirty = true;
-      this.run(() => this.server.onBack?.(this.state, player, this.api));
+      this.reconnectUntilMs.delete(playerId);
+      this.cameBack(player);
       return null;
     }
     const held = this.holding(playerId);
@@ -1417,6 +1500,42 @@ export class RoomCore<S = any> {
     const checked = checkRoomData(joinData);
     const joined = this.join(held.player, { joinData: checked.isValid ? checked.checkedData : null, clientIdle: asked });
     return joined.isAllowed ? null : joined.code;
+  }
+
+  /** A player kept away is playing again: the game hears it (onBack), and every player's list shows them playing. */
+  private cameBack(player: Player): void {
+    this.listingChanged = true;
+    this.dirty = true;
+    this.run(() => this.server.onBack?.(this.state, player, this.api));
+    this.broadcastPlayers();
+  }
+
+  /** Players whose time to reconnect ran out leave the match, with their seat held (onLeave, reason "lost"). */
+  private expireReconnects(): void {
+    if (this.ended) return;
+    const nowMs = this.now();
+    for (const [id, untilMs] of [...this.reconnectUntilMs]) {
+      if (untilMs > nowMs) continue;
+      const player = this.players.get(id);
+      this.reconnectUntilMs.delete(id);
+      if (!player) continue;
+      this.out(id);
+      this.hold(player, "lost");
+      this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason: "lost" }));
+      this.broadcastPlayers();
+    }
+  }
+
+  /** When the first player whose connection dropped runs out of time to reconnect, or null if nobody is reconnecting. */
+  nextReconnectDeadlineMs(): number | null {
+    let deadlineMs: number | null = null;
+    for (const untilMs of this.reconnectUntilMs.values()) if (deadlineMs === null || untilMs < deadlineMs) deadlineMs = untilMs;
+    return deadlineMs;
+  }
+
+  /** Whether a player is in the match without a connection: dropped, and still within reconnectTimeoutSec. */
+  private isLost(playerId: string): boolean {
+    return this.kept.get(playerId) === "lost";
   }
 
   /**
@@ -1427,6 +1546,7 @@ export class RoomCore<S = any> {
    */
   sweep(): void {
     if (this.ended) return;
+    this.expireReconnects();
     const nowMs = this.now();
     for (const [id, presence] of [...this.presence]) {
       if (this.kept.has(id)) continue;
@@ -1567,9 +1687,14 @@ export class RoomCore<S = any> {
     return { inboundSizeBytes: traffic.inboundSizeBytes, outboundMessageCount: traffic.outboundMessageCount, outboundSizeBytes: traffic.outboundSizeBytes, messageTypes: [...traffic.messageTypes.values()] };
   }
 
-  /** The host: the room's first player, when the game server has host controls on. */
+  /**
+   * The host: the room's first player, when the game server has host controls on. A host whose
+   * connection dropped hands over to the next player meanwhile, so host controls never wait on them.
+   */
   get hostPlayerId(): string | null {
-    return this.server.hostControlsEnabled ? (this.players.keys().next().value ?? null) : null;
+    if (!this.server.hostControlsEnabled) return null;
+    for (const id of this.players.keys()) if (!this.isLost(id)) return id;
+    return null;
   }
 
   /**
@@ -1692,8 +1817,11 @@ export class RoomCore<S = any> {
     const isKeptOut = given.keepOut === true;
     this.known.delete(playerId);
     if (isKeptOut) this.keepOut({ [playerId]: message });
-    this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
-    this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
+    // A player whose connection dropped has none to tell or close.
+    if (!this.isLost(playerId)) {
+      this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
+      this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
+    }
     this.held.delete(playerId);
     this.out(playerId);
     // A player out of the match with their seat held already left it: there's no onLeave to run.
@@ -1733,6 +1861,7 @@ export class RoomCore<S = any> {
 
   tick(tickDurationSec: number): void {
     if (this.ended) return;
+    this.expireReconnects();
     this.probeDue();
     // A room where everyone walked away stops running until someone's back.
     if (!this.server.onTick || this.playingCount === 0) return;
@@ -1759,17 +1888,20 @@ export class RoomCore<S = any> {
     this.listingChanged = true;
     const text = JSON.stringify({ type: "ended", message } satisfies ServerMessage);
     for (const id of [...this.players.keys(), ...this.held.keys()]) {
+      if (this.isLost(id)) continue;
       this.sendText(id, text);
       this.transport.close(id, ENDED_CLOSE_CODE, "Match ended");
     }
     this.players.clear();
     this.held.clear();
     this.kept.clear();
+    this.reconnectUntilMs.clear();
     this.presence.clear();
   }
 
-  private list(): Player[] {
-    return [...this.players.values()];
+  /** The players as every player's game lists them, with why each isn't playing. */
+  private list(): ListedPlayer[] {
+    return [...this.players.values()].map((player) => ({ ...player, awayReason: this.kept.get(player.id) ?? null }));
   }
 
   private broadcast(message: unknown, exceptPlayerId?: string): void {
@@ -1786,8 +1918,9 @@ export class RoomCore<S = any> {
   }
 
   /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
-  private sendFrame(playerIds: string[], frame: Uint8Array): void {
+  private sendFrame(given: string[], frame: Uint8Array): void {
     if (!this.transport.sendBytes) throw new Error("Sending bytes isn't available here");
+    const playerIds = given.filter((id) => !this.isLost(id));
     this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length);
     this.depth++;
     try {
@@ -1811,7 +1944,7 @@ export class RoomCore<S = any> {
    */
   private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE): void {
     const byteCount = utf8ByteCount(text);
-    const ids = [...playerIds];
+    const ids = [...playerIds].filter((id) => !this.isLost(id));
     this.countTraffic("outbound", messageType, ids.length, byteCount);
     this.depth++;
     try {
@@ -1826,8 +1959,10 @@ export class RoomCore<S = any> {
    * Send a player a text, counting the bytes that went out to them: past
    * ROOM_LIMITS.maximumUnansweredSentBytes since the last probe they answered, they're dropped;
    * every ROOM_LIMITS.sentBytesPerProbe, they're probed, so a backed-up connection shows as a late answer.
+   * A player whose connection dropped gets nothing: nothing is sent, counted or probed until they're back.
    */
   private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text), messageType: string | null = ZAISMA_MESSAGE_TYPE): void {
+    if (this.isLost(playerId)) return;
     this.transport.send(playerId, text);
     // sendEach counts its text once for everyone (messageType null).
     if (messageType !== null) this.countTraffic("outbound", messageType, 1, byteCount);
@@ -1870,6 +2005,7 @@ export class RoomCore<S = any> {
 
   /** A player whose oldest unanswered probe is ROOM_LIMITS.probeAnswerTimeoutSec old is dropped. */
   private checkAnswers(playerId: string): void {
+    if (this.isLost(playerId)) return;
     const oldest = this.presence.get(playerId)?.unansweredProbes.values().next().value;
     if (oldest && this.now() - oldest.sentAtMs >= ROOM_LIMITS.probeAnswerTimeoutSec * 1000) this.dropBehind(playerId);
   }

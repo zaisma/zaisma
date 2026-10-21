@@ -36,6 +36,15 @@ function pairsOf(room: Room, isPair: (firstPlayerId: string, secondPlayerId: str
   for (let i = 0; i < players.length; i++) for (const other of players.slice(i + 1)) if (isPair(players[i]!.id, other.id)) pairs.push([players[i]!.id, other.id]);
   return pairs;
 }
+/** Why each player in a room who isn't playing is away, as room.awayReason would answer. */
+function awayReasonsOf(room: Room): Record<string, AwayReason> {
+  const awayReasons: Record<string, AwayReason> = {};
+  for (const player of room.players) {
+    const awayReason = room.awayReason(player.id);
+    if (awayReason !== null) awayReasons[player.id] = awayReason;
+  }
+  return awayReasons;
+}
 /** The ping of each player in a room the room has measured, as room.pingDurationMs would answer. */
 function pingsOf(room: Room): Record<string, number> {
   const pings: Record<string, number> = {};
@@ -85,6 +94,8 @@ interface Snapshot {
   friendPairs: [string, string][];
   /** Each measured player's ping, for room.pingDurationMs. */
   pingDurationsMs: Record<string, number>;
+  /** Why each player who isn't playing is away, for room.awayReason. */
+  awayReasons: Record<string, AwayReason>;
   /** The room's clock when the call was made, for room.serverTimeMs. */
   serverTimeMs: number;
 }
@@ -126,6 +137,7 @@ interface Settings {
   idleTimeoutSec?: unknown;
   awayMode?: unknown;
   seatHoldDurationSec?: unknown;
+  reconnectTimeoutSec?: unknown;
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
@@ -228,6 +240,7 @@ function recorder(snapshot, effects, database, secrets) {
     areFriends(firstPlayerId, secondPlayerId) { return (snapshot.friendPairs || []).some((pair) => (pair[0] === firstPlayerId && pair[1] === secondPlayerId) || (pair[0] === secondPlayerId && pair[1] === firstPlayerId)); },
     pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
     serverTimeMs() { return Date.now() + clockOffsetMs; },
+    awayReason(playerId) { const awayReasons = snapshot.awayReasons || {}; return Object.hasOwn(awayReasons, playerId) ? awayReasons[playerId] : null; },
   };
 }
 
@@ -261,7 +274,7 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, serverTimeMs: Date.now() };
+  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now() };
   constructor(database, secrets) {
     super();
     this.#database = database;
@@ -280,6 +293,7 @@ class Session extends RpcTarget {
       idleTimeoutSec: server.idleTimeoutSec,
       awayMode: server.awayMode,
       seatHoldDurationSec: server.seatHoldDurationSec,
+      reconnectTimeoutSec: server.reconnectTimeoutSec,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
     }));
@@ -629,6 +643,7 @@ interface SentRoom {
   playersKey: string;
   settingsKey: string;
   pingsKey: string;
+  awayReasonsKey: string;
   pairsKey: string;
   pairChangeCount: number | undefined;
 }
@@ -743,11 +758,14 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const settingsKey = JSON.stringify(settings);
     const pingDurationsMs = pingsOf(room);
     const pingsKey = JSON.stringify(pingDurationsMs);
+    const awayReasons = awayReasonsOf(room);
+    const awayReasonsKey = JSON.stringify(awayReasons);
     const pairChangeCount = (room as unknown as { [PAIR_CHANGE_COUNT]?: number })[PAIR_CHANGE_COUNT];
     const changes: RoomChanges = { serverTimeMs: room.serverTimeMs() };
     if (!was || was.playersKey !== playersKey) changes.players = players;
     if (!was || was.settingsKey !== settingsKey) Object.assign(changes, settings);
     if (!was || was.pingsKey !== pingsKey) changes.pingDurationsMs = pingDurationsMs;
+    if (!was || was.awayReasonsKey !== awayReasonsKey) changes.awayReasons = awayReasons;
     let pairsKey = was?.pairsKey ?? "";
     if (!was || was.playersKey !== playersKey || pairChangeCount === undefined || was.pairChangeCount !== pairChangeCount) {
       const blockPairs = pairsOf(room, (first, second) => room.hasBlockBetween(first, second));
@@ -755,7 +773,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       pairsKey = JSON.stringify([blockPairs, friendPairs]);
       if (!was || was.pairsKey !== pairsKey) Object.assign(changes, { blockPairs, friendPairs });
     }
-    sent = { playersKey, settingsKey, pingsKey, pairsKey, pairChangeCount };
+    sent = { playersKey, settingsKey, pingsKey, awayReasonsKey, pairsKey, pairChangeCount };
     return changes;
   };
   /** A turn-based room's state goes with each call; a real-time room's is in the sandbox. */
@@ -776,6 +794,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(settings.idleTimeoutSec !== undefined ? { idleTimeoutSec: settings.idleTimeoutSec as number } : {}),
     ...(settings.awayMode !== undefined ? { awayMode: settings.awayMode as GameServer["awayMode"] } : {}),
     ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
+    ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
     setup: async (setupData: unknown) => {
       const state = await ask(() => session.setup(setupData), null);
       if (isTicking) lastCopy = state;
@@ -859,13 +878,13 @@ const MAXIMUM_ERROR_COUNT = 5;
 
 /**
  * An error as its developer should see it: the message and where in zaisma-server.js it happened,
- * without our harness's lines. Up to 300 characters.
+ * without our harness's lines. Up to 400 characters, so an unknown option's error keeps the whole list of options.
  */
 export function errorLine(text: string): string {
   const lines = text.split("\n").map((line) => line.trim());
   const where = lines.find((line) => /zaisma-server[^\s:()]*\.js:\d+:\d+/.test(line))?.match(/zaisma-server[^\s:()]*\.js:\d+:\d+/)?.[0];
   const message = lines[0]!.replace(/^Error: /, "");
-  return (where ? `${message} (${where})` : message).slice(0, 300);
+  return (where ? `${message} (${where})` : message).slice(0, 400);
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */

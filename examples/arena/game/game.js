@@ -89,12 +89,15 @@ function draw() {
   if (!before) return;
   const blend = after === before ? 0 : Math.min(1, Math.max(0, (drawAtMs - before.receivedAtMs) / (after.receivedAtMs - before.receivedAtMs)));
   const myId = room && room.me && room.me.id;
+  // Players whose connection dropped are frozen by the game server, and drawn dimmed until they're back.
+  const lostIds = new Set(room ? room.players.filter((player) => player.awayReason === "lost").map((player) => player.id) : []);
 
   for (const [id, now] of after.bodies) {
     const then = before.bodies.get(id) || now;
     if (now.isOut) continue;
     const x = then.x + (now.x - then.x) * blend;
     const y = then.y + (now.y - then.y) * blend;
+    context.globalAlpha = lostIds.has(id) ? 0.35 : 1;
     context.beginPath();
     context.arc(x, y, BODY_RADIUS, 0, Math.PI * 2);
     context.fillStyle = now.color;
@@ -104,8 +107,9 @@ function draw() {
     context.fillStyle = "#ddd";
     context.font = "14px system-ui, sans-serif";
     context.textAlign = "center";
-    context.fillText(now.name, x, y - BODY_RADIUS - 10);
+    context.fillText(lostIds.has(id) ? `${now.name} (reconnecting…)` : now.name, x, y - BODY_RADIUS - 10);
   }
+  context.globalAlpha = 1;
   for (let i = flashes.length - 1; i >= 0; i--) {
     const flash = flashes[i];
     const age = (performance.now() - flash.startedAtMs) / 600;

@@ -38,7 +38,7 @@ function render() {
   game.seatNames.forEach((name, i) => {
     const span = document.createElement("span");
     span.innerHTML = `<span class="dot seat${i + 1}"></span>`;
-    span.append(name ? name + (game.isSeatPlayerHere[i] ? "" : " (away)") : "Waiting…");
+    span.append(name ? name + (!game.isSeatPlayerHere[i] ? " (away)" : isReconnecting(game.seatPlayerIds[i]) ? " (reconnecting…)" : "") : "Waiting…");
     if (mySeat === i + 1) span.style.color = "#fff";
     playersElement.append(span);
   });
@@ -47,6 +47,7 @@ function render() {
   if (!game.seatPlayerIds[1]) infoElement.textContent = "Waiting for a second player.";
   else if (game.isDraw) infoElement.textContent = "It's a draw.";
   else if (game.winnerSeat) infoElement.textContent = game.winnerSeat === mySeat ? "You win!" : `${color(game.winnerSeat)} wins.`;
+  else if (isReconnecting(game.seatPlayerIds[game.turnSeat - 1])) infoElement.textContent = `${game.seatNames[game.turnSeat - 1]} is reconnecting…`;
   else if (!mySeat) infoElement.textContent = `Watching. ${color(game.turnSeat)} to play.`;
   else infoElement.textContent = game.turnSeat === mySeat ? "Your turn" : `${game.seatNames[game.turnSeat - 1]} is thinking…`;
   afterElement.innerHTML = "";
@@ -71,6 +72,11 @@ function render() {
   }
 }
 
+/** Whether a player's connection dropped and the room is keeping their seat while they come back. */
+function isReconnecting(playerId) {
+  return Boolean(playerId && room && room.players.some((player) => player.id === playerId && player.awayReason === "lost"));
+}
+
 // Mute, block and report, from the game's own menu.
 document.getElementById("players-button").onclick = () => room && Zaisma.openSafetyPanel(room);
 
@@ -91,6 +97,8 @@ function use(next) {
     else render();
   });
   room.on("ended", (message) => { infoElement.textContent = message; });
+  // A player's connection dropped or came back: show them reconnecting.
+  room.on("players", () => render());
   // The lobby found an opponent: leave it and join the match room it made for you both.
   room.on("move", (move) => {
     leave();

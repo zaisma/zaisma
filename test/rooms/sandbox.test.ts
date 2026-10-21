@@ -64,8 +64,8 @@ function answerProbe(ws: WebSocket, probeNumber: number) {
   }
 }
 
-async function join(game: string, code: string, joinData?: unknown) {
-  const { pass, player } = await newPass(game);
+async function join(game: string, code: string, joinData?: unknown, samePass?: string) {
+  const { pass, player } = samePass ? { pass: samePass, player: null as never } : await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   expect(up.status).toBe(101);
   const ws = up.webSocket!;
@@ -240,6 +240,27 @@ describe("sandboxed game servers", () => {
     expect(Math.abs(answer.data.serverTimeMs - Date.now())).toBeLessThan(1000);
   });
 
+  it("hears a player whose connection dropped as away, lost, and back, with room.awayReason", async () => {
+    await addSandboxGame(
+      "dropper",
+      `export default {
+  reconnectTimeoutSec: 20,
+  setup: () => ({}),
+  onAway(state, player, room, reason) { room.broadcast({ away: player.id, reason, awayReason: room.awayReason(player.id) }); },
+  onBack(state, player, room) { room.broadcast({ back: player.id, awayReason: room.awayReason(player.id) }); },
+  onLeave(state, player, room) { room.broadcast({ left: player.id }); },
+};`,
+    );
+    const a = await join("dropper", "DRPSBX");
+    const b = await join("dropper", "DRPSBX");
+    b.ws.close(3000);
+    expect(await a.next()).toEqual({ type: "message", data: { away: b.player.id, reason: "lost", awayReason: "lost" } });
+    const again = await join("dropper", "DRPSBX", undefined, b.pass);
+    expect(await a.next()).toEqual({ type: "message", data: { back: b.player.id, awayReason: null } });
+    a.ws.close(1000);
+    again.ws.close(1000);
+  });
+
   it("ticks", async () => {
     await addSandboxGame(
       "ticker",
@@ -338,9 +359,9 @@ describe("sandboxed game servers", () => {
     expect(up.status).toBe(404);
     const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
-    // Errors are kept to 300 characters, which can cut the code and the full stop at the end; the list of options stays whole.
+    // Errors are kept to 400 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule/,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 
@@ -493,7 +514,7 @@ function tickingSession(asked: { method: string; queued?: any[]; roomChanges?: a
   };
 }
 
-const ROOM = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
+const ROOM = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, awayReason: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
 const PLAYER = { id: "player_a", name: "A", kind: "guest" as const };
 
 describe("a game server whose sandbox keeps failing", () => {

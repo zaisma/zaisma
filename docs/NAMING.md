@@ -295,6 +295,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
 | Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck`: `server`, `client`, `off`; a player's game turns its own off with `idleCheckEnabled: false` |
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
+| How long a player whose connection dropped stays in the match, and why a player in the room isn't playing | | `reconnectTimeoutSec`; `awayReason`: `idle`, `hidden`, `lost` or `null` (`room.awayReason(playerId)` on the game server, each `ListedPlayer` in `room.players` in the game) |
 | When Zaisma will end a match past the month's free tier, and hearing it | | `endsAt` (an ISO time); the game server's `onEnding`, the SDK's `ending` event, the room's `{ type: "ending", endsAt }` |
 | What happens to a player who walks away | | `awayMode`: `hold`, `lobby` |
 | A message between a game and its room, and the game's own message in it | | `type`, `data` |
