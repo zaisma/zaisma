@@ -88,6 +88,8 @@ const ON_ZAISMA = { rooms: "https://rooms.zaisma.test", game: "test-game", site:
 function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest", search = "") {
   const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
   const sockets: StandInSocket[] = [];
+  // What the SDK runs on a timer (its checks every second), for the test to run when it likes.
+  const intervals: (() => void)[] = [];
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
   // The Zaisma page around the game: it hands over its room key, whose kind changes when the player signs in.
@@ -128,12 +130,12 @@ function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer:
     },
     addEventListener: listen,
     removeEventListener() {},
-    setInterval: () => 0,
+    setInterval: (work: () => void) => (intervals.push(work), 0),
     clearInterval() {},
     navigator: {},
   };
   new Function(...Object.keys(browser), SDK)(...Object.values(browser));
-  return { Zaisma: window.Zaisma as any, sockets, listeners, page, window, navigator: browser.navigator as Record<string, unknown> };
+  return { Zaisma: window.Zaisma as any, sockets, intervals, listeners, page, window, navigator: browser.navigator as Record<string, unknown> };
 }
 
 const me = { id: "player_ana", name: "Ana", kind: "guest" };
@@ -772,6 +774,53 @@ describe("the SDK's types say what the SDK does", () => {
     }
     expect(problems).toEqual([]);
     expect(checkedCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("answers the room's probes at once, without a message event, and takes its ping and clock from them", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    expect(room.pingDurationMs).toBeNull();
+    expect(Math.abs(room.serverTimeMs() - Date.now())).toBeLessThan(50);
+    const messages: unknown[] = [];
+    room.on("message", (message: unknown) => messages.push(message));
+    socket.sent.length = 0;
+    say(socket, { type: "probe", probeNumber: 1, serverTimeMs: Date.now() + 5000, pingDurationMs: null });
+    expect(socket.sent.map((text) => JSON.parse(text))).toEqual([{ type: "probe_answer", probeNumber: 1 }]);
+    expect(room.pingDurationMs).toBeNull();
+    say(socket, { type: "probe", probeNumber: 2, serverTimeMs: Date.now() + 5000, pingDurationMs: 60 });
+    expect(room.pingDurationMs).toBe(60);
+    expect(messages).toEqual([]);
+    // The room's clock runs 5 seconds ahead of this device's.
+    expect(Math.abs(room.serverTimeMs() - (Date.now() + 5000))).toBeLessThan(100);
+    // A late probe (queued behind other messages) doesn't pull the clock back.
+    say(socket, { type: "probe", probeNumber: 3, serverTimeMs: Date.now() + 4000, pingDurationMs: 60 });
+    expect(Math.abs(room.serverTimeMs() - (Date.now() + 5000))).toBeLessThan(100);
+  });
+
+  it("reconnects after 8 seconds without a word from a ticking room", async () => {
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const socket = sdk.sockets.at(-1)!;
+    socket.onopen!();
+    say(socket, { type: "welcome", me, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: 120 }, probeIntervalSec: 2 });
+    const room = await joining;
+    const check = () => sdk.intervals.forEach((work) => work());
+    const startMs = Date.now();
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(startMs + 7_000);
+      check();
+      expect(room.connectionStatus).toBe("open");
+      say(socket, { type: "probe", probeNumber: 1, serverTimeMs: startMs + 7_000, pingDurationMs: 40 });
+      clock.mockReturnValue(startMs + 15_001);
+      check();
+      expect(room.connectionStatus).toBe("reconnecting");
+    } finally {
+      clock.mockRestore();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sdk.sockets.length).toBe(2);
   });
 
   it("what rooms send, as the game server and the rooms Worker declare it", () => {

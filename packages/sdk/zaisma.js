@@ -363,8 +363,32 @@
     this._pingAtMs = 0;
     this._pongAtMs = 0;
     this._sentAtMs = 0;
+    // Ping and the room's clock (docs/DECISIONS.md, "Rooms under lag"): the room's probes carry this player's
+    // ping and the room's time. The last 8 clock offsets are kept across reconnects, since the room's clock doesn't change.
+    this.pingDurationMs = null;
+    this._clockOffsetsMs = [];
+    // How often a ticking room probes (from welcome), or null, and when this connection last heard from the room.
+    this._probeIntervalSec = null;
+    this._heardAtMs = 0;
   }
   Room.prototype = Object.create(Emitter.prototype);
+
+  /** The room's clock now, in epoch milliseconds, estimated from its probes: Date.now() until the first one. */
+  Room.prototype.serverTimeMs = function () {
+    if (!this._clockOffsetsMs.length) return Date.now();
+    // Queueing only delays a probe, which makes its sample smaller: the largest is the least delayed.
+    return Math.round(performance.timeOrigin + performance.now() + Math.max.apply(null, this._clockOffsetsMs));
+  };
+
+  /** A probe from the room: answered at once, before anything else, and never a game message. */
+  Room.prototype._probe = function (message) {
+    // Straight onto the socket: an answer isn't something the game said, so it doesn't count for the "here" check.
+    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
+    if (typeof message.pingDurationMs === "number") this.pingDurationMs = message.pingDurationMs;
+    if (typeof message.serverTimeMs !== "number") return;
+    this._clockOffsetsMs.push(message.serverTimeMs + (this.pingDurationMs || 0) / 2 - (performance.timeOrigin + performance.now()));
+    if (this._clockOffsetsMs.length > 8) this._clockOffsetsMs.shift();
+  };
 
   /** Send a message to the room if the connection is open. */
   Room.prototype._say = function (message) {
@@ -383,7 +407,8 @@
     this._ws = ws;
     watch();
     ws.onopen = function () {
-      room._pingAtMs = room._pongAtMs = Date.now();
+      room._pingAtMs = room._pongAtMs = room._heardAtMs = Date.now();
+      room._probeIntervalSec = null;
       var hello = { type: "hello", pass: room._pass, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled };
       // quickJoin's first try at a room: rather another room than one with someone this player blocked.
       if (room._avoidsBlockedPlayers) hello.avoidBlockedPlayers = true;
@@ -392,16 +417,20 @@
       room._say(hello);
     };
     ws.onmessage = function (event) {
+      room._heardAtMs = Date.now();
       if (event.data === "pong") { room._pongAtMs = Date.now(); return; }
       var message;
       try { message = JSON.parse(event.data); } catch (error) { return; }
-      if (message.type === "welcome") {
+      if (message.type === "probe") {
+        room._probe(message);
+      } else if (message.type === "welcome") {
         var wasAway = room._away;
         room._tries = 0;
         room.me = message.me;
         room.players = message.players;
         room.hostPlayerId = message.hostPlayerId || null;
         room._checks = message.awayChecks || { idleTimeoutSec: null, hiddenTimeoutSec: null };
+        room._probeIntervalSec = typeof message.probeIntervalSec === "number" ? message.probeIntervalSec : null;
         room._away = room._gone = room._idleSent = room._coming = room._offered = false;
         // In: coming back after a lost connection never turns the player away for someone they blocked.
         room._avoidsBlockedPlayers = false;
@@ -1261,6 +1290,8 @@
    */
   var PING_MS = 25000;
   var PONG_MS = 15000;
+  // A ticking room probes every probeIntervalSec, so this long without a word from it means the connection is gone.
+  var SILENCE_MS = 8000;
   var ASK_MS = 30000;
   var lastInputAtMs = Date.now();
   var asking = null; // { untilMs, rooms } while "Still there?" is up
@@ -1268,7 +1299,7 @@
 
   function watch() {
     if (watching) return;
-    watching = setInterval(check, 5000);
+    watching = setInterval(check, 1000);
     ["keydown", "pointerdown", "pointermove", "wheel", "touchstart"].forEach(function (type) {
       addEventListener(type, input, { capture: true, passive: true });
     });
@@ -1306,6 +1337,8 @@
       if (room._done || !ws || ws.readyState !== 1) return;
       // A ping that went unanswered: the connection is gone, even if the browser hasn't noticed.
       if (room._pingAtMs > room._pongAtMs && nowMs - room._pingAtMs > PONG_MS) return room._lost();
+      // In a ticking room, silence. Not while the player is away or the game is hidden: the room stops probing players who walked away.
+      if (room._probeIntervalSec && !room._away && !room._idleSent && !document.hidden && nowMs - room._heardAtMs > SILENCE_MS) return room._lost();
       if (nowMs - room._pingAtMs >= PING_MS) {
         room._pingAtMs = nowMs;
         ws.send("ping");
