@@ -315,6 +315,8 @@ export function playable(game: Game): boolean {
  * screen with its background behind the glass; the pane holds its words and Play, the shelf below holds the rows.
  */
 const HOME_STYLE = pageStyle("home", () => `
+/* The Steel-era ambient (a blurred wash fading into the page colour over the top 620px) would veil the game's background. */
+.ambient { display: none; }
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(300px, calc(100svh - var(--header-room) - 200px)); }
