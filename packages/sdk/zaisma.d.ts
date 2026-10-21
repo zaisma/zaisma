@@ -1029,6 +1029,7 @@ declare namespace Zaisma {
    * - bad_message, no_hello, not_allowed: a message the room couldn't read, didn't expect, or doesn't allow from this player.
    * - busy, no_room: the room couldn't take the player right now, or doesn't exist.
    * - blocked_player_here: quickJoin's first try at a room with someone the player blocked; quickJoin tries the others first, and you won't see it.
+   * - other_version: the room runs another version of the game. On its Zaisma page the game reloads at the room's version and joins it, and you won't see it; you see it outside Zaisma, through a tester link, or when that version is no longer kept.
    */
   type RoomErrorCode =
     | "full"
@@ -1048,7 +1049,8 @@ declare namespace Zaisma {
     | "not_allowed"
     | "busy"
     | "no_room"
-    | "blocked_player_here";
+    | "blocked_player_here"
+    | "other_version";
 
   /**
    * The codes a request's errors have ({@link Server.request}), from Zaisma or the Node runner alike:

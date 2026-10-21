@@ -499,10 +499,13 @@ export class Room extends DurableObject<Env> {
     let avoidsBlockedPlayers = false;
     // From quickJoin at all: the game joins players by itself, which its Rooms tab says.
     let isQuickJoin = false;
+    // The version the player's game runs (from Zaisma's SDK), or null when it didn't say.
+    let helloVersionId: string | null = null;
     try {
-      const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown };
+      const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown; versionId?: unknown };
       if (hello.type !== "hello") return this.refuse(socket, "no_hello");
       pass = hello.pass;
+      helloVersionId = typeof hello.versionId === "string" && hello.versionId ? hello.versionId : null;
       avoidsBlockedPlayers = hello.avoidBlockedPlayers === true;
       isQuickJoin = hello.isQuickJoin === true;
       // The idle check the player's game asked for, for game servers that leave it to the client.
@@ -542,6 +545,13 @@ export class Room extends DurableObject<Env> {
     await this.load();
     const core = this.room();
     if (!core) return this.refuse(socket, "game_unavailable");
+    // A player always plays the version their room runs: a newcomer whose game runs another one reloads at the
+    // room's first (the game domain serves it to the room's players). Players already in the room come back in
+    // whatever they run, so a reconnect never bounces them out of their match; built-in game servers have no version.
+    const roomVersionId = this.meta.server === SANDBOX ? this.meta.versionId : undefined;
+    if (roomVersionId && helloVersionId && helloVersionId !== roomVersionId && !core.players.has(player.id) && !core.expects(player.id)) {
+      return this.refuse(socket, "other_version", undefined, { versionId: roomVersionId });
+    }
     // Past this month's free tier, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
     if (!core.players.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkFreeTier(core)))) return this.refuse(socket, "month_limit");
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
@@ -697,16 +707,18 @@ export class Room extends DurableObject<Env> {
     const live = !this.hasEnded && !core.ended && core.playingCount > 0;
     const isListed = core.isListed && this.browsing !== "off" ? 1 : 0;
     const labels = JSON.stringify(core.labels);
-    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.isOpen, isListed, core.friendJoinsEnabled, core.name, labels]) : "";
+    // The version a sandboxed game server runs, which the game domain serves the room's players.
+    const versionId = meta.server === SANDBOX ? (meta.versionId ?? null) : null;
+    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.isOpen, isListed, core.friendJoinsEnabled, core.name, labels, versionId]) : "";
     if (as === this.listedAs && !touch) return;
     if (!live) return this.unlist();
     const nowMs = Date.now();
     await this.rowWrite(as, () =>
       this.env.DB.prepare(
         // A name a person hid stays hidden while the room lives (is_name_hidden is never overwritten here).
-        "INSERT INTO live_rooms (game_id, room_code, player_count, held_seat_count, maximum_player_count, is_listed, is_open, friend_joins_enabled, name, labels, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET player_count = excluded.player_count, held_seat_count = excluded.held_seat_count, maximum_player_count = excluded.maximum_player_count, is_listed = excluded.is_listed, is_open = excluded.is_open, friend_joins_enabled = excluded.friend_joins_enabled, name = excluded.name, labels = excluded.labels, updated_at_ms = excluded.updated_at_ms",
+        "INSERT INTO live_rooms (game_id, room_code, player_count, held_seat_count, maximum_player_count, is_listed, is_open, friend_joins_enabled, name, labels, country, continent, version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET player_count = excluded.player_count, held_seat_count = excluded.held_seat_count, maximum_player_count = excluded.maximum_player_count, is_listed = excluded.is_listed, is_open = excluded.is_open, friend_joins_enabled = excluded.friend_joins_enabled, name = excluded.name, labels = excluded.labels, version_id = excluded.version_id, updated_at_ms = excluded.updated_at_ms",
       )
-        .bind(meta.gameId, meta.roomCode, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, isListed, core.isOpen ? 1 : 0, core.friendJoinsEnabled ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, nowMs, nowMs)
+        .bind(meta.gameId, meta.roomCode, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, isListed, core.isOpen ? 1 : 0, core.friendJoinsEnabled ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, versionId, nowMs, nowMs)
         .run(),
     );
     // Checked in: the next check-in is due an hour from now.
@@ -1230,6 +1242,13 @@ export class Room extends DurableObject<Env> {
     }
     this.meta = { ...this.meta, versionId: update.versionId };
     await this.ctx.storage.put("meta", this.meta);
+    // Before anyone reloads: the game domain serves the room's players the version its row names.
+    if (this.meta.roomCode && this.meta.server === SANDBOX) {
+      await this.env.DB.prepare("UPDATE live_rooms SET version_id = ? WHERE game_id = ? AND room_code = ?")
+        .bind(update.versionId, this.meta.gameId, this.meta.roomCode)
+        .run()
+        .catch((error) => console.error("live_rooms version write failed", error));
+    }
     for (const socket of this.ctx.getWebSockets()) {
       if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
       this.retire(socket);
@@ -1312,11 +1331,11 @@ export class Room extends DurableObject<Env> {
     this.matchPlayers = matchPlayers;
   }
 
-  private refuse(socket: WebSocket, code: RoomErrorCode, message?: string): void {
+  private refuse(socket: WebSocket, code: RoomErrorCode, message?: string, details?: { versionId: string }): void {
     socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
     this.socketIndex = null;
     try {
-      socket.send(errorMessage(code, message));
+      socket.send(errorMessage(code, message, details));
       socket.close(REFUSED_CLOSE_CODE, code);
     } catch {
       // Already closed.
