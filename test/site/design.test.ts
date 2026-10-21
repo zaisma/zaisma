@@ -469,7 +469,7 @@ const GALLERY_ONLY = new Set<string>([
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "logo-frame", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
+  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
 ]);
 
 // Classes a script or a screen reader uses, with no look of their own.
@@ -541,6 +541,10 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
+  ".city-page .city-pane | margin",
+  // A pane that scrolls: room for its rail beside what's in it.
+  ".glass-pane > .pane-in.own-scroll | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.

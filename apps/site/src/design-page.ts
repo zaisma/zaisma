@@ -1,5 +1,6 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, pageData, raw, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { headScriptTags, html, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -49,7 +50,7 @@ function section(each: Component, theme: GalleryTheme): Raw {
 const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
   cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}`, icon: "light-dark", isLabelHidden: true });
 
-function head(title: string): Raw {
+function head(title: string, group: ComponentGroup): Raw {
   return html`<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
@@ -58,7 +59,7 @@ function head(title: string): Raw {
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -86,7 +87,7 @@ export function designPage(env: Env, url: URL): Response | null {
   const page = html`<!doctype html>
 <html lang="en">
 <head>
-${head(`${groupName} · Design · Zaisma`)}
+${head(`${groupName} · Design · Zaisma`, group)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
@@ -158,7 +159,6 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
 .header-frame.tall { height: 470px; }
-.header-frame.logo-frame { height: 110px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
 .stand-in-page { padding: 100px 18px 160px; }
@@ -195,7 +195,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .header-frame { height: 320px; }
   .header-frame.tall { height: 560px; }
   /* A header example is narrower than a phone's screen: it keeps a closer inset in its frame, so its first row has a phone's room. */
-  .header-frame .top:not(.is-logo-only) { width: calc(100% - 2 * var(--gap-words-control)); }
+  .header-frame .top { width: calc(100% - 2 * var(--gap-words-control)); }
 }
 `;
 

@@ -55,7 +55,9 @@ describe("runWatchChecks", () => {
       asked.push(`${init?.method ?? "GET"} ${url}`);
       if (overrides[url]) return overrides[url]!.clone();
       if (url === "https://zaisma.com/g/arena") return new Response('<iframe src="x"></iframe>');
-      if (url === "https://arena.zaismausercontent.com/") return new Response("<html>");
+      // A game's page opens at its version's own address.
+      if (url === "https://arena.zaismausercontent.com/") return new Response(null, { status: 302, headers: { location: "/_zaisma/versions/version_1/" } });
+      if (url === "https://arena.zaismausercontent.com/_zaisma/versions/version_1/") return new Response("<html>");
       if (url === "https://rooms.zaisma.com/.well-known/jwks.json") return Response.json({ keys: [] });
       if (url === "https://zaisma.com/mcp") return new Response('{"error":{"code":"no_key"}}', { status: 401 });
       if (url === "https://zaisma.com/signin") return new Response("Sign in", { status: 400 });
@@ -68,7 +70,7 @@ describe("runWatchChecks", () => {
     const asked = answers();
     const results = await runWatchChecks();
     expect(results.map((result: { name: string; isPass: boolean }) => [result.name, result.isPass])).toEqual([["game page", true], ["game files", true], ["rooms", true], ["MCP", true], ["sign-in", true]]);
-    expect(asked).toHaveLength(5);
+    expect(asked).toHaveLength(6);
   });
 
   it("fails a check after a second try, naming it and its answer", async () => {

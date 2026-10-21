@@ -1,7 +1,7 @@
 // A stand-in for Supabase Auth, for local previews only: passwords as set, and the admin calls the site
 // makes with its secret key. Like the live project it sends no email codes: the site makes its own and
 // sends them to the stand-in mailbox (fake-mail.mjs).
-// "Continue with Google/Discord" opens a stand-in page that asks which email to sign in as.
+// "Continue with Google/Discord" comes straight back as a new player each time (a new email), with no page between.
 // Each email always gets the same user ID, so a preview account survives restarts.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -58,20 +58,16 @@ export async function startFakeAuth(port, keyFile) {
       res.end(JSON.stringify(obj));
     };
     const path = url.pathname.replace("/auth/v1", "");
-    const page = (body) => {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Stand-in sign-in</title><body style="font:16px system-ui;max-width:420px;margin:60px auto;padding:0 16px">${body}</body>`);
-    };
-    const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     if (path === "/settings") return send(200, { external: { email: true, google: true, discord: true } });
     if (path === "/authorize") {
+      // No stand-in page to click through: it answers at once as a new player each time, as Google or Discord would for someone
+      // who's never been here, so making an account that way goes straight on to picking a username.
       const q = url.searchParams;
-      const name = q.get("provider") === "discord" ? "Discord" : "Google";
       const back = new URL(q.get("redirect_to"));
-      back.searchParams.set("error", "access_denied");
-      return page(`<h1>${name} (preview stand-in)</h1><p>On the live site this is ${name}'s own page. Pick the email ${name} would give us:</p>
-<form method="post" action="/auth/v1/authorize/done"><input type="hidden" name="redirect_to" value="${esc(q.get("redirect_to"))}"><input type="hidden" name="challenge" value="${esc(q.get("code_challenge"))}">
-<input name="email" type="email" value="player@gmail.test" required style="font:inherit;padding:8px;width:100%;box-sizing:border-box"><p><button style="font:inherit;padding:8px 16px">Continue</button> <a href="${esc(back)}">Cancel</a></p></form>`);
+      const email = `new-player-${Date.now().toString(36)}@${q.get("provider") === "discord" ? "discord" : "gmail"}.test`;
+      back.searchParams.set("code", `c-${b64(JSON.stringify({ email, challenge: q.get("code_challenge") }))}`);
+      res.writeHead(303, { location: back.href });
+      return res.end();
     }
     if (path === "/authorize/done") {
       const back = new URL(b.redirect_to);
