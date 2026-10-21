@@ -457,9 +457,11 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (filePath === "_zaisma/v1.js") {
       // Room links from a tester link go back through it, since a private game has no public page, and rooms
       // let its players go when it's turned off.
-      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, ...(tester ? { page: `/t/${tester.token}`, tester: tester.id } : {}) };
+      // version: the one this tab runs, so the game page can offer a newer one published "now".
+      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, version: version.id, ...(tester ? { page: `/t/${tester.token}`, tester: tester.id } : {}) };
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
-      headers.set("Cache-Control", "public, max-age=300");
+      // Checked on every load, like the game's own HTML, so the version it names is the one the tab gets.
+      headers.set("Cache-Control", "no-cache");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
     }
     // The SDK's types beside it: its reference, for the developer's editor and AI.

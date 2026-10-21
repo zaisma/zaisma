@@ -208,6 +208,9 @@ export const PERFORMANCE_CHECK = object(
 
 const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma, or for the developer's next free review (see findings)", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" });
 
+/** When running matches get a version as it goes live (match_update_mode). */
+export const MATCH_UPDATE_MODE = choice({ next_match: "running matches finish on the version they started; new ones get it (the default)", now: "every live match switches to it within seconds, in the same room; the game server may hold it until a good moment, up to 5 minutes" });
+
 export const VERSION = object({
   id: idOf("version"),
   file_count: countOf(),
@@ -219,6 +222,7 @@ export const VERSION = object({
   preview_url_expires_at: nullable(isoTime("When this preview_url stops working: at least a day from now.")),
   published_at: nullable(isoTime("When it last went live.")),
   scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
+  match_update_mode: MATCH_UPDATE_MODE,
   created_at: isoTime(),
   review_reason: nullable(reviewReason("A person's or a report's decision: why a person rejected it, or a report paused it. null otherwise.")),
   findings: list(FINDING, "What the scan found: what holds or rejects it, and notes that don't."),

@@ -31,7 +31,9 @@ describe("multiplayer on the game domain", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
-    expect(body).toContain('var __ZAISMA__ = {"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test"}');
+    // It names the version it was served with, so it's checked on every load.
+    expect(body).toContain('var __ZAISMA__ = {"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","version":"vgarena"}');
+    expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(body).toContain("window.Zaisma");
   });
 

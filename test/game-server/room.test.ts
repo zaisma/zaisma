@@ -341,7 +341,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -1438,7 +1438,7 @@ describe("A real-time room restarted with its saved state", () => {
     });
     expect(room.state.setUp).toBe(false);
     expect(room.state.laps).toBe(412);
-    expect(room.state.restored).toEqual([{ savedAt: "2026-10-21T12:00:06.000Z", lostDurationSec: 4, awayReasons: ["lost", "lost"] }]);
+    expect(room.state.restored).toEqual([{ savedAt: "2026-10-21T12:00:06.000Z", lostDurationSec: 4, savedVersionId: null, awayReasons: ["lost", "lost"] }]);
     // Then each is away as a dropped connection, with the whole reconnectTimeoutSec from now.
     expect(room.state.away).toEqual([["a", "lost"], ["b", "lost"]]);
     expect(room.playingCount).toBe(0);
@@ -1478,5 +1478,41 @@ describe("A real-time room restarted with its saved state", () => {
     expect(define(1)).not.toThrow();
     expect(define(60)).not.toThrow();
     expect(() => defineGameServer({ setup: () => ({}), onRestored: 1 } as never)).toThrow("onRestored isn't a function.");
+  });
+});
+
+describe("A match moving to a version published now", () => {
+  it("tells every player it's coming, runs onVersionUpdate when held, and switches through the transport when the game server says", async () => {
+    const { t, sent } = transport();
+    let switchCount = 0;
+    const heard: unknown[] = [];
+    const room = new RoomCore(
+      defineGameServer({ setup: () => ({}), onVersionUpdate: (_state, versionUpdate) => void heard.push(versionUpdate), onMessage: (_state, _player, message, api) => (message === "round over" ? api.applyVersionUpdate() : undefined) }),
+      { ...t, applyVersionUpdate: () => switchCount++ },
+    );
+    room.join({ id: "a", name: "A", kind: "guest" });
+    // Nothing coming: applyVersionUpdate does nothing.
+    room.receive("a", msg("round over"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(switchCount).toBe(0);
+    room.startVersionUpdate({ versionId: "version_two", appliesAt: "2026-10-21T12:05:00.000Z", isReloading: true }, true);
+    expect(sent.a!.at(-1)).toEqual({ type: "versionUpdate", step: "coming", versionId: "version_two", appliesAt: "2026-10-21T12:05:00.000Z", isReloading: true });
+    expect(heard).toEqual([{ versionId: "version_two", forcedAt: "2026-10-21T12:05:00.000Z" }]);
+    room.receive("a", msg("round over"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(switchCount).toBe(1);
+    room.tellVersionUpdateNow();
+    expect(sent.a!.at(-1)).toMatchObject({ type: "versionUpdate", step: "now", versionId: "version_two" });
+  });
+
+  it("doesn't run onVersionUpdate when the room doesn't hold for it, and does nothing on a transport without updates", () => {
+    const { t, sent } = transport();
+    const heard: unknown[] = [];
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onVersionUpdate: (_state, versionUpdate) => void heard.push(versionUpdate) }), t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.startVersionUpdate({ versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: false }, false);
+    expect(heard).toEqual([]);
+    expect(sent.a!.at(-1)).toMatchObject({ type: "versionUpdate", step: "coming" });
+    expect(() => defineGameServer({ setup: () => ({}), onVersionUpdate: "soon" } as never)).toThrow("onVersionUpdate isn't a function.");
   });
 });

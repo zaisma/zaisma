@@ -139,6 +139,13 @@ export interface Room {
    * Every player's game sees the same in its player list (awayReason).
    */
   awayReason(playerId: string): AwayReason | null;
+  /**
+   * Switch to the new version now, with onVersionUpdate: at a good moment, like the end of a round. The
+   * room saves, every player's game reconnects (reloading at the new version when its files changed) and
+   * the new version's onRestored carries on from the state. Does nothing when no update is coming, and on
+   * your own server.
+   */
+  applyVersionUpdate(): void;
 }
 
 export interface BroadcastOptions {
@@ -394,17 +401,36 @@ export interface GameServer<S = any> {
    * reconnectTimeoutSec.
    */
   onRestored?(state: S, restoreInfo: RestoreInfo, room: Room): HandlerResult<S>;
+  /**
+   * The developer published a version with match_update_mode "now", and this match moves to it. With
+   * this handler the room waits for you: call room.applyVersionUpdate() at a good moment, like the end of
+   * a round, or it switches at versionUpdate.forcedAt, 5 minutes on. Without it, it switches 10 seconds
+   * after the notice. Each player's game hears it too (the room's "versionUpdate" event), to show a
+   * countdown or save. Never runs on your own server.
+   */
+  onVersionUpdate?(state: S, versionUpdate: VersionUpdate, room: Room): HandlerResult<S>;
 }
 
-/** What onRestored hears: when the state it came back with was saved (an ISO time), and how many seconds of play since then are lost. */
+/** What onVersionUpdate hears: the version the match moves to, and when it switches at the latest (an ISO time). */
+export interface VersionUpdate {
+  versionId: string;
+  forcedAt: string;
+}
+
+/**
+ * What onRestored hears: when the state it came back with was saved (an ISO time), how many seconds of
+ * play since then are lost, and the version of the game that saved it (null on your own server), which
+ * differs from the one running after an update, so the game can bring an older state up to date.
+ */
 export interface RestoreInfo {
   savedAt: string;
   lostDurationSec: number;
+  savedVersionId: string | null;
 }
 
-/** A restored room's restoreInfo, from when its state was saved. */
-export function restoreInfoOf(savedAtMs: number, nowMs = Date.now()): RestoreInfo {
-  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)) };
+/** A restored room's restoreInfo, from when its state was saved and the version that saved it. */
+export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null): RestoreInfo {
+  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
 }
 
 /**
@@ -457,6 +483,7 @@ export const GAME_SERVER_OPTIONS = [
   "onTick",
   "onEnding",
   "onRestored",
+  "onVersionUpdate",
   "onRequest",
   "schedules",
   "onSchedule",
@@ -503,6 +530,9 @@ export const ROOM_LIMITS = {
   defaultStateSaveIntervalSec: 5,
   minimumStateSaveIntervalSec: 1,
   maximumStateSaveIntervalSec: 60,
+  /** A match moving to a version published "now": its notice without onVersionUpdate, and the longest onVersionUpdate can hold it. */
+  versionUpdateNoticeSec: 10,
+  maximumVersionUpdateHoldSec: 300,
   /** A real-time room's state bigger than this as JSON isn't saved, and a restart starts it fresh. */
   maximumSavedStateSizeBytes: 32 * 1024 * 1024,
   /** How often a ticking room probes each player, for their ping and the room's clock. */
@@ -652,6 +682,8 @@ export type ServerMessage =
   | { type: "welcome"; me: Player; players: ListedPlayer[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
+  // A version published "now": coming at appliesAt (an ISO time), then now, just before the room closes its connections (VERSION_UPDATE_CLOSE_CODE). isReloading: the game's files changed, so it reloads.
+  | { type: "versionUpdate"; step: "coming" | "now"; versionId: string; appliesAt: string; isReloading: boolean }
   | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
   | { type: "away"; reason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
   | { type: "kicked"; message: string; isKeptOut: boolean }
@@ -785,6 +817,8 @@ export interface Transport {
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
   secrets?: Readonly<Record<string, string>>;
+  /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
+  applyVersionUpdate?(): void;
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -829,6 +863,8 @@ export const REFUSED_CLOSE_CODE = 4001;
 export const SEAT_GONE_CLOSE_CODE = 4002;
 /** Close code for a connection that stopped answering or fell too far behind; the SDK reconnects. */
 export const NO_ANSWER_CLOSE_CODE = 4003;
+/** Close code for a match switching to a version published "now"; the SDK reconnects, or the page reloads the game first. */
+export const VERSION_UPDATE_CLOSE_CODE = 4004;
 
 /**
  * A binary frame as the room sends it: one byte, the length of fromPlayerId in UTF-8 bytes (0 for the
@@ -945,6 +981,8 @@ export class RoomCore<S = any> {
   private pairChangeCount = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
+  /** A version published "now" this match is moving to, once the transport started it (startVersionUpdate). */
+  versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean } | null = null;
   /** When a real-time room's state was last saved, set by the transport after each save; null until it has been. */
   savedAtMs: number | null = null;
   isListed = true;
@@ -1144,6 +1182,9 @@ export class RoomCore<S = any> {
       pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,
       serverTimeMs: () => this.now(),
       awayReason: (playerId) => (this.players.has(playerId) ? (this.kept.get(playerId) ?? null) : null),
+      applyVersionUpdate: () => {
+        if (this.versionUpdate) this.soon(() => this.transport.applyVersionUpdate?.());
+      },
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
     if (restoreInfo) this.restored(restoreInfo, lostPlayers);
@@ -1950,6 +1991,23 @@ export class RoomCore<S = any> {
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
     this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
+  }
+
+  /**
+   * The match moves to a version published "now": every player hears it's coming at appliesAt, and when
+   * isHeld (a game server with onVersionUpdate) the game server hears it too and may switch sooner.
+   */
+  startVersionUpdate(versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean }, isHeld: boolean): void {
+    if (this.ended || this.versionUpdate?.versionId === versionUpdate.versionId) return;
+    this.versionUpdate = versionUpdate;
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "coming", ...versionUpdate } satisfies ServerMessage));
+    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { versionId: versionUpdate.versionId, forcedAt: versionUpdate.appliesAt }, this.api));
+  }
+
+  /** The switch is happening: every player hears it just before the room closes their connections. */
+  tellVersionUpdateNow(): void {
+    if (!this.versionUpdate) return;
+    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "now", ...this.versionUpdate } satisfies ServerMessage));
   }
 
   /**

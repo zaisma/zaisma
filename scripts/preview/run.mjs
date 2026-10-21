@@ -347,6 +347,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/dashboard/shard-dodge/details#qr-code  (the QR code with SVG and PNG downloads; Share picture
                   in the image kinds); ${SITE}/g/arena and ${SITE}/g/cave-crew on a phone: "Needs a keyboard." and
                   "Best in landscape."
+  Bar states      ${SITE}/g/arena?play&preview_bar=weak  (the connection beside the game; also =retrying, =lost, and for updates
+                  =coming, =updating and =update; on localhost only, since a room on this computer is never slow)
   Room codes      ${SITE}/g/arena?room=K7PQ2M  (the bar's room control shows "# K7PQ2M": its plate has Copy and Join by code;
                   with Streamer mode on at ${SITE}/account#streamer-mode the code starts hidden, the eye shows it, and
                   Share blurs it under Show; on narrow phones the bar scrolls under the Z)

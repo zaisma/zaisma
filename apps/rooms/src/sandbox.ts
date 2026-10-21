@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type VersionUpdate } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -76,7 +76,8 @@ type Effect =
   | { do: "info"; nameAndLabels: unknown }
   | { do: "reserve"; reserveOptions: unknown; roomCode: string }
   | { do: "kick"; playerId: unknown; kickOptions: unknown }
-  | { do: "moveTo"; roomCode: unknown; moveOptions: unknown };
+  | { do: "moveTo"; roomCode: unknown; moveOptions: unknown }
+  | { do: "apply_version_update" };
 
 /** The room as the sandbox sees it. The session keeps it, and each call sends only what changed (RoomChanges). */
 interface Snapshot {
@@ -186,7 +187,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored"];
+const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", ...HOOKS];
@@ -242,6 +243,7 @@ function recorder(snapshot, effects, database, secrets) {
     pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
     serverTimeMs() { return Date.now() + clockOffsetMs; },
     awayReason(playerId) { const awayReasons = snapshot.awayReasons || {}; return Object.hasOwn(awayReasons, playerId) ? awayReasons[playerId] : null; },
+    applyVersionUpdate() { effects.push({ do: "apply_version_update" }); },
   };
 }
 
@@ -358,7 +360,8 @@ class Session extends RpcTarget {
     const room = recorder(snapshot, effects, this.#database, this.#secrets);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
     // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
-    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room), onRestored(state, restoreInfo, room)
+    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room), onRestored(state, restoreInfo, room),
+    // onVersionUpdate(state, versionUpdate, room)
     const state = this.#state;
     const full =
       hook === "onJoin" ? [state, handlerArguments[0], room, handlerArguments[1], handlerArguments[2]]
@@ -826,6 +829,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
     ...(handlerNames.has("onRestored") ? { onRestored: (state: unknown, restoreInfo: RestoreInfo, room: Room) => call("onRestored", state, [restoreInfo], room) } : {}),
+    ...(handlerNames.has("onVersionUpdate") ? { onVersionUpdate: (state: unknown, versionUpdate: VersionUpdate, room: Room) => call("onVersionUpdate", state, [versionUpdate], room) } : {}),
     ...(handlerNames.has("canJoin")
       ? {
           canJoin: async (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => {
@@ -941,6 +945,9 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "moveTo":
           room.moveTo(effect.roomCode as string, asObject(effect.moveOptions) as never);
+          break;
+        case "apply_version_update":
+          room.applyVersionUpdate();
           break;
       }
     } catch (error) {
