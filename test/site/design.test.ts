@@ -448,6 +448,7 @@ const OWN_SVG = new Map<string, string>([
   ["4527 3300", "Zaisma's mark (the Logo)"],
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
+  ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
@@ -496,6 +497,10 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // A table's cells: room round a cell's words, set by the table's size.
+  ".data-table th | padding", ".data-table td | padding", ".data-table.compact th | padding", ".data-table.compact td | padding",
+  // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
+  ".chart-last | margin", ".usage-track | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",

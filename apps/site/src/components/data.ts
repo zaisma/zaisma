@@ -328,3 +328,265 @@ component({
   render: loadingState,
   examples: [{ label: "Loading", markup: glassPane({ paneSize: "small", body: loadingState({ label: "Getting your versions" }) }) }],
 });
+
+export interface TableColumn {
+  label: string;
+  /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
+  isNumeric?: boolean;
+}
+
+export interface TableOptions {
+  /** What the table is, said above it and to screen readers. */
+  caption: string;
+  columns: TableColumn[];
+  /** One list of cells a row, in the columns' order. */
+  rows: (Raw | string)[][];
+  /** Closer rows, for long lists (logs, requests). */
+  isCompact?: boolean;
+}
+
+/**
+ * A table on glass: a header row that stays while its rows scroll under it, hairlines between rows, numbers right-aligned in figures of one
+ * width. On a phone it scrolls sideways inside its pane, fading at its edges: a row never folds into a card, since developers compare rows.
+ */
+export function table(options: TableOptions): Raw {
+  const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
+  return html`<div class="table-scroll" data-fades-sideways data-scroll-box><table class="data-table${options.isCompact ? " compact" : ""}"><caption>${options.caption}</caption><thead><tr>${options.columns.map(
+    (column, columnIndex) => html`<th scope="col"${numeric(columnIndex)}>${column.label}</th>`,
+  )}</tr></thead><tbody>${options.rows.map((row) => html`<tr>${row.map((cell, columnIndex) => html`<td${numeric(columnIndex)}>${cell}</td>`)}</tr>`)}</tbody></table></div>`;
+}
+
+const VERSION_ROWS: (Raw | string)[][] = [
+  [html`<b>Version 15</b>`, tag("Held", "warning"), "314", "49.2 MB", "An hour ago"],
+  [html`<b>Version 14</b>`, tag("Live", "new"), "312", "48.1 MB", "Oct 19"],
+  [html`<b>Version 13</b>`, "Replaced", "309", "47.6 MB", "Oct 16"],
+  [html`<b>Version 12</b>`, "Replaced", "296", "45.3 MB", "Oct 11"],
+];
+
+component({
+  name: "Table",
+  slug: "table",
+  group: "data",
+  summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
+  styles: `
+/* A table: its caption in a label's words, a header row in quiet facts, hairlines between rows. The header row stays at the top while a long
+   table's rows scroll under it, over a near-solid band of the glass. A row under the pointer brightens a little, like a list row. */
+.table-scroll { max-width: 100%; }
+.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(640px, 75dvh); }
+.data-table { width: 100%; min-width: max-content; border-collapse: collapse; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.data-table caption { padding-bottom: var(--gap-words-control); text-align: left; font: var(--type-label); color: var(--ink); }
+.data-table th { position: sticky; top: 0; z-index: 1; padding: 10px 16px; text-align: left; font: var(--type-facts); color: var(--muted); white-space: nowrap; background: var(--table-head); box-shadow: inset 0 -1px 0 var(--line); }
+.data-table td { padding: 14px 16px; border-top: var(--divider); white-space: nowrap; }
+.data-table tbody tr:first-child td { border-top: 0; }
+.data-table td:first-child { color: var(--ink); }
+.data-table b { font-weight: 600; }
+.data-table code { font: var(--type-code); }
+.data-table .num { text-align: right; }
+.data-table tbody tr:hover td { background: var(--row-hover); }
+.data-table.compact th { padding: 8px 12px; }
+.data-table.compact td { padding: 8px 12px; font: var(--type-facts); }
+`,
+  render: table,
+  examples: [
+    {
+      label: "Versions",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
+    },
+    {
+      label: "Compact, for long lists",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: table({
+        caption: "Requests to your game server",
+        isCompact: true,
+        columns: [{ label: "When" }, { label: "Route" }, { label: "Status", isNumeric: true }, { label: "Took", isNumeric: true }],
+        rows: [
+          ["14:02:11", html`<code>POST /match/start</code>`, "200", "38 ms"],
+          ["14:02:09", html`<code>GET /leaderboard</code>`, "200", "12 ms"],
+          ["14:01:57", html`<code>POST /match/end</code>`, "409", "21 ms"],
+          ["14:01:40", html`<code>GET /inventory</code>`, "200", "9 ms"],
+          ["14:01:22", html`<code>POST /trade</code>`, "429", "2 ms"],
+        ],
+      }) }),
+    },
+  ],
+});
+
+export interface NumberItem {
+  label: string;
+  /** The figure as it reads, already formatted: "1,284", "12.4". */
+  figure: string;
+  /** After the figure, smaller: "hours", "MB". */
+  unit?: string;
+  /** How it moved, in words: "+18% on last week". */
+  change?: string;
+  /** The change is good news (more players): it's green. Otherwise it stays quiet. */
+  isChangeGood?: boolean;
+}
+
+/** Numbers: a row of figures in Jost, each with its label under it and how it moved. */
+export function numbers(options: { items: NumberItem[] }): Raw {
+  return html`<dl class="numbers">${options.items.map(
+    (numberItem) => html`<div class="number"><dt>${numberItem.label}</dt><dd class="number-figure">${numberItem.figure}${numberItem.unit ? html`<span class="number-unit">${numberItem.unit}</span>` : ""}</dd>${numberItem.change ? html`<dd class="number-change${numberItem.isChangeGood ? " good" : ""}">${numberItem.change}</dd>` : ""}</div>`,
+  )}</dl>`;
+}
+
+component({
+  name: "Numbers",
+  slug: "numbers",
+  group: "data",
+  summary: "A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.",
+  styles: `
+/* Numbers: big figures in Jost with figures of one width, their unit smaller beside them, the label under each in facts. They share the row,
+   wrapping on a phone. */
+.numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--gap-block-block); margin: 0; }
+.number { display: grid; gap: var(--gap-words-words); align-content: start; }
+.number dt { order: 2; font: var(--type-facts); color: var(--muted); }
+.number dd { margin: 0; }
+.number-figure { order: 1; font: var(--type-heading); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.number-unit { margin-left: var(--gap-words-words); font: var(--type-label); color: var(--ink-2); }
+.number-change { order: 3; font: var(--type-facts); color: var(--ink-2); }
+.number-change.good { color: var(--tag-new-ink); }
+`,
+  render: numbers,
+  examples: [
+    {
+      label: "This week",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: numbers({ items: [
+        { label: "Players", figure: "1,284", change: "+18% on last week", isChangeGood: true },
+        { label: "Hours played", figure: "3,906", unit: "hours", change: "+6% on last week", isChangeGood: true },
+        { label: "Plays", figure: "9,412", change: "−3% on last week" },
+        { label: "Stored", figure: "48.1", unit: "MB" },
+      ] }) }),
+    },
+  ],
+});
+
+export interface ChartPoint {
+  /** What the point is, said under the chart and to screen readers: "Oct 14". */
+  label: string;
+  amountNumber: number;
+}
+
+export interface ChartOptions {
+  /** What it shows: "Plays a day". */
+  label: string;
+  points: ChartPoint[];
+  /** What the numbers count, said with each one to screen readers: "plays". */
+  unit: string;
+  /** A line (the default), or bars, one a point. */
+  chartKind?: "line" | "bars";
+}
+
+/** The top of a chart's scale: the smallest round number at or over the biggest point, so its grid reads in round steps. */
+function chartTopNumber(biggestNumber: number): number {
+  if (biggestNumber <= 0) return 1;
+  const stepNumber = 10 ** Math.floor(Math.log10(biggestNumber));
+  for (const timesNumber of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (timesNumber * stepNumber >= biggestNumber) return timesNumber * stepNumber;
+  return 10 * stepNumber;
+}
+const chartWords = (amountNumber: number) => amountNumber.toLocaleString("en-US", { maximumFractionDigits: 1 });
+
+/**
+ * A chart, drawn here as SVG, so there's nothing to wait for: a hairline grid in round steps, the line (or bars) in ink, the last point in
+ * orange with its number. The drawing stretches to its width while its lines keep their thickness. A table with the same numbers sits
+ * behind it for screen readers (in a hidden box: a table never shrinks to one).
+ */
+export function chart(options: ChartOptions): Raw {
+  const widthNumber = 1000, heightNumber = 300, points = options.points;
+  const topNumber = chartTopNumber(Math.max(...points.map((point) => point.amountNumber), 0));
+  const isBars = options.chartKind === "bars";
+  const slotNumber = widthNumber / Math.max(points.length, 1);
+  const acrossNumber = (pointIndex: number) => (isBars ? slotNumber * (pointIndex + 0.5) : points.length > 1 ? (pointIndex / (points.length - 1)) * widthNumber : widthNumber / 2);
+  const downNumber = (amountNumber: number) => heightNumber - (amountNumber / topNumber) * heightNumber;
+  const line = points.map((point, pointIndex) => `${pointIndex ? "L" : "M"}${acrossNumber(pointIndex).toFixed(1)} ${downNumber(point.amountNumber).toFixed(1)}`).join(" ");
+  const drawing = isBars
+    ? points.map((point, pointIndex) => {
+        const barHeightNumber = Math.max(heightNumber - downNumber(point.amountNumber), 1);
+        return raw(`<rect class="chart-bar${pointIndex === points.length - 1 ? " last" : ""}" x="${(slotNumber * pointIndex + slotNumber * 0.18).toFixed(1)}" y="${(heightNumber - barHeightNumber).toFixed(1)}" width="${(slotNumber * 0.64).toFixed(1)}" height="${barHeightNumber.toFixed(1)}"/>`);
+      })
+    : raw(`<path class="chart-area" d="${line} L${acrossNumber(points.length - 1).toFixed(1)} ${heightNumber} L${acrossNumber(0).toFixed(1)} ${heightNumber} Z"/><path class="chart-line" d="${line}" vector-effect="non-scaling-stroke"/>`);
+  const last = points[points.length - 1];
+  const lastMark = last
+    ? html`<span class="chart-last${isBars ? " is-bar" : ""}" style="left:${((acrossNumber(points.length - 1) / widthNumber) * 100).toFixed(2)}%;top:${((downNumber(last.amountNumber) / heightNumber) * 100).toFixed(2)}%"><span class="chart-last-words">${chartWords(last.amountNumber)}</span></span>`
+    : "";
+  return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><div class="chart-plot" aria-hidden="true">${[1, 0.5, 0].map(
+    (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"><span>${chartWords(topNumber * shareNumber)}</span></span>`,
+  )}<svg class="chart-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none">${drawing}</svg>${lastMark}</div><div class="chart-axis" aria-hidden="true"><span>${points[0]?.label ?? ""}</span><span>${last?.label ?? ""}</span></div><div class="sr"><table><caption>${options.label}</caption><tbody>${points.map(
+    (point) => html`<tr><th scope="row">${point.label}</th><td>${chartWords(point.amountNumber)} ${options.unit}</td></tr>`,
+  )}</tbody></table></div></figure>`;
+}
+
+const DAILY_PLAYS: ChartPoint[] = [812, 904, 870, 1012, 1190, 1460, 1384, 1102, 1056, 1218, 1305, 1520, 1712, 1655].map((amountNumber, dayIndex) => ({ label: `Oct ${8 + dayIndex}`, amountNumber }));
+
+component({
+  name: "Chart",
+  slug: "chart",
+  group: "data",
+  summary: "How something moved over time, drawn on the page with nothing to wait for: a hairline grid, the line in ink and the last point in orange with its number. Screen readers get the same numbers as a table.",
+  styles: `
+/* A chart: its label, then the plot, then the first and last points' labels under it. The grid's hairlines carry their numbers at their
+   left end; the drawing stretches to fill the plot while its line keeps its 2px. The last point is an orange dot with its number over it. */
+.chart { display: grid; gap: var(--gap-words-control); margin: 0; }
+.chart-label { font: var(--type-label); color: var(--ink); }
+.chart-plot { position: relative; height: 180px; margin-top: var(--gap-block-block); }
+.chart-grid { position: absolute; left: 0; right: 0; height: 0; border-top: var(--divider); }
+.chart-grid > span { position: absolute; left: 0; bottom: 2px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chart-drawing { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.chart-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-area { fill: var(--chart-fill); stroke: none; }
+.chart-bar { fill: var(--ink-2); opacity: 0.7; }
+.chart-bar.last { fill: var(--run); opacity: 1; }
+.chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--run); border-radius: 50%; box-shadow: 0 0 0 3px var(--table-head); }
+.chart-last.is-bar { width: 0; height: 0; margin: 0; box-shadow: none; }
+.chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-axis { display: flex; justify-content: space-between; font: var(--type-facts); color: var(--muted); }
+`,
+  render: chart,
+  examples: [
+    { label: "A line: plays a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
+    { label: "Bars: players a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
+  ],
+});
+
+export interface UsageMeterOptions {
+  label: string;
+  usedNumber: number;
+  limitNumber: number;
+  /** What's counted, after the numbers: "player-hours", "MB". */
+  unit: string;
+}
+
+/** A usage meter: a carved track filling in ink, amber from 80%, with the numbers beside it; all used, it says so. */
+export function usageMeter(options: UsageMeterOptions): Raw {
+  const sharePct = Math.min(100, Math.round((options.usedNumber / Math.max(options.limitNumber, 1)) * 100));
+  const isAllUsed = options.usedNumber >= options.limitNumber;
+  const tone = isAllUsed ? " is-full" : sharePct >= 80 ? " is-near" : "";
+  return html`<div class="usage${tone}"><div class="usage-words"><span class="usage-label">${options.label}</span><span class="usage-numbers">${chartWords(options.usedNumber)} of ${chartWords(options.limitNumber)} ${options.unit}${isAllUsed ? html`<b>, all used</b>` : ""}</span></div><div class="usage-track cut-carved" data-cut-line="6" role="meter" aria-label="${options.label}" aria-valuemin="0" aria-valuemax="${options.limitNumber}" aria-valuenow="${Math.min(options.usedNumber, options.limitNumber)}">${CUT_LINE}<span class="usage-fill" data-cut-line="4" style="width:${sharePct}%"></span></div></div>`;
+}
+
+component({
+  name: "Usage meter",
+  slug: "usage-meter",
+  group: "data",
+  summary: "How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used.",
+  styles: `
+/* A usage meter: its label and numbers on one line, the track under it, a carved strip the fill grows along. The fill is ink, amber from
+   80% (and when all used, when the words say so too). */
+.usage { display: grid; gap: var(--gap-words-words); }
+.usage-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); }
+.usage-label { font: var(--type-label); color: var(--ink); }
+.usage-numbers { font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.usage-numbers b { font-weight: 600; color: var(--ink); }
+.usage-track { position: relative; height: 12px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.usage-fill { display: block; height: 100%; background: var(--meter-fill); clip-path: var(--cut-shape); transition: width 0.6s var(--spring); }
+.usage.is-near .usage-fill, .usage.is-full .usage-fill { background: var(--meter-near); }
+`,
+  render: usageMeter,
+  examples: [
+    { label: "Under way", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Player-hours this month", usedNumber: 412.6, limitNumber: 1000, unit: "hours" }) }) },
+    { label: "Past 80%", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Requests this month", usedNumber: 86200, limitNumber: 100000, unit: "requests" }) }) },
+    { label: "All used", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Stored", usedNumber: 500, limitNumber: 500, unit: "MB" }) }) },
+  ],
+});
