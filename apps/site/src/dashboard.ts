@@ -375,8 +375,8 @@ function withCookies(response: Response, cookies: string[]): Response {
   return withAll;
 }
 
-export function page(env: Env, title: string, body: Raw, httpStatus = 200, art: string | null = null, account?: Account | null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", art, viewer: account === undefined ? undefined : { account } });
+export function page(env: Env, title: string, body: Raw, httpStatus = 200, account?: Account | null): Response {
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 
@@ -427,7 +427,7 @@ ${games.length
           const cover = coverOf(details[i]!.images);
           const live = details[i]!.versions.find((version) => version.is_live);
           const waitingDraftCount = details[i]!.versions.filter((version) => !version.is_live && version.scan_status === "approved" && !version.published_at).length;
-          return html`<div class="hit block"${cover ? raw(` data-art="${cover.image_url.replace(/"/g, "")}"`) : ""}><div class="tile">
+          return html`<div class="hit block"><div class="tile">
 <a class="pic" href="/dashboard/${game.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.image_url}" alt="" loading="lazy">` : ""}</a>
 <div class="body"><a class="name" href="/dashboard/${game.slug}"><span>${game.title}</span><small>${VISIBILITY[game.visibility].label} · ${REVIEW[game.review_status]}${live ? "" : " · no live version"}</small></a>
 ${waitingDraftCount ? html`<span class="badge">${waitingDraftCount === 1 ? "Draft ready" : `${waitingDraftCount} drafts ready`}</span>` : ""}</div>
@@ -448,7 +448,6 @@ ${canPublish
 <p class="muted">Both need an API key: <a href="/account#developer">make one on your account page</a> and set it as ZAISMA_KEY.</p>`
       : ""}`,
     200,
-    null,
     account,
   );
 }
@@ -520,7 +519,7 @@ async function managerPage(
   try {
     loaded = (await call("GET", `/games/${slug}`)) as Loaded;
   } catch (error) {
-    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, null, account);
+    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, account);
     throw error;
   }
   const { game, images } = loaded;
@@ -581,7 +580,6 @@ ${body}
 </div>
 </div>`,
     httpStatus,
-    cover?.image_url ?? null,
     account,
   );
 }

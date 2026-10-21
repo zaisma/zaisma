@@ -134,12 +134,13 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
     isBare: true,
+    // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
+    isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
     viewer,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
-    art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
 /* Cloudflare's check is invisible; if it ever needs a tap, it sits at the bottom, above the game. */
@@ -149,7 +150,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;padding:0;background:#000}
 body:not(.playing) #full{display:none}
 /* Playing, the game is the whole screen: Zaisma's header, backdrop, footer and the page's details step aside, and the bar sits beside the game. */
-body.playing>header.top,body.playing>.dropdown,body.playing>.backdrop,body.playing>.ambient,body.playing>.foot,body.playing>.rail,body.playing main.gp{display:none}
+body.playing>header.top,body.playing>.dropdown,body.playing>.backdrop,body.playing>.foot,body.playing>.rail,body.playing main.gp{display:none}
 body.playing>.game-steel{display:contents}
 body:not(.playing) .bar{display:none}
 main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
@@ -550,7 +551,7 @@ ${pageData("game-page-data", {
     })}
 ${saves && !isClosed ? pageData("saves-data", { api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: roomQuery, frameOrigin: new URL(frameUrl).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000, isAccountOfferEnabled: Boolean(game.account_offer_enabled) }) : ""}
 ${isClosed
-      ? scriptTags(GAME_PAGE_SCRIPT)
+      ? scriptTags(GAME_PAGE_SCRIPT, GAME_EMBEDDED_SCRIPT)
       : scriptTags(
           GAME_PAGE_SCRIPT,
           ...(tester && !multiplayer ? [] : [PLAY_COUNTER_SCRIPT]),
@@ -558,11 +559,13 @@ ${isClosed
           ...(accountRequirement !== "none" ? [ACCOUNT_GATE_SCRIPT] : []),
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
+          GAME_EMBEDDED_SCRIPT,
           GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
+  response.headers.append("Vary", "Sec-Fetch-Dest, Sec-Fetch-Site");
   // Unlisted games are for people with the link, never search engines; so are games the listing check keeps off lists ("No slop").
   const isShownInLists = game.visibility === "listed" && Boolean(await env.DB.prepare(`SELECT 1 AS shown FROM games WHERE id = ? AND ${SHOWN_IN_LISTS_SQL}`).bind(game.id).first());
   if (!isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
@@ -1234,6 +1237,29 @@ if (needsSignIn) {
     playButton.querySelector("span").textContent = "Sign in to play";
     playButton.onclick = () => { location.href = gamePage.sign_in_url; };
   }
+}`);
+
+/**
+ * The game page in a frame of the home (the home plays a game in place by opening this page, so the two start a game the same way and can't
+ * drift): the bar's Zaisma button and any link to the home say so to the home, which takes the frame away; a link to another page
+ * opens as the whole window, never inside the frame; and the address a game moves to (a room's code) is told to the home, which shows it.
+ */
+const GAME_EMBEDDED_SCRIPT = pageScript("game-embedded", `if (window.top !== window) {
+  const tell = (message) => window.parent.postMessage(message, location.origin);
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest && event.target.closest("a[href]");
+    if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target === "_blank") return;
+    const target = new URL(link.href, location.href);
+    if (target.origin !== location.origin || (target.pathname === location.pathname && target.search === location.search)) return;
+    event.preventDefault();
+    if (target.pathname === "/") tell({ type: "zaisma:home-back" });
+    else window.top.location.href = target.href;
+  });
+  const replaceState = history.replaceState.bind(history);
+  history.replaceState = (state, title, url) => {
+    replaceState(state, title, url);
+    tell({ type: "zaisma:home-address", path: location.pathname + location.search });
+  };
 }`);
 
 /** Last on the game page, once its other scripts are in: a room link or ?play starts the game straight away. */

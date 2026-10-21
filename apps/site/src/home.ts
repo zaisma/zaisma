@@ -1,9 +1,19 @@
 import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession } from "./auth.ts";
+import type { ShownTone } from "./background-tone.ts";
 import type { Env } from "./env.ts";
-import { esc, html, layout, metalButton, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
-import { pageScript } from "./page-scripts.ts";
+import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
+import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
+import { glanceFacts } from "./components/data.ts";
+import { glassPane, icon, tag, tray } from "./components/foundations.ts";
+import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
+import { rowArrows } from "./components/navigation.ts";
+import { banner, gameCover } from "./components/panes.ts";
+import { tabSwitch } from "./components/switch.ts";
+import { esc, html, layout, openingScriptTags, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
+import { HOME_OPENING_SCRIPT, HOME_SCRIPT } from "./home-script.ts";
+import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
 
@@ -14,6 +24,7 @@ import { viewerOf } from "./viewer.ts";
  */
 
 export interface ShowGame {
+  id: string;
   slug: string;
   title: string;
   description: string;
@@ -31,6 +42,12 @@ export interface ShowGame {
   devices: string[];
   /** People playing it right now (checked browsers with it on screen); cards show it from MINIMUM_PLAYING_NOW_PLAYER_COUNT up. */
   playing_now_player_count: number;
+  /** none, multiplayer or whole_game: a guest can't start a whole_game game without an account. */
+  account_requirement: Game["account_requirement"];
+  /** The color the developer tints Zaisma's glass with while the game is in focus on the home. */
+  glass_tint_color: string | null;
+  /** What the home shows behind its glass while the game is in focus; null is Zaisma's own on both screens (the home's script fills it, backgroundsOfGames). */
+  background: { wide: ShownBackground; phone: ShownBackground } | null;
 }
 
 const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>';
@@ -39,7 +56,7 @@ const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><ci
 export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200): Promise<ShowGame[]> {
   const [{ results }, playingNow] = await Promise.all([env.DB
     .prepare(
-      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode,
+      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color,
          accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
@@ -52,10 +69,11 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, maximumGameCount)
-    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
+    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
     playingNowCounts(env),
   ]);
   return results.map((row) => ({
+    id: row.id,
     slug: row.slug,
     title: row.title,
     description: row.description,
@@ -68,6 +86,9 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     modes: playerLine(readPlayModes(row.play_modes), row.multiplayer_mode !== "none"),
     devices: row.devices ? row.devices.split(",") : [],
     playing_now_player_count: playingNow.get(row.id) ?? 0,
+    account_requirement: row.account_requirement,
+    glass_tint_color: row.glass_tint_color,
+    background: null,
   }));
 }
 
@@ -81,7 +102,7 @@ const MINIMUM_SHELF_GAME_COUNT = 2;
  * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
  * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
  */
-export async function shelves(env: Env, games: ShowGame[], viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: ShowGame[]; trending: ShowGame[]; fresh: ShowGame[] }> {
+export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[], viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
   const dateDaysAgo = (dayCount: number) => new Date(nowMs - dayCount * DAY_MS).toISOString().slice(0, 10);
   // Counted players by network, for listed games Zaisma hasn't kept off the shelves.
   const [{ results: networks }, { results: held }] = await Promise.all([
@@ -109,7 +130,7 @@ export async function shelves(env: Env, games: ShowGame[], viewerAgeFloorYears: 
   const off = new Set(held.map((heldGame) => heldGame.slug));
   const bySlug = new Map(games.map((game) => [game.slug, game]));
   const pick = (slugs: string[]) => {
-    const list = slugs.map((slug) => bySlug.get(slug)).filter((game): game is ShowGame => Boolean(game)).slice(0, MAXIMUM_SHELF_GAME_COUNT);
+    const list = slugs.map((slug) => bySlug.get(slug)).filter((game): game is GameOnShelf => Boolean(game)).slice(0, MAXIMUM_SHELF_GAME_COUNT);
     return list.length >= MINIMUM_SHELF_GAME_COUNT ? list : [];
   };
   const popular = pick(shelfCounts.filter((counts) => counts.weekPlayerCount >= 3).sort((first, second) => second.weekPlayerCount - first.weekPlayerCount).map((counts) => counts.slug));
@@ -150,13 +171,26 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
     : game.square
       ? `<picture><source media="(max-width:640px)" srcset="${esc(game.square)}"><img src="${esc(game.cover)}" alt="" loading="lazy"></picture>`
       : `<span class="fill" style="--fill:url(${esc(game.cover)})"></span><img src="${esc(game.cover)}" alt="" loading="lazy">`;
-  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
+  return `<div class="hit block"><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
 }
 
-/** The stage's line under the title: people playing the featured game now (the home's script swaps it when the stage changes). */
-function stagePlayers(game: ShowGame): Raw {
-  const isShown = game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT;
-  return html`<p class="players" id="stage-players"${isShown ? "" : raw(" hidden")}>${raw(PEOPLE_ICON)}<span id="stage-players-count">${game.playing_now_player_count}</span><span class="sr"> playing now</span></p>`;
+/** Shown in place of a cover for a game that has none: the home's rows are covers, so a game without one gets Zaisma's mark on glass. */
+const PLACEHOLDER_COVER = "/zaisma-mark-metal.svg";
+
+/** How many of Popular's top games a guest's first visit draws its opening game from. */
+const GUEST_PICK_COUNT = 8;
+
+const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
+
+/** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
+const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
+
+/** A row of the shelf: its heading (a link to Browse with this sort, when it has one), its arrows and its covers. */
+function row(id: string, title: string, sortName: string | null, list: ShowGame[]): Raw {
+  return html`<section class="home-row" aria-labelledby="${id}-title">
+<div class="home-row-head"><h2 id="${id}-title">${sortName ? textLink(title, `/games?sort=${sortName}`, { isQuiet: true }) : title}</h2>${rowArrows({ rowName: title, trackId: `track-${id}` })}</div>
+<div class="home-track" id="track-${id}" data-fades-sideways>${list.map(coverOf)}</div>
+</section>`;
 }
 
 export async function home(env: Env, request: Request): Promise<Response> {
@@ -166,52 +200,73 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const isProtectionOffered = viewer.account ? await isProtectionOfferDue(env, viewer.account, viewer.email) : false;
   if (isProtectionOffered) await markProtectionOffered(env, viewer.account!.id);
   const games = await showcase(env, viewer.ageFloorYears);
-  const { popular, trending, fresh } = await shelves(env, games, viewer.ageFloorYears);
-  const shelf = (id: string, title: string, list: ShowGame[]) =>
-    list.length ? html`<section aria-labelledby="${id}"><div class="sec-head"><h2 id="${id}">${title}</h2></div><div class="row-tiles">${list.map((game) => tile(game))}</div></section>` : "";
-  const featured = games.find((game) => game.cover) ?? games[0];
-  const browserGames = games.map(({ owner_id: _, ...game }) => game);
+  const [{ popular, trending, fresh }, backgrounds] = await Promise.all([shelves(env, games, viewer.ageFloorYears), backgroundsOfGames(env, games)]);
+  for (const game of games) game.background = backgrounds.get(game.id) ?? null;
+  // A guest's first visit opens on one of Popular's top games, drawn in the browser so the page stays one cached copy; before anything is popular, the newest.
+  const guestPicks = (popular.length ? popular : games).slice(0, GUEST_PICK_COUNT).map((game) => game.slug);
+  const first = games.find((game) => game.slug === guestPicks[0]);
+  // What the browser needs of each game; its owner and ID stay on the server.
+  const browserGames = games.map((game) => Object.fromEntries(Object.entries(game).filter(([name]) => name !== "owner_id" && name !== "id")));
+  const body = first
+    ? html`<div class="home">
+<div class="home-window" aria-hidden="true"></div>
+<div class="home-pane" id="home-pane">${tray({
+        label: "The game in focus",
+        head: html`<div class="home-stage-in"><div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
+<div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
+<div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div></div>`,
+        body: html`<div class="home-cue">${textButton("More games", { href: "#home-games", icon: "chevron-down" })}</div>`,
+      })}</div>
+<div class="home-shelf" id="home-games">${glassPane({
+        paneSize: "full",
+        label: "Games",
+        body: html`${env.SUPABASE_URL
+          ? html`<div id="home-guest" hidden>${banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } })}</div>`
+          : ""}
+<section class="home-row" id="home-continue" aria-labelledby="continue-title" hidden>
+<div class="home-row-head"><h2 id="continue-title">Continue playing</h2>${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}${rowArrows({ rowName: "Continue playing", trackId: "track-continue" })}</div>
+<div class="home-track" id="track-continue" data-fades-sideways></div>
+</section>
+${popular.length ? row("popular", "Popular", "popular", popular) : ""}
+${trending.length ? row("trending", "Trending", "trending", trending) : ""}
+${fresh.length ? row("new", "New", "new", fresh) : ""}
+<div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
+      })}</div>
+</div>
+<noscript><style>.home-stage-in { opacity: 1 !important; }</style></noscript>`
+    : html`<div class="home"><div class="home-window" aria-hidden="true"></div>${glassPane({ paneSize: "medium", body: html`<h1>Every kind of game. One link away.</h1><p>The first games are on their way.</p>` })}</div>`;
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
     // Filtered for a signed-in viewer's age, so no shared cache keeps it.
     isPrivate: Boolean(viewer.account),
-    art: featured?.cover ?? null,
     nav: "home",
     viewer,
-    body: html`<style>${raw(HOME_STYLES)}</style>
-${env.SUPABASE_URL
-      ? html`<section class="guest note" id="guest" hidden><span><strong>You're playing as a guest.</strong> Your progress stays on this device. Make an account to keep it everywhere.</span><a class="btn" href="/join">Make an account</a></section>`
-      : ""}
-${featured
-      ? html`<section class="stage" id="stage" aria-labelledby="stage-title">
-<a class="art" id="stage-pic" href="/g/${featured.slug}" tabindex="-1" aria-hidden="true">${featured.cover ? html`<img src="${featured.cover}" alt="">` : ""}</a>
-<div class="info plate bevel-l">
-<h1 id="stage-title">${featured.title}</h1>
-<p class="by" id="stage-by">${[featured.developer, featured.modes].filter(Boolean).join(" · ")}</p>
-${stagePlayers(featured)}
-<a class="updated" id="stage-updated" hidden></a>
-<p class="desc" id="stage-desc">${featured.description}</p>
-<div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, isBig: true, isFullWidth: true, hasPlayIcon: true })}<a class="btn ghost big" id="stage-details" href="/g/${featured.slug}">Details</a></div>
-</div>
-</section>`
-      : html`<h1>Every kind of game. One link away.</h1><p class="empty">The first games are on their way.</p>`}
-<section class="continue" id="continue" aria-labelledby="continue-title" hidden>
-<div class="sec-head"><h2 id="continue-title">Continue playing</h2>
-<div class="seg" role="group" aria-label="Sort"><button type="button" data-sort="played" aria-pressed="true">Recently played</button><button type="button" data-sort="updated" aria-pressed="false">Recently updated</button></div></div>
-<div class="row-tiles" id="continue-tiles"></div>
-</section>
-${shelf("popular-title", "Popular", popular)}
-${shelf("trending-title", "Trending", trending)}
-${shelf("new-title", "New", fresh)}
-${games.length
-      ? html`<section aria-labelledby="games-title"><div class="sec-head"><h2 id="games-title">${popular.length || trending.length || fresh.length ? "All games" : "Games"}</h2></div>
-<div class="grid">${games.map((game) => tile(game))}</div></section>`
-      : ""}
+    isRebuilt: true,
+    // Play opens the game's page in a frame of the home.
+    frames: ["'self'"],
+    // The opening game is chosen before the first paint, so the page opens on its color and glass (home-script.ts's HOME_OPENING_SCRIPT).
+    head: html`${first ? html`${pageData("home-opening", { slugs: games.map((game) => game.slug), guest_picks: guestPicks, tones: openingTones(games) })}${openingScriptTags(HOME_OPENING_SCRIPT)}` : ""}${styleTags(HOME_STYLE)}`,
+    body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
-${pageData("home-games", browserGames)}${scriptTags(HOME_SCRIPT)}`,
+${pageData("home-data", {
+      games: browserGames,
+      guest_picks: guestPicks,
+      minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
+      placeholder_cover: PLACEHOLDER_COVER,
+      icons: { people: icon("people").html, clock: icon("clock").html },
+      parts: { updated_tag: tag("Updated", "new").html },
+    })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
+}
+
+/** Each game's measured tone on each screen, for the games whose background has one. */
+function openingTones(games: ShowGame[]): Record<string, { wide: ShownTone | null; phone: ShownTone | null }> {
+  const toneOf = (background: ShownBackground) => (background.source === "zaisma" ? null : background.tone);
+  return Object.fromEntries(
+    games.flatMap((game) => (game.background && (toneOf(game.background.wide) || toneOf(game.background.phone)) ? [[game.slug, { wide: toneOf(game.background.wide), phone: toneOf(game.background.phone) }]] : [])),
+  );
 }
 
 /**
@@ -266,82 +321,112 @@ export function playable(game: Game): boolean {
   return game.review_status === "live" && Boolean(game.live_version_id) && (game.visibility === "listed" || game.visibility === "unlisted");
 }
 
-const HOME_STYLES = `
-.guest{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:24px}
-.guest[hidden]{display:none}
-.guest span{flex:1 1 420px;min-width:0;font-size:15px}
-/* The stage: the game's art in a machined bezel, its details on a plate beside it. */
-.stage{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(300px,1fr);align-items:stretch;filter:drop-shadow(0 26px 50px rgba(0,0,0,.55))}
-.stage .art{position:relative;display:block;aspect-ratio:16/9;padding:3px;background:linear-gradient(135deg,#5a5f69 0%,#1a1c20 38%,#121417 70%,#3a3e46 100%)}
-.stage .art img{width:100%;height:100%;object-fit:cover;display:block;box-shadow:0 0 0 1px #000}
-.stage .art:empty::after{content:"";position:absolute;inset:3px;background:url(/zaisma-mark-metal.svg) center/22% no-repeat,var(--grain) 0 0/200px 200px,linear-gradient(135deg,#23272e,#14161a);opacity:.9}
-.stage .info{padding:34px 32px 30px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--rim)}
-.stage h1{margin:0;font-size:clamp(34px,3.6vw,54px)}
-.stage [hidden]{display:none!important}
-.stage .by{margin:0;color:var(--muted);font-size:15px}
-.stage .players{margin:0;align-self:flex-start}
-.stage .desc{margin:4px 0 0;color:var(--text-2);font-size:16px;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
-.stage .updated{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;text-decoration:none;font-family:var(--display);font-size:13px;font-weight:600;color:var(--ok-text);
-  background:linear-gradient(180deg,#24331f,#1a2417);box-shadow:inset 1px 1px 0 rgba(185,231,166,.15),inset -1px -1px 0 #000}
-.stage .updated::before{content:"";width:7px;height:7px;background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.7)}
-.stage .go-row{margin-top:auto;padding-top:22px;display:flex;gap:12px}
-.stage .go-row>.hit{flex:1}
-/* A scrolling row clips what spills out of it, so it leaves room for a card lifted by the pointer
-   (bigger, in a chrome frame): padding all round, taken back by the margin so the cards still line up. */
-.row-tiles{display:flex;gap:22px;overflow-x:auto;padding:16px 16px 34px;margin:-16px -16px -16px;scroll-padding-inline:16px;scroll-snap-type:x proximity}
-.row-tiles>.hit{flex:0 0 300px;scroll-snap-align:start}
-.continue[hidden]{display:none}
-/* Phones and tablets: one machined piece, like a big game card. The art takes the Z's cut corner
-   (its bezel running along the cut), and the nameplate sits flush underneath it. */
-@media (max-width:860px){
-  /* minmax(0,…) so Play and Details can't push the stage past the screen's edge. */
-  .stage{grid-template-columns:minmax(0,1fr)}
-  .stage .go-row .btn.big{padding:0 20px}
-  .stage .art{clip-path:polygon(0 0,calc(100% - 28px) 0,100% 28px,100% 100%,0 100%);
-    background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.34) calc(50% - 1.5px),rgba(255,255,255,.34) 50%,transparent 50%) top right/28px 28px no-repeat,linear-gradient(135deg,#5a5f69 0%,#1a1c20 38%,#121417 70%,#3a3e46 100%)}
-  .stage .art img{clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,0 100%)}
-  .stage .info{--cut:0px;clip-path:none;padding:16px 18px 18px;gap:6px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),var(--rim)}
-  .stage h1{font-size:clamp(28px,8vw,40px)}
-  .stage .by{font-size:14px}
-  .stage .desc{-webkit-line-clamp:3;font-size:15px}
-  .stage .go-row{padding-top:12px}
+/**
+ * The home's own placing (the pane, the shelf, the rows, the game in place); every piece in them is a component. The game in focus fills the
+ * screen with its background behind the glass; the pane holds its words and Play, the shelf below holds the rows.
+ */
+const HOME_STYLE = pageStyle("home", () => `
+/* The opening game's color and glass, before its background has loaded (home-script.ts's HOME_OPENING_SCRIPT): the same glass the
+   backdrop script then gives every pane, so nothing turns from light to dark as it arrives. */
+html[data-home-start][style*="--home-tone"] body { background-color: var(--home-tone); }
+html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--home-glass-tint); }
+html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
+.home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; container-type: inline-size;
+  /* The staged pane: up to 520px, but no more than 45% of the page's width, and only as wide as leaves about a third of the window's
+     height for the world above it (its cover grows with it, 9 wide to 5 tall, the rest of it about 160px); never narrower than docked. */
+  /* Room under the staged pane, so it floats over the screen's foot: the page's edge; on a phone twice that, above its home bar. */
+  --stage-gap: var(--pad-pane);
+  --stage-w: max(390px, min(520px, 45cqw, (0.65 * (100svh - var(--header-room)) - 160px) * 1.78)); }
+/* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
+/* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
+   the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
+.home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--stage-gap))); }
+.home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block); }
+.is-home-ready .home-pane { transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
+/* The pane is a tray's head: staged, "More games" sits on the tray under it; docked, the tray tucks away and the head is a whole pane. */
+.home-pane > .tray-group { width: 100%; }
+.home-pane .tray-head { max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
+/* The pane never scrolls: compact it's the cover and Play, and open its details are clamped to fit, so it gets no scrollbar. */
+.home-stage-in { overflow: hidden; opacity: 0; transition: opacity 0.25s; }
+.is-home-ready .home-stage-in { opacity: 1; }
+/* The game's cover is its face here: its title and studio are on it, as the studio drew them, over a background that stays a background.
+   The title is still the page's heading, for screen readers; a game without a cover shows it in words instead. */
+.home-head h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; font: var(--type-title); text-wrap: balance; }
+.home-head.has-cover h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.home-head:not(.has-cover) .home-art { display: none; }
+.home-facts { margin: 0; font: var(--type-words); }
+.home-actions { margin-top: var(--gap-block-block); }
+/* At the top of the page the pane is compact: the cover, Play and Details. Scrolling (or choosing a cover) opens the rest below the buttons,
+   so the buttons never move on a wide screen. */
+.home-more { height: 0; overflow: hidden; transition: height 0.42s cubic-bezier(.2,.8,.2,1); }
+.home-more-in { display: flex; flex-direction: column; gap: var(--gap-block-block); padding-top: var(--gap-block-block); opacity: 0; transition: opacity 0.2s; }
+.home-facts:empty, #home-glance:empty { display: none; }
+.is-pane-open .home-more { height: var(--more-h, auto); }
+.is-pane-open .home-more-in { opacity: 1; transition: opacity 0.3s 0.1s; }
+.home-description { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
+@media (max-height: 640px) and (min-width: 761px) { .home-description { display: none; } }
+/* The shelf: one long sheet of glass with every row on it. */
+.home-shelf { grid-column: 2; grid-row: 2; min-width: 0; margin-bottom: var(--gap-block-block); }
+/* The shelf and the pane glide only once the page is ready: as it opens, they're simply put where the measured pane leaves them. */
+.is-home-ready .home-shelf { transition: transform 0.45s cubic-bezier(.2,.8,.2,1); }
+/* On a wide screen the page opens staged, as a phone does: the game in focus centered over its world, larger, with Play under it, and the
+   shelf waiting just below the screen. The first scroll docks the pane into its column and brings the shelf up beside it; back at the
+   top, it's staged again. The opening script stages it before the first paint (html[data-home-staged]), so without scripts the page
+   simply opens docked. */
+/* Staged, the tray under the pane says there's more below: "More games", its arrow drifting down. It takes the page down to the shelf,
+   and tucks away as the pane docks. */
+.home-cue { display: flex; justify-content: center; }
+.home-cue .text-words > svg { order: 2; animation: home-cue-drift 1.6s ease-in-out infinite; }
+@keyframes home-cue-drift { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(3px); } }
+.home-pane .tray { padding-block: var(--gap-words-words); }
+.home:not(.is-staged-wide) .home-pane .tray { height: 0; padding-block: 0; border: 0; overflow: hidden; visibility: hidden; }
+@media (min-width: 761px) {
+  html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
+  html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--stage-gap))); }
 }
-@media (max-width:640px){.row-tiles{gap:14px}.row-tiles>.hit{flex-basis:164px}}
-`;
-
-// Fills in the player's own part: the game they played last on the stage, then the others in
-// Continue playing (cards like tile(): the cover, opening the game's page). The games come in the
-// page's home-games block; their text goes in as text, never as markup.
-const HOME_SCRIPT = pageScript("home", `
-(()=>{const GAMES=JSON.parse(document.getElementById("home-games").textContent);const bySlug=Object.fromEntries(GAMES.map(g=>[g.slug,g]));const KEY="zaisma:played";
-const el=(tag,attributes,...children)=>{const e=document.createElement(tag);for(const [name,value] of Object.entries(attributes))e.setAttribute(name,value);e.append(...children);return e};
-const PEOPLE='<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>',MIN_PLAYERS=${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
-const card=(g,flag,label)=>{const pic=el("span",{class:"pic"});
-if(!g.cover)pic.append(el("span",{class:"named"},el("span",{},g.title)));
-else if(g.square)pic.append(el("picture",{},el("source",{media:"(max-width:640px)",srcset:g.square}),el("img",{src:g.cover,alt:"",loading:"lazy"})));
-else{const fill=el("span",{class:"fill"});fill.style.setProperty("--fill","url("+g.cover+")");pic.append(fill,el("img",{src:g.cover,alt:"",loading:"lazy"}))}
-if(flag)pic.append(el("span",{class:"flag"},flag));
-const hit=el("div",{class:"hit block"},el("a",{class:"tile"+(g.cover&&!g.square?" wide":""),href:"/g/"+g.slug,"aria-label":label},pic));if(g.cover)hit.dataset.art=g.cover;
-if(g.playing_now_player_count>=MIN_PLAYERS){const n=el("span",{class:"players"},g.playing_now_player_count,el("span",{class:"sr"}," playing now"));n.insertAdjacentHTML("afterbegin",PEOPLE);hit.append(n)}return hit};
-const ago=t=>{const m=Math.max(1,Math.round((Date.now()-t)/60000));return m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)===1?"yesterday":Math.round(m/1440)+" days ago"};
-let played=[];try{played=JSON.parse(localStorage.getItem(KEY)||"[]").map(p=>({slug:p.slug,played_at_ms:p.played_at_ms??p.at}))}catch{}
-const signedIn=/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);const guest=document.getElementById("guest");if(guest&&!signedIn)guest.hidden=false;
-let sort="played";
-function render(){const list=played.filter(p=>bySlug[p.slug]).sort((a,b)=>b.played_at_ms-a.played_at_ms);if(!list.length)return;
-const last=list[0],g=bySlug[last.slug],fresh=g.published_at_ms&&g.published_at_ms>last.played_at_ms;
-const stage=document.getElementById("stage");if(stage){
-stage.querySelector("#stage-pic").href="/g/"+g.slug;if(g.cover){const amb=document.getElementById("ambient");if(window.zaismaArt)zaismaArt(g.cover);else if(amb){amb.dataset.art=g.cover;const on=amb.children[0];on.dataset.u=g.cover;on.style.setProperty("--art","url('"+g.cover+"')");on.className="on";amb.children[1].className=""}}stage.querySelector("#stage-pic").replaceChildren(...(g.cover?[el("img",{src:g.cover,alt:""})]:[]));
-stage.querySelector("#stage-title").textContent=g.title;
-stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.played_at_ms)].filter(Boolean).join(" · ");
-const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.published_at_ms)}
-stage.querySelector("#stage-desc").hidden=true;
-const pl=stage.querySelector("#stage-players");pl.hidden=!(g.playing_now_player_count>=MIN_PLAYERS);stage.querySelector("#stage-players-count").textContent=g.playing_now_player_count;
-const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue";stage.querySelector("#stage-details").href="/g/"+g.slug}
-// The game on the stage isn't repeated underneath.
-const others=stage?list.slice(1):list;if(!others.length)return;
-const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].published_at_ms||0)-(bySlug[a.slug].published_at_ms||0));
-document.getElementById("continue-tiles").replaceChildren(...rest.map(p=>{const t=bySlug[p.slug],up=t.published_at_ms&&t.published_at_ms>p.played_at_ms;return card(t,up?"Updated":"",t.title+(up?", updated":""))}));
-document.getElementById("continue").hidden=false}
-document.querySelectorAll("#continue [data-sort]").forEach(b=>b.onclick=()=>{sort=b.dataset.sort;document.querySelectorAll("#continue [data-sort]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render()});
-render();
-if(signedIn)fetch("/api/me/played").then(r=>r.ok?r.json():null).then(d=>{if(!d)return;const m=new Map(played.map(p=>[p.slug,p.played_at_ms]));for(const p of d.played)m.set(p.slug,Math.max(m.get(p.slug)||0,p.played_at_ms));played=[...m].map(([slug,played_at_ms])=>({slug,played_at_ms}));render()}).catch(()=>{})})();`);
+.home-shelf > .glass-pane { width: 100%; }
+/* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
+.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
+.home-row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; }
+/* The row's controls sit at its right end, the sort switch before the arrows. */
+.home-row-head > .steps, .home-row-head > .tab-switch { margin-left: auto; }
+.home-row-head > .tab-switch + .steps { margin-left: 0; }
+/* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
+.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
+.home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
+.home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
+.home-all { display: flex; justify-content: center; }
+/* A game's background: a layer over Zaisma's own, fading in when it is ready. */
+/* Zaisma's own backdrop starts unseen and fades in when it's the first background (or after a few seconds, should the script not run). */
+canvas.backdrop { opacity: 0; transition: opacity 500ms ease; animation: home-backdrop-late 0s 4s forwards; }
+canvas.backdrop.is-shown { opacity: 1; }
+@keyframes home-backdrop-late { to { opacity: 1; } }
+.home-world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
+.home-world.is-shown { opacity: 1; }
+/* Play: Zaisma steps aside. The glass slides off to the edges and the game's page opens over the world in place. */
+.home-game { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100%; border: 0; background: #000; opacity: 0; visibility: hidden; transition: opacity 0.3s 0.5s, visibility 0s 0.8s; }
+.is-game-shown .home-game { opacity: 1; visibility: visible; transition: opacity 0.3s 0.5s, visibility 0s; }
+.is-playing { overflow: hidden; }
+.is-playing .home-shelf { transform: translateY(110vh); transition: transform 0.5s cubic-bezier(.4,0,.2,1); }
+.is-playing .home-pane { transform: translateX(calc(-100% - 40px)); }
+.is-playing header.top { transform: translate(-50%, -150%); }
+@media (max-width: 1100px) { .home { grid-template-columns: 340px minmax(0, 1fr); } .home-head h1 { font: var(--type-heading); } }
+@media (max-width: 760px) {
+  .home { display: block; --stage-gap: calc(2 * var(--pad-pane) + env(safe-area-inset-bottom, 0px)); }
+  /* The card is as wide as the screen, but on a screen nearly as wide as tall only as wide as leaves about a third of it for the world
+     above (its cover grows with it, 9 wide to 5 tall, the rest of it about 110px), centered. */
+  .home-pane { position: relative; top: auto; width: min(100%, max(280px, (0.65 * (100svh - var(--header-room)) - 110px) * 1.78)); margin-inline: auto; }
+  .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
+  .home-description { display: none; }
+  .home-row-head > .steps { display: none; }
+  /* Continue playing's sort switch takes its own line under the heading, at its own width, instead of running past the pane. */
+  .home-row-head { flex-wrap: wrap; row-gap: var(--gap-words-control); }
+  .home-row-head > h2 { flex: 1 0 100%; }
+  .home-row-head > .tab-switch { margin-left: 0; max-width: 100%; }
+  .home-track > .cover { flex-basis: 64vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-pane, .home-more, .home-more-in, .home-shelf, .home-world, .home-game, canvas.backdrop, .is-playing .home-shelf { transition: none !important; }
+  .home-cue .text-words > svg { animation: none; }
+}
+`);

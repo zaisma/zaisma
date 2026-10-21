@@ -20,6 +20,7 @@ import {
   type AccessArea,
   type KeyAccess,
   addImage,
+  setBackgroundTone,
   applyDetails,
   audit,
   checkDetails,
@@ -149,6 +150,7 @@ import {
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
 } from "@zaisma/core";
+import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
@@ -1072,7 +1074,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     }
     const id = newId("image");
     await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: sniffed.type } });
-    const image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
+    let image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
+    // A background's tone, measured now from the whole picture, so pages can open on its color with its glass right.
+    const tone = kind === "background" || kind === "phone_background" ? await toneOfPicture(env, bytes) : null;
+    if (tone) { await setBackgroundTone(env.DB, "game_images", id, tone); image = { ...image, ...tone }; }
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
     await logCallerEvent(env, caller, "image_added", { gameId: game.id, subjectName: kind });
     await queueListingCheck(env, game.id);

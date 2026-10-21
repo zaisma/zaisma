@@ -104,10 +104,10 @@ describe("counted plays", () => {
     const page = async () => (await SELF.fetch(`${SITE}/g/play-game`)).text();
     const home = async () => (await SELF.fetch(`${SITE}/`)).text();
     expect(await page()).toMatch(/id="playing-now" hidden>2 playing now/);
-    expect(await home()).not.toContain('<span class="players">');
+    expect(await home()).not.toContain("<b>2</b> playing now");
     await issueTicket(env.DB, "g-play", NEW);
     expect(await page()).toMatch(/id="playing-now">3 playing now/);
-    expect(await home()).toMatch(/<span class="players"><svg[^>]*>.*<\/svg>3<span class="sr"> playing now/);
+    expect(await home()).toContain("<b>3</b> playing now");
   });
 
   it("only takes plays of games players can open, sent from Zaisma", async () => {

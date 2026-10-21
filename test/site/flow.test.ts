@@ -939,9 +939,11 @@ describe("pages", () => {
 
   it("wraps every page in the glass header and footer, with bodies not yet rebuilt in Steel", async () => {
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
-    expect(home).toContain('<main class="steel">');
+    // The home is rebuilt in the new look; a page not yet rebuilt (the forum) is still in Steel.
+    expect(home).not.toContain('<main class="steel">');
+    expect(await (await SELF.fetch(`${LOCAL}/forum`)).text()).toContain('<main class="steel">');
     expect(home).toContain('<header class="top glass');
-    const foot = home.slice(home.indexOf('<footer class="foot">'));
+    const foot = home.slice(home.indexOf('<footer class="foot glass"'));
     for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
       expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
     expect(foot).toContain("Zaisma is open source, under the MIT license.");

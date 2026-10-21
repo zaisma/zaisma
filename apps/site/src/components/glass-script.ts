@@ -427,8 +427,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (root.matches && root.matches("[data-cut-line]")) lines.push(root);
     slabs.forEach(function (el) {
       if (done.has(el)) return; done.add(el);
-      var corners = (el.getAttribute("data-glass-corners") || "24 20 24 20").split(/\\s+/).map(Number);
-      glass(el, function () { return corners; });
+      // Read as it's drawn, so a pane whose corners change (the home's pane, a tray's head only while its tray shows) is cut anew when it next changes size.
+      glass(el, function () { return (el.getAttribute("data-glass-corners") || "24 20 24 20").split(/\\s+/).map(Number); });
     });
     // A control made of glass is drawn by glass, from the same edge rule.
     lines.forEach(function (el) {

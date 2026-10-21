@@ -1,7 +1,7 @@
 
 
 /** The glass's two kinds, as tokens: light glass with dark words, and smoked glass with light words. */
-const LIGHT_GLASS = `color-scheme: light;
+export const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-dropdown: rgba(250, 252, 255, 0.62); --glass-tray: rgba(250, 252, 255, 0.14);
@@ -44,7 +44,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E6ECF4; --backdrop-a: #B9CBE6; --backdrop-b: #C0DCDB; --backdrop-c: #D2CBEA;`;
 
-const SMOKED_GLASS = `color-scheme: dark;
+export const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-dropdown: rgba(18, 21, 27, 0.62); --glass-tray: rgba(14, 17, 24, 0.18);

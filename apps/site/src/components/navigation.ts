@@ -224,7 +224,7 @@ const FOOTER_LINKS: [string, string][] = [
 ];
 
 export function footer(): Raw {
-  return html`<footer class="foot">
+  return html`<footer class="foot glass" data-glass data-glass-corners="20 14 20 14">${EDGE}
   ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
@@ -444,12 +444,20 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
     if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
-    function ends() {
-      var max = row.scrollWidth - row.clientWidth;
-      row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
-      row.classList.toggle("is-scrollable-sideways", max > 1);
+    // More that way is something shown running past that edge: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never
+    // counts, so a row whose box only rounds a few pixels wider than what it shows (a phone's emulator) never fades.
+    function shownSpan() {
+      var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity;
+      Array.prototype.forEach.call(row.querySelectorAll(":scope > *, :scope > * > *"), function (el) {
+        if (el.classList.contains("folded") || el.hasAttribute("aria-hidden") || el.children.length && el.parentElement === row && el.querySelector(":scope > a, :scope > button, :scope > .cover")) return;
+        var r = el.getBoundingClientRect(); if (r.width < 1 || /^(absolute|fixed)$/.test(getComputedStyle(el).position)) return;
+        left = Math.min(left, r.left); right = Math.max(right, r.right);
+      });
+      return left === Infinity ? { before: 0, after: 0 } : { before: box.left - left, after: right - box.right };
     }
-    row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }, { passive: true });
+    function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
+    function ends() { var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    row.addEventListener("scroll", fades, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
   });
@@ -458,44 +466,19 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 
 /**
  * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
- * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
- * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. That glide waits for
- * a quiet moment after the last wheel, key or touch, and any of them stops it where it is, so scrolling again mid-glide never fights it. A bar over a
- * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
+ * roomy again only at the very top, so it can't flip back and forth. The page is never scrolled for you: near the top it stays where you
+ * left it. A bar over a stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact
+ * keeps it compact.
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
-  var COMPACT_AT_PX = 24, SETTLE_PX = 56, still = window.matchMedia("(prefers-reduced-motion: reduce)"), hasScrollEnd = "onscrollend" in window;
+  var COMPACT_AT_PX = 24;
   document.querySelectorAll("[data-compacts]").forEach(function (bar) {
     if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
     // A bar follows the box that scrolls right beside it (a header example's stand-in page), or else the page: never a box deeper in, like a table.
-    var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window, target = box || document.documentElement;
-    // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
-    target.style.overflowAnchor = "none";
+    var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window;
     function at() { return box ? box.scrollTop : window.scrollY; }
-    // Nothing glides while a finger is down, or until a moment after the last wheel, key or touch; any of them stops a glide that is running.
-    var QUIET_MS = 160, isTouching = false, isGliding = false, lastInputMs = 0, timer = 0;
-    function noteInput() {
-      lastInputMs = performance.now();
-      if (isGliding) { isGliding = false; scroller.scrollTo({ top: at(), behavior: "auto" }); }
-    }
     function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
-    function settle() {
-      clearTimeout(timer);
-      if (isTouching) return;
-      var quietFor = performance.now() - lastInputMs;
-      if (quietFor < QUIET_MS) { timer = setTimeout(settle, QUIET_MS - quietFor); return; }
-      var y = at();
-      if (y > 0 && y < SETTLE_PX) { isGliding = !still.matches; scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" }); } else isGliding = false;
-    }
-    scroller.addEventListener("scroll", function () {
-      sync();
-      if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); }
-    }, { passive: true });
-    if (hasScrollEnd) scroller.addEventListener("scrollend", function () { if (at() <= 0) isGliding = false; settle(); });
-    ["wheel", "keydown", "pointerdown"].forEach(function (kind) { (box || window).addEventListener(kind, noteInput, { passive: true }); });
-    window.addEventListener("touchstart", function () { isTouching = true; noteInput(); }, { passive: true });
-    window.addEventListener("touchend", function () { isTouching = false; if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); } }, { passive: true });
-    window.addEventListener("touchcancel", function () { isTouching = false; }, { passive: true });
+    scroller.addEventListener("scroll", sync, { passive: true });
     sync();
   });
 })();
@@ -575,11 +558,24 @@ component({
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
-.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
+/* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. */
+.foot {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-inner-pane);
+  color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
+  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
+  transition: var(--glass-transition);
+}
+.foot > :not(.edge) { position: relative; z-index: 3; }
 /* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
 .foot p { margin: 0 0 0 auto; }
-@media (max-width: 760px) { .foot p { margin: 0; } }
+/* On a phone it stacks, centered: the mark, the links two by two, then the license. */
+@media (max-width: 760px) {
+  .foot { flex-direction: column; align-items: center; padding: var(--pad-pane); text-align: center; }
+  .foot nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-items: center; gap: var(--gap-words-words) var(--gap-block-block); width: 100%; }
+  .foot p { margin: 0; }
+}
 `,
   render: footer,
   examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],

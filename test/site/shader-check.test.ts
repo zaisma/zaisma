@@ -4,6 +4,7 @@ import { KNOWN_IMAGE_CODE, SHADER_LIMITS, addShader, createAccount, createGame, 
 import type { Env } from "../../apps/site/src/env.ts";
 import { mostFlashesInOneSecond, runShaderCheck, type ShaderRender, type ShaderRenderer } from "../../apps/site/src/shader-check.ts";
 import type { ListingJudge, PictureAnswer } from "../../apps/site/src/listing-judge.ts";
+import { png } from "./png-stub.ts";
 import { connectedImages } from "./scan-stubs.ts";
 
 /** The shader check (apps/site/src/shader-check.ts), with a stand-in renderer and judge: what each result does to the shader. */
@@ -51,6 +52,11 @@ const shaderNow = async () => (await shaderById(env.DB, shaderId))!;
 const reasonNow = async () => readReviewReason((await shaderNow()).review_reason);
 
 describe("the shader check", () => {
+  it("keeps the still's tone, so pages open on its color with its glass right", async () => {
+    await check(drawn({ smallStillPng: await png(32, 18, () => [14, 10, 40]) }));
+    expect(await shaderNow()).toMatchObject({ review_status: "approved", average_color: "#0E0A28", is_glass_smoked: 1 });
+  });
+
   it("rejects a shader that doesn't compile, with the compiler's first line", async () => {
     await check(drawn({ compileError: "ERROR: 0:7: 'colour' : undeclared identifier" }));
     expect((await shaderNow()).review_status).toBe("rejected");
