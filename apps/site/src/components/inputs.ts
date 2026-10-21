@@ -152,6 +152,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
   document.querySelectorAll(".tab-switch").forEach(function (sw) {
     var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
+    // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
+    var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
+    function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
     // isGliding: the slab is moving there, so its shape blends from the old place's to the new one's over the move.
     function put(el, tab, isGliding) {
       if (!tab) { el.style.width = "0px"; return; }
@@ -167,7 +170,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         if (el.redrawCut) el.redrawCut(isGliding && from.stack !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
         return;
       }
-      el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)";
+      // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
+      var reach = besideReach(el), start = isFirst ? 0 : reach, end = isLast ? 0 : reach;
+      el.style.width = tab.offsetWidth + start + end + "px"; el.style.transform = "translateX(" + (tab.offsetLeft - start) + "px)";
       // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
@@ -611,12 +616,10 @@ component({
 .color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; }
 /* Pointed at: a light rim inside its cut. */
 .color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
-/* Picked: the swatch keeps its whole color, and an orange bar floats under it in the well's bottom, slanting with it: as wide as its
-   bottom edge and half the gap on either side, so the bars of swatches side by side would meet.
-   It glides to the next pick like the switch's slab (--picked-index, set by COLOR_PICKER_SCRIPT). */
-.color-mark { position: absolute; left: 0; bottom: 4px; width: calc(var(--swatch-size) - var(--control-slant) + var(--gap-control-row)); height: 4px; background: var(--run); pointer-events: none;
-  transform-origin: 0 0; transform: translateX(calc(0.5px + var(--picked-index) * (var(--swatch-size) + var(--gap-control-row-boxes)))) skewX(-17deg);
-  transition: transform 0.45s var(--spring); }
+/* Picked: the swatch keeps its whole color, and an orange bar floats under it in the well's bottom: slanting with the swatches between
+   colors, carved like the well's corner under the first or last. COLOR_PICKER_SCRIPT places it and gives it its shape; it glides to the next pick. */
+.color-mark { position: absolute; left: 0; bottom: 4px; width: 0; height: 4px; background: var(--run); pointer-events: none; clip-path: var(--cut-shape);
+  transition: transform 0.45s var(--spring), width 0.45s var(--spring), clip-path 0.45s var(--spring); }
 /* Keyboard focus: the orange line round its cut, like every control's. */
 .color-pick:focus-visible { outline: none; }
 .color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
