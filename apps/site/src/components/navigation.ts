@@ -366,8 +366,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var sleep = 0, queued = false;
     function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
-    window.addEventListener("resize", layout);
-    if (window.ResizeObserver) { var watch = new ResizeObserver(layout); watch.observe(isPage ? document.body : scroller.firstElementChild || scroller); if (above) watch.observe(above); }
+    window.zaismaWatch.resize(layout);
+    window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
     var drag = null;
     function start(event, jump) {
       event.preventDefault();
@@ -436,7 +436,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
     document.querySelectorAll("[data-scroll-box]").forEach(function (box) {
       held(box);
-      if (window.ResizeObserver) new ResizeObserver(function () { held(box); }).observe(box.firstElementChild || box);
+      window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
     document.querySelectorAll("body *").forEach(function (box) {
       if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
@@ -444,11 +444,11 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       box.classList.add("scroll-fades"); boxes.push(box); sync(box);
       var queued = false;
       box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
-      if (window.ResizeObserver) new ResizeObserver(function () { sync(box); }).observe(box);
+      window.zaismaWatch.size(box, function () { sync(box); });
     });
   }
   find();
-  window.addEventListener("resize", function () { boxes.forEach(sync); });
+  window.zaismaWatch.resize(function () { boxes.forEach(sync); });
   // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
@@ -459,7 +459,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       row.classList.toggle("is-scrollable-sideways", max > 1);
     }
     row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }, { passive: true });
-    if (window.ResizeObserver) { var watch = new ResizeObserver(ends); watch.observe(row); if (row.firstElementChild) watch.observe(row.firstElementChild); } else window.addEventListener("resize", ends);
+    window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
   });
 })();
@@ -468,7 +468,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 /**
  * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
  * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
- * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. A bar over a
+ * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. That glide waits for
+ * a quiet moment after the last wheel, key or touch, and any of them stops it where it is, so scrolling again mid-glide never fights it. A bar over a
  * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
@@ -480,20 +481,28 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
     // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
     target.style.overflowAnchor = "none";
     function at() { return box ? box.scrollTop : window.scrollY; }
-    // Nothing glides while a finger is down.
-    var isTouching = false, timer = 0;
+    // Nothing glides while a finger is down, or until a moment after the last wheel, key or touch; any of them stops a glide that is running.
+    var QUIET_MS = 160, isTouching = false, isGliding = false, lastInputMs = 0, timer = 0;
+    function noteInput() {
+      lastInputMs = performance.now();
+      if (isGliding) { isGliding = false; scroller.scrollTo({ top: at(), behavior: "auto" }); }
+    }
     function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
     function settle() {
+      clearTimeout(timer);
       if (isTouching) return;
+      var quietFor = performance.now() - lastInputMs;
+      if (quietFor < QUIET_MS) { timer = setTimeout(settle, QUIET_MS - quietFor); return; }
       var y = at();
-      if (y > 0 && y < SETTLE_PX) scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" });
+      if (y > 0 && y < SETTLE_PX) { isGliding = !still.matches; scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" }); } else isGliding = false;
     }
     scroller.addEventListener("scroll", function () {
       sync();
       if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); }
     }, { passive: true });
-    if (hasScrollEnd) scroller.addEventListener("scrollend", settle);
-    window.addEventListener("touchstart", function () { isTouching = true; }, { passive: true });
+    if (hasScrollEnd) scroller.addEventListener("scrollend", function () { if (at() <= 0) isGliding = false; settle(); });
+    ["wheel", "keydown", "pointerdown"].forEach(function (kind) { (box || window).addEventListener(kind, noteInput, { passive: true }); });
+    window.addEventListener("touchstart", function () { isTouching = true; noteInput(); }, { passive: true });
     window.addEventListener("touchend", function () { isTouching = false; if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); } }, { passive: true });
     window.addEventListener("touchcancel", function () { isTouching = false; }, { passive: true });
     sync();
@@ -513,7 +522,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
     function by(direction) { track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" }); }
     back.addEventListener("click", function () { by(-1); }); on.addEventListener("click", function () { by(1); });
     track.addEventListener("scroll", ends, { passive: true });
-    if (window.ResizeObserver) new ResizeObserver(ends).observe(track); else window.addEventListener("resize", ends);
+    window.zaismaWatch.size(track, ends);
     ends();
   });
 })();

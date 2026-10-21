@@ -123,8 +123,8 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menus.forEach(function (menu) { var button = buttonOf(menu); if (!menu.classList.contains("shut") && !menu.contains(event.target) && !(button && button.contains(event.target))) toggle(menu, false); });
   });
   function placeAll() { menus.forEach(place); }
-  window.addEventListener("resize", placeAll);
-  window.addEventListener("scroll", placeAll, { passive: true, capture: true });
+  window.zaismaWatch.resize(placeAll);
+  window.zaismaWatch.scroll(placeAll);
 })();
 `;
 
@@ -475,7 +475,7 @@ export const NOTICE_SCRIPT = `/* notices */(function () {
   }
   function find(root) { if (!root.querySelectorAll) return; if (root.matches("[data-notice]")) arrive(root); root.querySelectorAll("[data-notice]").forEach(arrive); }
   find(document.body);
-  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(find); }); }).observe(document.body, { subtree: true, childList: true });
+  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(find); }); });
   document.addEventListener("click", function (event) { var close = event.target.closest && event.target.closest("[data-notice] > .cut-btn"); if (close) leave(close.closest("[data-notice]")); });
 })();
 `;
