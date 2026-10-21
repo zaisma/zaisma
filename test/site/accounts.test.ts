@@ -2160,7 +2160,7 @@ describe("cloud saves", () => {
     expect(plain).toContain('<div class="city-pane" data-city-pane>');
     expect(plain).toContain('<canvas class="city"></canvas>');
     expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
-    expect(plain).toContain('<header class="top is-logo-only"');
+    expect(plain).toContain('<header class="top glass is-logo-only"');
     expect(plain).toContain('<a href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a href="/join">Make an account</a>');
     expect(plain).toContain("Continue as guest");

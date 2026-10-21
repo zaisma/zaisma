@@ -44,7 +44,7 @@ export function header(options: HeaderOptions): Raw {
   const id = options.id ?? "top";
   const account = options.account ?? null;
   const wordmark = logo("wordmark");
-  if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${wordmark}</header>`;
+  if (options.isLogoOnly) return html`<header class="top glass is-logo-only" id="${id}" data-glass data-glass-corners="20 14 20 14">${EDGE}${wordmark}</header>`;
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
   const menuItems: DropdownItem[] = account
@@ -158,15 +158,15 @@ const HEADER_STYLES = `
   .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
 }
 
-/* Sign-in's header: only the logo, straight on the scene: white, with a soft dark shadow that keeps it legible over anything, by day or at night. */
-.top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
-  background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
-.top.is-logo-only .logo { --logo-height: 30px; color: #fff; filter: var(--logo-halo); }
+/* Sign-in's header: only the logo, on a small slab of the header's glass, so it reads over the scene whatever passes behind it, with
+   no shadow. On a wide screen it stands level with the pane's top, mirroring its inset from the edge. */
+.top.is-logo-only { position: absolute; top: var(--pad-inner-pane); left: max(var(--pad-inner-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-pane); }
+.top.is-logo-only .logo { --logo-height: 28px; }
 @media (max-width: 760px) {
-  /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
-  .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
+  /* On a phone it sits in the top corner, and scrolls away with the page as the pane comes up. */
+  .top.is-logo-only { top: calc(var(--pad-inner-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-inner-pane), env(safe-area-inset-left, 0px)); height: 52px; padding: 0 var(--pad-pane); }
   .top.is-logo-only .logo { margin-left: 0; }
-  .top.is-logo-only .logo { --logo-height: 26px; }
+  .top.is-logo-only .logo { --logo-height: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   /* The header's glass still changes as all glass does: only its movement stops. */
