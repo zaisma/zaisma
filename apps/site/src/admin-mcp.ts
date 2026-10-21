@@ -48,6 +48,7 @@ import { chatReviewById, chatReviewState, chatReviewsForAdmin, type AdminChatRev
 import { CHAT_REVIEW_DECISIONS, decideChatReview, type ChatReviewDecision } from "./chat-review.ts";
 import { setAccountCanPublish } from "./admin-publishing.ts";
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
+import { changesSince } from "./scan.ts";
 import {
   CHAT_REVIEW_DECIDED,
   CHAT_REVIEW_LIST,
@@ -212,8 +213,13 @@ function gameAnswer(game: Game) {
   };
 }
 
-function versionAnswer(game: Game, version: Version) {
+/** Most paths of each kind changes_since lists. */
+const MAXIMUM_CHANGED_PATH_COUNT = 50;
+
+async function versionAnswer(env: Env, game: Game, version: Version) {
   const scan: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
+  const changes = await changesSince(env, version);
+  const files = changes?.files;
   return {
     id: version.id,
     scan_status: version.scan_status,
@@ -226,6 +232,18 @@ function versionAnswer(game: Game, version: Version) {
     findings: (scan?.findings ?? [])
       .filter((finding) => finding.severity !== "info")
       .map((finding) => ({ code: finding.code, severity: finding.severity, message: finding.message, path: finding.path ?? null })),
+    replaced_by_version_id: version.replaced_by_version_id,
+    changes_since: changes
+      ? {
+          version_id: changes.earlier.id,
+          added_paths: files?.addedPaths.slice(0, MAXIMUM_CHANGED_PATH_COUNT) ?? [],
+          changed_paths: files?.changedPaths.slice(0, MAXIMUM_CHANGED_PATH_COUNT) ?? [],
+          removed_paths: files?.removedPaths.slice(0, MAXIMUM_CHANGED_PATH_COUNT) ?? [],
+          added_path_count: files?.addedPaths.length ?? 0,
+          changed_path_count: files?.changedPaths.length ?? 0,
+          removed_path_count: files?.removedPaths.length ?? 0,
+        }
+      : null,
   };
 }
 
@@ -411,7 +429,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
             : null,
           rechecks: group.rechecks.map((recheck) => ({ recheck_status: recheck.recheck_status, scan_status: recheck.scan_status ?? null, summary: recheck.summary ?? null, findings: recheck.findings ?? [] })),
           precedent: triage?.precedent ? precedentAnswer(await precedentById(env, triage.precedent.id)) : null,
-          versions: versions.map((version) => versionAnswer(game, version)),
+          versions: await Promise.all(versions.map((version) => versionAnswer(env, game, version))),
           events: (await auditLog(env.DB, game.id)).slice(0, 15).map(historyAnswer),
           possible_decisions: (await choices(env, group)).options,
         },
@@ -939,7 +957,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const { results } = await env.DB.prepare(`${QUEUE_SELECT} WHERE reports.report_status = 'open' AND reports.game_id = ? ORDER BY reports.reported_at_ms`).bind(game.id).all<QueueRow>();
       return {
         game: gameAnswer(game),
-        versions: (await versionsForGame(env.DB, game.id)).map((version) => versionAnswer(game, version)),
+        versions: await Promise.all((await versionsForGame(env.DB, game.id)).map((version) => versionAnswer(env, game, version))),
         report_groups: groupReports(results).map(groupRow),
         events: (await auditLog(env.DB, game.id)).slice(0, 20).map(historyAnswer),
       };

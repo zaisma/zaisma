@@ -1,11 +1,11 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTENT_RULES, KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, gameBySlug, notConnected, versionById, type EvidenceItem, type ImageMatcher, type ScanJob, type ScanReport } from "@zaisma/core";
-import { handleScanBatch, imageMatcher, queueImageChecks, recheckImages, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { CONTENT_RULES, KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
+import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { gatherEvidence, type ReadCode } from "../../apps/site/src/review-readers.ts";
-import { judgeVersion } from "../../apps/site/src/review-judge.ts";
+import { judgeVersion, settle, type JudgeBrief, type JudgeVersion } from "../../apps/site/src/review-judge.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
 
 const LOCAL = "http://localhost";
@@ -396,7 +396,7 @@ describe("the evidence-first review", () => {
     expect(calls.judgeCallCount).toBe(5);
     const waiting = (await versionById(env.DB, versions[5]!))!;
     expect(waiting.scan_status).toBe("held");
-    expect(JSON.parse(waiting.scan_report!).findings.map((finding: { code: string }) => finding.code)).toEqual(["daily_reviews_used"]);
+    expect(JSON.parse(waiting.scan_report!).findings.map((finding: { code: string }) => finding.code)).toEqual(["daily_large_reviews_used"]);
     expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
     expect(await rescanWaiting(testEnv)).toBe(0);
 
@@ -466,6 +466,142 @@ describe("the evidence-first review", () => {
     );
     expect(gathered.findings.map((finding) => finding.code)).toEqual(["too_much_code"]);
     expect(calls.readerCallCount).toBe(0);
+  });
+});
+
+describe("re-uploads checked against their hold", () => {
+  let alerts: string[];
+  let clockMs: number;
+  beforeEach(() => {
+    alerts = [];
+    clockMs = Date.now() - 60_000;
+    vi.spyOn(console, "log").mockImplementation((line: unknown) => void alerts.push(String(line)));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A file-by-file version of a game, as the developer API makes one: blobs, a manifest, and the newer versions replacing waiting ones. */
+  const filesVersion = async (gameId: string, files: Record<string, string>): Promise<string> => {
+    const versionId = newId("version");
+    const manifest: Manifest = { files: {} };
+    for (const [path, text] of Object.entries(files)) {
+      const sha256 = await sha256Hex(new TextEncoder().encode(text));
+      await env.GAMES.put(blobKey(sha256), text);
+      manifest.files[path] = { sha256 };
+    }
+    await env.GAMES.put(manifestKey(versionId), JSON.stringify(manifest));
+    await createVersion(env.DB, { id: versionId, gameId, r2Prefix: `manifests/${versionId}`, fileCount: Object.keys(files).length, sizeBytes: 0, kind: "files" });
+    await env.DB.prepare("UPDATE versions SET created_at_ms = ? WHERE id = ?").bind((clockMs += 1000), versionId).run();
+    await replaceWaitingVersions(testEnv, gameId, versionId);
+    return versionId;
+  };
+  /** Readers that list a content item for each flag("<subject>") in the code, counting their calls. */
+  const readsFlags = (calls: { readerCallCount: number }): ReadCode => async (_key, _model, chunk) => {
+    calls.readerCallCount++;
+    const items = chunk.files.flatMap((file) => [...file.text.matchAll(/flag\("(\w+)"\)/g)].map((match) => ({ kind: "content" as const, subject: match[1]!, detail: "Flagged.", path: file.path, quote: match[0] })));
+    return { items, outcome: "read", costCents: 0.5, inputTokenCount: 100, outputTokenCount: 10 };
+  };
+  type JudgeFinding = { code: string; path: string };
+  /** A judge that answers these findings, citing the items in their files, settled as the real judge settles them. */
+  const judgeFinds = (briefs: JudgeBrief[], findings: (brief: JudgeBrief) => JudgeFinding[]): JudgeVersion => async (_key, _model, brief) => {
+    briefs.push(brief);
+    const found = findings(brief);
+    const parsed = {
+      verdict: found.length ? ("hold" as const) : ("pass" as const),
+      summary: "A castle game.",
+      has_sexual_content_involving_minors: false,
+      findings: found.map((finding) => ({ code: finding.code, evidence_item_numbers: [brief.items.findIndex((evidenceItem) => evidenceItem.path === finding.path) + 1], message: `${finding.code} in ${finding.path}` })),
+    };
+    return { ...settle(parsed, brief.items, brief.earlierHold), followedReviewPrecedentNumbers: [], declinedAttemptCount: 0, costCents: 1, inputTokenCount: 10, outputTokenCount: 1 };
+  };
+  const HELD_FOR_GORE = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("real_people");', "gore.js": 'flag("lifelike_gore");' };
+  const FIXED = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("real_people");', "gore.js": "// Stylized sparks.", "chat.js": 'flag("faked_plays");' };
+
+  it("checks a fix against its hold: what the held version already had stays passed, except malware", async () => {
+    const cases: { fixFinding: JudgeFinding; decision: ScanReport["decision"] }[] = [
+      { fixFinding: { code: "ai_other", path: "game.js" }, decision: "approved" },
+      { fixFinding: { code: "ai_other", path: "chat.js" }, decision: "held" },
+      { fixFinding: { code: "ai_malware", path: "game.js" }, decision: "held" },
+    ];
+    for (const [index, { fixFinding, decision }] of cases.entries()) {
+      const game = await createGame(env.DB, { slug: `ember-keep-${index}`, title: "Ember Keep", description: "Hold the keep." });
+      const briefs: JudgeBrief[] = [];
+      const deps: ScanDeps = { images: connected, readCode: readsFlags({ readerCallCount: 0 }), readPictures: seesNothing, judge: judgeFinds(briefs, (brief) => (brief.earlierHold ? [fixFinding] : [{ code: "ai_lifelike_gore", path: "gore.js" }])) };
+      const held = await scanVersion(testEnv, await filesVersion(game.id, HELD_FOR_GORE), deps);
+      expect(held.decision).toBe("held");
+      expect(briefs[0]!.earlierHold).toBeUndefined();
+
+      const fixed = await scanVersion(testEnv, await filesVersion(game.id, FIXED), deps);
+      const brief = briefs[1]!;
+      expect(brief.earlierHold).toMatchObject({ findings: [{ code: "ai_lifelike_gore", path: "gore.js" }], addedPaths: ["chat.js"], changedPaths: ["gore.js"], removedPaths: [] });
+      expect(brief.earlierHold!.carriedItemNumbers).toEqual([brief.items.findIndex((evidenceItem) => evidenceItem.path === "game.js") + 1]);
+      expect(fixed.decision).toBe(decision);
+      expect(fixed.findings.find((finding) => finding.code === fixFinding.code)?.severity).toBe(decision === "approved" ? "info" : "hold");
+    }
+  });
+
+  it("holds a version unread past 30 small reviews a day, and lets one with nothing new to read through", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_small', 'person', 1)").run();
+    const game = await createGame(env.DB, { slug: "small-reviews", title: "Small Reviews", description: "A test.", ownerId: "owner_small" });
+    const calls = { readerCallCount: 0 };
+    const deps: ScanDeps = { images: connected, readCode: readsFlags(calls), readPictures: seesNothing, judge: judgeSays("pass") };
+    const first = await filesVersion(game.id, CLEAN_GAME);
+    await scanVersion(testEnv, first, deps);
+    expect((await versionById(env.DB, first))!.read_at_ms).toBeGreaterThan(0);
+    for (let index = 1; index < REVIEW_LIMITS.maximumSmallReviewsPerDay; index++) {
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, read_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
+    }
+    const readerCallCount = calls.readerCallCount;
+
+    const same = await scanVersion(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
+    expect(same.decision).toBe("approved");
+
+    const changed = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
+    expect(changed.findings.map((finding) => finding.code)).toEqual(["daily_small_reviews_used"]);
+    expect(changed.evidence).toBeUndefined();
+    expect(calls.readerCallCount).toBe(readerCallCount);
+    expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
+  });
+
+  it("steps a waiting version aside for a newer one, never live over it, but keeps a child-safety hold", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_wait', 'person', 1)").run();
+    const game = await createGame(env.DB, { slug: "step-aside", title: "Step Aside", description: "A test.", ownerId: "owner_wait" });
+    for (let index = 0; index < REVIEW_LIMITS.maximumLargeReviewsPerDay; index++) {
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, judged_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
+    }
+    const deps: ScanDeps = { images: connected, ...aiSays("pass") };
+    const first = await filesVersion(game.id, CLEAN_GAME);
+    expect((await scanVersion(testEnv, first, deps)).findings.map((finding) => finding.code)).toEqual(["daily_large_reviews_used"]);
+    const second = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 2;" });
+    const replaced = (await versionById(env.DB, first))!;
+    expect(replaced.replaced_by_version_id).toBe(second);
+    expect((await heldVersions(env.DB)).map((version) => version.id)).not.toContain(first);
+    await env.DB.prepare("UPDATE versions SET judged_at_ms = judged_at_ms - ? WHERE judged_at_ms IS NOT NULL").bind(25 * 60 * 60 * 1000).run();
+    expect(await rescanWaiting(testEnv)).toBe(0);
+
+    // A person approving it anyway: a draft, never live over the newer version.
+    await passVersion(testEnv, replaced, "Approved by a person");
+    expect((await versionById(env.DB, first))!.scan_status).toBe("approved");
+    expect((await gameById(env.DB, game.id))!.live_version_id).toBeNull();
+
+    // Child safety stays in the queue.
+    const flagged = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 3;" });
+    await scanVersion(testEnv, flagged, { images: connected, ...aiSays("hold", true) });
+    await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 4;" });
+    expect((await versionById(env.DB, flagged))!.replaced_by_version_id).toBeNull();
+  });
+
+  it("emails needs review once per game in the queue, and URGENT every time", async () => {
+    const game = await createGame(env.DB, { slug: "one-email", title: "One Email", description: "A test." });
+    const first = await filesVersion(game.id, CLEAN_GAME);
+    await scanVersion(testEnv, first, { images: connected, ...aiSays("hold") });
+    expect(alerts.filter((line) => line.includes("one-email needs review"))).toHaveLength(1);
+    const second = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 5;" });
+    expect((await versionById(env.DB, first))!.replaced_by_version_id).toBe(second);
+    expect((await scanVersion(testEnv, second, { images: connected, ...aiSays("hold") })).decision).toBe("held");
+    expect(alerts.filter((line) => line.includes("one-email needs review"))).toHaveLength(1);
+    const third = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 6;" });
+    await scanVersion(testEnv, third, { images: connected, ...aiSays("hold", true) });
+    expect(alerts.filter((line) => line.includes("URGENT child-safety flag on one-email"))).toHaveLength(1);
   });
 });
 

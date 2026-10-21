@@ -84,6 +84,7 @@ interface VersionJson {
   created_at: string;
   review_reason: ReviewReasonJson | null;
   findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
+  replaced_by_version_id: string | null;
 }
 
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
@@ -781,13 +782,16 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
   }
-  // Held and rejected versions say why: a person's or a report's decision, and what the scan found.
-  const isHeldBack = version.scan_status === "held" || version.scan_status === "rejected";
+  // Held and rejected versions say why: a person's or a report's decision, and what the scan found. One a newer
+  // version replaced while it waited says only that.
+  const isReplaced = version.scan_status === "held" && version.replaced_by_version_id !== null;
+  const isHeldBack = (version.scan_status === "held" || version.scan_status === "rejected") && !isReplaced;
   const findings = isHeldBack ? version.findings : [];
   const fixes = [...new Set(findings.map((finding) => finding.fix))];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
 ${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
+${isReplaced ? html`<p class="muted">Replaced by a newer version</p>` : ""}
 ${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
 ${findings.length
       ? html`<div class="reason"><ul class="findings">${findings.map(

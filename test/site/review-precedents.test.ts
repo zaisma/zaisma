@@ -169,7 +169,7 @@ describe("drafting a ruling for a miss", () => {
 
   it("doesn't draft for a hold that only says the review couldn't finish", async () => {
     const { draftReviewPrecedent, seen } = drafter();
-    for (const code of ["ai_review_declined", "ai_review_failed", "daily_reviews_used"] as const) {
+    for (const code of ["ai_review_declined", "ai_review_failed", "daily_large_reviews_used"] as const) {
       const { versionId } = await upload(`unfinished-${code.replace(/_/g, "-")}`);
       await scanVersion(testEnv, versionId, { ...passingScanDeps({ images: connected, judge: judgeSays("hold", [{ stage: "ai", severity: "hold", code, message: "Couldn't finish." }]) }), draft: draftReviewPrecedent });
       const version = (await env.DB.prepare("SELECT * FROM versions WHERE id = ?").bind(versionId).first())!;
@@ -276,7 +276,7 @@ describe("releasing a hold the review got wrong", () => {
     const sixth = await upload("refund-6");
     await env.DB.prepare("UPDATE games SET owner_id = 'owner_refund' WHERE id = ?").bind(sixth.gameId).run();
     const waiting = await scanVersion(testEnv, sixth.versionId, holdsFor());
-    expect(waiting.findings.map((finding) => finding.code)).toEqual(["daily_reviews_used"]);
+    expect(waiting.findings.map((finding) => finding.code)).toEqual(["daily_large_reviews_used"]);
     // A person releases one of the five: the review was wrong, so it's given back.
     await post(`/admin/versions/${versions[0]}/approve`);
     const seventh = await upload("refund-7");
