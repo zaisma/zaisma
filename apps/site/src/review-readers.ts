@@ -5,6 +5,7 @@ import {
   EVIDENCE_KINDS,
   REVIEWED_CONTENT_RULES,
   REVIEW_LIMITS,
+  changedRegions,
   chunkText,
   keepQuotedItems,
   reviewCostCents,
@@ -29,9 +30,12 @@ export interface ReaderContext {
   reported?: string;
 }
 
-/** A piece of the code for one reader call: whole small files, or one part of a big one. */
+/**
+ * A piece of the code for one reader call: whole small files, one part of a big one, or the regions of a file
+ * that changed since the version before (`isChangedOnly`), numbered over the regions.
+ */
 export interface CodeChunk {
-  files: { path: string; text: string; partNumber: number; partCount: number }[];
+  files: { path: string; text: string; partNumber: number; partCount: number; isChangedOnly?: boolean }[];
 }
 
 export interface ReaderPicture {
@@ -179,7 +183,7 @@ export const readCode: ReadCode = async (apiKey, model, chunk, readerContext) =>
     { type: "text", text: `<game>\n${manifest}\n</game>` },
     ...chunk.files.map((file): Anthropic.TextBlockParam => ({
       type: "text",
-      text: `<file path="${attribute(file.path)}"${file.partCount > 1 ? ` part="${file.partNumber} of ${file.partCount}"` : ""}>\n${file.text}\n</file>`,
+      text: `<file path="${attribute(file.path)}"${file.partCount > 1 || file.isChangedOnly ? ` part="${file.partNumber} of ${file.partCount}"` : ""}${file.isChangedOnly ? ' only="what changed since the last version, with some code around it"' : ""}>\n${file.text}\n</file>`,
     })),
     { type: "text", text: "List the evidence in these files." },
   ];
@@ -228,8 +232,17 @@ export interface GatherInput {
   /** Every text file, with its hash. */
   texts: { path: string; text: string; sha256: string }[];
   pictures: PictureFile[];
-  /** Evidence from an earlier version, reused for files whose hash it read; null to read everything. */
-  previous: { evidence: EvidenceItem[]; readFileSha256s: string[] } | null;
+  /**
+   * Evidence from an earlier version, reused for files whose hash it read; null to read everything. `texts`
+   * loads the earlier text at a path whose file changed, so only what changed in it is read.
+   */
+  previous: { evidence: EvidenceItem[]; readFileSha256s: string[]; texts?: Map<string, EarlierText> } | null;
+}
+
+/** A file's text in the earlier version, loaded only when it's compared; null when it's no longer stored. */
+export interface EarlierText {
+  sha256: string;
+  text: () => Promise<string | null>;
 }
 
 export interface GatheredEvidence {
@@ -253,24 +266,37 @@ export function chooseReadPictures<File extends { path: string; sizeBytes: numbe
     .slice(0, REVIEW_LIMITS.maximumReadImageCount);
 }
 
-/** The code files to read, packed into chunks: small files together, big ones in overlapping parts. In path order. */
-export function packChunks(texts: { path: string; text: string }[]): CodeChunk[] {
+/** The parts of a file the readers see: its changed regions when it has them, else the whole file, each in overlapping chunks. */
+const partsOf = (file: { text: string; changedTexts?: string[] }): string[] => (file.changedTexts ? file.changedTexts.flatMap(chunkText) : chunkText(file.text));
+
+/**
+ * The code files to read, packed into chunks: small files and changed regions together, big files in overlapping
+ * parts. In path order.
+ */
+export function packChunks(texts: { path: string; text: string; changedTexts?: string[] }[]): CodeChunk[] {
   const chunks: CodeChunk[] = [];
   let current: CodeChunk = { files: [] };
   let currentCharacterCount = 0;
-  for (const file of [...texts].sort((first, second) => (first.path < second.path ? -1 : 1))) {
-    const parts = chunkText(file.text);
-    if (parts.length > 1) {
-      parts.forEach((text, index) => chunks.push({ files: [{ path: file.path, text, partNumber: index + 1, partCount: parts.length }] }));
-      continue;
-    }
+  const add = (file: CodeChunk["files"][number]) => {
     if (currentCharacterCount + file.text.length > REVIEW_LIMITS.readerChunkCharacterCount && current.files.length) {
       chunks.push(current);
       current = { files: [] };
       currentCharacterCount = 0;
     }
-    current.files.push({ path: file.path, text: file.text, partNumber: 1, partCount: 1 });
+    current.files.push(file);
     currentCharacterCount += file.text.length;
+  };
+  for (const file of [...texts].sort((first, second) => (first.path < second.path ? -1 : 1))) {
+    const parts = partsOf(file);
+    if (file.changedTexts) {
+      parts.forEach((text, index) => add({ path: file.path, text, partNumber: index + 1, partCount: parts.length, isChangedOnly: true }));
+      continue;
+    }
+    if (parts.length > 1) {
+      parts.forEach((text, index) => chunks.push({ files: [{ path: file.path, text, partNumber: index + 1, partCount: parts.length }] }));
+      continue;
+    }
+    add({ path: file.path, text: file.text, partNumber: 1, partCount: 1 });
   }
   if (current.files.length) chunks.push(current);
   return chunks;
@@ -294,12 +320,17 @@ async function inTurns<Answer>(tasks: (() => Promise<Answer>)[], parallelCount: 
 const shaByPathOf = (input: Pick<GatherInput, "texts" | "pictures">) =>
   new Map<string, string>([...input.texts.map((file) => [file.path, file.sha256] as const), ...input.pictures.map((picture) => [picture.path, picture.sha256] as const)]);
 
+/** The files an earlier version's readers read whose evidence still holds. */
+function reusableShas(input: Pick<GatherInput, "previous">): Set<string> {
+  // A file whose earlier items have a subject no longer in its closed list (player_text's changed) is read again.
+  const staleShas = new Set((input.previous?.evidence ?? []).filter((evidenceItem) => evidenceItem.source === "reader" && !isCurrentSubject(evidenceItem)).map((evidenceItem) => evidenceItem.file_sha256));
+  return new Set((input.previous?.readFileSha256s ?? []).filter((sha256) => !staleShas.has(sha256)));
+}
+
 /** The files an earlier version's readers read that this version still has unchanged, so their evidence is reused. */
 function reusedShas(input: Pick<GatherInput, "previous">, shaByPath: Map<string, string>): Set<string> {
   const present = new Set(shaByPath.values());
-  // A file whose earlier items have a subject no longer in its closed list (player_text's changed) is read again.
-  const staleShas = new Set((input.previous?.evidence ?? []).filter((evidenceItem) => evidenceItem.source === "reader" && !isCurrentSubject(evidenceItem)).map((evidenceItem) => evidenceItem.file_sha256));
-  return new Set((input.previous?.readFileSha256s ?? []).filter((sha256) => present.has(sha256) && !staleShas.has(sha256)));
+  return new Set([...reusableShas(input)].filter((sha256) => present.has(sha256)));
 }
 
 /** How many code files and pictures gatherEvidence would read afresh: 0 means its reads call no model (no small review). */
@@ -309,8 +340,10 @@ export function newReadCount(input: Pick<GatherInput, "texts" | "pictures" | "pr
 }
 
 /**
- * Reads a version: files whose hash an earlier version's readers read keep that evidence, and the rest are
- * read in chunks, a few calls at a time, with the pictures. `onCall` hears each call's cost as it's made.
+ * Reads a version: files whose hash an earlier version's readers read keep that evidence, a changed file whose
+ * earlier text they read is read only where it changed (unless most of it did) and keeps the earlier items still
+ * quoted in it, and the rest are read whole. In chunks, a few calls at a time, with the pictures. `onCall` hears
+ * each call's cost as it's made.
  */
 export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadCode; readPictures: ReadPictures }, onCall: (costCents: number) => Promise<void> = async () => {}): Promise<GatheredEvidence> {
   const shaByPath = shaByPathOf(input);
@@ -326,8 +359,34 @@ export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadC
     for (const path of pathsBySha.get(evidenceItem.file_sha256)!) reused.push({ ...evidenceItem, path });
   }
 
+  const reusable = reusableShas(input);
+  const toRead: (GatherInput["texts"][number] & { changedTexts?: string[] })[] = [];
+  for (const file of input.texts) {
+    if (readShas.has(file.sha256)) continue;
+    const earlier = input.previous?.texts?.get(file.path);
+    if (!earlier || !reusable.has(earlier.sha256)) {
+      toRead.push(file);
+      continue;
+    }
+    const earlierText = await earlier.text();
+    if (earlierText === null) {
+      toRead.push(file);
+      continue;
+    }
+    const regions = await changedRegions(earlierText, file.text);
+    const changedCharacterCount = regions.reduce((characterCount, region) => characterCount + region.endIndex - region.startIndex, 0);
+    if (changedCharacterCount > file.text.length * REVIEW_LIMITS.wholeFileReadChangedShare) {
+      toRead.push(file);
+      continue;
+    }
+    // The earlier items at this path stay while their quotes are still in the file (keepQuotedItems, below).
+    for (const evidenceItem of input.previous!.evidence) {
+      if (evidenceItem.source === "reader" && evidenceItem.file_sha256 === earlier.sha256 && evidenceItem.path === file.path) reused.push({ ...evidenceItem, file_sha256: file.sha256 });
+    }
+    toRead.push({ ...file, changedTexts: regions.map((region) => file.text.slice(region.startIndex, region.endIndex)) });
+  }
+
   const findings: Finding[] = [];
-  const toRead = input.texts.filter((file) => !readShas.has(file.sha256));
   const chunks = packChunks(toRead);
   const isTooMuch = chunks.length > REVIEW_LIMITS.maximumReaderChunkCount;
   if (isTooMuch) findings.push({ stage: "ai", severity: "hold", code: "too_much_code", message: `More code than the review reads (${REVIEW_LIMITS.maximumReaderChunkCount} parts of ${REVIEW_LIMITS.readerChunkCharacterCount.toLocaleString("en-US")} characters). A person should look.` });
@@ -336,18 +395,18 @@ export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadC
   const pictureBatches: PictureFile[][] = [];
   for (let index = 0; index < picturesToRead.length; index += REVIEW_LIMITS.readImageCountPerCall) pictureBatches.push(picturesToRead.slice(index, index + REVIEW_LIMITS.readImageCountPerCall));
 
-  // Each call's answer, the hashes of the whole files it read, and the parts of big files it read.
-  const tasks: (() => Promise<{ answer: ReaderAnswer; shas: string[]; parts: CodeChunk["files"] }>)[] = [
+  // Each call's answer, the hashes of the pictures it looked at, and the path of each part of code it read.
+  const tasks: (() => Promise<{ answer: ReaderAnswer; shas: string[]; partPaths: string[] }>)[] = [
     ...(isTooMuch ? [] : chunks).map((chunk) => async () => {
       const answer = await deps.readCode(input.apiKey, input.readerModel, chunk, input.readerContext);
       await onCall(answer.costCents);
-      return { answer, shas: chunk.files.filter((file) => file.partCount === 1).map((file) => shaByPath.get(file.path)!), parts: chunk.files.filter((file) => file.partCount > 1) };
+      return { answer, shas: [], partPaths: chunk.files.map((file) => file.path) };
     }),
     ...pictureBatches.map((batch) => async () => {
       const pictures = await Promise.all(batch.map(async (picture): Promise<ReaderPicture> => ({ path: picture.path, mediaType: picture.mediaType, base64: await picture.base64() })));
       const answer = await deps.readPictures(input.apiKey, input.readerModel, pictures);
       await onCall(answer.costCents);
-      return { answer, shas: batch.map((picture) => picture.sha256), parts: [] };
+      return { answer, shas: batch.map((picture) => picture.sha256), partPaths: [] };
     }),
   ];
   const results = await inTurns(tasks, REVIEW_LIMITS.maximumParallelReaderCount);
@@ -359,7 +418,7 @@ export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadC
   let outputTokenCount = 0;
   let hasDeclined = false;
   let hasFailed = false;
-  for (const { answer, shas, parts } of results) {
+  for (const { answer, shas, partPaths } of results) {
     costCents += answer.costCents;
     inputTokenCount += answer.inputTokenCount;
     outputTokenCount += answer.outputTokenCount;
@@ -368,12 +427,11 @@ export async function gatherEvidence(input: GatherInput, deps: { readCode: ReadC
     if (answer.outcome !== "read") continue;
     for (const evidenceItem of answer.items) readerItems.push({ ...evidenceItem, file_sha256: shaByPath.get(evidenceItem.path) ?? "", source: "reader" });
     for (const sha256 of shas) readShas.add(sha256);
-    for (const part of parts) partsReadByPath.set(part.path, (partsReadByPath.get(part.path) ?? 0) + 1);
+    for (const path of partPaths) partsReadByPath.set(path, (partsReadByPath.get(path) ?? 0) + 1);
   }
-  // A big file counts as read only once every part of it was.
+  // A file counts as read only once every part of it was: all of it, or every region that changed.
   for (const file of toRead) {
-    const partCount = chunkText(file.text).length;
-    if (partCount > 1 && partsReadByPath.get(file.path) === partCount) readShas.add(file.sha256);
+    if ((partsReadByPath.get(file.path) ?? 0) === partsOf(file).length) readShas.add(file.sha256);
   }
   if (hasDeclined) findings.push({ stage: "ai", severity: "hold", code: "ai_review_declined", message: "The AI reader declined some of this content. Review it by hand." });
   if (hasFailed) findings.push({ stage: "ai", severity: "hold", code: "ai_review_failed", message: "An AI reader didn't finish cleanly. Review it by hand." });
