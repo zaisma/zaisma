@@ -51,7 +51,8 @@ export const GAME_PAGE_STYLE = pageStyle("game-page", () => `
 #picture-sheet { width: min(1100px, calc(100% - 2 * var(--pad-pane))); }
 .game-picture-large { display: block; width: 100%; height: auto; max-height: calc(100dvh - 160px); object-fit: contain; }
 /* Rooms: the code box, who's playing, the region and label pickers, then one row per room with its seats, where it runs and Join. */
-.code-join { display: flex; align-items: flex-end; gap: var(--gap-words-control); }
+/* The code box is a field and its Join side by side, not the panes' stacked form. */
+.game-sections .game-section-head > form.code-join { display: flex; flex-direction: row; align-items: flex-end; gap: var(--gap-control-row-boxes); }
 .code-join > .cut-field { width: 220px; }
 .rooms-in { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .rooms-head { font: var(--type-words); }
