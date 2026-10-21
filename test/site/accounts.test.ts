@@ -2175,6 +2175,9 @@ describe("cloud saves", () => {
     // The stills are the stage's CSS, so only the one showing loads.
     const styles = await (await SELF.fetch(`${SITE}${plain.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
     for (const still of ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"]) expect(styles).toContain(`url(/sign-in/${still})`);
+    // A press anywhere but on the pane, the logo or the rail reaches the city, whose shapes and sea are there to tap.
+    expect(styles).toMatch(/\.city-page[^{}]*\{ ?pointer-events: none; ?\}/);
+    expect(styles).toMatch(/\.city-stage[^{}]*\{ ?pointer-events: auto; ?\}/);
 
     // A game's tab: the pane says the game asked, and the guest way goes back to it, on every pane of the way in.
     const next = encodeURIComponent("/account/kept?game=owl-game");

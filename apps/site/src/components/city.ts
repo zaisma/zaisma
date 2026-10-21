@@ -1372,6 +1372,10 @@ const CITY_STYLES = `
 /* A pane on the city: glass in front, never resting in the scene. On a wide screen it stands on the right, level with the logo, full height;
    on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
 .city-page { min-height: 100vh; }
+/* The city is there to play with: a press anywhere but on the pane, the logo or the rail goes through the page (and the body it
+   lies behind) to it. */
+body:has(> .city-page), .city-page { pointer-events: none; }
+.city-page > *, .city-stage { pointer-events: auto; }
 /* The pane is the page: no room kept for a floating header, whose logo sits on the city. */
 body:has(> .city-page) { padding-top: 0; }
 html:has(.city-page) { height: 100%; }
