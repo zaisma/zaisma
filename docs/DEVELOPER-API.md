@@ -580,6 +580,20 @@ Every chat message to or from an under-18 account goes through Zaisma's chat fil
 
 Contact or personal details stopped toward under-18 accounts five times in a day pause the sender's chat for an hour; a sexual message from an adult to a teen pauses their chat while an AI reviews it. A paused account's next pass says `who_can_chat: "nobody"`, so `canChat` stops it on your server too. Zaisma keeps no chat, except that one kind of message, for review.
 
+## Room connections
+
+How a room and each player's game stay in touch, the same in Zaisma rooms and on your own server (the Node runner).
+
+### Ping and the room's clock
+
+- **Ping:** the game server reads a player's round trip with `room.pingDurationMs(playerId)`, and the player's game reads its own with `room.pingDurationMs`: the same number, in milliseconds, smoothed so one slow packet doesn't make it jump. It's `null` until the first measurement, right after the player joins.
+- **Measured by the room:** the room sends each player a small probe right after they join, every 2 seconds while a real-time room ticks (turn-based rooms keep sleeping between moves), and whenever 256 KB has gone out to them; the SDK answers it at once. Answers aren't game messages: they don't count toward a player's 30 a second, your message stats or the idle check. Since the room measures it, a player can only make their ping look worse by answering late, never better, so cap any lag compensation that uses it.
+- **One clock:** `room.serverTimeMs()` is the room's clock now, in epoch milliseconds, on the game server (like `Date.now()`) and in every player's game, where the SDK estimates it from the probes. A time the game server sends means the same moment for everyone, like `{ startsAtMs: room.serverTimeMs() + 3000 }` for a countdown.
+
+### Slow connections
+
+A player whose connection can't keep up is dropped before the room has to hold a growing backlog for them: when a probe has gone unanswered for 8 seconds, or 2 MB has gone out to them since the last probe they answered. Their connection closes with code `4003`, the game hears `onLeave` with reason `lost` and their seat is held, and the SDK reconnects by itself, so they come back caught up. Send a returning player the full state in `onJoin` (`joinInfo.isReturning`), not just what changed. A room's memory for its players stays bounded, and one bad connection can't stall a match for everyone else.
+
 ## Sign in with Zaisma
 
 Players sign in to your own site, server or app with their Zaisma account, and you know them by the same player ID your games see. It's standard OpenID Connect (the authorization code flow), so any OpenID Connect library works: point it at the issuer `https://zaisma.com`, which publishes everything else at `https://zaisma.com/.well-known/openid-configuration`.
