@@ -11,9 +11,8 @@ import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
-import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
+import { esc, html, layout, openingScriptTags, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
 import { HOME_OPENING_SCRIPT, HOME_SCRIPT } from "./home-script.ts";
-import { pageScriptPath } from "./page-scripts.ts";
 import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
@@ -246,7 +245,7 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
     // Play opens the game's page in a frame of the home.
     frames: ["'self'"],
     // The opening game is chosen before the first paint, so the page opens on its color and glass (home-script.ts's HOME_OPENING_SCRIPT).
-    head: html`${first ? html`${pageData("home-opening", { slugs: games.map((game) => game.slug), guest_picks: guestPicks, tones: openingTones(games) })}<script src="${pageScriptPath(HOME_OPENING_SCRIPT)}"></script>` : ""}${styleTags(HOME_STYLE)}`,
+    head: html`${first ? html`${pageData("home-opening", { slugs: games.map((game) => game.slug), guest_picks: guestPicks, tones: openingTones(games) })}${openingScriptTags(HOME_OPENING_SCRIPT)}` : ""}${styleTags(HOME_STYLE)}`,
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {

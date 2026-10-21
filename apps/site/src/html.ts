@@ -22,6 +22,12 @@ export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((sc
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render"></script>`).join(""));
 
+/**
+ * A script in the page's <head> that runs as it's read, before anything below it: one that sets what the first paint shows (the home's
+ * opening game, its color and glass), from a data block just above it.
+ */
+export const openingScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}"></script>`).join(""));
+
 /** A page's stylesheets, as their files (page-styles.ts), for its <head>: the browser holds the first paint until they've loaded. */
 export const styleTags = (...styles: PageStyle[]): Raw => raw(styles.map((style) => `<link rel="stylesheet" href="${pageStylePath(style)}">`).join(""));
 
