@@ -21,6 +21,7 @@
     "listing-set": "node scripts/review-set/listing.mjs",
     "engines:play": "node scripts/engines/play.mjs",
     "design:catalog": "node scripts/design-catalog.mjs",
+    "layout:check": "node scripts/layout-check.mjs",
     "components:minify": "node scripts/minify-components.mjs",
     "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },

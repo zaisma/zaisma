@@ -1,5 +1,11 @@
 
 
+/** The cut corners of a kind of slab (the cut tokens), as a clip-path, for a frame that isn't glass the edge rule cuts (a demo's box). */
+export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
+  const [large, small] = [`var(--${kind}-cut-large)`, `var(--${kind}-cut-small)`];
+  return `polygon(0 ${large}, ${large} 0, calc(100% - ${small}) 0, 100% ${small}, 100% calc(100% - ${large}), calc(100% - ${large}) 100%, ${small} 100%, 0 calc(100% - ${small}))`;
+};
+
 /** The glass's two kinds, as tokens: light glass with dark words, and smoked glass with light words. */
 export const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
@@ -97,6 +103,8 @@ export const TOKEN_STYLES = `
 @property --face-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+/* The words' inset in a pane (layout.ts), registered so it's worked out to a length where it's set, and reads as one. */
+@property --pad-words { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent); transition: --fade-top 0.2s, --fade-bottom 0.2s; }
@@ -157,9 +165,24 @@ html, body { overscroll-behavior-x: none; }
   --gap-words-control: 8px;
   --gap-words-words: 8px;
   --gap-block-block: 24px;
+  /* Two margins in a pane (docs/DESIGN.md, Layout): words keep the pane's margin, --pad-pane, and anything with an edge of its own (a control,
+     a field, a table, a cover, an inner pane) sits closer, at the frame gap, --pad-frame, the gap it keeps from a cut corner too. A pane pads
+     at the frame gap and sets --pad-words, the words' extra inset, for its words; outside a pane it's nothing. */
   --pad-pane: 24px;
+  --pad-frame: 12px;
+  --pad-words: 0px;
   --pad-inner-pane: 12px;
   --pad-tray: 16px;
+  /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, large and small, read by the edge rule (GLASS_SCRIPT)
+     from data-glass-corners, so everything inside fits them. A framed thing in a corner keeps a bevel of at least 4px at the frame gap. */
+  --pane-cut-large: 18px; --pane-cut-small: 14px;
+  --header-cut-large: 16px; --header-cut-small: 12px;
+  --menu-cut-large: 14px; --menu-cut-small: 12px;
+  /* A control's height by its size class: each control sets --control-height from one of these, and a row sets every control in it to its
+     tallest's (layout.ts). */
+  --control-height-small: 36px; --control-height-regular: 44px; --control-height-field: 52px; --control-height-big: 56px;
+  /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds. */
+  --size-cover: 180px; --size-card: 280px; --size-figure: 150px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
   --type-title: 600 40px/1.04 var(--display);
   --type-heading: 600 30px/1.1 var(--display);
@@ -173,7 +196,7 @@ html, body { overscroll-behavior-x: none; }
   --type-tag: 600 12px/1 var(--display);
   --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
 }
-@media (max-width: 760px) { :root { --pad-pane: 18px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
+@media (max-width: 760px) { :root { --pad-pane: 18px; --pad-frame: 10px; --control-height-big: 48px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
@@ -198,6 +221,8 @@ html, body { overscroll-behavior-x: none; }
    no other rule paints glass. */
 /* Each piece of glass works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
 .glass { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
+/* A slab's words keep no inset of their own unless it's a pane that sets one (layout.ts): none comes in from the pane round it. */
+.glass { --pad-words: 0px; }
 .glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: var(--glass-transition); }

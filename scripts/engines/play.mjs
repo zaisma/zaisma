@@ -10,11 +10,10 @@
 //
 // Chrome is driven over its DevTools protocol with Node's own WebSocket, so it needs no dependency. Each
 // sample says it started by setting window.zaismaEngineSample = { engine, version, started: true }.
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findChrome, openChrome } from "../chrome.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
@@ -52,7 +51,7 @@ for (const engine of engines) {
   }
 }
 
-const chrome = await openChrome();
+const chrome = await startChrome();
 try {
   for (const sample of samples.filter((candidate) => engines.includes(candidate.engine) && candidate.scan_status === "approved")) {
     console.log(`${sample.engine}: ${site}/g/${sample.slug}?play`);
@@ -152,73 +151,11 @@ async function screenshot(send) {
   return data;
 }
 
-/** Headless Chrome with WebGL in software (CI runners have no GPU), and a DevTools connection to it. */
-async function openChrome() {
-  const path = [
-    process.env.CHROME_PATH,
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ...playwrightChromes(),
-  ].find((candidate) => candidate && existsSync(candidate));
+/** Headless Chrome (scripts/chrome.mjs): CHROME_PATH, the system's, or one downloaded. */
+async function startChrome() {
+  const path = await findChrome();
   if (!path) stop("No Chrome found: set CHROME_PATH to a Chrome or Chromium.");
-  const profile = mkdtempSync(join(tmpdir(), "zaisma-engines-"));
-  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
-  const address = await new Promise((resolve, reject) => {
-    let output = "";
-    child.stderr.on("data", (chunk) => {
-      output += chunk;
-      const match = output.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (match) resolve(match[1]);
-    });
-    child.on("exit", (code) => reject(new Error(`Chrome stopped (${code}): ${output.slice(-500)}`)));
-  });
-  const socket = new WebSocket(address);
-  await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject)));
-  let nextId = 1;
-  const waiting = new Map();
-  const listeners = new Set();
-  socket.onmessage = ({ data }) => {
-    const message = JSON.parse(data);
-    if (message.id && waiting.has(message.id)) {
-      const { resolve, reject } = waiting.get(message.id);
-      waiting.delete(message.id);
-      if (message.error) reject(new Error(message.error.message));
-      else resolve(message.result);
-    } else if (message.method) for (const listener of listeners) listener(message);
-  };
-  return {
-    send: (method, params = {}, sessionId) =>
-      new Promise((resolve, reject) => {
-        const id = nextId++;
-        waiting.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      }),
-    listen: (sessionId, onEvent) => {
-      const listener = (message) => message.sessionId === sessionId && onEvent(message.method, message.params);
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    // Chrome writes to its profile until it has exited, so it goes after.
-    close: async () => {
-      socket.close();
-      const exited = new Promise((resolve) => child.once("exit", resolve));
-      child.kill();
-      await exited;
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
-    },
-  };
-}
-
-/** Chromium that Playwright downloaded, newest first, for machines without Chrome. */
-function playwrightChromes() {
-  const cache = join(homedir(), process.platform === "darwin" ? "Library/Caches/ms-playwright" : ".cache/ms-playwright");
-  if (!existsSync(cache)) return [];
-  return readdirSync(cache)
-    .filter((name) => name.startsWith("chromium-"))
-    .sort()
-    .reverse()
-    .flatMap((name) => ["chrome-mac-arm64", "chrome-mac", "chrome-mac-x64"].map((folder) => join(cache, name, folder, "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")).concat(join(cache, name, "chrome-linux64/chrome"), join(cache, name, "chrome-linux/chrome")));
+  return openChrome(path, "zaisma-engines-");
 }
 
 function readJson(path) {

@@ -11,7 +11,7 @@ import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { loadMore } from "./components/navigation.ts";
 import { listRows } from "./components/data.ts";
-import { glassPane, tray } from "./components/foundations.ts";
+import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
 /*
  * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
@@ -91,11 +91,11 @@ ${head(`${groupName} · Design · Zaisma`, group)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="20 14 20 14">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
+<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></header>
 <div class="gallery-layout">
-<nav class="gallery-index glass" aria-label="Groups" data-glass data-glass-corners="24 20 24 20">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
+<nav class="gallery-index glass" aria-label="Groups" data-glass data-glass-corners="pane">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}
@@ -132,16 +132,15 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: var(--under-gallery-bar); }
 .component-name { margin: 0; font: var(--type-section); }
 .component-summary { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
-.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); }
+/* The examples end in their names, which are words at the tray's foot: they keep its margin there. */
+.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); padding-bottom: var(--pad-words); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
 .example-stage > * { max-width: 100%; }
 /* What the example is: a few quiet words just under it. */
 .example { gap: var(--gap-words-control); }
-.example-name { margin: 0; font: var(--type-facts); color: var(--muted); }
+.example-name { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
 .example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: var(--gap-control-stack); padding: 0; }
-.example-pane { width: min(380px, 100%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-block-block); }
-.example-wide { width: 100%; padding: var(--pad-pane); }
 .cover-sample { width: 260px; }
 /* The loops' own pointer, moving onto the copy it plays. It sinks a little while it presses. */
 [data-state-loop] { position: relative; display: inline-block; }
@@ -157,7 +156,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .rail-side-box { padding-top: var(--gap-block-block); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
-  clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
+  clip-path: ${cutPolygon("pane")}; }
 .header-frame.tall { height: 470px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }

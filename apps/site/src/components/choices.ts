@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, glassPane, icon, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
 
@@ -118,19 +119,19 @@ export interface SelectFieldOptions {
  * A select field: a cut field that opens a list of Zaisma's glass under it, on every device, so picking from a list looks and feels like
  * the rest of the page. For one of many (a region, a language); one of a few is Choice cards or a Switch. The pick is sent as a hidden field.
  */
-export function selectField(options: SelectFieldOptions): Raw {
+export function selectField(options: SelectFieldOptions): ControlMarkup {
   const id = options.id ?? `field-${options.name}`;
   const picked = options.choices.find((choice) => choice.choiceValue === options.pickedValue) ?? options.choices[0];
   const isOpen = options.state === "is-open";
   const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
-  const list = html`<div class="select-list glass${isOpen ? " in-place" : ""}" id="${id}-list" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-glass data-glass-corners="18 14 18 14"${isOpen ? "" : raw(" popover")}>${EDGE}${options.choices.map(
+  const list = html`<div class="select-list glass${isOpen ? " in-place" : ""}" id="${id}-list" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-glass data-glass-corners="menu"${isOpen ? "" : raw(" popover")}>${EDGE}${options.choices.map(
     (choice, choiceIndex) =>
       html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span>${icon("check")}</div>`,
   )}</div>`;
-  return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
+  return controlMarkup(html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
 <span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
 ${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}">
-${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
+${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
 /**
@@ -306,7 +307,7 @@ component({
 .check:active .check-box > .ico, .check.is-pressed .check-box > .ico { transform: scale(0.85); transition-duration: 0.08s; }
 .check-box:has(.check-input:focus-visible) > .cut-line polygon, .check.is-focused .check-box > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .check-box:has(.check-input:checked:focus-visible) > .cut-line polygon, .check.is-focused .check-box:has(.check-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
-.check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; }
+.check-words { display: grid; gap: var(--gap-words-words); padding-top: 2px; padding-inline-end: var(--pad-words); }
 .check-label { font: var(--type-words); color: var(--ink); }
 .check-hint { font: var(--type-note); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .check-box > .ico { transition: none; } }
@@ -381,7 +382,7 @@ component({
    the switch's white slab, lit, with its orange line along its foot and its words in full ink. Pointing at one brightens its carving. The
    real radio lies over the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.choices > legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.choices > legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-control-stack); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
   color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
@@ -449,7 +450,7 @@ component({
 /* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real
    checkbox (role switch) lies over the slot, unseen; the words before it are its label, so a press on them flips it too. */
 .toggle { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
+.toggle-words { display: grid; gap: var(--gap-words-words); min-width: 0; padding-inline-start: var(--pad-words); }
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
 .toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color 0.3s; }

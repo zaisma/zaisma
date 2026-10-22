@@ -46,10 +46,10 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     });
     candidates.forEach(function (el) { if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
   }
+  // The pane's cuts as the edge rule reads them (GLASS_SCRIPT's window.zaismaCorners, from data-glass-corners), each at most 30% of its short side.
   function glassCuts(el, width, height) {
     var short = Math.min(width, height);
-    var isNarrow = window.matchMedia("(max-width: 760px)").matches;
-    return (el.getAttribute("data-glass-corners") || "24 20 24 20").trim().split(/ +/).map(function (cut) { return Math.min(isNarrow ? Math.round((Number(cut) || 0) * 0.8) : Number(cut) || 0, Math.round(short * 0.3)); });
+    return window.zaismaCorners(el, "pane").map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
   // Each layer's panes, in its canvas's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
   function placeGlass(layer) {

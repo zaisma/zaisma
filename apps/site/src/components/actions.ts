@@ -1,6 +1,8 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, ICONS, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
+import { cutPolygon } from "./tokens.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 
 /*
  * Actions, loudest to quietest: the runner button (the one colored thing you press), the cut button beside it,
@@ -47,10 +49,10 @@ export interface RunButtonOptions extends ButtonTarget {
 }
 
 /** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
-export function runButton(label: string, options: RunButtonOptions = {}): Raw {
+export function runButton(label: string, options: RunButtonOptions = {}): ControlMarkup {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
-  return html`${opening(shell, options, options.isBusy)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
+  return controlMarkup(html`${opening(shell, options, options.isBusy)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -79,10 +81,10 @@ export interface CutButtonOptions extends ButtonTarget {
 }
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
-export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
+export function cutButton(label: string, options: CutButtonOptions = {}): ControlMarkup {
   const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
   const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}`;
-  return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -103,19 +105,19 @@ const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", 
  * (a passkey, Google, Discord: their marks), or an action that floats on a world with no pane under it (the home's More games: one of
  * Zaisma's icons), where a cut button's clear face would be lost.
  */
-export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS | IconName; tint?: GlassTint; state?: ButtonState; isBusy?: boolean }): Raw {
+export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS | IconName; tint?: GlassTint; state?: ButtonState; isBusy?: boolean }): ControlMarkup {
   const isWayIn = options.icon in WAY_ICONS;
   const tint = options.tint ?? (isWayIn ? WAY_TINTS[options.icon as keyof typeof WAY_ICONS] : "clear");
   const mark = isWayIn ? WAY_ICONS[options.icon as keyof typeof WAY_ICONS] : icon(options.icon as IconName);
   const target = { href: options.href, type: options.type ?? "button" } as const;
-  return html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${mark}<span>${label}</span></span>${closing(target)}`;
+  return controlMarkup(html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${mark}<span>${label}</span></span>${closing(target)}`, "regular");
 }
 
 const GUEST_ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
 
 /** The guest way: words and an arrow under the glass buttons, the quietest way on. Its cut slab shows only when you point at it, press it or tab to it. */
-export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState; isBusy?: boolean } = {}): Raw {
-  return html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}<span>${label}</span>${loader()}${GUEST_ARROW}</span>${closing({ href: options.href })}`;
+export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState; isBusy?: boolean } = {}): ControlMarkup {
+  return controlMarkup(html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}<span>${label}</span>${loader()}${GUEST_ARROW}</span>${closing({ href: options.href })}`, "regular");
 }
 
 /**
@@ -200,7 +202,8 @@ const RUN_STYLES = `
 .run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.45; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
 .run {
   --refl: 50%;
-  position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 24px 0 22px;
+  --control-height: var(--control-height-regular);
+  position: relative; z-index: 1; overflow: hidden; height: var(--control-height); padding: 0 24px 0 22px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
   color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
   font: 600 16px var(--display); letter-spacing: 0.01em;
@@ -213,7 +216,7 @@ const RUN_STYLES = `
 /* Its edge light: bright where the light lands on its top and leading edges, its own orange's shade along its foot. */
 .run.cut-raised > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .is-full > .run { width: 100%; justify-content: center; }
-.run.big { height: 56px; justify-content: center; padding: 0 30px 0 26px; font-size: 19px; gap: 12px; }
+.run.big { --control-height: var(--control-height-big); justify-content: center; padding: 0 30px 0 26px; font-size: 19px; gap: 12px; }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
 .run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
 .run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
@@ -239,8 +242,8 @@ const RUN_STYLES = `
 .run-wrap:not([aria-busy="true"]) .loader, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .face > .ico, .run-wrap[aria-busy="true"] .face > .play { display: none; }
 .run .loader { position: relative; z-index: 2; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
-/* On a phone it keeps the other buttons' heights: 44px, and 48px big. */
-@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
+/* On a phone it keeps the other buttons' heights: 44px, and big 48px (--control-height-big). */
+@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 15px; } .run.big { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after { animation: none; } }
 `;
 
@@ -288,15 +291,17 @@ component({
 /* A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer;
    a press sinks it (down a pixel, shaded from above, its light turned round), never shrinking it, quickly, and it springs back when let go.
    The shell (the button) stays still; the slab is its face. */
-.cut-btn { flex: none; vertical-align: middle; }
+.cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; }
+.cut-btn.big { --control-height: var(--control-height-big); }
+.cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.is-full { display: flex; width: 100%; }
-.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
+.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: var(--control-height); padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
-.cut-btn.small > .face { height: 36px; padding: 0 14px; }
+.cut-btn.big > .face { padding: 0 28px; font-size: 17px; }
+.cut-btn.small > .face { padding: 0 14px; }
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
@@ -323,7 +328,7 @@ component({
 /* Waiting: the loader before its words, in the icon's place. */
 .cut-btn:not([aria-busy="true"]) .loader, .cut-btn[aria-busy="true"] .face > .ico { display: none; }
 .cut-btn .face > .loader { position: relative; z-index: 2; }
-@media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
+@media (max-width: 760px) { .cut-btn.big > .face { padding: 0 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s; } }
 `,
   render: cutButton,
@@ -468,9 +473,9 @@ component({
 /* The guest way: below the glass buttons, so only words and an arrow at rest. Pointing at it brings up its cut slab and
    outline and sends the arrow on; a press sinks it; the keyboard's focus draws the outline in ink.
    The shell (the button) stays still; the slab is its face. */
-.guest-btn { display: flex; width: 100%; }
+.guest-btn { --control-height: var(--control-height-regular); display: flex; width: 100%; }
 .guest-btn:focus-visible { outline: none; }
-.guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
+.guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: var(--control-height); padding: 0 16px;
   font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-color: transparent; background-color: var(--face-color);
   clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
@@ -511,8 +516,8 @@ export interface TextButtonOptions {
 }
 
 /** A text button: words alone, the quietest thing you press (Skip for now, Show all, Undo). The orange line draws in under them as you point. */
-export function textButton(label: string, options: TextButtonOptions = {}): Raw {
-  return html`${opening(classes("text-btn", options.state), options, options.isBusy)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
+export function textButton(label: string, options: TextButtonOptions = {}): ControlMarkup {
+  return controlMarkup(html`${opening(classes("text-btn", options.state), options, options.isBusy)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`, "regular", { isWordsAlone: true });
 }
 
 component({
@@ -573,11 +578,11 @@ const dangerButton = (label: string) =>
   html`${opening("danger-wrap", { type: "submit" }, undefined)}<span class="face danger cut-raised" data-cut-line="12">${CUT_LINE}${loader()}<span>${label}</span></span>${closing({})}`;
 
 /** A delete: a cut button with a trash icon, never orange, that opens its confirm step, a sheet with one sentence, Cancel, and the only red in Zaisma. */
-export function deleteButton(label: string, options: DeleteButtonOptions): Raw {
+export function deleteButton(label: string, options: DeleteButtonOptions): ControlMarkup {
   const id = options.id ?? `delete-${options.action.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
   const body = html`<p class="sheet-text">${options.confirmText}</p><form class="sheet-form" method="post" action="${options.action}"><div class="control-row">${cutButton("Cancel", { type: "submit", formMethod: "dialog", isAutofocused: true })}${dangerButton(options.confirmLabel)}</div></form>`;
   const sheet = sheetMarkup({ id, title: `${label}?`, body, closeButton: cutButton("Close", { type: "submit", icon: "close", isLabelHidden: true, isSmall: true }), isShown: options.isConfirmShown });
-  return options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`;
+  return controlMarkup(options.isConfirmShown ? sheet : html`${sheet}${cutButton(label, { type: "button", icon: "trash", controls: id, isFullWidth: options.isFullWidth, state: options.state })}`, "regular");
 }
 
 const GAME_DELETE = { action: "#delete-button", confirmLabel: "Delete Ashen Crown", confirmText: "Its page, versions, saves and stats are gone for good. Players who have it open are sent home." } as const;
@@ -662,8 +667,8 @@ component({
 .cuts { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); align-items: flex-end; }
 .cuts figure { margin: 0; display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
 .cuts .shape { background: var(--ink); opacity: 0.85; }
-.cuts .header-cut { width: 260px; height: 68px; clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px)); }
-.cuts .pane-cut { width: 200px; height: 140px; clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
+.cuts .header-cut { width: 260px; height: 68px; clip-path: ${cutPolygon("header")}; }
+.cuts .pane-cut { width: 200px; height: 140px; clip-path: ${cutPolygon("pane")}; }
 .edge-stack { display: grid; gap: var(--gap-control-stack); }
 `,
   examples: [
