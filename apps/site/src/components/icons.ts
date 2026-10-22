@@ -11,6 +11,7 @@ export const ICONS = {
   headphones: stroke("0 0 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
   // Everyone, everywhere: meeting new players.
   globe: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2z"/>'),
+  megaphone: stroke("0 0 20 20", '<path d="M3 8v4h3l7 4V4L6 8z"/><path d="M6 12l1.4 4.4h2.2L8.6 12.6M15.6 7.6a3.2 3.2 0 0 1 0 4.8"/>'),
   clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.5"'),
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),

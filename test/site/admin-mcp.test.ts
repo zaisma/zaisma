@@ -120,6 +120,9 @@ describe("admin MCP", () => {
       "list_security_spikes",
       "list_blocked_scripts",
       "get_game",
+      "list_announcements",
+      "post_announcement",
+      "end_announcement",
     ]);
     // Each lists its answer or the error, as the developer MCP's do.
     for (const listed of list.result.tools) expect(listed.outputSchema.anyOf).toHaveLength(2);

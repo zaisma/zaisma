@@ -269,6 +269,8 @@ await seedWrongPasswords();
 await seedProtectAccount();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
+// An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
+seedAnnouncements();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
@@ -1421,6 +1423,16 @@ function seedSecurityLog() {
     "UPDATE accounts SET where_used_from_enabled = 0 WHERE username = 'Moss_Runner'",
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * Short news on the home's banner (apps/site/src/announcements.ts): one current announcement with a link, from an
+ * hour ago to 30 days ahead, refreshed every run under the same ID, so a player who closed it doesn't see it again.
+ */
+function seedAnnouncements() {
+  const nowMs = Date.now();
+  const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 
 /**

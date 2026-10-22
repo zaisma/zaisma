@@ -262,8 +262,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `title: string`, `text: string`, `action: string`, `confirmLabel: string`, `isShown?: boolean`
 - **Notice** (`notice(options: NoticeOptions)`, `panes.ts`): A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.
   - `options`: `text: string`, `tone: "done" | "problem"`, `isInPlace?: boolean`
-- **Banner** (`banner(options: BannerOptions)`, `panes.ts`): Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.
-  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`
+- **Banner** (`banner(options: BannerOptions)`, `panes.ts`): Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. One line, at most one button, and a small Close for what a player can put away.
+  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `closeLabel?: string`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`
 
