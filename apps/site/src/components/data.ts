@@ -495,6 +495,14 @@ component({
 .data-table tbody tr:hover > td { background: var(--row-hover); }
 .data-table.compact thead th { padding: 8px 12px; }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; font: var(--type-facts); }
+/* Rows fade as they scroll up under the header, so its clear glass stays clear instead of showing their words through it: each row's
+   view of the box starts below the header (--table-head-h), and a row leaving it fades out as it goes. Nothing moves by itself. */
+.data-table { --table-head-h: 36px; }
+.data-table.compact { --table-head-h: 32px; }
+@supports (animation-timeline: view()) {
+  .data-table tbody tr { animation: table-row-under linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit 0% exit 70%; }
+}
+@keyframes table-row-under { from { opacity: 1; } to { opacity: 0; } }
 `,
   render: table,
   examples: [
