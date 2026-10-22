@@ -242,7 +242,7 @@ export const ZAISMA_PLAYER_REPORT_REASONS = ["real_life_threat", "personal_detai
 export type ZaismaPlayerReportReason = (typeof ZAISMA_PLAYER_REPORT_REASONS)[number];
 export const isForZaisma = (playerReason: string): playerReason is ZaismaPlayerReportReason => (ZAISMA_PLAYER_REPORT_REASONS as readonly string[]).includes(playerReason);
 
-/** A room with players in it (migrations/0015_live_rooms.sql, 0034, 0118). */
+/** A room with players in it, or a listed kept room waiting with nobody in it (migrations/0015_live_rooms.sql, 0034, 0118, 0121). */
 export interface LiveRoom {
   game_id: string;
   room_code: string;
@@ -264,6 +264,8 @@ export interface LiveRoom {
   continent: string | null;
   /** The version the room's sandboxed game server runs; null for built-in game servers (migrations/0118_room_versions.sql). */
   version_id: string | null;
+  /** 1: kept by its game server (room.setKept), so the row stays with nobody in it (migrations/0121_kept_rooms.sql). */
+  is_kept: number;
   created_at_ms: number;
   updated_at_ms: number;
 }

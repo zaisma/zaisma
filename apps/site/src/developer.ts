@@ -162,6 +162,7 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shaderJson } from "./backgrounds-api.ts";
 import { exportDownload, exportSummary } from "./game-export.ts";
 import { logsFor } from "./logs-api.ts";
@@ -223,6 +224,8 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games/:slug/export/download   the .zip of everything about the game
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
+ *   GET    /api/dev/games/:slug/kept-rooms     the game's kept rooms and its storage (see kept-rooms-api.ts)
+ *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -596,6 +599,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
   call({ method: "PATCH", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
@@ -906,6 +911,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
   if (apiRoute.path.startsWith("/games/:slug/shaders") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
@@ -1769,6 +1775,7 @@ const HISTORY: Record<string, string | null> = {
   "link-cleared": "A link opens again: its site is off Cloudflare's malware and phishing list",
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
+  "kept-room-deleted": "Deleted a kept room",
   // subject_name is the uploader's public name (copies.ts, stopCopy).
   "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
@@ -2395,7 +2402,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   if (!games.length) return alertsByGameId;
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }] = await Promise.all([
+  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
@@ -2420,6 +2427,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .prepare("SELECT game_id, kind, listing_reason FROM game_images WHERE game_id IN (SELECT value FROM json_each(?)) AND kind != 'screenshot' AND review_status != 'rejected' AND listing_reason IS NOT NULL")
       .bind(gameIds)
       .all<{ game_id: string; kind: string; listing_reason: string }>(),
+    // Kept rooms' saved worlds share the free storage with the database.
+    env.DB.prepare("SELECT game_id, SUM(saved_size_bytes) AS size_bytes FROM kept_rooms WHERE game_id IN (SELECT value FROM json_each(?)) GROUP BY game_id").bind(gameIds).all<{ game_id: string; size_bytes: number }>(),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -2464,14 +2473,15 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     const resetDate = nextMonthStartDate();
     const isReadPaused = Boolean(databaseUse && databaseUse.readRowCount >= limits.readRowCountPerMonth);
     const isWritePaused = Boolean(databaseUse && !isReadPaused && databaseUse.writtenRowCount >= limits.writtenRowCountPerMonth);
-    const isFull = Boolean(databaseUse && databaseUse.storageSizeBytes >= limits.storageSizeBytes);
+    const storageSizeBytes = (databaseUse?.storageSizeBytes ?? 0) + (keptRooms.find((row) => row.game_id === game.id)?.size_bytes ?? 0);
+    const isFull = Boolean(databaseUse && storageSizeBytes >= limits.storageSizeBytes);
     if (isReadPaused) {
       add("database_paused", `The game database stopped answering until ${resetDate} (UTC): this month's ${limits.readRowCountPerMonth.toLocaleString("en-US")} free rows read are used.`, "Wait for the month to reset, and read less: add indexes for your WHEREs, and keep what the game reads often in the room's state. get_database shows the month's use.");
     } else if (isWritePaused) {
       add("database_writes_paused", `The game database takes no writes until ${resetDate} (UTC): this month's ${limits.writtenRowCountPerMonth.toLocaleString("en-US")} free rows written are used. Reads keep working.`, "Wait for the month to reset, and write less: save a match's results once when it ends, not every tick. get_database shows the month's use.");
     }
     if (isFull) {
-      add("database_full", `The game database is full at its free ${limits.storageSizeBytes / 1024 / 1024} MB: it can change and delete rows, but not grow.`, "Delete rows the game no longer needs with query_database, or export_database to keep them elsewhere. get_database shows its size.");
+      add("database_full", `The game's storage (its database and kept rooms) is full at its free ${limits.storageSizeBytes / 1024 / 1024} MB: the database can change and delete rows, but not grow, and no more rooms can be kept.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.");
     }
     if (countedSec < freeRoomSec && countedSec >= freeRoomSec * NEARLY_USED_PCT / 100) {
       add("rooms_nearly_paused", `${NEARLY_USED_PCT}% of this month's ${FREE_ROOM_PLAY_DURATION_HOURS.toLocaleString("en-US")} free player-hours on Zaisma rooms and the relay are used. When they're all used, new rooms and connections between players pause until the month resets (UTC).`, "get_stats shows the month's use. To keep rooms opening, run them on your own server, which is never limited.");
@@ -2486,8 +2496,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       if (!isReadPaused && !isWritePaused && databaseUse.writtenRowCount >= limits.writtenRowCountPerMonth * NEARLY_USED_PCT / 100) {
         add("database_writes_nearly_paused", `${NEARLY_USED_PCT}% of this month's free rows written to the game database are used. When they're all used, it takes no writes until ${resetDate} (UTC); reads keep working.`, "Write less often, like saving scores once at the end of a match. get_database shows the month's use.");
       }
-      if (!isFull && databaseUse.storageSizeBytes >= limits.storageSizeBytes * NEARLY_USED_PCT / 100) {
-        add("database_nearly_full", `The game database is ${NEARLY_USED_PCT}% full: its free storage is ${limits.storageSizeBytes / 1024 / 1024} MB. When it's full, it can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database, or export_database to keep them elsewhere.");
+      if (!isFull && storageSizeBytes >= limits.storageSizeBytes * NEARLY_USED_PCT / 100) {
+        add("database_nearly_full", `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: its free storage is ${limits.storageSizeBytes / 1024 / 1024} MB. When it's full, the database can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.");
       }
     }
     const gameFailedErases = failedErases.filter((erase) => erase.game_id === game.id);

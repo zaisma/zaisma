@@ -13,6 +13,8 @@ const roomsDatabaseWorker = {
   compatibilityDate: "2026-10-01",
   compatibilityFlags: ["nodejs_compat"],
   durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true }, GAME_SECRETS: { className: "GameSecretsObject", useSQLite: true } },
+  // The site's own D1, by its ID: a game's database counts its kept rooms (kept_rooms) toward its storage.
+  d1Databases: { DB: "bffea7a7-f905-4eaf-84f2-97b1fb6bf932" },
 };
 
 // And PhotoDNA matching in the photodna Worker (its container can't run in tests): a stand-in that's always down.

@@ -1771,3 +1771,69 @@ describe("latest-only messages", () => {
     expect(room.takeTraffic().messageTypes.find((type) => type.direction === "outbound" && type.messageType === "position")).toMatchObject({ messageCount: 3, backedUpMessageCount: 1 });
   });
 });
+
+describe("Kept rooms", () => {
+  it("keeps a room through room.setKept, tells the transport through listingChanged once, and does nothing after the end", () => {
+    const room = new RoomCore(counter, transport().t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    const api = (room as any).api;
+    expect(api.isKept).toBe(false);
+    room.listingChanged = false;
+    room.dirty = false;
+    api.setKept(true);
+    expect(api.isKept).toBe(true);
+    expect(room.isKept).toBe(true);
+    expect(room.listingChanged).toBe(true);
+    expect(room.dirty).toBe(true);
+    // The same again changes nothing.
+    room.listingChanged = false;
+    room.dirty = false;
+    api.setKept(true);
+    expect(room.listingChanged).toBe(false);
+    expect(room.dirty).toBe(false);
+    // And back to an ordinary room.
+    api.setKept(false);
+    expect(api.isKept).toBe(false);
+    expect(room.listingChanged).toBe(true);
+
+    // An ended room stays as it was.
+    room.receive("a", msg("end"));
+    expect(room.ended).toBe(true);
+    room.listingChanged = false;
+    api.setKept(true);
+    expect(api.isKept).toBe(false);
+    expect(room.listingChanged).toBe(false);
+  });
+
+  it("saves isKept with the room, so a kept room wakes kept and an ordinary one doesn't", () => {
+    const room = new RoomCore(counter, transport().t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    expect(room.saved.isKept).toBeUndefined();
+    expect(new RoomCore(counter, transport().t, { state: room.state, room: room.saved }).isKept).toBe(false);
+    (room as any).api.setKept(true);
+    expect(room.saved.isKept).toBe(true);
+    const woken = new RoomCore(counter, transport().t, { state: room.state, room: room.saved });
+    expect(woken.isKept).toBe(true);
+    expect((woken as any).api.isKept).toBe(true);
+  });
+
+  it("reserves a kept room only when room.reserve asks for one", () => {
+    const reserved: RoomStart[] = [];
+    const lobby = new RoomCore(counter, { ...transport().t, reserve: (_code, start) => void reserved.push(start) });
+    lobby.join({ id: "a", name: "A", kind: "guest" });
+    (lobby as any).api.reserve({ playerIds: ["a"], isKept: true });
+    (lobby as any).api.reserve({ playerIds: ["a"] });
+    expect(reserved[0]!.isKept).toBe(true);
+    expect("isKept" in reserved[1]!).toBe(false);
+    expect(new RoomCore(counter, transport().t, { start: reserved[0]! }).isKept).toBe(true);
+    expect(new RoomCore(counter, transport().t, { start: reserved[1]! }).isKept).toBe(false);
+  });
+
+  it("gives a room saved as it emptied lostDurationSec 0, however long it slept", () => {
+    const nowMs = Date.parse("2026-10-21T12:00:00Z");
+    const weekAgoMs = nowMs - 7 * 24 * 3600 * 1000;
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one", true)).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 0, savedVersionId: "version_one" });
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one")).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 7 * 24 * 3600, savedVersionId: "version_one" });
+    expect(restoreInfoOf(weekAgoMs, nowMs, null, false).lostDurationSec).toBe(7 * 24 * 3600);
+  });
+});

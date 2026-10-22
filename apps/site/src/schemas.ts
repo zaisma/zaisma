@@ -139,7 +139,7 @@ export const GAME_ALERT = object({
     requests_paused: "the month's free game server requests are used",
     database_paused: "the month's free rows read from the game database are used, so it stops answering",
     database_writes_paused: "the month's free rows written to the game database are used, so it takes no writes; reads keep working",
-    database_full: "the game database reached its free storage, so it can change and delete rows but not grow",
+    database_full: "the game's storage (its database and kept rooms) reached its free 500 MB, so the database can change and delete rows but not grow, and no more rooms can be kept",
     rooms_nearly_paused: "80% of the month's free player-hours on Zaisma rooms and the relay are used",
     requests_nearly_paused: "80% of the month's free game server requests are used",
     database_nearly_paused: "80% of the month's free rows read from the game database are used",
@@ -708,6 +708,30 @@ export const WEBHOOK = object({
 export const SECRET = object({
   name: text("Its name, as the game server reads it: server.secrets.<name> and room.secrets.<name>."),
   set_at: isoTime("When it was last set."),
+});
+
+/** A game's kept rooms (room.setKept) and its storage, which they share with the game database. */
+export const KEPT_ROOMS = object({
+  kept_rooms: list(
+    object({
+      room_code: text("The room's code, as players see it, like K7Q2MX."),
+      name: nullable(text("The room's name, as its game server set it.")),
+      saved_size_bytes: countOf("How much its saved world takes, towards the game's storage: written as it empties, and hourly while players are in it."),
+      saved_at: nullable(isoTime("When its world was last saved; null before its first save.")),
+      last_played_at: nullable(isoTime("When players were last in it.")),
+      created_at: isoTime("When its game server first kept it."),
+    }),
+    "Most recently played first.",
+  ),
+  kept_rooms_size_bytes: countOf("All the kept rooms' saved worlds together."),
+  storage_size_bytes: countOf("The game's storage: its database and its kept rooms."),
+  free_storage_size_bytes: countOf("The storage every game gets free: 500 MB. Past it, the database can't grow and no more rooms can be kept, though kept rooms keep saving."),
+});
+
+/** A kept room deleted. */
+export const KEPT_ROOM_DELETED = object({
+  is_deleted: yes("Always true: the room's world is gone, and players who were in it were sent out."),
+  next_steps: NEXT,
 });
 
 /** Who did something to the account or a game. */

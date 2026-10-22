@@ -63,6 +63,13 @@ export interface Room {
    */
   readonly friendJoinsEnabled: boolean;
   setFriendJoinsEnabled(isEnabled: boolean): void;
+  /**
+   * A kept room doesn't end when everyone leaves: it sleeps with its state saved and wakes when someone
+   * joins, for worlds that last. Its saved state counts against the game's storage. room.end() ends it
+   * for good. setKept(false) makes it an ordinary room again, whose state goes a day after it empties.
+   */
+  readonly isKept: boolean;
+  setKept(isKept: boolean): void;
   /** The room's name, like "Ana's castle", or null. Up to 40 characters. */
   readonly name: string | null;
   /** Up to 4 labels players can filter by, like { Mode: "Classic", Map: "Docks" }. */
@@ -254,6 +261,8 @@ export interface ReserveOptions extends RoomInfo {
   isListed?: boolean;
   /** false: friends can't Join the new room from Zaisma ("Private room"). */
   friendJoinsEnabled?: boolean;
+  /** true: the new room is kept (room.setKept). */
+  isKept?: boolean;
 }
 
 /** How a reserved room starts, as the room that made it sends it on. */
@@ -264,6 +273,8 @@ export interface RoomStart extends Pick<RoomSettings, "isListed" | "name" | "lab
   keptOut?: Record<string, string>;
   /** The code of the room that made this one, where awayMode "lobby" sends players. Added by the transport. */
   lobbyRoomCode?: string;
+  /** Kept (room.setKept) from the start. */
+  isKept?: boolean;
 }
 
 /** A room's name and labels, as a game sets them. */
@@ -463,9 +474,13 @@ export interface RestoreInfo {
   savedVersionId: string | null;
 }
 
-/** A restored room's restoreInfo, from when its state was saved and the version that saved it. */
-export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null): RestoreInfo {
-  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
+/**
+ * A restored room's restoreInfo, from when its state was saved and the version that saved it. A state
+ * saved as the room emptied (isSavedEmpty) lost nothing, however long ago: a kept world waking after a week
+ * reads savedAt for the time that passed.
+ */
+export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null, isSavedEmpty = false): RestoreInfo {
+  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: isSavedEmpty ? 0 : Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
 }
 
 /**
@@ -821,6 +836,8 @@ export interface SavedRoom extends RoomSettings {
   friendships?: [string, string][];
   /** When Zaisma will end the match (room.endsAt), once it's set. */
   endsAt?: string;
+  /** Kept (room.setKept): it sleeps with its state when everyone leaves, instead of going a day later. */
+  isKept?: boolean;
 }
 
 /** A seat held for a player out of the match: who, why they're out, and until when. */
@@ -1084,8 +1101,10 @@ export class RoomCore<S = any> {
   friendJoinsEnabled = true;
   name: string | null = null;
   labels: Record<string, string> = {};
+  /** Kept (room.setKept): the transport keeps its state when it empties. */
+  isKept = false;
   /**
-   * Set when the player count, isListed or isOpen changed, so the room list can be brought up to date,
+   * Set when the player count, isListed, isOpen or isKept changed, so the room list can be brought up to date,
    * and when the room's blocks changed, since a sleeping room's saved room is written with its listing.
    */
   listingChanged = false;
@@ -1203,6 +1222,7 @@ export class RoomCore<S = any> {
       for (const [id, reason] of Object.entries(saved.kept ?? {})) if (this.players.has(id) && !this.kept.has(id) && reason !== "lost") this.kept.set(id, reason);
       this.lobbyRoomCode = saved.lobbyRoomCode ?? null;
       this.endsAt = saved.endsAt ?? null;
+      this.isKept = saved.isKept === true;
       for (const [first, second] of saved.accountBlocks ?? []) this.accountBlocks.add(pairKey(first, second));
       for (const [blocker, blocked] of saved.sessionBlocks ?? []) this.sessionBlocks.add(blockKey(blocker, blocked));
       for (const [first, second] of saved.friendships ?? []) this.friendships.add(pairKey(first, second));
@@ -1217,6 +1237,7 @@ export class RoomCore<S = any> {
       this.setupData = start.setupData ?? null;
       this.keepOut(start.keptOut);
       this.lobbyRoomCode = start.lobbyRoomCode ?? null;
+      this.isKept = start.isKept === true;
     }
     // A restarted room's players who aren't connected: in the match until leave() below makes them away, as a dropped connection does.
     const restoreInfo = startOptions.state !== undefined ? startOptions.restoreInfo : undefined;
@@ -1279,6 +1300,10 @@ export class RoomCore<S = any> {
         return core.friendJoinsEnabled;
       },
       setFriendJoinsEnabled: (isEnabled) => this.settle({ friendJoinsEnabled: Boolean(isEnabled) }),
+      get isKept() {
+        return core.isKept;
+      },
+      setKept: (isKept) => this.setKept(Boolean(isKept)),
       get name() {
         return core.name;
       },
@@ -1342,6 +1367,7 @@ export class RoomCore<S = any> {
       ...(this.reconnectUntilMs.size ? { reconnecting: Object.fromEntries([...this.reconnectUntilMs].map(([id, untilMs]) => [id, { player: this.players.get(id)!, untilMs }])) } : {}),
       ...(this.lobbyRoomCode ? { lobbyRoomCode: this.lobbyRoomCode } : {}),
       ...(this.endsAt ? { endsAt: this.endsAt } : {}),
+      ...(this.isKept ? { isKept: true } : {}),
       ...this.savedBlocks(),
     };
   }
@@ -1987,12 +2013,23 @@ export class RoomCore<S = any> {
     this.sendEach(this.players.keys(), JSON.stringify({ type: "room", room: next } satisfies ServerMessage));
   }
 
+  /**
+   * Keep the room, or stop keeping it (room.setKept). The transport may turn a keep back (a game past its
+   * free storage), so it hears through listingChanged; players are told nothing.
+   */
+  setKept(isKept: boolean): void {
+    if (this.isKept === isKept || this.ended) return;
+    this.isKept = isKept;
+    this.listingChanged = true;
+    this.dirty = true;
+  }
+
   /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
   private reserve(reserveOptions: ReserveOptions & { roomCode?: unknown }): string {
     if (!this.transport.reserve) throw new Error("Reserved rooms aren't available here");
     if (this.ended) throw new Error("This room has ended");
     // A game server in a sandbox picks the code itself (roomCode), since it tells the game at once.
-    const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "name", "labels", "roomCode"], "room.reserve");
+    const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "isKept", "name", "labels", "roomCode"], "room.reserve");
     const playerIds = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].filter((id) => this.players.has(id));
     if (!playerIds.length) throw new Error("room.reserve needs playerIds of players who are in this room");
     const checked = checkRoomData(given.setupData);
@@ -2005,6 +2042,7 @@ export class RoomCore<S = any> {
       setupData: checked.checkedData,
       isListed: given.isListed === true,
       ...(given.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}),
+      ...(given.isKept === true ? { isKept: true } : {}),
       name: nameAndLabels.name ?? null,
       labels: nameAndLabels.labels ?? {},
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
