@@ -582,9 +582,12 @@ component({
   --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
 .data-table tbody tr:first-child > * { border-top: 0; }
-/* The rows' heads are clearer glass too, but denser: the rest of each row slides under them sideways, so their words must win. */
+/* The rows' heads are clearer glass too, but denser: the rest of each row slides under them sideways, so their words must win. Until the
+   table is scrolled sideways nothing slides under them, so their glass stays clear, like the rest of the row. */
 .data-table tbody th { position: sticky; left: 0; z-index: 1; font: var(--type-label); color: var(--ink);
   --glass-tint: var(--table-row-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset -1px 0 0 var(--line); }
+.table-scroll:not(.more-left) .data-table tbody th, .table-scroll:not(.more-left) .data-table.has-row-heads thead th:first-child { box-shadow: none; }
+.table-scroll:not(.more-left) .data-table tbody th { --glass-tint: transparent; }
 .data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; --glass-tint: var(--table-row-head); box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line); }
 .data-table td:first-child { color: var(--ink); }
 .data-table code { font: var(--type-code); }
@@ -598,7 +601,7 @@ component({
 .data-table th[aria-sort="ascending"] .table-sort > .ico { transform: rotate(180deg); }
 .table-sort:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Even columns: laid out from the columns alone, never their rows, so a refresh never moves them; long words end in an ellipsis. */
-.data-table.even { table-layout: fixed; min-width: 0; }
+.data-table.even { table-layout: fixed; min-width: var(--table-min-width, 640px); }
 .data-table.even td, .data-table.even tbody th { overflow: hidden; text-overflow: ellipsis; }
 /* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
 .data-table td > .control-row { flex-wrap: nowrap; }

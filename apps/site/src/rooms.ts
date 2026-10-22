@@ -106,7 +106,7 @@ ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(clos
 export const shownKey = (region: string | null, picked: Record<string, string>) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}`;
 
 /**
- * The open rooms as a Table: a Room column when any room has a name, a column for each label they carry (Mode, Map),
+ * The open rooms as a Table: each room's code first, its row's head that stays as the table scrolls sideways, a Room column when any room has a name, a column for each label they carry (Mode, Map),
  * the country each runs in (a Country's flag), how full it is, then Join (or Full) with, for a named room, a flat Report beside it. The columns are
  * even, so they stay put as the list refreshes. Never who's in it. Its code shows, for telling a friend which room.
  */
@@ -116,8 +116,8 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
   const labelNames = [...new Set(shown.flatMap((each) => each.labels.map(([labelName]) => labelName)))].slice(0, MAXIMUM_LABEL_COLUMN_COUNT);
   const hasPlaces = rooms.some((room) => room.location);
   const columns: TableColumn[] = [
-    ...(hasNames ? [{ label: "Room" }] : []),
     { label: "Code", widthPx: 84 },
+    ...(hasNames ? [{ label: "Room", widthPx: 160 }] : []),
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
     { label: "Players", isNumeric: true, widthPx: 96, isSortable: true },
@@ -132,15 +132,15 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     // A named room can be reported: its Report is a flat icon beside Join, quieter than it.
     const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : "";
     return [
-      ...(hasNames ? [name ?? ""] : []),
       html`<code>${room.roomCode}</code>`,
+      ...(hasNames ? [name ?? ""] : []),
       ...labelNames.map((labelName) => labelOf.get(labelName) ?? ""),
       ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName, isNameHidden: true }) : ""] : []),
       filled,
       report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true });
+  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true, hasRowHeads: true });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */

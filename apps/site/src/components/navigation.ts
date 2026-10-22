@@ -456,8 +456,9 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   find();
   window.zaismaWatch.resize(function () { boxes = boxes.filter(function (box) { return box.isConnected; }); boxes.forEach(sync); });
-  // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
-  document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
+  // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it; one put in later (a refreshed
+  // list's table or region switch) too.
+  window.zaismaWatch.each("[data-fades-sideways]", function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
     if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
     // More that way is something shown running past that edge: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never
