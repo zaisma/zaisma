@@ -195,7 +195,11 @@ describe("publishing a game through the MCP", () => {
   });
 
   it("says how the game runs on players' devices, folding small device groups into other, and turns measuring off", async () => {
-    await tool("create_game", { title: "Hop" });
+    // An account of its own, so its calls don't count against the file's shared minute of calls.
+    await createAccount(env.DB, { id: "dev-performance", username: "Frame_Counter", ageBand: "18+" });
+    await letPublish(env.DB, "dev-performance");
+    const key = (await createApiKey(env.DB, "dev-performance", "claude")).token;
+    await tool("create_game", { title: "Hop" }, key);
     const game = (await gameBySlug(env.DB, "hop"))!;
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.exec("DELETE FROM performance_days;");
@@ -212,16 +216,16 @@ describe("publishing a game through the MCP", () => {
         ).bind(game.id, today, versionId, browserName, osName, deviceKind, graphicsFamily, playCount, JSON.stringify([0, playCount, 0, 0, 0, 0, 0])),
       ),
     ]);
-    const { performance } = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    const { performance } = await tool("get_stats", { slug: "hop", period_duration_days: 7 }, key);
     expect(performance.version_totals.map((row: { version_id: string; play_count: number }) => [row.version_id, row.play_count])).toEqual([["version_new", 45], ["version_old", 30]]);
     // A group of 19 plays shows only inside other.
     expect(performance.device_totals).toEqual([
       expect.objectContaining({ version_id: "version_new", browser_name: "chrome", os_name: "windows", device_kind: "computer", graphics_family: "nvidia", play_count: 25, median_frames_per_sec: 60, long_frames_per_min: 1.2, error_stop_count: 1, context_lost_count: 0, stopped_responding_count: 0, crashed_play_pct: 4, median_peak_memory_size_bytes: null, is_measured: true }),
       expect.objectContaining({ version_id: "version_new", browser_name: "other", os_name: "other", device_kind: "other", graphics_family: "other", play_count: 20 }),
     ]);
-    expect(await tool("update_game", { slug: "hop", performance_measuring_enabled: "off" })).toMatchObject({ code: "bad_performance_measuring_enabled", field: "performance_measuring_enabled" });
-    expect((await tool("update_game", { slug: "hop", performance_measuring_enabled: false })).game.performance_measuring_enabled).toBe(false);
-    expect((await tool("get_stats", { slug: "hop" })).performance).toBeNull();
+    expect(await tool("update_game", { slug: "hop", performance_measuring_enabled: "off" }, key)).toMatchObject({ code: "bad_performance_measuring_enabled", field: "performance_measuring_enabled" });
+    expect((await tool("update_game", { slug: "hop", performance_measuring_enabled: false }, key)).game.performance_measuring_enabled).toBe(false);
+    expect((await tool("get_stats", { slug: "hop" }, key)).performance).toBeNull();
     await env.DB.exec("DELETE FROM performance_days;");
   });
 
