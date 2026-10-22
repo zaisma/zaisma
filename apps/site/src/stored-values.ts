@@ -189,7 +189,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.devices", "games.controls",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
-  "performance_days.browser_name", "performance_days.os_name", "performance_days.graphics_family",
+  "performance_days.browser_name", "performance_days.os_name", "performance_days.graphics_family", "game_hosting_months.paused_reason",
   "game_items.item_category", "games.refund_policy", "games.own_payment_categories", "purchases.purchase_source",
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, places Cloudflare names, its own keys and records.
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",

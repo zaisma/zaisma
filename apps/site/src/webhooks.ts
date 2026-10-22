@@ -1,11 +1,7 @@
 import {
-  FREE_REQUEST_COUNT_PER_MONTH,
-  FREE_ROOM_PLAY_DURATION_HOURS,
-  FREE_USE_ALERT_KINDS,
+  HOSTING_ALERT_KINDS,
   MAXIMUM_ERROR_EVENT_COUNT_PER_DAY,
-  NEARLY_USED_PCT,
   TEST_EVENT_KIND,
-  countedPlayDurationSec,
   attemptDelivery,
   dueDeliveries,
   duePlayerErases,
@@ -26,7 +22,7 @@ import {
   type SendToGameServer,
   type Webhook,
   type WebhookDelivery,
-  type FreeUseAlertKind,
+  type HostingAlertKind,
   type Game,
   type WebhookEventKind,
 } from "@zaisma/core";
@@ -238,36 +234,7 @@ const DAY_MS = 24 * 3600 * 1000;
 const monthStartDate = (nowMs: number) => `${new Date(nowMs).toISOString().slice(0, 7)}-01`;
 
 /**
- * Every 5 minutes: the room and request lines games reached this month (NEARLY_USED_PCT and all
- * of their free player-hours and requests), noted once a month per kind in alert_notices for
- * tellAlertNotices. Only games with use today, so it reads a month of rows for active games alone.
- * The game database notes its own lines (apps/rooms/src/database.ts).
- */
-export async function noticeFreeUseAlerts(env: Env, nowMs = Date.now()): Promise<void> {
-  const monthStart = monthStartDate(nowMs);
-  const today = new Date(nowMs).toISOString().slice(0, 10);
-  const { results } = await env.DB.prepare(
-    "SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_cpu_duration_ms) AS game_server_cpu_duration_ms, SUM(game_server_request_count) AS request_count FROM room_usage WHERE date >= ? AND game_id IN (SELECT game_id FROM room_usage WHERE date = ?) GROUP BY game_id",
-  )
-    .bind(monthStart, today)
-    .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number; request_count: number }>();
-    const freeRoomSec = FREE_ROOM_PLAY_DURATION_HOURS * 3600;
-  const insert = env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, noticed_at_ms) VALUES (?, ?, ?, ?)");
-  const notices = results.flatMap((use) => {
-    const countedSec = countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes, use.game_server_cpu_duration_ms);
-    const reached: [FreeUseAlertKind, boolean][] = [
-      ["rooms_nearly_paused", countedSec >= freeRoomSec * NEARLY_USED_PCT / 100],
-      ["rooms_paused", countedSec >= freeRoomSec],
-      ["requests_nearly_paused", use.request_count >= FREE_REQUEST_COUNT_PER_MONTH * NEARLY_USED_PCT / 100],
-      ["requests_paused", use.request_count >= FREE_REQUEST_COUNT_PER_MONTH],
-    ];
-    return reached.filter(([, isReached]) => isReached).map(([kind]) => insert.bind(use.game_id, kind, monthStart, nowMs));
-  });
-  if (notices.length) await env.DB.batch(notices);
-}
-
-/**
- * Every 5 minutes: an alert_raised event for each free-use alert noted and not told yet, up to 100,
+ * Every 5 minutes: an alert_raised event for each hosting alert the hosting job noted (hosting-job.ts) and not told yet, up to 100,
  * with the alert as the game's alerts list it now. One the game no longer has (the month reset, or it
  * went straight past its heads-up to paused) is marked told and not sent. Marking first means two
  * crons never both send one.
@@ -275,7 +242,7 @@ export async function noticeFreeUseAlerts(env: Env, nowMs = Date.now()): Promise
 export async function tellAlertNotices(env: Env, nowMs = Date.now()): Promise<void> {
   const { results: notices } = await env.DB.prepare("SELECT game_id, alert_kind, month_start_date FROM alert_notices WHERE told_webhooks_at_ms IS NULL ORDER BY noticed_at_ms LIMIT 100").all<{
     game_id: string;
-    alert_kind: FreeUseAlertKind;
+    alert_kind: HostingAlertKind;
     month_start_date: string;
   }>();
   const claimed: typeof notices = [];
@@ -285,14 +252,14 @@ export async function tellAlertNotices(env: Env, nowMs = Date.now()): Promise<vo
       .run();
     if (marked.meta.changes) claimed.push(notice);
   }
-  const current = claimed.filter((notice) => notice.month_start_date === monthStartDate(nowMs) && (FREE_USE_ALERT_KINDS as readonly string[]).includes(notice.alert_kind));
+  const current = claimed.filter((notice) => notice.month_start_date === monthStartDate(nowMs) && (HOSTING_ALERT_KINDS as readonly string[]).includes(notice.alert_kind));
   if (!current.length) return;
   const games = (await Promise.all([...new Set(current.map((notice) => notice.game_id))].map((gameId) => gameById(env.DB, gameId)))).filter((game): game is Game => Boolean(game));
   const alertsByGameId = await gameAlerts(env, games);
   for (const notice of current) {
     const alert = alertsByGameId.get(notice.game_id)?.find((each) => each.kind === notice.alert_kind);
-    // A game server's webhook can't hear that requests paused: each of its events is a request.
-    if (alert) await tellWebhooks(env, "alert_raised", notice.game_id, { alert, isSkippingGameServer: alert.kind === "requests_paused" });
+    // A game server's webhook can't hear that hosting paused: each of its events is a request.
+    if (alert) await tellWebhooks(env, "alert_raised", notice.game_id, { alert, isSkippingGameServer: alert.kind === "hosting_paused" });
   }
 }
 

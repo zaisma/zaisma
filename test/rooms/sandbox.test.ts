@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createAccount, issueRoomKey } from "@zaisma/core";
+import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -119,7 +119,7 @@ export default {
 
 describe("sandboxed game servers", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("runs the game's own server: state, messages and the room API", async () => {
@@ -456,7 +456,7 @@ describe("sandboxed game servers", () => {
     a.ws.close(1000);
   });
 
-  it("runs the game server's onEnding once the game has used the month's free tier, with room.endsAt", async () => {
+  it("runs the game server's onEnding once the game's hosting pauses, with room.endsAt", async () => {
     await addSandboxGame(
       "closing",
       `export default {
@@ -467,11 +467,11 @@ describe("sandboxed game servers", () => {
     );
     const a = await join("closing", "ABCDEF");
     expect(await a.next()).toEqual({ type: "message", data: { endsAt: null } });
-    await e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES ('gclosing', ?, ?)").bind(new Date().toISOString().slice(0, 10), 1000 * 3600).run();
-    // Make the room's 5-minute check on the free tier due now.
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES ('gclosing', ?, 500, ?, 'free_used')").bind(monthStartDateOf(), Date.now()).run();
+    // Make the room's 5-minute check on the game's hosting due now.
     const stub = e.ROOMS.get(e.ROOMS.idFromName("closing:ABCDEF"));
     await runInDurableObject(stub, (room: Room) => {
-      (room as any).freeTierCheckedAtMs = 0;
+      (room as any).hostingCheckedAtMs = 0;
     });
     await runDurableObjectAlarm(stub);
     const ending = await a.next();

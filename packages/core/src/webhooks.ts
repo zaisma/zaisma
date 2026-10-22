@@ -34,20 +34,9 @@ export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */
 export const MAXIMUM_ERROR_EVENT_COUNT_PER_DAY = 20;
 
-/** The alert kinds alert_raised is sent for, and the only values alert_notices.alert_kind holds. */
-export const FREE_USE_ALERT_KINDS = [
-  "rooms_nearly_paused",
-  "rooms_paused",
-  "requests_nearly_paused",
-  "requests_paused",
-  "database_nearly_paused",
-  "database_paused",
-  "database_writes_nearly_paused",
-  "database_writes_paused",
-  "database_nearly_full",
-  "database_full",
-] as const;
-export type FreeUseAlertKind = (typeof FREE_USE_ALERT_KINDS)[number];
+/** The alert kinds alert_raised is sent for, and the kinds alert_notices.alert_kind holds now (older rows keep older kinds until they're cleared). */
+export const HOSTING_ALERT_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "database_nearly_full", "database_full"] as const;
+export type HostingAlertKind = (typeof HOSTING_ALERT_KINDS)[number];
 /** What test_webhook sends: no webhook takes it otherwise, so it's not in the list above. */
 export const TEST_EVENT_KIND = "test";
 

@@ -442,7 +442,7 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "watching_full", "no_room"];
+  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "hosting_paused", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "watching_full", "no_room"];
 
   /**
    * Whether a Zaisma room on another version (other_version) has the page reload the game at it: on the
@@ -1177,8 +1177,8 @@
     return fetch(config.rooms + "/v1/rooms/" + config.game + (query.length ? "?" + query.join("&") : "")).then(answered, requestFailed);
   }
 
-  // A room that can't take this player, so another may: month_limit is an empty room that can't open again this month.
-  var TRY_ANOTHER = ["full", "closed", "ended", "month_limit"];
+  // A room that can't take this player, so another may: hosting_paused is an empty room that can't open again while its game's hosting is paused.
+  var TRY_ANOTHER = ["full", "closed", "ended", "hosting_paused"];
 
   /** The linked room if it has space, else a listed room with space (nearby and busy first), else a new room. */
   function quickJoin(quickJoinOptions) {

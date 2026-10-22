@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FREE_REQUEST_COUNT_PER_MONTH, createAccount, issueRoomKey, usageMonth } from "@zaisma/core";
+import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { GameServerObject } from "../../apps/rooms/src/game-server.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
@@ -52,13 +52,18 @@ export default {
     if (request.type === "function") return () => 1;
     if (request.type === "huge") return "x".repeat(2 * 1024 * 1024);
     if (request.type === "crash") throw new Error("the shop is closed");
+    if (request.type === "heavy") {
+      let total = 0;
+      for (let i = 0; i < 40_000_000; i++) total = (total + i * 7) % 1_000_003;
+      return total;
+    }
     return server.database.query("SELECT player_id, best_score FROM scores ORDER BY best_score DESC LIMIT 10");
   },
 };`;
 
 describe("game server requests", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("answer from onRequest, with the game's database and who's asking, in a single-player game", async () => {
@@ -160,20 +165,39 @@ describe("game server requests", () => {
     expect((await response.json<any>()).error.code).toBe("bad_request");
   });
 
-  it("stop at the month's free requests", async () => {
+  it("stop while the game's hosting is paused, read at most once a minute", async () => {
     const { gameId } = await addGame("busy-shop", LEADERBOARD);
     expect((await send("busy-shop", { type: "leaderboard" })).httpStatus).toBe(200);
-    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
-      (object as unknown as { requestUse: { month: string; requestCount: number } }).requestUse = { month: usageMonth(), requestCount: FREE_REQUEST_COUNT_PER_MONTH };
-    });
-    const refused = await send("busy-shop", { type: "leaderboard" });
-    expect(refused).toMatchObject({ httpStatus: 429, body: { error: { code: "request_limit" } } });
-    expect(refused.body.error.message).toMatch(/1,000,000 requests this month\. They work again on \d{4}-\d{2}-01 \(UTC\)\./);
-    // A new month starts from nothing.
-    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
-      (object as unknown as { requestUse: { month: string; requestCount: number } }).requestUse = { month: "2026-01", requestCount: FREE_REQUEST_COUNT_PER_MONTH };
-    });
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(gameId, monthStartDateOf(), Date.now()).run();
+    // Still the answer read a moment ago.
     expect((await send("busy-shop", { type: "leaderboard" })).httpStatus).toBe(200);
+    const forget = () => runInDurableObject(objectOf(gameId), (object: GameServerObject) => void ((object as unknown as { hosting: null }).hosting = null));
+    await forget();
+    const refused = await send("busy-shop", { type: "leaderboard" });
+    expect(refused).toMatchObject({ httpStatus: 429, body: { error: { code: "hosting_paused", message: "This game's hosting is paused. It starts again when the month resets or its developer adds credit." } } });
+    // Credit came in: the site's job cleared the pause.
+    await e.DB.prepare("UPDATE game_hosting_months SET paused_at_ms = NULL, paused_reason = NULL WHERE game_id = ?").bind(gameId).run();
+    await forget();
+    expect((await send("busy-shop", { type: "leaderboard" })).httpStatus).toBe(200);
+  });
+
+  it("count their CPU past the first 10 ms on the hosting meter", async () => {
+    const { gameId } = await addGame("heavy-shop", LEADERBOARD);
+    expect((await send("heavy-shop", { type: "heavy" })).httpStatus).toBe(200);
+    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
+      const counting = object as unknown as { countCpu(cpuDurationMs: number): void; unrecorded: { outsideRoomCpuDurationMs: number } };
+      const before = counting.unrecorded.outsideRoomCpuDurationMs;
+      expect(before).toBeGreaterThan(0);
+      // 10 ms of each call is included: 8 adds nothing, 210 adds 200.
+      counting.countCpu(8);
+      expect(counting.unrecorded.outsideRoomCpuDurationMs).toBe(before);
+      counting.countCpu(210);
+      expect(counting.unrecorded.outsideRoomCpuDurationMs).toBe(before + 200);
+    });
+    await runDurableObjectAlarm(objectOf(gameId));
+    const usage = await e.DB.prepare("SELECT game_server_request_count, outside_room_cpu_duration_ms FROM room_usage WHERE game_id = ?").bind(gameId).first<{ game_server_request_count: number; outside_room_cpu_duration_ms: number }>();
+    expect(usage!.game_server_request_count).toBe(1);
+    expect(usage!.outside_room_cpu_duration_ms).toBeGreaterThan(200);
   });
 
   it("from a game server that doesn't start say so to its developer", async () => {

@@ -1,8 +1,8 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
-import { MONTH_LIMIT_END_MESSAGE, areFriends, canChat, hasBlockBetween, verifyPass } from "@zaisma/game-server";
-import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
+import { HOSTING_PAUSED_END_MESSAGE, areFriends, canChat, hasBlockBetween, verifyPass } from "@zaisma/game-server";
+import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -105,7 +105,7 @@ async function join(game: string, code: string, opts: { listed?: false; from?: {
 
 describe("rooms", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
   });
 
   it("issues guest passes only to the game's own origin", async () => {
@@ -809,7 +809,7 @@ describe("rooms", () => {
     // Out: the welcome, the player list and the probes, all Zaisma's own.
     expect(row.outbound_message_count).toBeGreaterThanOrEqual(2);
     expect(row.outbound_size_bytes).toBeGreaterThan(100);
-    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "inbound_size_bytes", "message_count", "outbound_message_count", "outbound_size_bytes", "relay_credential_count", "relayed_size_bytes", "room_count", "room_play_duration_sec"]);
+    expect(Object.keys(row).sort()).toEqual(["database_read_row_count", "database_size_bytes", "database_written_row_count", "date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "inbound_size_bytes", "message_count", "outbound_message_count", "outbound_size_bytes", "outside_room_cpu_duration_ms", "relay_credential_count", "relayed_size_bytes", "room_count", "room_play_duration_sec"]);
     const { results: types } = await e.DB.prepare("SELECT message_type, direction, message_count FROM room_message_types WHERE game_id = ? ORDER BY direction, message_type").bind(id).all();
     expect(types).toEqual([
       { message_type: "(none)", direction: "inbound", message_count: 1 },
@@ -831,24 +831,26 @@ describe("rooms", () => {
     expect(types.map((type) => type.message_type)).toEqual(Array.from({ length: 10 }, (_, i) => `kind${13 - i}`));
   });
 
-  it("past the month's free player-hours, opens no new rooms, and a running match takes back only its own players and gets an hour to finish", async () => {
+  it("while its game's hosting is paused, opens no new rooms, and a running match takes back only its own players and ends an hour after the pause", async () => {
     const id = await addGame("arena");
     const a = await join("arena", "CAPPDA");
     const b = await join("arena", "CAPPDA");
     const now = new Date();
-    const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)).toISOString().slice(0, 10);
-    const used = (date: string, roomPlayDurationSec: number) => e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?)").bind(id, date, roomPlayDurationSec).run();
-    // Last month's time doesn't count.
-    await used(lastMonth, 4_000_000);
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+    // The site's hosting job paused it 20 minutes ago, so the match has 40 minutes left, like the game's other rooms.
+    const pausedAtMs = Date.now() - 20 * 60_000;
+    const paused = (monthStartDate: string) => e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(id, monthStartDate, pausedAtMs).run();
+    // Last month's pause is over.
+    await paused(lastMonthStart);
     expect((await post("/v1/rooms", "arena")).status).toBe(200);
-    await used(`${now.toISOString().slice(0, 7)}-01`, 1000 * 3600);
+    await paused(monthStartDateOf());
 
     const made = await post("/v1/rooms", "arena");
     expect(made.status).toBe(403);
-    expect(await made.json()).toMatchObject({ error: { code: "month_limit" } });
+    expect(await made.json()).toMatchObject({ error: { code: "hosting_paused" } });
     const fresh = await connect("arena", "NEWRMA");
     fresh.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
-    expect(await fresh.next()).toMatchObject({ type: "error", code: "month_limit" });
+    expect(await fresh.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const reserve = await e.ROOMS.get(e.ROOMS.idFromName("arena:RSRVDA")).fetch("https://room/reserve", {
       method: "POST",
       headers: { "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-room-code": "RSRVDA" },
@@ -856,12 +858,12 @@ describe("rooms", () => {
     });
     expect(reserve.status).toBe(403);
 
-    // The running match takes no new players, and the one who knocked starts its hour to finish.
+    // The running match takes no new players, and the one who knocked tells it when it ends: an hour after the pause.
     const stranger = await connect("arena", "CAPPDA");
     stranger.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
-    expect(await stranger.next()).toMatchObject({ type: "error", code: "month_limit" });
+    expect(await stranger.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const ending = await until(a, (m) => m.type === "ending");
-    expect(Math.abs(Date.parse(ending.endsAt) - (Date.now() + 3600_000))).toBeLessThan(60_000);
+    expect(Date.parse(ending.endsAt)).toBe(pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000);
     expect(await until(b, (m) => m.type === "ending")).toEqual(ending);
 
     // Its own players come back, and hear when it ends; once it empties, still only they do.
@@ -875,27 +877,28 @@ describe("rooms", () => {
     await Promise.all([a.closed, bBack.closed]);
     const another = await connect("arena", "CAPPDA");
     another.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
-    expect(await another.next()).toMatchObject({ type: "error", code: "month_limit" });
+    expect(await another.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const back = await connect("arena", "CAPPDA");
     back.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
     expect(await back.next()).toMatchObject({ type: "welcome", me: { id: a.player.id }, endsAt: ending.endsAt });
     back.ws.close(1000);
   });
 
-  it("finds on its next check that the game used the month's free tier, and ends the match an hour later", async () => {
+  it("finds on its next check that the game's hosting paused, and ends the match an hour after the pause", async () => {
     const id = await addGame("finisher");
     const a = await join("finisher", "FNSHRA");
-    await e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?)").bind(id, new Date().toISOString().slice(0, 10), 1000 * 3600).run();
+    const pausedAtMs = Date.now();
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(id, monthStartDateOf(), pausedAtMs).run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("finisher:FNSHRA"));
-    // Checked on a's join, before the game used it; the next check, every 5 minutes, is due now.
+    // Checked on a's join, before the pause; the next check, every 5 minutes, is due now.
     await runInDurableObject(stub, async (room: Room, state) => {
-      expect(await state.storage.get<number>("freeTierCheckedAtMs")).toBeGreaterThan(Date.now() - 60_000);
-      (room as any).freeTierCheckedAtMs = 0;
-      await state.storage.put("freeTierCheckedAtMs", 0);
+      expect(await state.storage.get<number>("hostingCheckedAtMs")).toBeGreaterThan(Date.now() - 60_000);
+      (room as any).hostingCheckedAtMs = 0;
+      await state.storage.put("hostingCheckedAtMs", 0);
     });
     await runDurableObjectAlarm(stub);
     const ending = await until(a, (m) => m.type === "ending");
-    expect(Math.abs(Date.parse(ending.endsAt) - (Date.now() + 3600_000))).toBeLessThan(60_000);
+    expect(Date.parse(ending.endsAt)).toBe(pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000);
     // Kept for when the room wakes from hibernation, so the hour doesn't start again.
     await runInDurableObject(stub, async (_room: Room, state) => {
       expect((await state.storage.get<{ endsAt?: string }>("room"))?.endsAt).toBe(ending.endsAt);
@@ -906,7 +909,7 @@ describe("rooms", () => {
       (room as any).core.endsAt = new Date(Date.now() - 1000).toISOString();
     });
     await runDurableObjectAlarm(stub);
-    expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: MONTH_LIMIT_END_MESSAGE });
+    expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: HOSTING_PAUSED_END_MESSAGE });
     await a.closed;
     // The room is over for good, even for its own players.
     const late = await connect("finisher", "FNSHRA");
@@ -1429,7 +1432,7 @@ describe("room browsing", () => {
 
 describe("a real-time room's saved state", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM live_rooms; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM live_rooms; DELETE FROM games;");
   });
 
   it("is written in chunks with one put and read back whole, and not at all past 32 MB, which the game's logs say", async () => {

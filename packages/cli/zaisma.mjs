@@ -1008,11 +1008,10 @@ async function database(command, values, flags) {
     if (!answer.tables.length) console.log("No tables yet. Make one from your game server, or with: zaisma database query <slug> \"CREATE TABLE …\"");
     for (const table of answer.tables) console.log(`${table.sql};`);
     for (const index of answer.indexes) console.log(`${index.sql};`);
-    const percent = (used, free) => `${Math.floor((used / free) * 100)}%`;
+    const hosting = answer.hosting_use_this_month;
     console.log(
-      `\nThis month: ${use.read_row_count.toLocaleString("en-US")} rows read (${percent(use.read_row_count, use.free_read_row_count)} of the free ${use.free_read_row_count.toLocaleString("en-US")}), ` +
-        `${use.written_row_count.toLocaleString("en-US")} written (${percent(use.written_row_count, use.free_written_row_count)} of ${use.free_written_row_count.toLocaleString("en-US")}), ` +
-        `${(use.storage_size_bytes / 1024 / 1024).toFixed(1)} MB stored (${percent(use.storage_size_bytes, use.free_storage_size_bytes)} of ${use.free_storage_size_bytes / 1024 / 1024} MB). Resets ${use.reset_date}.`,
+      `\nThis month: ${use.read_row_count.toLocaleString("en-US")} rows read, ${use.written_row_count.toLocaleString("en-US")} written, ${sizeText(use.storage_size_bytes)} stored (a game keeps up to ${sizeText(use.maximum_storage_size_bytes)}). ` +
+        `Free hosting this month: ${hosting.free_used_pct}% used${hosting.is_paused ? ", paused" : ""}. Resets ${hosting.resets_on_date}.`,
     );
     if (answer.restores.length) {
       console.log("\nRestores (newest first; undo with zaisma database undo-restore <slug> <id>):");
@@ -1550,7 +1549,7 @@ async function keptRooms(command, values) {
     if (isJson) return printJson(answer);
     if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
     for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
-    console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of ${sizeText(answer.free_storage_size_bytes)} free (database and kept rooms).`);
+    console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of the ${sizeText(answer.maximum_storage_size_bytes)} a game can keep (database and kept rooms).`);
     return;
   }
   const answer = await api("DELETE", `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`);
@@ -1688,7 +1687,7 @@ function readKeys(given) {
   return keys;
 }
 
-const sizeText = (sizeBytes) => (sizeBytes < 1024 ? `${sizeBytes} B` : sizeBytes < 1048576 ? `${(sizeBytes / 1024).toFixed(1)} KB` : `${(sizeBytes / 1048576).toFixed(1)} MB`);
+const sizeText = (sizeBytes) => (sizeBytes < 1024 ? `${sizeBytes} B` : sizeBytes < 1048576 ? `${(sizeBytes / 1024).toFixed(1)} KB` : sizeBytes < 1024 ** 3 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${(sizeBytes / 1024 ** 3).toFixed(1)} GB`);
 
 /** A statement's rows as a table, then what it read and wrote. Blobs show their size. */
 function printRows({ rows, read_row_count: readRowCount, written_row_count: writtenRowCount }) {

@@ -1,0 +1,201 @@
+import { env, SELF } from "cloudflare:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { addCreditEntry, createAccount, createApiKey, creditOf, personOwner } from "@zaisma/core";
+import { TOOLS } from "../../apps/site/src/mcp.ts";
+import { callerFor } from "../../apps/site/src/developer.ts";
+import { creditRoute } from "../../apps/site/src/credit-api.ts";
+import { errorProblems, schemaProblems } from "../schema-check.ts";
+import { letPublish } from "../helpers.ts";
+
+// Hosting credit through the developer API and MCP (apps/site/src/credit-api.ts) and Stripe's events
+// (apps/site/src/stripe-events.ts), against a stand-in for Stripe's API: Zaisma's own Stripe account is never reached.
+
+const SITE = "https://zaisma.test";
+const EVENTS_SECRET = "whsec_test_zaisma";
+const DAY_MS = 86_400_000;
+let token = "";
+let ownerId = "";
+let nextId = 1;
+const realFetch = globalThis.fetch;
+/** What reached the stand-in for Stripe: each call's path and form. */
+let stripeCalls: { path: string; form: URLSearchParams; idempotencyKey: string | null }[] = [];
+
+beforeAll(() => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname !== "api.stripe.com") return realFetch(input, init);
+    const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+    const headers = new Headers(init?.headers);
+    stripeCalls.push({ path: url.pathname, form, idempotencyKey: headers.get("idempotency-key") });
+    if (url.pathname === "/v1/customers") return Response.json({ id: "cus_test_1" });
+    if (url.pathname === "/v1/checkout/sessions") return Response.json({ id: "cs_test_1", url: "https://checkout.stripe.com/c/pay/cs_test_1", expires_at: 1_900_000_000 });
+    if (url.pathname === "/v1/refunds") return Response.json({ id: `re_test_${stripeCalls.length}` });
+    if (url.pathname.startsWith("/v1/payment_intents/")) return Response.json({ id: url.pathname.split("/").at(-1), payment_method: "pm_test_card" });
+    return Response.json({ error: { message: "No such call in the stand-in." } }, { status: 400 });
+  }) as typeof fetch;
+});
+afterAll(() => {
+  globalThis.fetch = realFetch;
+});
+
+async function api(path: string, init: { method?: string; body?: unknown; key?: string } = {}) {
+  const res = await SELF.fetch(`${SITE}/api/dev${path}`, {
+    method: init.method ?? (init.body ? "POST" : "GET"),
+    headers: { authorization: `Bearer ${init.key ?? token}`, ...(init.body ? { "content-type": "application/json" } : {}) },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+  const answer = (await res.json()) as any;
+  if (!res.ok) expect(errorProblems(answer, res.status)).toEqual([]);
+  return { status: res.status, answer };
+}
+
+async function tool(name: string, toolArguments: Record<string, unknown>): Promise<any> {
+  const res = await SELF.fetch(`${SITE}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: toolArguments } }),
+  });
+  const { result } = (await res.json()) as any;
+  if (result.isError) {
+    expect(errorProblems(result.structuredContent)).toEqual([]);
+    return result.structuredContent.error;
+  }
+  expect(schemaProblems(TOOLS.find((candidate) => candidate.name === name)!.outputSchema!, result.structuredContent, name)).toEqual([]);
+  return result.structuredContent;
+}
+
+/** An event as Stripe signs it: Stripe-Signature t=<seconds>,v1=<HMAC-SHA256 of "<t>.<body>">. */
+async function stripeEvent(event: unknown, secret = EVENTS_SECRET, signedAtMs = Date.now()): Promise<Response> {
+  const body = JSON.stringify(event);
+  const signedAtSec = Math.floor(signedAtMs / 1000);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${signedAtSec}.${body}`)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return SELF.fetch(`${SITE}/stripe/events`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": `t=${signedAtSec},v1=${signature}` }, body });
+}
+
+const checkoutCompleted = (paymentIntentId: string, amountCents: number) => ({
+  id: `evt_${paymentIntentId}`,
+  type: "checkout.session.completed",
+  data: { object: { id: `cs_${paymentIntentId}`, mode: "payment", payment_status: "paid", payment_intent: paymentIntentId, amount_subtotal: amountCents, amount_total: amountCents, metadata: { owner_id: ownerId } } },
+});
+
+beforeEach(async () => {
+  await env.DB.exec("DELETE FROM credit_entries; DELETE FROM game_hosting_months; DELETE FROM security_events; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  stripeCalls = [];
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await letPublish(env.DB, "dev-1");
+  token = (await createApiKey(env.DB, "dev-1", "claude")).token;
+  ownerId = (await personOwner(env.DB, "dev-1")).id;
+});
+
+describe("a top-up", () => {
+  it("answers Stripe's page for whole cents from $10 to $1,000, with Managed Payments on and the card kept", async () => {
+    const started = await tool("top_up_credit", { amount_cents: 2000 });
+    expect(started).toMatchObject({ checkout_url: "https://checkout.stripe.com/c/pay/cs_test_1", next_steps: [expect.objectContaining({ tool: "get_credit" })] });
+    const session = stripeCalls.find((call) => call.path === "/v1/checkout/sessions")!.form;
+    expect(Object.fromEntries(session)).toMatchObject({
+      mode: "payment",
+      customer: "cus_test_1",
+      "managed_payments[enabled]": "true",
+      "line_items[0][price_data][unit_amount]": "2000",
+      "line_items[0][price_data][currency]": "usd",
+      "line_items[0][price_data][product_data][name]": "Zaisma hosting credit",
+      "payment_intent_data[setup_future_usage]": "off_session",
+      "metadata[owner_id]": ownerId,
+      success_url: `${SITE}/developer/settings#credit`,
+    });
+    // One Stripe customer per owner, kept.
+    expect((await creditOf(env.DB, ownerId)).stripeCustomerId).toBe("cus_test_1");
+
+    for (const amountCents of [20, 999, 100_001, 10.5]) {
+      const refused = await api("/credit/top-ups", { body: { amount_cents: amountCents } });
+      expect(refused.answer.error).toMatchObject({ code: "bad_top_up_amount", field: "amount_cents" });
+    }
+  });
+
+  it("adds credit once when Stripe says it's paid, even when the event comes twice, and keeps the card", async () => {
+    expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
+    expect((await stripeEvent(checkoutCompleted("pi_test_1", 2000))).status).toBe(200);
+    const { credit } = await tool("get_credit", {});
+    expect(credit.balance_cents).toBe(2000);
+    expect(credit.top_ups).toEqual([{ id: expect.stringMatching(/^top_up_/), amount_cents: 2000, refundable_cents: 2000, refund_ends_at: expect.any(String), created_at: expect.any(String) }]);
+    expect(Date.parse(credit.top_ups[0].refund_ends_at) - Date.parse(credit.top_ups[0].created_at)).toBe(180 * DAY_MS);
+    expect((await creditOf(env.DB, ownerId)).stripePaymentMethodId).toBe("pm_test_card");
+    expect((await api("/access")).answer.credit_balance_cents).toBe(2000);
+  });
+
+  it("refuses an event with a bad signature, an old one, or none", async () => {
+    expect((await stripeEvent(checkoutCompleted("pi_test_2", 2000), "whsec_not_ours")).status).toBe(400);
+    expect((await stripeEvent(checkoutCompleted("pi_test_2", 2000), EVENTS_SECRET, Date.now() - 10 * 60_000)).status).toBe(400);
+    expect((await SELF.fetch(`${SITE}/stripe/events`, { method: "POST", body: JSON.stringify(checkoutCompleted("pi_test_2", 2000)) })).status).toBe(400);
+    expect((await creditOf(env.DB, ownerId)).balanceCents).toBe(0);
+  });
+});
+
+describe("a refund", () => {
+  it("gives back the unspent part of a top-up, newest first, and nothing past 180 days", async () => {
+    const older = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 2000, stripeObjectId: "pi_old", refundableUntilMs: Date.now() - DAY_MS, createdAtMs: Date.now() - 181 * DAY_MS }))!;
+    const newer = (await addCreditEntry(env.DB, { ownerId, entryKind: "top_up", amountCents: 1000, stripeObjectId: "pi_new", refundableUntilMs: Date.now() + 170 * DAY_MS }))!;
+    // $25 spent of $30: credit is spent oldest first, so $5 of the newer top-up is left.
+    await addCreditEntry(env.DB, { ownerId, entryKind: "hosting_charge", amountCents: -2500 });
+
+    expect(await tool("refund_top_up", { top_up_id: older })).toMatchObject({ code: "top_up_not_refundable" });
+    const refunded = await tool("refund_top_up", { top_up_id: newer });
+    expect(refunded.refunded_cents).toBe(500);
+    expect(Object.fromEntries(stripeCalls.find((call) => call.path === "/v1/refunds")!.form)).toMatchObject({ payment_intent: "pi_new", amount: "500" });
+    expect((await creditOf(env.DB, ownerId)).balanceCents).toBe(0);
+    expect(await tool("refund_top_up", { top_up_id: newer })).toMatchObject({ code: "top_up_not_refundable" });
+    // Stripe's charge.refunded for it adds nothing more.
+    await stripeEvent({ id: "evt_refund", type: "charge.refunded", data: { object: { id: "ch_new", payment_intent: "pi_new", amount_refunded: 500 } } });
+    const { credit } = await tool("get_credit", {});
+    expect(credit.entries.filter((entry: { entry_kind: string }) => entry.entry_kind === "refund").map((entry: { amount_cents: number }) => entry.amount_cents)).toEqual([-500]);
+    expect(await tool("refund_top_up", { top_up_id: "top_up_nobodyhasthis1" })).toMatchObject({ code: "no_top_up" });
+  });
+
+  it("counts a refund made on Stripe's dashboard", async () => {
+    await stripeEvent(checkoutCompleted("pi_test_3", 3000));
+    await stripeEvent({ id: "evt_refund_3", type: "charge.refunded", data: { object: { id: "ch_3", payment_intent: "pi_test_3", amount_refunded: 1000 } } });
+    await stripeEvent({ id: "evt_refund_3", type: "charge.refunded", data: { object: { id: "ch_3", payment_intent: "pi_test_3", amount_refunded: 1000 } } });
+    expect((await creditOf(env.DB, ownerId)).balanceCents).toBe(2000);
+  });
+});
+
+describe("automatic top-up and budgets", () => {
+  it("turn off or down with a key, and on or up only with the developer's passkey on zaisma.com", async () => {
+    await stripeEvent(checkoutCompleted("pi_test_4", 2000));
+    const on = { is_enabled: true, top_up_below_cents: 500, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 };
+    const refused = await api("/credit/automatic-top-up", { method: "PATCH", body: on });
+    expect(refused.status).toBe(403);
+    expect(refused.answer.error).toMatchObject({ code: "confirmation_needed", confirm_url: `${SITE}/developer/settings#credit` });
+    expect((await creditOf(env.DB, ownerId)).automaticTopUp.isEnabled).toBe(false);
+
+    // Our own page, with a passkey tapped in the last 10 minutes (withSpendingConfirmation).
+    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
+    const [changed] = await creditRoute(env, "/credit/automatic-top-up", "PATCH", on, { ...caller, isSpendingConfirmed: true });
+    expect((changed as any).credit.automatic_top_up).toMatchObject({ is_enabled: true, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 6000 });
+
+    // Down and off work with a key.
+    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { top_up_amount_cents: 1000 } })).status).toBe(200);
+    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { top_up_amount_cents: 1500 } })).answer.error.code).toBe("confirmation_needed");
+    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { is_enabled: false } })).answer.credit.automatic_top_up.is_enabled).toBe(false);
+    expect((await api("/credit/automatic-top-up", { method: "PATCH", body: { is_enabled: true, top_up_amount_cents: 2000, monthly_top_up_limit_cents: 1000 } })).answer.error.code).toBe("bad_automatic_top_up");
+  });
+
+  it("give a game a budget only with the passkey, and take it off or down with a key", async () => {
+    await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } });
+    expect(await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 50 })).toMatchObject({ code: "bad_monthly_budget_cents", field: "monthly_budget_cents" });
+    expect(await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 5000 })).toMatchObject({ code: "confirmation_needed" });
+    await env.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE slug = 'sky-hopper'").run();
+    expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 2000 })).game.monthly_budget_cents).toBe(2000);
+    expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: 3000 })).code).toBe("confirmation_needed");
+    expect((await tool("update_game", { slug: "sky-hopper", monthly_budget_cents: null })).game.monthly_budget_cents).toBeNull();
+  });
+
+  it("are out of reach of a key without credit_access", async () => {
+    const readKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null })).token;
+    expect((await api("/credit", { key: readKey })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/credit/top-ups", { key: readKey, body: { amount_cents: 2000 } })).answer.error.code).toBe("key_not_allowed");
+    expect((await api("/access", { key: readKey })).answer.credit_balance_cents).toBeNull();
+    expect(stripeCalls).toEqual([]);
+  });
+});

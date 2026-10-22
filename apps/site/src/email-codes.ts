@@ -226,3 +226,71 @@ ${paragraphs
 export function waitEndsText(ms: number): string {
   return `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC`;
 }
+
+/** The hosting emails a developer gets (hosting-job.ts, stripe-events.ts): a game's meter, and their credit. */
+export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up", "automatic_top_up_made", "automatic_top_up_failed"] as const;
+export type HostingEmailKind = (typeof HOSTING_EMAIL_KINDS)[number];
+
+/** What a hosting email says: the game and month for a game's, amounts in cents for credit's. */
+export interface HostingEmailDetails {
+  gameTitle?: string;
+  /** "October" */
+  monthName?: string;
+  /** "Nov 1" */
+  resetsOnText?: string;
+  pausedReason?: "free_used" | "budget_used" | "credit_used";
+  spentCents?: number;
+  budgetCents?: number;
+  balanceCents?: number;
+  topUpCents?: number;
+  /** What's left of the month's automatic top-up limit. */
+  leftThisMonthCents?: number;
+  monthlyLimitCents?: number;
+  /** Stripe's own words for a declined card. */
+  failureText?: string;
+}
+
+/** Cents as dollars, like $3.40 or $20. */
+export const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+
+/** A hosting email: a game's meter reaching a line, or the developer's credit. Plain words, the next step last. */
+export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingEmailDetails): { subject: string; text: string; html: string } {
+  const site = env.SITE_ORIGIN.replace(/^https?:\/\//, "");
+  const settings = `${site}/developer/settings#credit`;
+  const game = details.gameTitle ?? "Your game";
+  const [subject, first, second]: [string, string, string] = (() => {
+    switch (kind) {
+      case "hosting_nearly_paused":
+        return [`${game} has used most of its free hosting`, `${game} has used 80% of its free hosting this month. When it's all used, no new matches start until ${details.resetsOnText}, and running ones get an hour to finish.`, `To keep it going, add credit and give ${game} a monthly budget at ${settings}.`];
+      case "hosting_budget_nearly_used":
+        return [`${game} has used most of its budget`, `${game} has used ${dollars(details.spentCents ?? 0)} of its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}. When it's all used, the game pauses like at the end of its free hosting.`, `To keep it going, raise its budget at ${settings}.`];
+      case "hosting_paused": {
+        const why = details.pausedReason === "budget_used" ? `it used its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}` : details.pausedReason === "credit_used" ? "your credit ran out" : "it used its free hosting this month";
+        const next =
+          details.pausedReason === "budget_used" ? `Raise its budget at ${settings} to start it again now.` : details.pausedReason === "credit_used" ? `Add credit at ${settings} to start it again now.` : `It starts again on ${details.resetsOnText}, or now if you add credit and give it a budget at ${settings}.`;
+        return [`${game}'s hosting is paused`, `${game}'s hosting is paused: ${why}. No new matches start, and running ones get an hour to finish.`, next];
+      }
+      case "credit_low":
+        return ["Your Zaisma credit is low", `You have ${dollars(details.balanceCents ?? 0)} of hosting credit left. When it's used, your games with a budget pause until you add more.`, `Add credit, or turn on automatic top-up, at ${settings}.`];
+      case "credit_used_up":
+        return ["Your Zaisma credit is used up", "Your hosting credit is used up, so your games with a budget have paused. Running matches get an hour to finish.", `Add credit at ${settings} to start them again.`];
+      case "automatic_top_up_made":
+        return [`Zaisma added ${dollars(details.topUpCents ?? 0)} of credit`, `Zaisma added ${dollars(details.topUpCents ?? 0)} of credit. ${dollars(details.leftThisMonthCents ?? 0)} of your ${dollars(details.monthlyLimitCents ?? 0)} for ${details.monthName} is left.`, `Change or turn off automatic top-up at ${settings}.`];
+      case "automatic_top_up_failed":
+        return ["Your automatic top-up didn't go through", `Your card didn't take the automatic top-up${details.failureText ? `: ${details.failureText}` : "."} Automatic top-up is off now.`, `Add credit, or turn automatic top-up on again with another card, at ${settings}.`];
+    }
+  })();
+  return {
+    subject,
+    text: `${first}\n\n${second}\n\nZaisma, ${site}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
