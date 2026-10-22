@@ -209,6 +209,36 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   ]
  },
  {
+  "name": "free-daily-chest",
+  "title": "Dungeon Delve",
+  "description": "Explore a dungeon, open a free chest each day, and buy outfits.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "A free daily chest with a random reward costs nothing, so it isn't a paid random reward. The shop sells each outfit by name and shows the real price beside the gem price.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Dungeon Delve</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#1d1424;color:#eee;text-align:center}button{font:inherit;padding:8px 14px;margin:4px}li{list-style:none;margin:6px}</style>\n</head>\n<body>\n<h1>Dungeon Delve</h1>\n<button id=\"chest\">Open today's free chest</button>\n<p id=\"loot\"></p>\n<h2>Outfits</h2>\n<ul id=\"shop\"></ul>\n<script src=\"https://zaisma.com/sdk/zaisma.js\"></script>\n<script>\nconst LOOT = [\"10 gold\", \"a torch\", \"a health potion\", \"a rusty key\"];\ndocument.getElementById(\"chest\").onclick = () => {\n  const today = new Date().toDateString();\n  if (localStorage.getItem(\"chest_day\") === today) return (document.getElementById(\"loot\").textContent = \"Come back tomorrow for another free chest.\");\n  localStorage.setItem(\"chest_day\", today);\n  document.getElementById(\"loot\").textContent = `You found ${LOOT[Math.floor(Math.random() * LOOT.length)]}.`;\n};\n// Each outfit is sold by name, with its real price in the player's currency beside the gem price.\nZaisma.items.list().then((items) => {\n  for (const item of items) {\n    const row = document.createElement(\"li\");\n    const buy = document.createElement(\"button\");\n    buy.textContent = `${item.title}: ${item.priceMinorUnits} gems (${item.priceText})`;\n    buy.disabled = item.isOwned;\n    buy.onclick = () => Zaisma.items.buy(item.itemName);\n    row.append(buy);\n    document.getElementById(\"shop\").append(row);\n  }\n});\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
+  "name": "gems-only-shop",
+  "title": "Gem Garden",
+  "description": "Grow a garden and decorate it from the gem shop.",
+  "is_honest": false,
+  "content_rule": "purchases",
+  "protection": null,
+  "why": "Gems are bought with real money, and the shop prices its decorations only in gems, so players never see what they cost. Showing the real price beside each gem price, like \"500 gems ($4.99)\", is fine.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Gem Garden</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#18301c;color:#eef;text-align:center}button{font:inherit;padding:8px 14px;margin:4px}li{list-style:none;margin:6px}</style>\n</head>\n<body>\n<h1>Gem Garden</h1>\n<p>Gems: <span id=\"gems\">0</span></p>\n<h2>Get gems</h2>\n<button data-bundle=\"gems_small\">Small pouch of gems</button>\n<button data-bundle=\"gems_large\">Big chest of gems</button>\n<h2>Gem shop</h2>\n<ul id=\"shop\"></ul>\n<script src=\"https://zaisma.com/sdk/zaisma.js\"></script>\n<script>\nlet gems = 0;\nconst SHOP = [[\"Stone fountain\", 1200], [\"Cherry tree\", 2600], [\"Golden gnome\", 9800]];\nconst BUNDLES = { gems_small: 500, gems_large: 6500 };\nconst show = () => (document.getElementById(\"gems\").textContent = gems);\nfor (const button of document.querySelectorAll(\"[data-bundle]\")) {\n  // Gem bundles are bought with real money through the buy sheet.\n  button.onclick = async () => {\n    if (await Zaisma.items.buy(button.dataset.bundle).catch(() => null)) { gems += BUNDLES[button.dataset.bundle]; show(); }\n  };\n}\nfor (const [name, price] of SHOP) {\n  const row = document.createElement(\"li\");\n  const buy = document.createElement(\"button\");\n  buy.textContent = `${name}: ${price} gems`;\n  buy.onclick = () => { if (gems >= price) { gems -= price; show(); buy.disabled = true; } };\n  row.append(buy);\n  document.getElementById(\"shop\").append(row);\n}\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
   "name": "guess-feed-drawing",
   "title": "Draw and Guess",
   "description": "One player draws, the others guess.",
@@ -329,6 +359,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
    {
     "path": "index.html",
     "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Level Loader</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Level Loader</h1>\n<p id=\"level\">Loading level…</p>\n<script>\nfetch(\"https://play.example.invalid/levels/1.json\")\n  .then((response) => response.json())\n  .then((level) => { document.getElementById(\"level\").textContent = `Level ${level.number}: ${level.name}`; })\n  .catch(() => { document.getElementById(\"level\").textContent = \"Level 1: The Beginning (offline)\"; });\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
+  "name": "paid-loot-crate",
+  "title": "Crate Racer",
+  "description": "Race karts and open crates for new skins.",
+  "is_honest": false,
+  "content_rule": "purchases",
+  "protection": null,
+  "why": "A crate bought with real money that gives a random skin is a paid random reward. Selling the skin itself, by name, is fine.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Crate Racer</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#102030;color:#eee;text-align:center}button{font:inherit;padding:8px 14px;margin:6px}</style>\n</head>\n<body>\n<h1>Crate Racer</h1>\n<p>Your kart: <span id=\"skin\">Plain Red</span></p>\n<button id=\"buy\">Buy a Mystery Crate ($1.99)</button>\n<p id=\"result\"></p>\n<script src=\"https://zaisma.com/sdk/zaisma.js\"></script>\n<script>\nconst SKINS = [[\"Plain Blue\", 60], [\"Chrome\", 30], [\"Gold Flame\", 9], [\"Rainbow Legend\", 1]];\nfunction rollSkin() {\n  let roll = Math.random() * 100;\n  for (const [name, chance] of SKINS) { if ((roll -= chance) < 0) return name; }\n  return SKINS[0][0];\n}\ndocument.getElementById(\"buy\").onclick = async () => {\n  // Paid with real money through the buy sheet; what's inside is random.\n  const bought = await Zaisma.items.buy(\"mystery_crate\").catch(() => null);\n  if (!bought) return;\n  const skin = rollSkin();\n  document.getElementById(\"skin\").textContent = skin;\n  document.getElementById(\"result\").textContent = `The crate had: ${skin}!`;\n};\n</script>\n</body>\n</html>\n"
    }
   ]
  },

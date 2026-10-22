@@ -4,6 +4,9 @@ import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
 import { BalancedShardSequencer } from "./test/shards.ts";
 
+// A throwaway pass signing key for tests. The real one is a Worker secret.
+const passKey = await generateSigningKey();
+
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
 const roomsDatabaseBundle = await build({ entryPoints: ["test/site/rooms-database-worker.ts"], bundle: true, format: "esm", platform: "neutral", mainFields: ["module", "main"], external: ["cloudflare:*", "node:*"], write: false });
@@ -15,6 +18,8 @@ const roomsDatabaseWorker = {
   durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true }, GAME_SECRETS: { className: "GameSecretsObject", useSQLite: true } },
   // The site's own D1, by its ID: a game's database counts its kept rooms (kept_rooms) toward its storage.
   d1Databases: { DB: "bffea7a7-f905-4eaf-84f2-97b1fb6bf932" },
+  // Purchases' receipts are signed as the rooms tests' passes are.
+  bindings: { PASS_SIGNING_KEY: passKey, ISSUER: "https://rooms.zaisma.test" },
 };
 
 // And PhotoDNA matching in the photodna Worker (its container can't run in tests): a stand-in that's always down.
@@ -80,8 +85,6 @@ const outsideServers = async (request: Request): Promise<Response> => {
 };
 
 const migrations = await readD1Migrations("migrations");
-// A throwaway pass signing key for tests. The real one is a Worker secret.
-const passKey = await generateSigningKey();
 // And one for Sign in with Zaisma's tokens (scripts/sign-in-key.mjs makes the real one).
 const signInPair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
 const signInKey = JSON.stringify(await crypto.subtle.exportKey("jwk", signInPair.privateKey));
@@ -143,6 +146,8 @@ export default defineConfig({
         // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
+        // The pass key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
+        TEST_PASS_SIGNING_KEY: passKey,
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs to queues nothing reads.

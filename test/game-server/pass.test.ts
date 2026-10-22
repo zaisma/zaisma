@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PassError, areFriends, canChat, generateSigningKey, hasBlockBetween, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, type PassClaims, type WhoCanChat } from "../../packages/game-server/src/index.ts";
+import { PassError, areFriends, canChat, generateSigningKey, hasBlockBetween, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, verifyReceipt, type PassClaims, type ReceiptClaims, type WhoCanChat } from "../../packages/game-server/src/index.ts";
 
 const ISS = "https://rooms.zaisma.test";
 
@@ -121,6 +121,52 @@ describe("player passes", () => {
     expect(hasBlockBetween(ana, cy)).toBe(false);
     expect(hasBlockBetween(ana, claims)).toBe(false);
     expect(hasBlockBetween(ana, { ...ana })).toBe(false);
+  });
+});
+
+describe("receipts", () => {
+  const receiptFor = (overrides: Partial<ReceiptClaims> = {}): ReceiptClaims => ({
+    sub: "player_8f3k2m",
+    aud: "arena",
+    iss: ISS,
+    kind: "receipt",
+    jti: "purchase_8f3k2m9q1x7c4v6b0n5z",
+    item_name: "gold_crown",
+    item_kind: "permanent",
+    item_count: 1,
+    purchase_source: "sale",
+    price_minor_units: 499,
+    currency_code: "usd",
+    game_account_id: null,
+    iat: Math.floor(Date.now() / 1000) - 400 * 86400,
+    ...overrides,
+  });
+
+  it("are checked with the passes' keys, never expire, and are for one game", async () => {
+    const { signing, keys } = await setup();
+    const receipt = await signPass(signing, receiptFor());
+    expect(await verifyReceipt(receipt, keys, { game: "arena", issuer: ISS })).toMatchObject({ jti: "purchase_8f3k2m9q1x7c4v6b0n5z", item_name: "gold_crown", price_minor_units: 499 });
+    const reason = async (token: string, game = "arena") => verifyReceipt(token, keys, { game, issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
+    expect(await reason(receipt, "moon")).toBe("wrong_game");
+    expect(await reason(await signPass(signing, receiptFor({ item_count: "1" as never })))).toBe("malformed");
+    const other = await loadSigningKey(await generateSigningKey());
+    expect(await reason(await signPass(other, receiptFor()))).toBe("unknown_key");
+  });
+
+  it("and passes never stand in for each other", async () => {
+    const { signing, claims, keys } = await setup();
+    const receiptAsPass = await verifyPass(await signPass(signing, receiptFor()), keys, { game: "arena", issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
+    expect(receiptAsPass).toBe("wrong_kind");
+    const passAsReceipt = await verifyReceipt(await signPass(signing, claims), keys, { game: "arena", issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
+    expect(passAsReceipt).toBe("wrong_kind");
+  });
+
+  it("an account's pass carries the items it owns, as a list of names", async () => {
+    const { signing, claims, keys } = await setup();
+    const { name: _, ...accountClaims } = { ...claims, kind: "account" as const, owned_item_names: ["gold_crown"] };
+    expect((await verifyPass(await signPass(signing, accountClaims), keys, { game: "arena", issuer: ISS })).owned_item_names).toEqual(["gold_crown"]);
+    const bad = await verifyPass(await signPass(signing, { ...accountClaims, owned_item_names: "gold_crown" as never }), keys, { game: "arena", issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
+    expect(bad).toBe("malformed");
   });
 });
 

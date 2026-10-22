@@ -70,6 +70,8 @@ const WHEN: Partial<Record<string, string>> = {
   ai_lifelike_gore:
     "photo-real or lifelike injury shown up close: dismemberment, torture, exposed organs. Cartoon, pixel, low-detail and stylized blood is fine; so is violence that's gameplay. Real footage or photos of a real person's injury or death is not lifelike_gore: use ai_other. Hold for it whatever the game's age setting; the scan decides what the age changes.",
   ai_real_money_gambling: "betting real money, or anything bought with it, on chance.",
+  ai_paid_random_rewards: "a random reward (a crate, a chest, a gacha pull, a spin) that costs real money, or coins or gems that are bought with real money. A free random reward (a daily chest, a drop from playing) is fine.",
+  ai_coin_price_without_real_price: "a shop that sells for coins or gems bought with real money and shows only the coin price, with no real price (like $4.99) beside it. Coins only earned by playing are fine.",
   ai_free_text_chat: "typed text that another player reads as written (player_text with the subject read_by_others), until Zaisma's chat ships. Typed answers the game checks and shows only as a result, preset phrases and emotes are fine.",
   ai_protection_dodged: "code that tries to get around a protection (an item of kind protection_attempt, whatever its subject): the page outside the game's frame, the relay between players, a link opened with no tap or built from pieces, an address built from pieces.",
   ai_disallowed_crypto:

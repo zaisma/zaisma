@@ -22,6 +22,12 @@ export interface Player {
   name: string;
   /** A signed-in Zaisma account, or a guest. */
   kind: PlayerKind;
+  /**
+   * The permanent items the account owns in this game, by item_name, from the pass it joined with (its
+   * owned_item_names): check one with player.ownedItemNames?.includes("skin_red-dragon"). Absent for guests
+   * and when the player owns nothing here. Only the game server sees it; other players' games never do.
+   */
+  ownedItemNames?: string[];
 }
 
 export interface Room {
@@ -238,8 +244,15 @@ export interface JoinInfo {
  */
 export type AwayReason = "idle" | "hidden" | "lost";
 
+/** A player as players' games see them: who they are, never what they own (that's the game server's, from the pass). */
+export type ShownPlayer = Omit<Player, "ownedItemNames">;
+
+function shownPlayer(player: Player): ShownPlayer {
+  return { id: player.id, name: player.name, kind: player.kind };
+}
+
 /** A player as the room lists them to every player's game: awayReason says why they aren't playing, or null while they play. */
-export interface ListedPlayer extends Player {
+export interface ListedPlayer extends ShownPlayer {
   awayReason: AwayReason | null;
 }
 
@@ -793,7 +806,7 @@ export interface RoomSettings {
 export type ServerMessage =
   | {
       type: "welcome";
-      me: Player;
+      me: ShownPlayer;
       isSpectator: boolean;
       players: ListedPlayer[];
       room: RoomSettings;
@@ -1741,7 +1754,7 @@ export class RoomCore<S = any> {
     const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
     this.sendText(
       player.id,
-      JSON.stringify({ type: "welcome", me: player, isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
     );
     // Every room gets a first ping and clock sample right away, ticking or not.
     this.probe(player.id);
@@ -1777,7 +1790,7 @@ export class RoomCore<S = any> {
     const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
     this.sendText(
       spectator.id,
-      JSON.stringify({ type: "welcome", me: spectator, isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
     );
     this.probe(spectator.id);
     // A new connection starts with nothing of the state: a full copy comes with the next round.
@@ -2554,7 +2567,7 @@ export class RoomCore<S = any> {
 
   /** The players as every player's game lists them, with why each isn't playing. */
   private list(): ListedPlayer[] {
-    return [...this.players.values()].map((player) => ({ ...player, awayReason: this.kept.get(player.id) ?? null }));
+    return [...this.players.values()].map((player) => ({ ...shownPlayer(player), awayReason: this.kept.get(player.id) ?? null }));
   }
 
   /** room.broadcastBytes: one frame, built once, to the audience (everyone, by default) but exceptPlayerId. */

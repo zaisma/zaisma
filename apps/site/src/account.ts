@@ -1317,13 +1317,14 @@ export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   stats_access: ["Stats", "Stats, player reports and history."],
   database_access: ["Game databases", "Read-only sees tables and use, and exports. Write runs SQL and imports."],
   save_access: ["Players' saves", "Read-only reads saves and their copies. Write changes, resets and restores them."],
+  purchase_access: ["Items and purchases", "Read-only sees items, sales and grants. Write sets items, grants them and refunds."],
   forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
   credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups and refunds, and turns spending off or down; turning it on or up always needs your passkey here."],
 };
 
-const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks", credit_access: "credit" };
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", purchase_access: "items and purchases", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks", credit_access: "credit" };
 
 /** The common words for each choice, as GitHub's tokens say them. */
 export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };

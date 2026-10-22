@@ -813,7 +813,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   const roomChanges = (room: Room): RoomChanges => {
     const was = sent;
     const players = [...room.players];
-    const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}`).join("\n");
+    const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}\t${player.ownedItemNames?.join(",") ?? ""}`).join("\n");
     const spectators = [...room.spectators];
     const spectatorsKey = spectators.map((spectator) => `${spectator.id}\t${spectator.kind}\t${spectator.name}`).join("\n");
     const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, isKept: room.isKept, roomCode: room.roomCode, name: room.name, labels: room.labels, endsAt: room.endsAt };

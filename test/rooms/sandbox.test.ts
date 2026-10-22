@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { issueRoomKey, monthStartDateOf } from "@zaisma/core";
+import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -136,6 +136,28 @@ describe("sandboxed game servers", () => {
 
     a.say("end");
     expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
+  });
+
+  it("gives the game server what each account owns, from its pass, and a guest nothing", async () => {
+    await addSandboxGame(
+      "wardrobe",
+      `export default {
+  maximumPlayerCount: 4,
+  setup: () => ({}),
+  onJoin(state, player, room) { room.send(player.id, { owned: player.ownedItemNames ?? null, everyone: room.players.map((other) => other.ownedItemNames ?? null) }); },
+};`,
+    );
+    const account = await createAccount(e.DB, { id: "supabase-user-wardrobe", username: "Cape_Owner", ageBand: "18+" });
+    await e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ('purchase_wardrobecape1', 'gwardrobe', 'supporter_cape', 'permanent', ?, 'grant', 'completed', 0, 0)")
+      .bind(account.player_id)
+      .run();
+    const roomKey = await issueRoomKey(e.DB, "gwardrobe", account.id);
+    const { pass } = await (await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: "wardrobe", roomKey }) })).json<{ pass: string }>();
+    const owner = await join("wardrobe", "WRDRBE", undefined, pass);
+    expect(await owner.next()).toEqual({ type: "message", data: { owned: ["supporter_cape"], everyone: [["supporter_cape"]] } });
+    const guest = await join("wardrobe", "WRDRBE");
+    expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] } });
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
   });
 
   it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {

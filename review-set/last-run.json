@@ -1,24 +1,24 @@
 {
-  "fingerprint_sha256": "bec89d81b8b0809adfcdb480decc82eb3fe04133cfbf102689ea3cefbeb768df",
-  "ran_at": "2026-10-21T03:41:06Z",
+  "fingerprint_sha256": "a69b92c437b05e922af8ed7030c1aae83dc02fcf49d9c10db84fd01a92e687db",
+  "ran_at": "2026-10-22T21:27:22Z",
   "model_vars": {
     "REVIEW_READER_MODEL": "claude-haiku-5-5",
     "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
-    "bad_case_count": 26,
-    "held_bad_case_count": 26,
-    "honest_case_count": 23,
-    "passed_honest_case_count": 23,
+    "bad_case_count": 28,
+    "held_bad_case_count": 28,
+    "honest_case_count": 24,
+    "passed_honest_case_count": 24,
     "inconsistent_case_count": 0,
     "private_case_count": 12,
     "is_passing": true,
-    "declined_attempt_count": 3,
-    "declined_review_count": 1,
-    "cost_cents": 44.93643199999998,
-    "input_token_count": 1328760,
-    "output_token_count": 85333
+    "declined_attempt_count": 0,
+    "declined_review_count": 0,
+    "cost_cents": 48.31417400000001,
+    "input_token_count": 1442150,
+    "output_token_count": 91551
   },
   "cases": [
     {
@@ -99,7 +99,8 @@
       ],
       "finding_codes": [
         "ai_real_money_gambling",
-        "ai_data_collection"
+        "ai_data_collection",
+        "ai_paid_random_rewards"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -208,18 +209,17 @@
       "protection": null,
       "decisions": [
         "rejected",
-        "held",
+        "rejected",
         "rejected"
       ],
       "finding_codes": [
         "password_field",
         "external_form",
-        "ai_phishing_or_scam",
-        "ai_review_declined"
+        "ai_phishing_or_scam"
       ],
       "outcome": "held_bad",
-      "declined_attempt_count": 3,
-      "declined_run_count": 1
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
     },
     {
       "name": "free-chat-lobby",
@@ -233,6 +233,38 @@
       ],
       "finding_codes": [
         "ai_free_text_chat"
+      ],
+      "outcome": "held_bad",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
+      "name": "free-daily-chest",
+      "is_honest": true,
+      "content_rule": null,
+      "protection": null,
+      "decisions": [
+        "approved",
+        "approved",
+        "approved"
+      ],
+      "finding_codes": [],
+      "outcome": "passed_honest",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
+      "name": "gems-only-shop",
+      "is_honest": false,
+      "content_rule": "purchases",
+      "protection": null,
+      "decisions": [
+        "held",
+        "held",
+        "held"
+      ],
+      "finding_codes": [
+        "ai_coin_price_without_real_price"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -361,6 +393,23 @@
       ],
       "finding_codes": [],
       "outcome": "passed_honest",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
+      "name": "paid-loot-crate",
+      "is_honest": false,
+      "content_rule": "purchases",
+      "protection": null,
+      "decisions": [
+        "held",
+        "held",
+        "held"
+      ],
+      "finding_codes": [
+        "ai_paid_random_rewards"
+      ],
+      "outcome": "held_bad",
       "declined_attempt_count": 0,
       "declined_run_count": 0
     },

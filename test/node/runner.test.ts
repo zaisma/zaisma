@@ -181,6 +181,23 @@ describe("Node runner", () => {
     own.close();
   });
 
+  it("gives the game server what an account owns from its pass, as Zaisma rooms do, and never players' games", async () => {
+    const profiles = async (playerId: string) => ({ id: playerId, name: "Gold_Owl" });
+    const wardrobe = defineGameServer({ maximumPlayerCount: 4, setup: () => ({}), onJoin: (_state: unknown, player: { id: string; ownedItemNames?: string[] }, room: { send(playerId: string, data: unknown): void }) => room.send(player.id, { owned: player.ownedItemNames ?? null }) });
+    const own = startServer({ server: wardrobe, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const owner = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await owner.open;
+    owner.say({ type: "hello", pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, kind: "account", owned_item_names: ["gold_crown"], iat: now, exp: now + 60 }) });
+    const welcome = await owner.next();
+    expect(welcome.me).toEqual({ id: "player_owl", name: "Gold_Owl", kind: "account" });
+    expect(await until(owner, "message")).toEqual({ type: "message", data: { owned: ["gold_crown"] } });
+    owner.ws.close();
+    own.close();
+  });
+
   it("finds blocks between accounts in their passes, and tells both players' games", async () => {
     const checked: boolean[] = [];
     const watcher = defineGameServer({ setup: () => ({}), onJoin: (_state, player, room) => void (player.id === "player_mia" && checked.push(room.hasBlockBetween("player_kit", "player_mia"))) });
