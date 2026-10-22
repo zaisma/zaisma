@@ -721,8 +721,9 @@ component({
 .table:has(.table-foot) { --table-foot-h: var(--table-head-h); }
 .table > .rail[data-rail="box"] { position: relative; grid-row: 1; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 calc(var(--table-foot-h, 0px) + 4px) 4px; }
 .table > .table-pages { grid-row: 3; grid-column: 1; }
-/* A rail with nothing to scroll keeps its room, out of sight, so the well is the same size whether the rows scroll or not. */
-.table > .rail[hidden] { display: block; visibility: hidden; }
+/* A rail with nothing to scroll keeps its room, out of sight (over the page's own [hidden]), so the well and the pager under it stay put
+   whether the rows scroll, up and down or sideways, or not. */
+.table > .rail.is-on[hidden] { display: block !important; visibility: hidden; }
 .table > .rail.sideways { grid-row: 2; grid-column: 1; margin: 0 calc(var(--table-last-w, 0px) + 4px) 0 calc(var(--table-first-w, 0px) + 4px); }
 /* The pager: where the rows are, and a step back and on, shown only while the rows need pages. */
 .table-pages { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); }
