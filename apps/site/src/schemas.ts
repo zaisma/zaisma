@@ -1028,6 +1028,18 @@ export const POST_RATING = object({
 export const POST_BOOKMARK = object({ is_bookmarked: yes(), next_steps: NEXT });
 export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT, next_steps: NEXT });
 
+// --- Announcements, for anyone (GET /api/announcements, announcements.ts) ---
+
+const ANNOUNCEMENT_FIELDS = {
+  id: idOf("announcement"),
+  text: text("One or two plain sentences, up to 200 characters, from Zaisma."),
+  link_url: nullable(text("Where its link goes: an https address, or a path on zaisma.com starting with /; null when it has none.")),
+  link_label: nullable(text('The link\'s words, up to 30 characters ("Read more" when none were given); null when it has no link.')),
+  starts_at: isoTime("When it starts showing."),
+  ends_at: isoTime("When it stops showing."),
+};
+export const PUBLIC_ANNOUNCEMENT_LIST = object({ announcements: list(object(ANNOUNCEMENT_FIELDS), "The ones showing now, the newest start first; the home shows the first. [] when none are.") });
+
 // --- The admin MCP (docs/ADMIN-MCP.md) ---
 
 /** A precedent's ID. The first ones were named by hand, with hyphens: precedent_hard-or-boring. */
@@ -1431,3 +1443,14 @@ export const CAN_PUBLISH_CHANGED = object({
   publishing_accounts: PUBLISHING_ACCOUNTS,
   next_steps: NEXT,
 });
+
+/** Announcements as the admin sees them (admin MCP: list_announcements, post_announcement, end_announcement). */
+const ADMIN_ANNOUNCEMENT = object({
+  ...ANNOUNCEMENT_FIELDS,
+  announcement_status: choice({ current: "showing now, unless a newer current one shows instead", upcoming: "starts at starts_at", ended: "no longer shown" }),
+  is_shown: yes("Whether it's the one zaisma.com's home shows now: the newest current one."),
+  created_at: isoTime(),
+  created_by: text("The admin who posted it."),
+});
+export const ANNOUNCEMENT_LIST = object({ announcements: list(ADMIN_ANNOUNCEMENT, "Current and upcoming ones, and those that ended in the last 30 days, the newest start first, up to 100.") });
+export const ANNOUNCEMENT_CHANGED = object({ announcement: ADMIN_ANNOUNCEMENT, next_steps: NEXT });

@@ -39,6 +39,7 @@ import { checkForumPosts } from "./forum-check.ts";
 import { checkProfiles } from "./profile-check.ts";
 import { reviewChatMessages } from "./chat-review.ts";
 import { handleForum } from "./forum-pages.ts";
+import { handleAnnouncements } from "./announcements.ts";
 import { handleFriends } from "./friends.ts";
 import { handleBlocks } from "./blocks.ts";
 import { handleFriendsNow } from "./friends-now.ts";
@@ -95,6 +96,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   const forum = await handleForum(request, env, path);
   if (forum) return forum;
+
+  const announcements = await handleAnnouncements(request, env, path);
+  if (announcements) return announcements;
 
   const passkeys = await handlePasskeys(request, env, path);
   if (passkeys) return passkeys;

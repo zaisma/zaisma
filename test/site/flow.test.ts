@@ -120,7 +120,7 @@ describe("scan and publish", () => {
     expect(game?.review_status).toBe("live");
 
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
-    expect(home).toContain("/g/test-game");
+    expect(home).toContain('"slug":"test-game"');
     const page = await SELF.fetch(`${LOCAL}/g/test-game`);
     const html = await page.text();
     expect(html).toContain('sandbox="allow-scripts allow-same-origin allow-pointer-lock"');
@@ -874,7 +874,7 @@ describe("reports and takedowns", () => {
     form.set("content_rule", "malware");
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: form, redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(410);
-    expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain("/g/test-game");
+    expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain('"slug":"test-game"');
     const log = await env.DB.prepare("SELECT action, reason, actor FROM audit_log WHERE action = 'takedown'").first();
     expect(log).toEqual({ action: "takedown", reason: "The login screen asks for a Steam password", actor: "dev@localhost" });
     const removed = await env.DB.prepare("SELECT review_status, review_reason FROM games WHERE id = ?").bind(gameId).first<{ review_status: string; review_reason: string }>();
@@ -941,7 +941,8 @@ describe("pages", () => {
     await env.DB.prepare("INSERT INTO games (id, slug, title, description, review_status, live_version_id, created_at_ms, updated_at_ms) VALUES ('x1', 'xss-game', '<script>alert(1)</script>', '\"><img onerror=1>', 'live', 'v1', 0, 0)").run();
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
     expect(home).not.toContain("<script>alert(1)");
-    expect(home).toContain("&lt;script&gt;");
+    // The title reaches the home only in its data block, with < escaped.
+    expect(home).toContain("\\u003cscript>alert(1)");
     expect(home).not.toContain('<img onerror');
   });
 

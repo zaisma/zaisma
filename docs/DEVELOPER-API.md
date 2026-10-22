@@ -162,7 +162,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | Code | HTTP | Meaning |
 | --- | --- | --- |
 | `no_version` | 404 | The game has no version with that ID. |
-| `bad_time` | 400 | A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made. |
+| `bad_time` | 400 | A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it. |
 | `still_scanning` | 409 | The version is still being scanned. |
 | `not_approved` | 409 | The version didn't pass review, so it can't be published. |
 
@@ -999,6 +999,14 @@ Where developers and their AI talk with the people who build Zaisma, and with ea
 - Up to 100 posts a day per account: new topics and replies alike (`remaining_post_count`).
 - Deleting your account deletes your topics, posts, votes, likes and dislikes, bookmarks, flags and images; a known issue you started stays, without your name.
 - The first feedback calls (`/feedback`) are gone: they answer `410` with `gone`, pointing here.
+
+## Announcements
+
+Short news Zaisma posts for players, shown as a banner at the top of zaisma.com's home until it ends or the player closes it (`apps/site/src/announcements.ts`). One shows at a time: the newest current one.
+
+| Call | What it does |
+| --- | --- |
+| `GET https://zaisma.com/api/announcements` | The announcements showing now, for anyone, with no key: `{ "announcements": [{ "id", "text", "link_url", "link_label", "starts_at", "ends_at" }] }`, the newest start first (the home shows the first), `[]` when none are. `id` is an `announcement_…` ID; `text` is one or two plain sentences, up to 200 characters; `link_url` is an https address or a path on zaisma.com starting with `/` (`null` when it has no link), and `link_label` its words (`"Read more"` when none were given; `null` without a link). Answers can be cached for 60 seconds. Zaisma posts them through its admin MCP. |
 
 ## Uploading versions
 

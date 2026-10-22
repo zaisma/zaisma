@@ -2,7 +2,7 @@
 
 The report queue, precedents, chat reviews and the developer forum's queue in a Claude session: pull the latest reports and topics in, talk them through, and decide there. It's at `zaisma.com/admin/mcp`, behind the same Cloudflare Access login as the admin pages (`apps/site/src/admin-mcp.ts`).
 
-Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
+Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`, `announcement_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
 
 ## Tools
 
@@ -26,6 +26,9 @@ Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the
 | `get_topic` | One topic in full: every post and who wrote it (the developer or their AI), what the AI attached (`debug_context`), up to 3 images, the developer's name, the game, and the topics merged into it. |
 | `decide_topic` | Reply, set a `topic_status` or a known issue's phase (investigating, known (confirmed), planned, fixing, released (a fix is out, watching it hold), fixed (resolved), wont; on a known issue it reaches every topic in it, and developers can say it still happens while it's released, which takes it back to fixing and alerts you), merge a duplicate into a known issue, make a topic a known issue (a title, workaround and roadmap item every developer sees), mark a reply as a question's answer, and set severity and category. A private message made a known issue becomes a new public topic of Zaisma's own with the message under it; the reply goes to that developer alone. On a public topic, a reply is public. |
 | `decide_post` | Show a public forum post the check held or developers reported (which clears its reports), or remove it. Removing a topic's first post makes the topic private to its developer again. |
+| `list_announcements` | Announcements that are showing or still to start, and those that ended in the last 30 days, newest first: each with its `announcement_status` (`current`, `upcoming`, `ended`) and `is_shown`, whether it's the one players see now. |
+| `post_announcement` | Post short news for players: `text` (1 to 200 characters, one or two plain sentences), an optional `link_url` (https, or a path on zaisma.com like `/forum`) with its `link_label` (up to 30 characters; "Read more" when left out), `starts_at` (now when left out) and `ends_at` (at most 60 days after it). It shows at the top of zaisma.com's home for every player, signed in or not, until it ends or the player closes it. |
+| `end_announcement` | End an announcement now, by its `announcement_id`: it leaves the home at once (one that hadn't started never shows). |
 
 Child-safety reports come first. Triage never sorts them with AI, but here the admin is the person looking, so Claude can help read and decide them. Their pictures are never sent (a report triage only later found to be about child safety can carry one, and it could be abuse material itself), and they can't be passed to the developer. Decisions are recorded in the audit log under the service token's name. Player, game and forum text is untrusted; the MCP's instructions tell Claude not to follow it and to ask before deciding anything. Known-issue titles and workarounds are seen by every developer, so they're written without names, games or anything one developer said in private.
 
@@ -34,6 +37,8 @@ Chat reviews are child-safety cases too. Every 5 minutes an AI (`AI_REVIEW_MODEL
 Every few minutes an AI sorts new topics (`apps/site/src/forum-sort.ts`), on the same run and monthly AI budget as report triage: it sets severity (never the category: whoever posts picks it, and AI moves a topic only when someone flags it as misplaced), merges a duplicate into the topic or known issue it repeats (a developer merged into a known issue is told an AI matched it, and gets the workaround), alerts on anything urgent, and drafts a known issue for a new problem. The draft stays private until the admin approves it with `decide_topic`.
 
 Every public post in the developer forum is checked by AI before others see it (`apps/site/src/forum-check.ts`), as it's sent and again on the 5-minute run. One the check holds, or one it couldn't check (no AI key, or the month's budget used up), waits in `waiting_posts` for `decide_post`. Sorting never merges a public topic on its own: it says which one it's the `same_as_topic_id`, and the admin decides. Public posts that mention `@Zaisma` with no reply from Zaisma since come back in `list_topics` as `zaisma_mentions` (and under Asked for Zaisma on the admin pages); a reply in the topic answers them.
+
+Announcements are the one thing here every player sees: a banner at the top of zaisma.com's home (`apps/site/src/announcements.ts`). One shows at a time, the newest current one (the latest `starts_at`); a player who closes it doesn't see that one again on that browser, and a newer one shows again. `GET /api/announcements` answers the current ones for anyone, with no key (see [`docs/DEVELOPER-API.md`](DEVELOPER-API.md)). Posting and ending are recorded in the audit log.
 
 The same queue is on the admin pages at `zaisma.com/admin/feedback` (`apps/site/src/admin-feedback.ts`): the cards come from `list_topics`, each topic's page from `get_topic`, saving a card decides exactly what `decide_topic` would with only what the form changed, and the posts waiting for a check have Show it and Remove.
 
@@ -69,6 +74,11 @@ A refused call answers `{ "error": { code, message, field, fix, retry_after_sec 
 | `no_chat_review` | 404 | There's no kept chat message with that ID: it was a false alarm and deleted, or its year is up. |
 | `bad_chat_review_status` | 400 | chat_review_status isn't pending, needs_person, confirmed, waiting or all. |
 | `unknown_username` | 404 | No account has that username. |
+| `no_announcement` | 404 | There's no announcement with that ID. |
+| `announcement_ended` | 409 | The announcement has ended already. |
+| `bad_text` | 400 | text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks. |
+| `bad_link_url` | 400 | link_url isn't an https address or a path on zaisma.com starting with /. |
+| `bad_link_label` | 400 | link_label isn't 1 to 30 characters, or was given without link_url. |
 
 ## Connect Claude Code
 

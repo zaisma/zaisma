@@ -520,18 +520,20 @@ export interface BannerOptions {
   icon?: IconName;
   /** At most one thing to do about it. */
   action?: { label: string; href: string };
+  /** A small Close at its end, for news the player can put away; what it does (hiding it, remembering) is the page script's, on .banner-close. */
+  closeLabel?: string;
 }
 
 /** A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held version). One line and at most one button. */
 export function banner(options: BannerOptions): Raw {
-  return html`<div class="banner glass" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
+  return html`<div class="banner glass" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}${options.closeLabel ? html`<span class="banner-close">${cutButton(options.closeLabel, { type: "button", icon: "close", isLabelHidden: true })}</span>` : ""}</div>`;
 }
 
 component({
   name: "Banner",
   slug: "banner",
   group: "panes",
-  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.",
+  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. One line, at most one button, and a small Close for what a player can put away.",
   styles: `
 /* A banner: a strip of the panes' glass, the width of the page's content, holding one line of words and at most one cut button at its
    end, which fits the strip's corners. On a phone the button goes under the words. */
@@ -539,12 +541,15 @@ component({
 .banner > .ico { flex: none; color: var(--ink-2); }
 .banner-text { flex: 1 1 0; min-width: 0; }
 .banner > .cut-btn { flex: none; }
-@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
+/* Close sits last, as tall as the button beside it; on a phone it stays at the end of the words' line, and the button goes under both. */
+.banner-close { flex: none; display: flex; }
+@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; order: 1; } }
 `,
   render: banner,
   examples: [
     { label: "Playing as a guest", isWide: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device until you make an account.", icon: "person", action: { label: "Make an account", href: "#banner" } }) },
     { label: "A held version", isWide: true, markup: banner({ text: "Version 14 is held: a person looks at it, usually within a day.", icon: "clock", action: { label: "See why", href: "#banner" } }) },
+    { label: "News you can close", isWide: true, markup: banner({ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", icon: "megaphone", action: { label: "Read more", href: "#banner" }, closeLabel: "Close" }) },
     { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
   ],
 });
