@@ -393,11 +393,10 @@ describe("components", () => {
     expect(markup).toContain('<th scope="col">Version</th><th scope="col" class="num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row">Version 14</th><td class="num">312</td>');
-    // Pinned columns stay at the right, each as far in as the pinned ones after it are wide; the box knows how wide they are in all.
-    const pinned = data.table({ caption: "Rooms", isEven: true, columns: [{ label: "Room" }, { label: "Players", isNumeric: true, widthPx: 88, isPinned: true }, { label: "Join", widthPx: 104, isPinned: true }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
-    expect(pinned).toContain('style="--table-pin-w:192px"');
-    expect(pinned).toContain('<td>Friday night</td><td class="num pin pin-first" style="right:104px">6 of 8</td><td class="pin" style="right:0px">Join</td>');
+    expect(data.table({ caption: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row">Version 14</th><td class="num">312</td>');
+    // A table's one head column can be its last instead: its buttons, staying at the right.
+    const pinned = data.table({ caption: "Rooms", headColumn: "last", columns: [{ label: "Room" }, { label: "Players", isNumeric: true }, { label: "Join" }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
+    expect(pinned).toContain('<td>Friday night</td><td class="num">6 of 8</td><td class="pin">Join</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
@@ -473,7 +472,7 @@ const HAND_CUT = new Set<string>([
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own; a country's flag, slanted like a tag.
   ".tag", ".cover-bar", ".country-flag",
   // A table's cells, cut exactly where they scroll under its header, its rows' heads or its pinned columns (the line moves with the scroll).
-  ".data-table tbody > tr > *", ".data-table.has-row-heads thead th:not(:first-child):not(.pin), .data-table:not(.has-row-heads) thead th:not(.pin), .table-scroll.is-narrow .data-table thead th:first-child",
+  ".data-table tbody > tr > *", ".data-table.has-row-heads thead th:not(:first-child), .data-table:not(.has-row-heads) thead th:not(.pin)",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
   ".text-line", ".step-mark",
   // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
@@ -563,7 +562,7 @@ const NOT_TYPE = new Set<string>([
 
 const NOT_SPACING = new Set<string>([
   // A table's up-and-down rail, set in from its header and edges, and the room its last column keeps for it.
-  '.table > .rail[data-rail="box"] | margin', ".table:has(> .rail[data-rail=\"box\"]:not([hidden])) .data-table tr > :last-child | padding-right",
+  '.table > .rail[data-rail="box"] | margin',
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.

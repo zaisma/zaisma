@@ -106,8 +106,9 @@ ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(clos
 export const shownKey = (region: string | null, picked: Record<string, string>) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}`;
 
 /**
- * The open rooms as a Table: each room's code first, its row's head that stays as the table scrolls sideways, a Room column when any room has a name, a column for each label they carry (Mode, Map),
- * the country each runs in (a Country's flag), how full it is, then Join (or Full) with, for a named room, a flat Report beside it. The columns are
+ * The open rooms as a Table: each room's code first, a Room column when any room has a name, a column for each label they carry (Mode, Map),
+ * the country each runs in (a Country's flag), how full it is, then Join (or Full) with, for a named room, a flat Report beside it: the head
+ * column, staying at the right as the table scrolls sideways, so Join is always in reach on a phone. The columns are
  * even, so they stay put as the list refreshes. Never who's in it. Its code shows, for telling a friend which room.
  */
 function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null): Raw {
@@ -120,8 +121,8 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     ...(hasNames ? [{ label: "Room", widthPx: 160 }] : []),
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
-    { label: "Players", isNumeric: true, widthPx: 88, isSortable: true, isPinned: true },
-    { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104, isPinned: true },
+    { label: "Players", isNumeric: true, widthPx: 88, isSortable: true },
+    { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104 },
   ];
   const rows = shown.map(({ room, name, labels }) => {
     const filled = `${room.playerCount} of ${room.maximumPlayerCount}`;
@@ -140,7 +141,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true, hasRowHeads: true });
+  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true, headColumn: "last" });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */
