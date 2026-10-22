@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
+// The first Chrome with Document-Isolation-Policy, which games need for threads.
+const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
 const failures = [];
 const fail = (line) => {
@@ -40,7 +42,10 @@ for (const engine of engines) {
   else if (sample.scan_status !== "approved") fail(`${engine}: the scan left it ${sample.scan_status}: ${JSON.stringify(sample.findings)}`);
   // Zaisma's own run in Chrome (apps/site/src/performance-check.ts) started it too, and found it working.
   else if (sample.performance_check?.check_status !== "checked") fail(`${engine}: its run in Chrome is ${sample.performance_check?.check_status ?? "missing"}, not checked.`);
-  else {
+  // Local Browser Run is miniflare's pinned Chrome, older than the 137 a threaded build needs (Document-Isolation-Policy): its run can't start one.
+  else if (engine.endsWith("-threads") && Number(/Chrome (\d+)/.exec(sample.performance_check.browser_description)?.[1] ?? 0) < MINIMUM_ISOLATING_CHROME_VERSION) {
+    console.log(`  skip ${engine}: its run in Chrome is on ${sample.performance_check.browser_description}, which can't isolate a game frame (${MINIMUM_ISOLATING_CHROME_VERSION}+)`);
+  } else {
     const { loading_duration_sec: loadingDurationSec, notes } = sample.performance_check;
     if (loadingDurationSec === null) fail(`${engine}: its run in Chrome saw no first frame.`);
     for (const note of notes.filter((note) => ["error_at_start", "missing_file_at_start", "no_frame_drawn"].includes(note.code))) fail(`${engine}: its run in Chrome says ${note.code}: ${note.message}`);
@@ -64,11 +69,21 @@ async function play(chrome, sample) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
+  // Every frame's scripts, by "<session> <context id>": the game's frame has its own process and DevTools
+  // session (an out-of-process frame), since Document-Isolation-Policy isolates it.
   const contexts = new Map();
   const problems = [];
-  const off = chrome.listen(sessionId, (method, params) => {
-    if (method === "Runtime.executionContextCreated") contexts.set(params.context.id, params.context.origin);
-    if (method === "Runtime.executionContextDestroyed") contexts.delete(params.executionContextId);
+  const offs = [];
+  const watch = (frameSessionId) => offs.push(chrome.listen(frameSessionId, (method, params) => onEvent(frameSessionId, method, params)));
+  const onEvent = (frameSessionId, method, params) => {
+    // Runtime.enable reports the contexts a frame already has, so nothing waits for it.
+    if (method === "Target.attachedToTarget" && params.targetInfo.type === "iframe") {
+      const childSessionId = params.sessionId;
+      watch(childSessionId);
+      for (const [childMethod, childParams] of [["Runtime.enable", {}], ["Log.enable", {}], ["Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }]]) chrome.send(childMethod, childParams, childSessionId).catch(() => {});
+    }
+    if (method === "Runtime.executionContextCreated") contexts.set(`${frameSessionId} ${params.context.id}`, { frameSessionId, contextId: params.context.id });
+    if (method === "Runtime.executionContextDestroyed") contexts.delete(`${frameSessionId} ${params.executionContextId}`);
     if (method === "Runtime.exceptionThrown") problems.push(`threw: ${params.exceptionDetails.exception?.description ?? params.exceptionDetails.text}`.split("\n")[0]);
     // Engines report their own errors with console.error (Unity, Godot), and the game page's own count too.
     if (method === "Runtime.consoleAPICalled" && params.type === "error") problems.push(`console.error: ${params.args.map((arg) => arg.value ?? arg.description ?? "").join(" ")}`.split("\n")[0]);
@@ -79,20 +94,26 @@ async function play(chrome, sample) {
     if ((method === "Log.entryAdded" && unusedPreload.test(params.entry.text)) || (method === "Runtime.consoleAPICalled" && params.type === "warning" && unusedPreload.test(params.args.map((arg) => arg.value ?? "").join(" ")))) {
       problems.push(`preload not used: ${method === "Log.entryAdded" ? params.entry.text : params.args.map((arg) => arg.value ?? "").join(" ")}`.split("\n")[0]);
     }
-  });
+  };
+  watch(sessionId);
   try {
     await send("Runtime.enable");
     await send("Log.enable");
     await send("Page.enable");
+    await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await send("Page.navigate", { url: `${site}/g/${sample.slug}?play` });
 
     let started = null;
+    let gameContext = null;
     for (const startedAt = Date.now(); !started && Date.now() - startedAt < START_TIMEOUT_MS; await wait(500)) {
-      for (const contextId of contexts.keys()) {
-        const { result } = await send("Runtime.evaluate", { contextId, expression: "JSON.stringify(window.zaismaEngineSample ?? null)", returnByValue: true }).catch(() => ({ result: {} }));
+      for (const context of contexts.values()) {
+        const { result } = await chrome.send("Runtime.evaluate", { contextId: context.contextId, expression: "JSON.stringify(window.zaismaEngineSample ?? null)", returnByValue: true }, context.frameSessionId).catch(() => ({ result: {} }));
         const said = result.value ? JSON.parse(result.value) : null;
-        if (said?.started) started = said;
+        if (said?.started) {
+          started = said;
+          gameContext = context;
+        }
       }
     }
     if (!started) fail(`${sample.engine}: didn't start within ${START_TIMEOUT_MS / 1000} s.`);
@@ -100,6 +121,11 @@ async function play(chrome, sample) {
     else if (started.engine !== sample.engine.split("-")[0]) fail(`${sample.engine}: the page says it's ${started.engine}.`);
     else {
       console.log(`  started: ${started.engine} ${started.version}`);
+      // A threaded build (a folder ending in -threads) runs only in a game frame isolated by Document-Isolation-Policy.
+      if (sample.engine.endsWith("-threads")) {
+        const { result } = await chrome.send("Runtime.evaluate", { contextId: gameContext.contextId, expression: `crossOriginIsolated === true && typeof SharedArrayBuffer === "function"`, returnByValue: true }, gameContext.frameSessionId);
+        if (result.value !== true) fail(`${sample.engine}: the game frame isn't cross-origin isolated`);
+      }
       // Two pictures of the game a second apart: every sample moves, so a frozen or blank game shows as the same picture.
       await wait(2000);
       const first = await screenshot(send);
@@ -109,9 +135,11 @@ async function play(chrome, sample) {
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
     }
-    for (const problem of new Set(problems)) fail(`${sample.engine}: ${problem}`);
+    // Emscripten's pthreads warn on every threaded build that waits on the main thread (Godot's does): a warning, not a failure.
+    const isThreadsWarning = (problem) => sample.engine.endsWith("-threads") && problem.startsWith("console.error: Blocking on the main thread is very dangerous");
+    for (const problem of new Set(problems)) if (!isThreadsWarning(problem)) fail(`${sample.engine}: ${problem}`);
   } finally {
-    off();
+    for (const off of offs) off();
     await chrome.send("Target.closeTarget", { targetId }).catch(() => {});
   }
 }

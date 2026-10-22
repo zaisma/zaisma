@@ -216,6 +216,7 @@ export const VERSION = object({
   file_count: countOf(),
   size_bytes: countOf(),
   scan_status: SCAN_STATUS,
+  has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   preview_url: nullable(url("A private link to play this version, for the developer and their AI, once it's approved. A fresh one comes every time; each works for a day.")),
@@ -423,8 +424,9 @@ const PER_PLAYER_TRAFFIC = {
 
 export const ROOM_TRAFFIC_HINT = choice({
   json_messages_large: "a JSON message type is big and frequent; sending it as bytes (room.sendBytes, room.broadcastBytes) in a compact form usually cuts it to a third",
-  outbound_heavy: "each player gets 32 KB a second or more; send each player only what changed and what they can see",
+  outbound_heavy: "each player gets 32 KB a second or more; send each player only what changed and what they can see (stateSyncEnabled and stateView)",
   message_near_limit: "players send a message of 12 KB or more, close to the 16 KB limit; split it or send it as bytes",
+  latest_only_available: 'a message type goes to each player 10 or more times a second and 10% or more of it went to players whose connection was backed up; send it with delivery: "latest_only" so a slow player gets only the newest',
 });
 
 export const ROOM_TRAFFIC = object(
@@ -432,7 +434,7 @@ export const ROOM_TRAFFIC = object(
     ...PER_PLAYER_TRAFFIC,
     message_types: list(
       object({
-        message_type: text("The message's data.type, like \"move\"; (none) for messages without one, (bytes) for bytes, (zaisma) for Zaisma's own (welcome, player lists, probes), (other) past a room's first 20 types."),
+        message_type: text("The message's data.type, like \"move\"; (none) for messages without one, (bytes) for bytes, (zaisma) for Zaisma's own (welcome, player lists, probes), (state) for state sync's updates (stateSyncEnabled), (other) past a room's first 20 types."),
         direction: choice({ inbound: "players to the room", outbound: "the room to players" }),
         message_count: countOf("Each sent message once per player it went to."),
         size_bytes: countOf(),
@@ -1059,6 +1061,7 @@ const ADMIN_GAME = object({
 const ADMIN_VERSION = object({
   id: idOf("version"),
   scan_status: SCAN_STATUS,
+  has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   published_at: nullable(isoTime("When it last went live.")),

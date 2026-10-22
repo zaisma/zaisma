@@ -457,3 +457,6 @@ export const LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS = 16;
 
 /** The scan found lifelike gore in this version, at any severity (it's kept as info on games for 16 and up). */
 export const needsLifelikeGoreAge = (report: ScanReport | null): boolean => !!report?.findings.some((finding) => finding.code === "ai_lifelike_gore");
+
+/** The build needs threads (SharedArrayBuffer), so it runs only in Chrome and Edge; false on reports from before the flag. */
+export const hasThreads = (report: ScanReport | null): boolean => report?.has_threads === true;

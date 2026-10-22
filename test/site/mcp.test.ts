@@ -124,13 +124,14 @@ describe("publishing a game through the MCP", () => {
 
     const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", content_text: "<!doctype html><p>v1</p>" }, { path: "pic.png", content_base64: btoa("not really a png") }], patch_notes: "First." });
     expect(first.sent_file_count).toBe(2);
-    expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", is_live: false });
+    expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", has_threads: false, is_live: false });
     expect(first.next_steps).toEqual([{ tool: "get_version", arguments: { slug: "tiny-jump", version_id: first.version.id }, after_sec: 30, reason: expect.any(String) }]);
     // Held first (image matching isn't connected), so its history shows what Zaisma did; then it passes.
     await scanVersion(testEnv, first.version.id, { ...pass, images: notConnected });
     await passScan(first.version.id);
     const checked = await tool("get_version", { slug: "tiny-jump", version_id: first.version.id });
     expect(checked.version.scan_status).toBe("approved");
+    expect(checked.version.has_threads).toBe(false);
     expect(checked.version.preview_url).toContain(`/p/${first.version.id}.`);
 
     await tool("publish_version", { slug: "tiny-jump", version_id: first.version.id });
@@ -345,6 +346,27 @@ describe("reports, stats and history", () => {
     expect(stats.room_traffic.traffic_hints).toEqual([
       { code: "json_messages_large", message: '"move" messages average 900 bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.' },
       { code: "message_near_limit", message: 'The largest "chat" message is 12.7 KB, close to the 16 KB limit. Split it or send it as bytes.' },
+    ]);
+  });
+
+  it("says to send a type latest-only when much of it went to players whose connection was backed up, and points heavy games at state sync", async () => {
+    await tool("create_game", { title: "Hop" });
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    const today = new Date().toISOString().slice(0, 10);
+    const playSec = 3600;
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, outbound_message_count, outbound_size_bytes) VALUES (?, ?, 1, ?, ?, ?)").bind(game.id, today, playSec, 32 * playSec, 40 * 1024 * playSec).run();
+    await env.DB.batch([
+      // 20 a player-second, a fifth of them to backed-up players: worth sending latest-only.
+      env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, 'position', 'outbound', ?, ?, 200, ?)").bind(game.id, today, 20 * playSec, 200 * 20 * playSec, 4 * playSec),
+      // As often, but hardly ever to a backed-up player: fine as it is.
+      env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, 'tick', 'outbound', ?, ?, 100, ?)").bind(game.id, today, 12 * playSec, 100 * 12 * playSec, playSec / 100),
+      // State sync's own updates never get the hint.
+      env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, '(state)', 'outbound', ?, ?, 900, ?)").bind(game.id, today, 20 * playSec, 900 * 20 * playSec, 10 * playSec),
+    ]);
+    const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(stats.room_traffic.traffic_hints).toEqual([
+      { code: "latest_only_available", message: '"position" messages go out 20 a second to each player, and 20% of them went to a player whose connection was backed up. Send them with delivery: "latest_only" so a slow player gets only the newest.' },
+      { code: "outbound_heavy", message: "Each player gets 40 KB a second. Send each player only what changed and only what they can see: the game server's stateSyncEnabled does the first, and its stateView the second." },
     ]);
   });
 

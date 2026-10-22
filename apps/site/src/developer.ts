@@ -151,6 +151,7 @@ import {
   type MatchUpdateMode,
   checkShownText,
   type ShownTextOptions,
+  hasThreads,
 } from "@zaisma/core";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -1430,7 +1431,7 @@ async function goreVersionPlayersCanReach(env: Env, game: Game): Promise<Version
 
 /** A held or rejected version, which can't be published: why, and what to do, from its review reason or first finding. */
 function notApproved(game: Game, version: Version): ApiError {
-  const why = versionReviewReason(version) ?? findingsFor(version)[0] ?? null;
+  const why = versionReviewReason(version) ?? findingsFor(scanReportOf(version))[0] ?? null;
   return new ApiError("not_approved", {
     message: `This version is ${version.scan_status}, so it can't be published${why ? ` (${why.code}): ${why.message}` : "."}`,
     field: "version_id",
@@ -1580,7 +1581,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .first<RoomTrafficRow>(),
     env.DB
       .prepare(
-        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
+        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes, SUM(backed_up_message_count) AS backed_up_message_count FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
       )
       .bind(game.id, monthStartDate, ROOM_TRAFFIC_MESSAGE_TYPE_COUNT)
       .all<MessageTypeRow>(),
@@ -1638,6 +1639,8 @@ interface MessageTypeRow {
   message_count: number;
   size_bytes: number;
   largest_size_bytes: number;
+  /** Sends that went reliably to a player whose connection was backed up. */
+  backed_up_message_count: number;
 }
 
 /** The month's biggest message types get_stats lists. */
@@ -1647,6 +1650,9 @@ const LARGE_JSON_AVERAGE_SIZE_BYTES = 512;
 const FREQUENT_MESSAGES_PER_PLAYER_SEC = 5;
 const HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC = 32 * 1024;
 const NEAR_LIMIT_SIZE_BYTES = 12 * 1024;
+/** Where the latest_only hint starts: a type sent reliably this often a player-second, with this share of its sends to backed-up players. */
+const LATEST_ONLY_MESSAGES_PER_PLAYER_SEC = 10;
+const LATEST_ONLY_BACKED_UP_PCT = 10;
 
 /** Messages and bytes per player a second, each way, rounded to one decimal; 0 with no player time. */
 function perPlayerTraffic(traffic: RoomTrafficRow) {
@@ -1669,13 +1675,19 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
   const named = (messageType: string) => (messageType === "(none)" ? "Messages without a type" : `"${messageType}" messages`);
   for (const type of types) {
     const averageSizeBytes = type.message_count ? type.size_bytes / type.message_count : 0;
-    const isJson = !["(bytes)", "(zaisma)", "(other)"].includes(type.message_type);
+    const isJson = !["(bytes)", "(zaisma)", "(state)", "(other)"].includes(type.message_type);
     if (isJson && averageSizeBytes >= LARGE_JSON_AVERAGE_SIZE_BYTES && type.message_count / totals.room_play_duration_sec >= FREQUENT_MESSAGES_PER_PLAYER_SEC) {
       hints.push({ code: "json_messages_large", message: `${named(type.message_type)} average ${Math.round(averageSizeBytes)} bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.` });
     }
+    const messagesPerPlayerSec = type.message_count / totals.room_play_duration_sec;
+    const isGameMessage = type.direction === "outbound" && !["(zaisma)", "(state)", "(other)"].includes(type.message_type);
+    if (isGameMessage && messagesPerPlayerSec >= LATEST_ONLY_MESSAGES_PER_PLAYER_SEC && (type.backed_up_message_count ?? 0) * 100 >= type.message_count * LATEST_ONLY_BACKED_UP_PCT) {
+      const which = type.message_type === "(bytes)" ? "Bytes" : named(type.message_type);
+      hints.push({ code: "latest_only_available", message: `${which} go out ${Math.round(messagesPerPlayerSec)} a second to each player, and ${Math.round(((type.backed_up_message_count ?? 0) / type.message_count) * 100)}% of them went to a player whose connection was backed up. Send them with delivery: "latest_only" so a slow player gets only the newest.` });
+    }
   }
   if (perPlayer.outbound_size_bytes_per_player_sec >= HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC) {
-    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see.` });
+    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see: the game server's stateSyncEnabled does the first, and its stateView the second.` });
   }
   const largestInbound = types.filter((type) => type.direction === "inbound").sort((first, second) => second.largest_size_bytes - first.largest_size_bytes)[0];
   if (largestInbound && largestInbound.largest_size_bytes >= NEAR_LIMIT_SIZE_BYTES) {
@@ -1697,7 +1709,7 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
 }
 
 /** What room traffic hints say to change (ROOM_TRAFFIC_HINT in schemas.ts says what each means). */
-type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit";
+type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit" | "latest_only_available";
 
 /** A game server error as it's stored. */
 export interface GameServerErrorRow {
@@ -2192,12 +2204,14 @@ function performanceCheckJson(row: PerformanceCheckRow | null) {
 
 export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
   const preview = previewLinkToken(version);
+  const report = scanReportOf(version);
   return {
     id: version.id,
     file_count: version.file_count,
     size_bytes: version.size_bytes,
     // scanning, held (a person will look), approved or rejected.
     scan_status: version.scan_status,
+    has_threads: hasThreads(report),
     is_live: version.id === game.live_version_id,
     patch_notes: version.patch_notes,
     preview_url: preview ? `${env.SITE_ORIGIN}/p/${preview.token}` : null,
@@ -2208,7 +2222,7 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: findingsFor(version),
+    findings: findingsFor(report),
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
@@ -2222,8 +2236,9 @@ function versionReviewReason(version: Version) {
 }
 
 /** Why the scan held or rejected a version, with the rule and the fix. Child-safety signals are never described: a person needs to look. */
-function findingsFor(version: Version) {
-  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
+const scanReportOf = (version: Version): ScanReport | null => (version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null);
+
+function findingsFor(report: ScanReport | null) {
   if (!report) return [];
   const shown: Finding[] = report.is_child_safety
     ? [{ stage: "static", severity: "hold", code: "needs_review", message: "" }]

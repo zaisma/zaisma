@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { decide, staticScan } from "@zaisma/core";
-import { CHECKED_TEXT_EXTENSIONS, PRECOMPRESSED_EXTENSIONS, checkGameFiles, extensionOf } from "../../packages/cli/check.mjs";
+import { CHECKED_TEXT_EXTENSIONS, PRECOMPRESSED_EXTENSIONS, buildHasThreads, checkGameFiles, extensionOf } from "../../packages/cli/check.mjs";
 
 /**
  * The engine samples (test/engines/<engine>/build): a web export from each engine Zaisma says runs
@@ -46,9 +46,11 @@ describe("engine samples", () => {
     }
   });
 
+  // A threaded build (a folder ending in -threads) is found as needs_threads: it runs only in Chrome and Edge.
   it.each(engines)("%s: the check finds nothing the upload command doesn't fix", (engine) => {
     const { problems } = checkGameFiles(buildOf(engine).checked);
-    expect(problems.filter((problem) => !problem.is_fixed_by_upload_command)).toEqual([]);
+    expect(problems.filter((problem) => !problem.is_fixed_by_upload_command).map((problem) => problem.code)).toEqual(engine.endsWith("-threads") ? ["needs_threads"] : []);
+    expect(buildHasThreads(buildOf(engine).checked)).toBe(engine.endsWith("-threads"));
   });
 
   it.each(engines)("%s: the scan's own stage holds nothing", (engine) => {
