@@ -22,7 +22,7 @@ import {
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
-import { JOIN_OFF_STYLES, joinButton } from "./friends-now.ts";
+import { JOIN_OFF_STYLES, joinAndWatch } from "./friends-now.ts";
 import { tile } from "./home.ts";
 import { accountPicture, html, layout, message, metalButton, raw, scriptTags, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -160,7 +160,7 @@ ${view.published_games.length
     : ""}
 ${playingNow
     ? html`<h2 class="rule-h">Playing now</h2><div class="grid games playing-now">${playingNow.game
-        ? html`<div>${tile({ slug: playingNow.game.slug, title: playingNow.game.title, cover: playingNow.game.cover_image_id ? `/img/${playingNow.game.cover_image_id}` : null, square: playingNow.game.square_image_id ? `/img/${playingNow.game.square_image_id}` : null })}${playingNow.join && viewer.kind !== "owner" ? html`<div class="join-row">${joinButton(playingNow.game.slug, playingNow.join)}</div>` : ""}</div>`
+        ? html`<div>${tile({ slug: playingNow.game.slug, title: playingNow.game.title, cover: playingNow.game.cover_image_id ? `/img/${playingNow.game.cover_image_id}` : null, square: playingNow.game.square_image_id ? `/img/${playingNow.game.square_image_id}` : null })}${(playingNow.join || playingNow.watch) && viewer.kind !== "owner" ? html`<div class="join-row">${joinAndWatch(playingNow.game.slug, playingNow)}</div>` : ""}</div>`
         : html`<div class="hit block"><span class="tile"><span class="pic"><span class="named"><span>A game that isn't out yet</span></span></span></span></div>`}</div>`
     : ""}
 ${played?.length
@@ -172,7 +172,7 @@ ${view.mutual_friends.length
     ? html`<h2 class="rule-h">Friends you both have</h2><ul class="faces">${view.mutual_friends.map((friend) => html`<li>${profileLink(friend.username, html`${accountPicture(friend.username, "sm")}<span>${friend.username}</span>`)}</li>`)}</ul>`
     : ""}
 </div>
-<style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
+<style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
 ${scriptTags(PROFILE_SCRIPT)}`;
   const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: editState ? 400 : 200, headers: response.headers });

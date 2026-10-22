@@ -408,6 +408,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   then Players, Block: Zaisma asks beside the game; a guest's block is for the session)
   Players plate   ${SITE}/g/arena?play  (Players in the bar: who's in the room with Mute and ⋯, with two windows in one room),
                   ${SITE}/g/tiny-farm?play  (a game with its own netcode), ${SITE}/g/shard-dodge?play  (single player: no button)
+  Spectators      ${SITE}/friends  (Kit_Spark's full room: Join grayed, Watch beside it),  ${SITE}/g/arena#rooms  ("· 2 watching"
+                  and Watch),  ${SITE}/g/arena?play  then the room's code in another window as ?room=CODE&watch=1  (Players:
+                  "1 watching" for the player, "You're watching" for the spectator)
   Ages            ${SITE}/g/shard-dodge  (16 and up: signed out, "Needs a Zaisma account"; as Quiet_Comet, 14, closed with
                   Find other games, and missing from ${SITE}/ and ${SITE}/friends; as Preview_Studio, Play opens it),
                   ${SITE}/dashboard/shard-dodge/details  (Ages on 16 and up, Zaisma accounts locked to Accounts only)
@@ -1248,6 +1251,8 @@ async function seedProfiles(go, form, people) {
  * The game's Join switches: Swift_Otter is in an Arena room the game made private, and Red_Lantern in
  * Cave Crew, which turned Join off. Four in a Row joins players by itself (quickJoin), and it and Cave
  * Crew have more open rooms than a list shows, so only Four in a Row's says Play finds you one.
+ * Spectators: Arena's room has 2 watching (its Rooms tab), and Kit_Spark's full room takes spectators,
+ * so Watch stays live beside a grayed Join.
  */
 function seedFriendsNow() {
   const later = 4102444800000;
@@ -1273,6 +1278,7 @@ function seedFriendsNow() {
     `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, is_kept, country, continent, created_at_ms, updated_at_ms) SELECT ${game("arena")}, 'NRTHWC', 0, 8, 1, 'Northwatch', 1, 'DE', 'EU', ${later}, ${later} ${ifMade}`,
     `INSERT OR REPLACE INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) SELECT ${game("arena")}, 'NRTHWC', 'Northwatch', 2400000, ${later}, ${later}, ${later} ${ifMade}`,
     ...room("four-in-a-row", "KTSPRK", 2, 2, "US", "NA", "Kit_Spark"),
+    `UPDATE live_rooms SET spectator_count = 2, maximum_spectator_count = 20 WHERE room_code IN ('MSSRNR', 'KTSPRK')`,
     // Tiny Farm plays on a server of its own: Tall_Pine is in one of its rooms there, so Join carries the server (Friends in games).
     `UPDATE games SET own_server_urls = '["wss://play.example.com"]' WHERE slug = 'tiny-farm'`,
     `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, server_url, joined_at_ms, updated_at_ms) SELECT ${game("tiny-farm")}, 'TNYFRM', ${player("Tall_Pine")}, 'wss://play.example.com', ${later}, ${later} ${ifMade}`,
