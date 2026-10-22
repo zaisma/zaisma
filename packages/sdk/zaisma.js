@@ -370,6 +370,7 @@
     this._serverUrl = setup.serverUrl;
     this._tries = 0;
     this._done = false;
+    this._isReloadingForOtherVersion = false;
     this._ready = null;
     // Walking away: the idle check the game asked for, when the room counts the player away (from welcome),
     // whether they're out of the match (and their connection gone too), and the last ping, pong and message.
@@ -429,7 +430,16 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed", "game_not_open_to_player", "blocked_player_here"];
+  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version"];
+
+  /**
+   * Whether a Zaisma room on another version (other_version) has the page reload the game at it: on the
+   * game's Zaisma page, except through a tester link (it plays only its own version) or in a tab that opened
+   * into this very room, where the game domain already had its chance to serve the room's version.
+   */
+  Room.prototype._reloadsForOtherVersion = function () {
+    return Boolean(config.site && window.parent !== window && !config.tester && roomCodeFromPage() !== this.roomCode);
+  };
 
   Room.prototype._connect = function () {
     var room = this;
@@ -446,6 +456,8 @@
       if (room._avoidsBlockedPlayers) hello.avoidBlockedPlayers = true;
       // Any quickJoin: Zaisma learns the game joins players by itself, for its Rooms tab.
       if (room._isQuickJoin) hello.isQuickJoin = true;
+      // The version this tab runs, so a Zaisma room on another one has the game reload at it first.
+      if (config.version && !room._serverUrl) hello.versionId = config.version;
       room._say(hello);
     };
     ws.onmessage = function (event) {
@@ -529,6 +541,10 @@
         room._done = true;
         room._emit("ended", message.message);
         left(room);
+      } else if (message.type === "error" && message.code === "other_version" && room._ready && room._reloadsForOtherVersion()) {
+        // The room runs another version: the page reloads the game at it, into this room, and this join waits for that.
+        room._isReloadingForOtherVersion = room._done = true;
+        window.parent.postMessage({ type: "zaisma:reload", code: room.roomCode, versionId: message.versionId }, config.site);
       } else if (message.type === "error") {
         room._emit("error", { code: message.code, message: message.message });
         if (room._ready && REFUSED.indexOf(message.code) !== -1) {
@@ -539,6 +555,7 @@
       }
     };
     ws.onclose = function (event) {
+      if (room._isReloadingForOtherVersion) return;
       // The match switched to a new version: its files changed, so the page reloads the game at it, back into this room.
       if (event.code === VERSION_UPDATE_CLOSE_CODE && room._isReloadingForVersion && config.site && window.parent !== window) {
         room._done = true;

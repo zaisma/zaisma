@@ -749,7 +749,8 @@ export type ServerMessage =
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
-  | { type: "error"; code: RoomErrorCode; message: string }
+  // versionId: with other_version, the version the room runs, which the game reloads at.
+  | { type: "error"; code: RoomErrorCode; message: string; versionId?: string }
   | { type: "ended"; message: string };
 
 export type RoomErrorCode =
@@ -770,7 +771,8 @@ export type RoomErrorCode =
   | "month_limit"
   | "account_needed"
   | "game_not_open_to_player"
-  | "blocked_player_here";
+  | "blocked_player_here"
+  | "other_version";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
@@ -791,6 +793,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
   game_not_open_to_player: "This game isn't open to this account.",
   blocked_player_here: "Someone you blocked is in this room.",
+  other_version: "This room runs another version of the game, so the game reloads at it first.",
 };
 
 /** What players are told when Zaisma ends a match at room.endsAt. */
@@ -907,9 +910,12 @@ export function checkRoomData(given: unknown): { isValid: true; checkedData: unk
   return { isValid: true, checkedData: JSON.parse(text) };
 }
 
-/** An error for a client. message replaces the usual text, like the game's reason for turning a player away. */
-export function errorMessage(code: RoomErrorCode, message?: string): string {
-  return JSON.stringify({ type: "error", code, message: message || ERROR_TEXT[code] } satisfies ServerMessage);
+/**
+ * An error for a client. message replaces the usual text, like the game's reason for turning a player away;
+ * details add what the code needs, like the room's versionId with other_version.
+ */
+export function errorMessage(code: RoomErrorCode, message?: string, details?: { versionId: string }): string {
+  return JSON.stringify({ type: "error", code, message: message || ERROR_TEXT[code], ...details } satisfies ServerMessage);
 }
 
 /** Whether a player may come in, and if not, why. */
