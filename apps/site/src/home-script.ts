@@ -215,13 +215,16 @@ function coverFacts(game, list, at) {
 }
 // The same markup as components/panes.ts's gameCover.
 function coverFor(game, list, at) {
-  const cover = make("div", "cover"), art = make("a", "cover-art"), image = make("img");
+  // The art in its carved slot, as gameCover draws it (coverPicture).
+  const cover = make("div", "cover"), art = make("a", "cover-art cut-carved"), picture = make("span", "cover-picture"), image = make("img");
+  picture.setAttribute("data-cut-line", "0");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
   art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
   // No cover yet: the well with Zaisma's mark, as gameCover draws it.
-  if (game.cover) { image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; art.append(image); }
-  else { art.classList.add("is-empty"); art.append(iconNode(DATA.parts.no_cover)); }
+  if (game.cover) { image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; picture.append(image); }
+  else { art.classList.add("is-empty"); picture.append(iconNode(DATA.parts.no_cover)); }
+  art.append(picture);
   const bar = make("span", "cover-bar"); bar.setAttribute("aria-hidden", "true");
   cover.append(art, bar, coverFacts(game, list, at));
   if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");

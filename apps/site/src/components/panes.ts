@@ -78,14 +78,17 @@ function coverFacts(facts: GlanceFacts): Raw {
   return html`<div class="cover-meta">${left}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
+/** A game's picture in its slot: just inside the slot's carved edge, cut to the same corners by the edge rule, so the carving lies beside it. */
+const coverPicture = (inside: Raw): Raw => html`<span class="cover-picture" data-cut-line="0">${inside}</span>`;
+
 /**
  * A game's cover: the studio's art alone, bare. The orange line draws in under it on point and runs out to the right on leave. A game
  * with no cover yet (imageUrl null) shows the well with Zaisma's mark in quiet ink until its developer adds one.
  */
 export function gameCover(options: { title: string; imageUrl: string | null; href: string; facts: GlanceFacts; isCurrent?: boolean }): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
-  const art = options.imageUrl ? html`<img src="${options.imageUrl}" alt="" loading="lazy" decoding="async">` : MARK;
-  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art${options.imageUrl ? "" : " is-empty"}" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${art}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  const art = coverPicture(options.imageUrl ? html`<img src="${options.imageUrl}" alt="" loading="lazy" decoding="async">` : MARK);
+  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art cut-carved${options.imageUrl ? "" : " is-empty"}" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${art}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
@@ -198,12 +201,16 @@ const COVER_STYLES = `
 /* Covers are the studios' art alone: no rim, no glass, nothing drawn on them. They're cut by the edge rule like every control, so a
    cover near a pane's corner takes the pane's cut and one in the middle of it is square: never a rectangle against a cut corner. */
 .cover { position: relative; min-width: 0; }
-.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: rgba(20,30,50,0.12); clip-path: var(--cut-shape); }
-.cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); clip-path: var(--cut-shape); }
+/* The art sits in a slot carved into the glass: the slot's carved light runs round its cut edge (cut-carved, as a field's does), and the
+   picture sits just inside it, cut to the same corners, so the carving lies beside the art and never over it. */
+.cover-art > .cut-line { z-index: 2; }
+.cover-picture { position: absolute; inset: 2px; overflow: hidden; clip-path: var(--cut-shape); }
+.cover-picture img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-art:focus-visible { outline: none; }
 /* No cover yet: the well, with Zaisma's mark in quiet ink in its middle. */
-.cover-art.is-empty { display: grid; place-items: center; background: var(--well); color: var(--muted); }
-.cover-art.is-empty > svg { width: 26%; height: auto; fill: currentColor; }
+.cover-art.is-empty .cover-picture { display: grid; place-items: center; color: var(--muted); }
+.cover-art.is-empty .cover-picture > svg:not(.cut-line) { width: 26%; height: auto; fill: currentColor; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
@@ -376,9 +383,9 @@ export function pictureViewer(options: PictureViewerOptions): Raw {
   const firstUrl = options.pictureUrls[0] ?? "";
   const sheetId = `${options.id}-large`;
   const named = (pictureIndex: number) => `Picture ${pictureIndex + 1} of ${pictureCount}`;
-  return html`<div class="viewer" id="${options.id}" data-viewer><button class="cover-art viewer-main" type="button" data-cut-line="0" aria-controls="${sheetId}" aria-label="${named(0)}, larger"><img src="${firstUrl}" alt="" decoding="async"></button>${pictureCount > 1
+  return html`<div class="viewer" id="${options.id}" data-viewer><button class="cover-art cut-carved viewer-main" type="button" data-cut-line="0" aria-controls="${sheetId}" aria-label="${named(0)}, larger">${coverPicture(html`<img src="${firstUrl}" alt="" decoding="async">`)}</button>${pictureCount > 1
     ? html`<div class="viewer-row" role="group" aria-label="Pictures of ${options.title}" data-fades-sideways>${options.pictureUrls.map(
-        (pictureUrl, pictureIndex) => html`<div class="cover"${pictureIndex === 0 ? raw(' aria-current="true"') : ""}><button class="cover-art" type="button" data-cut-line="0" data-picture="${pictureUrl}" aria-label="${named(pictureIndex)}" aria-pressed="${pictureIndex === 0 ? "true" : "false"}"><img src="${pictureUrl}" alt="" loading="lazy" decoding="async"></button><span class="cover-bar" aria-hidden="true"></span></div>`,
+        (pictureUrl, pictureIndex) => html`<div class="cover"${pictureIndex === 0 ? raw(' aria-current="true"') : ""}><button class="cover-art cut-carved" type="button" data-cut-line="0" data-picture="${pictureUrl}" aria-label="${named(pictureIndex)}" aria-pressed="${pictureIndex === 0 ? "true" : "false"}">${coverPicture(html`<img src="${pictureUrl}" alt="" loading="lazy" decoding="async">`)}</button><span class="cover-bar" aria-hidden="true"></span></div>`,
       )}</div>`
     : ""}${sheet({ id: sheetId, title: options.title, body: html`<img class="viewer-large" src="${firstUrl}" alt="">`, closeLabel: "Close" })}</div>`;
 }

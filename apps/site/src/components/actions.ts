@@ -626,12 +626,14 @@ const edgePane = (body: Raw) => glassPane({ paneSize: "small", body });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;
+  /** Opens in a new tab, so the page it's on stays where it was: a profile linked from a game's page. */
+  isNewTab?: boolean;
   state?: "is-pointed" | "is-focused";
 }
 
 /** A link in words: ink with an orange underline, so it reads as a link without shouting. Quiet in a list of links, where it's plain until pointed at. */
 export function textLink(words: string, href: string, options: TextLinkOptions = {}): Raw {
-  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}">${words}</a>`;
+  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}"${options.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}>${words}</a>`;
 }
 
 component({

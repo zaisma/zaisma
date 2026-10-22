@@ -231,11 +231,13 @@ export interface PersonOptions {
   href: string;
   /** A line about them: "12 games on Zaisma". */
   note?: string;
+  /** Their profile opens in a new tab, so the page they're named on stays where it was (a game's page). */
+  isNewTab?: boolean;
 }
 
 /** A person: someone on Zaisma named in a pane (a game's developer), their picture in its frame beside their name, a Link to their profile, and a line about them. */
 export function person(options: PersonOptions): Raw {
-  return html`<div class="person">${pictureFrame(options.username, "md")}<span class="person-words">${textLink(options.username, options.href)}${options.note ? html`<span class="person-note">${options.note}</span>` : ""}</span></div>`;
+  return html`<div class="person">${pictureFrame(options.username, "md")}<span class="person-words">${textLink(options.username, options.href, { isNewTab: options.isNewTab })}${options.note ? html`<span class="person-note">${options.note}</span>` : ""}</span></div>`;
 }
 
 component({
@@ -456,6 +458,26 @@ export function table(options: TableOptions): Raw {
   )}</tbody></table></div></div>`;
 }
 
+/**
+ * The row under the mouse, lit by the table itself: found where the pointer is on every move and on every scroll (the page's or the
+ * table's), so the light stays under the pointer as rows scroll past it, instead of riding up with the row it was on.
+ */
+export const TABLE_SCRIPT = `/* tables */(function () {
+  var lit = null, pointer = null;
+  function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
+  function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
+  document.addEventListener("pointermove", function (event) {
+    if (event.pointerType !== "mouse") return;
+    pointer = [event.clientX, event.clientY];
+    var row = event.target.closest && event.target.closest(".data-table tbody tr");
+    if (row) row.closest(".data-table").classList.add("is-tracked");
+    light(row);
+  }, { passive: true });
+  document.documentElement.addEventListener("pointerleave", function () { pointer = null; light(null); });
+  document.addEventListener("scroll", function () { if (pointer) light(rowAt(pointer[0], pointer[1])); }, { capture: true, passive: true });
+})();
+`;
+
 const VERSION_ROWS: (Raw | string)[][] = [
   ["Version 15", tag("Held", "warning"), "314", "49.2 MB", "An hour ago"],
   ["Version 14", tag("Live", "new"), "312", "48.1 MB", "Oct 19"],
@@ -492,7 +514,9 @@ component({
 .data-table td:first-child { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
-.data-table tbody tr:hover > td { background: var(--row-hover); }
+/* The row under the pointer: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since the browser's own hover keeps
+   the row it lit until the pointer moves; without the script, the browser's hover does. */
+.data-table:not(.is-tracked) tbody tr:hover > td, .data-table tbody tr.is-lit > td { background: var(--row-hover); }
 .data-table.compact thead th { padding: 8px 12px; }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; font: var(--type-facts); }
 /* Rows fade as they scroll up under the header, so its clear glass stays clear instead of showing their words through it: each row's

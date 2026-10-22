@@ -213,7 +213,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
 <div class="home-window" aria-hidden="true"></div>
 <div class="home-pane" id="home-pane">${tray({
         label: "The game in focus",
-        head: html`<div class="home-stage-in"><div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art home-art" data-cut-line="0" aria-hidden="true"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></div><h1 id="home-title">${first.title}</h1></div>
+        head: html`<div class="home-stage-in"><div class="home-head${first.cover ? " has-cover" : ""}" id="home-head"><div class="cover-art cut-carved home-art" data-cut-line="0" aria-hidden="true"><span class="cover-picture" data-cut-line="0"><img id="home-art" src="${first.cover ?? PLACEHOLDER_COVER}" alt=""></span></div><h1 id="home-title">${first.title}</h1></div>
 <div class="control-row home-actions">${runButton("Play", { href: `/g/${first.slug}?play`, isBig: true, icon: "play" })}${cutButton("Details", { href: `/g/${first.slug}`, isBig: true })}</div>
 <div class="home-more" id="home-more"><div class="home-more-in" id="home-more-in"><p class="home-facts" id="home-facts">${[first.developer ? `by ${first.developer}` : "", first.modes].filter(Boolean).join(" · ")}</p><div id="home-glance">${shownPlayerCount(first) !== undefined ? glanceFacts({ playerCount: shownPlayerCount(first) }) : ""}</div><p class="home-description" id="home-description">${first.description}</p></div></div></div>`,
         body: html`<div class="home-cue">${textButton("More games", { href: "#home-games", icon: "chevron-down" })}</div>`,

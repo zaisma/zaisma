@@ -144,7 +144,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const testerNote = tester
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
     : "";
-  const paneBody = html`<div class="game-head"><h1 id="title">${game.title}</h1>${developer ? html`<p class="game-by">by ${textLink(developer.name, profilePath(developer.name))}</p>` : ""}</div>
+  const paneBody = html`<div class="game-head"><h1 id="title">${game.title}</h1>${developer ? html`<p class="game-by">by ${textLink(developer.name, profilePath(developer.name), { isNewTab: true })}</p>` : ""}</div>
 ${tester || !canSignIn || isClosed ? "" : html`<div class="friends-here" id="friends-here" hidden></div>`}
 <div class="game-glance" id="playing-now"${isPlayingNowShown ? "" : raw(" hidden")}>${glanceFacts({ playerCount: playingNowPlayerCount })}</div>
 ${accountRequirement !== "none" && !isClosed
@@ -165,7 +165,7 @@ ${gameFacts.length ? facts({ facts: gameFacts, label: "About this game" }) : ""}
     body: html`<h2>About</h2>
 ${game.description ? html`<p class="game-description">${game.description}</p>` : html`<p class="game-description is-empty">The developer hasn't written about this game yet.</p>`}
 ${developer || pageLinks.length
-    ? html`<div class="game-maker">${developer ? person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) : ""}${developerLinks(pageLinks)}</div>`
+    ? html`<div class="game-maker">${developer ? person({ username: developer.name, href: profilePath(developer.name), isNewTab: true, note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) : ""}${developerLinks(pageLinks)}</div>`
     : ""}`,
   });
   // Patch notes, newest first, in a pane that keeps its height: older ones scroll inside it.

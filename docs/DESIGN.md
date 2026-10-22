@@ -198,7 +198,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
-  - `options`: `isQuiet?: boolean`, `state?: "is-pointed" | "is-focused"`
+  - `options`: `isQuiet?: boolean`, `isNewTab?: boolean`, `state?: "is-pointed" | "is-focused"`
 
 ### Inputs
 
@@ -280,7 +280,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Facts** (`facts(options: { … })`, `data.ts`): What something is, in a few short facts: who a game is for, what it runs on. Each a quiet label over its words, side by side while they fit.
   - `options`: `facts: Fact[]`, `label?: string`
 - **Person** (`person(options: PersonOptions)`, `data.ts`): Someone on Zaisma named in a pane, like a game's developer: their picture in its frame, their name a Link to their profile, and a line about them.
-  - `options`: `username: string`, `href: string`, `note?: string`
+  - `options`: `username: string`, `href: string`, `note?: string`, `isNewTab?: boolean`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point.
   - `options`: `rows: ListRow[]`, `id?: string`, `label?: string`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
