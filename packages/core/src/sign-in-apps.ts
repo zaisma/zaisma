@@ -1,4 +1,5 @@
 import { newId, sha256Hex } from "./ids.ts";
+import { hiddenCharacterOf } from "./shown-text.ts";
 import { checkText } from "./text-filter.ts";
 import { b64url } from "./webauthn.ts";
 
@@ -58,6 +59,8 @@ export const redirectUrlsOf = (app: { redirect_urls: string }): string[] => JSON
 export function checkSignInAppName(input: unknown): { name: string } | { error: string } {
   const name = typeof input === "string" ? input.normalize("NFKC").replace(/\s+/g, " ").trim() : "";
   if (!name || name.length > 60) return { error: "name is empty or over 60 characters." };
+  const hidden = hiddenCharacterOf(name);
+  if (hidden) return { error: `name holds ${hidden}, a character that's invisible or flips text direction.` };
   if (/z\W*a\W*i\W*s\W*m\W*a/i.test(name)) return { error: "name can't say Zaisma: players would take the app for Zaisma's own." };
   // Only the word check: a site's own address in its name ("skyhopper.io") is fine here.
   const textCheck = checkText(name);

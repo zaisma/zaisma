@@ -18,7 +18,7 @@ import {
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { accountPicture, esc, html, layout, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
+import { accountPicture, esc, html, layout, raw, scriptTags, securityHeaders, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { profilePath } from "./profiles.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
@@ -810,7 +810,7 @@ function outPage(ctx: Ctx, to: string): Response {
   try {
     destination = new URL(to);
   } catch {}
-  if (!destination || (destination.protocol !== "https:" && destination.protocol !== "http:")) {
+  if (!destination || !shownAddress(destination.href)) {
     return forumPage(ctx, "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { httpStatus: 400 });
   }
   return forumPage(

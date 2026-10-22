@@ -149,6 +149,8 @@ import {
   listRooms,
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
+  checkShownText,
+  type ShownTextOptions,
 } from "@zaisma/core";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -829,8 +831,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (path === "/games" && method === "POST") {
     const body = checked.body;
-    const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) throw new ApiError("bad_title", { message: "title is empty or over 80 characters.", field: "title", fix: "Give the game a title of 1 to 80 characters." });
+    const title = shownTextOrThrow(body.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
@@ -1115,6 +1116,16 @@ function badMethod(method: string, path: string): ApiError {
   return new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md lists the methods each path takes." });
 }
 
+/** Shown text from the API, checked (checkShownText), or the error answer: bad_<field>. */
+export function shownTextOrThrow(input: unknown, options: ShownTextOptions): string {
+  const checked = checkShownText(input, options);
+  if ("problem" in checked) {
+    const { field, message, fix } = checked.problem;
+    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix });
+  }
+  return checked.text;
+}
+
 /** A game's new details, checked, or the error answer for the first input that's wrong. */
 function checkDetailsOrThrow(body: Record<string, unknown>) {
   const checked = checkDetails(body);
@@ -1278,11 +1289,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       });
     }
     const uploadMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
-    if (body.patch_notes !== undefined && typeof body.patch_notes !== "string") throw new ApiError("bad_patch_notes", { message: "patch_notes isn't text.", field: "patch_notes", fix: "Send what changed as text, or leave it out." });
-    const patchNotes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
-    if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) {
-      throw new ApiError("bad_patch_notes", { message: `patch_notes is ${patchNotes.length} characters, over ${FILE_LIMITS.maximumPatchNotesCharacterCount}.`, field: "patch_notes", fix: `Shorten them to ${FILE_LIMITS.maximumPatchNotesCharacterCount} characters; players see them.` });
-    }
+    const patchNotes = body.patch_notes === undefined ? "" : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
@@ -1837,9 +1844,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
 }
 
 function readTesterName(given: unknown): string {
-  const name = typeof given === "string" ? given.trim().replace(/\s+/g, " ") : "";
-  if (!name || name.length > 60) throw new ApiError("bad_name", { message: "name is empty or over 60 characters.", field: "name", fix: 'Name the link for who it\'s for, in 1 to 60 characters, like "Playtesters" or "My team".' });
-  return name;
+  return shownTextOrThrow(given, { field: "name", maximumCharacterCount: 60, isRequired: true });
 }
 
 /**

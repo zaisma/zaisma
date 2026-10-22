@@ -66,7 +66,7 @@ export async function searchTopics(env: Env, match: string, filters: { where: st
   const { results } = await env.DB.prepare(
     // The matches are worked out first (MATERIALIZED), since bm25 can't run inside the grouping.
     `WITH hits AS MATERIALIZED (
-       SELECT topic_id, bm25(forum_search, 4.0, 1.0) AS rank_score, snippet(forum_search, -1, '«', '»', '…', 14) AS snippet_text FROM forum_search WHERE forum_search MATCH ?
+       SELECT topic_id, bm25(forum_search, 4.0, 1.0) AS rank_score, snippet(forum_search, -1, char(2), char(3), '…', 14) AS snippet_text FROM forum_search WHERE forum_search MATCH ?
      ), best AS (SELECT topic_id, MIN(rank_score) AS rank_score, snippet_text FROM hits GROUP BY topic_id)
      SELECT topic.*, best.snippet_text AS search_match FROM best JOIN forum_topics topic ON topic.id = best.topic_id
      WHERE ${filters.where.join(" AND ")}
@@ -74,5 +74,7 @@ export async function searchTopics(env: Env, match: string, filters: { where: st
   )
     .bind(match, ...filters.binds, maximumTopicCount, startIndex)
     .all<ForumTopic & { search_match: string }>();
-  return results;
+  // The search marks its words with two control characters no post can hold (checkShownText), so a « or » someone typed
+  // can't pass for a mark: theirs are dropped from the snippet, and only the search's become «…».
+  return results.map((topic) => ({ ...topic, search_match: topic.search_match.replace(/[«»]/g, "").replace(/\u0002/g, "«").replace(/\u0003/g, "»") }));
 }

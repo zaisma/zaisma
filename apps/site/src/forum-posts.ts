@@ -16,6 +16,7 @@ import {
   type PostedVia,
   type TopicSeverity,
   type TopicStatus,
+  checkShownText,
 } from "@zaisma/core";
 import type { Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -188,6 +189,8 @@ export async function readPost(env: Env, caller: Caller, body: Record<string, un
     });
   }
   const given = typeof body.text_markdown === "string" ? body.text_markdown.trim() : "";
+  const shown = checkShownText(given, { field: "text_markdown", maximumCharacterCount: FORUM_LIMITS.textCharacterCount, isMultiline: true });
+  if (given && given.length <= FORUM_LIMITS.textCharacterCount && "problem" in shown) throw new ApiError("bad_text_markdown", { message: shown.problem.message, field: "text_markdown", fix: shown.problem.fix });
   if (!given || given.length > FORUM_LIMITS.textCharacterCount) {
     throw new ApiError("bad_text_markdown", {
       message: given ? `text_markdown is ${given.length} characters, over ${FORUM_LIMITS.textCharacterCount}.` : "text_markdown is empty or missing.",
@@ -278,6 +281,8 @@ export async function storePost(
 
 export function readTitle(body: Record<string, unknown>): string {
   const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
+  const shown = checkShownText(title, { field: "title", maximumCharacterCount: FORUM_LIMITS.titleCharacterCount, isRequired: true });
+  if (title && title.length <= FORUM_LIMITS.titleCharacterCount && "problem" in shown) throw new ApiError("bad_title", { message: shown.problem.message, field: "title", fix: shown.problem.fix });
   if (!title || title.length > FORUM_LIMITS.titleCharacterCount) {
     throw new ApiError("bad_title", { message: `title is empty or over ${FORUM_LIMITS.titleCharacterCount} characters.`, field: "title", fix: `Give one specific line of 1 to ${FORUM_LIMITS.titleCharacterCount} characters, like "upload_files fails with too_big for a 3 MB game".` });
   }

@@ -19,7 +19,7 @@ export const SECTORS = [
 
 export const SECTOR_IDS = SECTORS.map((sector) => sector.sector_id);
 
-export const DOOR_KINDS = ["api_call", "mcp_tool", "admin_tool", "page_form", "page_route", "game_file_address", "room_message", "token_or_session"];
+export const DOOR_KINDS = ["api_call", "mcp_tool", "admin_tool", "page_form", "page_route", "game_file_address", "room_message", "token_or_session", "stored_value"];
 
 /** What a case can be stored as. A night's "recheck" is a frontier bucket, never a stored status. */
 export const STATUSES = ["unexplored", "robust", "weak", "hole", "fixed", "stale"];
