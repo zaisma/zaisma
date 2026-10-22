@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { GAME_DATABASE_FREE_LIMITS, addDatabaseRestore, createAccount, createApiKey, nextMonthStartDate } from "@zaisma/core";
+import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, addDatabaseRestore, createAccount, createApiKey, nextMonthStartDate } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { DATABASE, DATABASE_EXPORT, DATABASE_RESTORED, STATEMENT_RESULT } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
@@ -55,7 +55,7 @@ beforeEach(async () => {
 });
 
 describe("the game database through the API and MCP", () => {
-  it("starts empty, with this month's use against the free limits", async () => {
+  it("starts empty, with this month's use on the game's hosting meter", async () => {
     const overview = await tool("get_database", { slug: "sky-hopper" });
     expect(schemaProblems(DATABASE, overview)).toEqual([]);
     expect(overview).toEqual({
@@ -65,14 +65,9 @@ describe("the game database through the API and MCP", () => {
         read_row_count: expect.any(Number),
         written_row_count: 0,
         storage_size_bytes: expect.any(Number),
-        free_read_row_count: GAME_DATABASE_FREE_LIMITS.readRowCountPerMonth,
-        free_written_row_count: GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth,
-        free_storage_size_bytes: GAME_DATABASE_FREE_LIMITS.storageSizeBytes,
-        has_reached_free_reads: false,
-        has_reached_free_writes: false,
-        has_reached_free_storage: false,
-        reset_date: nextMonthStartDate(),
+        maximum_storage_size_bytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES,
       },
+      hosting_use_this_month: expect.objectContaining({ free_used_pct: 0, is_paused: false, paused_reason: null, resets_on_date: nextMonthStartDate(), monthly_budget_cents: null, spent_from_credit_cents: 0 }),
       restores: [],
     });
   });

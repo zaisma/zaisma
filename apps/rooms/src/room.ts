@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   ENDED_CLOSE_CODE,
   ERROR_TEXT,
-  MONTH_LIMIT_END_MESSAGE,
+  HOSTING_PAUSED_END_MESSAGE,
   NO_ANSWER_CLOSE_CODE,
   PassError,
   REFUSED_CLOSE_CODE,
@@ -30,7 +30,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { FREE_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, isHostingPaused, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
@@ -112,7 +112,7 @@ const TESTER_CHECK_MS = 10_000;
 /** An empty room's saved state is deleted after this, unless the room is kept (room.setKept). */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** What a kept room's game server's log says when the game's storage is too full to keep another. */
-const KEEP_REFUSED_TEXT = `Zaisma: this room can't be kept, because this game's storage is past its free ${FREE_GAME_STORAGE_SIZE_BYTES / 1024 / 1024} MB. Delete kept rooms (zaisma kept-rooms) or database rows to make room.`;
+const KEEP_REFUSED_TEXT = `Zaisma: this room can't be kept, because this game's storage is full at its ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. Delete kept rooms (zaisma kept-rooms) or database rows to make room.`;
 /** What players in a kept room hear when its developer deletes it. */
 const KEPT_ROOM_DELETED_MESSAGE = "This world was deleted.";
 /** How often a room with players checks in, so rooms that stop without saying so drop off. */
@@ -129,8 +129,8 @@ const SWEEP_MS = 30_000;
 const DEAD_MS = 75_000;
 /** A socket's seen time is written at most this often, so busy rooms don't rewrite it on every message. */
 const SEEN_MS = 15_000;
-/** How often a room with players checks whether its game has used the month's free tier, to start the hour its match gets to finish. */
-const FREE_TIER_CHECK_MS = 5 * 60_000;
+/** How often a room with players checks whether its game's hosting paused, to start the hour its match gets to finish. */
+const HOSTING_CHECK_MS = 5 * 60_000;
 /**
  * How often a real-time room copies its sandboxed game server's state, never while a copy is under way:
  * a fresh session after a failure carries on from the last copy, so a match loses at most this much.
@@ -218,8 +218,8 @@ export class Room extends DurableObject<Env> {
   private isRowStale = false;
   /** The game server hit an error the room hasn't written to game_server_errors yet: written within a minute. */
   private hasUnrecordedError = false;
-  /** When the room last checked whether its game has used the month's free tier. */
-  private freeTierCheckedAtMs = 0;
+  /** When the room last checked whether its game's hosting paused. */
+  private hostingCheckedAtMs = 0;
   /** Kept (room.setKept), as this room accepted it and kept_rooms has it: it sleeps with its state when everyone leaves. */
   private isKept = false;
   /** The room's saved state was saved as it emptied (Saved.isSavedEmpty). */
@@ -234,7 +234,7 @@ export class Room extends DurableObject<Env> {
     // Games ping every 25 seconds or so; the answer doesn't wake the room, and the time is kept per socket.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "freeTierCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
       this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
       this.meta = (got.get("meta") as Meta | undefined) ?? null;
       const saved = (got.get("saved") as Saved | undefined) ?? {};
@@ -267,7 +267,7 @@ export class Room extends DurableObject<Env> {
         this.stateChunkCount = saved.stateChunkCount;
       }
       this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
-      this.freeTierCheckedAtMs = (got.get("freeTierCheckedAtMs") as number | undefined) ?? 0;
+      this.hostingCheckedAtMs = (got.get("hostingCheckedAtMs") as number | undefined) ?? 0;
       this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
       this.alarmAtMs = await ctx.storage.getAlarm();
     });
@@ -366,9 +366,9 @@ export class Room extends DurableObject<Env> {
           // Already closed.
         }
       }
-      // The hour the match got to finish, once the game used the month's free tier, is up.
+      // The hour the match got to finish, once the game's hosting paused, is up.
       if (core && !this.hasEnded && core.endsAt !== null && Date.parse(core.endsAt) <= Date.now()) {
-        core.end(MONTH_LIMIT_END_MESSAGE);
+        core.end(HOSTING_PAUSED_END_MESSAGE);
         await this.finish();
         return;
       }
@@ -376,7 +376,7 @@ export class Room extends DurableObject<Env> {
         core.sweep();
         await this.settle(core);
         if (this.isRowStale) await this.list();
-        if (Date.now() - this.freeTierCheckedAtMs >= FREE_TIER_CHECK_MS) await this.checkFreeTier(core);
+        if (Date.now() - this.hostingCheckedAtMs >= HOSTING_CHECK_MS) await this.checkHosting(core);
       }
       if (this.hasUnrecordedError) {
         this.hasUnrecordedError = false;
@@ -471,7 +471,7 @@ export class Room extends DurableObject<Env> {
   private async reserved(request: Request): Promise<Response> {
     if (this.meta || this.savedRoom) return new Response("This room is taken", { status: 409 });
     const gameId = request.headers.get("x-game-id")!;
-    if (await pastFreeTier(this.env.DB, gameId)) return new Response(ERROR_TEXT.month_limit, { status: 403 });
+    if ((await isHostingPaused(this.env.DB, gameId)).isPaused) return new Response(ERROR_TEXT.hosting_paused, { status: 403 });
     const start = (await request.json()) as RoomStart;
     this.meta = {
       gameId,
@@ -585,8 +585,8 @@ export class Room extends DurableObject<Env> {
     if (roomVersionId && helloVersionId && helloVersionId !== roomVersionId && !core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id)) {
       return this.refuse(socket, "other_version", undefined, { versionId: roomVersionId });
     }
-    // Past this month's free tier, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
-    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkFreeTier(core)))) return this.refuse(socket, "month_limit");
+    // Once its game's hosting pauses, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
+    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkHosting(core)))) return this.refuse(socket, "hosting_paused");
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
     // Spectators send nothing, so nothing of theirs reaches a player to block.
     if (player.kind === "account" && core.known.size > 0 && !isSpectator) {
@@ -699,17 +699,19 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Whether the game has used this month's free tier. The first time a running match finds it has, it
-   * gets MATCH_FINISH_DURATION_SEC to finish: its game server and players hear when it ends (room.endsAt).
+   * Whether the game's hosting is paused this month (hosting.ts). A running match that finds it is ends
+   * MATCH_FINISH_DURATION_SEC after the pause, so every room of the game ends together: its game server
+   * and players hear when (room.endsAt).
    */
-  private async checkFreeTier(core: RoomCore): Promise<boolean> {
+  private async checkHosting(core: RoomCore): Promise<boolean> {
     if (core.endsAt !== null) return true;
     // Kept, since a sleeping room forgets: otherwise every wake would check.
-    this.freeTierCheckedAtMs = Date.now();
-    await this.ctx.storage.put("freeTierCheckedAtMs", this.freeTierCheckedAtMs);
-    if (!(await pastFreeTier(this.env.DB, this.meta!.gameId))) return false;
+    this.hostingCheckedAtMs = Date.now();
+    await this.ctx.storage.put("hostingCheckedAtMs", this.hostingCheckedAtMs);
+    const hosting = await isHostingPaused(this.env.DB, this.meta!.gameId);
+    if (!hosting.isPaused) return false;
     if (core.players.size > 0 && !core.ended) {
-      const endsAtMs = Date.now() + MATCH_FINISH_DURATION_SEC * 1000;
+      const endsAtMs = Math.max(Date.now(), hosting.pausedAtMs! + MATCH_FINISH_DURATION_SEC * 1000);
       core.startEnding(new Date(endsAtMs).toISOString());
       // Kept with the room, so a room that sleeps and wakes keeps the same end.
       this.savedRoom = core.saved;
@@ -853,7 +855,7 @@ export class Room extends DurableObject<Env> {
       await this.unkeepRow();
       return;
     }
-    if (await this.isPastFreeStorage()) {
+    if (await this.isStorageFull()) {
       core.isKept = false;
       this.printed([{ atMs: Date.now(), level: "warn", text: KEEP_REFUSED_TEXT }]);
       return;
@@ -862,11 +864,11 @@ export class Room extends DurableObject<Env> {
     await this.keepRow();
   }
 
-  /** Whether the game's database and kept rooms together are past the free storage. A check that fails lets the keep through. */
-  private async isPastFreeStorage(): Promise<boolean> {
+  /** Whether the game's database and kept rooms together are at the most storage a game can have. A check that fails lets the keep through. */
+  private async isStorageFull(): Promise<boolean> {
     try {
       const databaseSizeBytes = (await gameDatabaseObject(this.env, this.meta!.gameId).usageThisMonth()).storageSizeBytes;
-      return (await gameStorageSizeBytes(this.env.DB, databaseSizeBytes, this.meta!.gameId)) >= FREE_GAME_STORAGE_SIZE_BYTES;
+      return (await gameStorageSizeBytes(this.env.DB, databaseSizeBytes, this.meta!.gameId)) >= MAXIMUM_GAME_STORAGE_SIZE_BYTES;
     } catch (error) {
       console.error("Couldn't read the game's storage:", error);
       return false;

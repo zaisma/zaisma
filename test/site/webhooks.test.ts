@@ -5,7 +5,8 @@ import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { adminForm } from "../../apps/site/src/admin.ts";
-import { deliverDueWebhooks, eraseDuePlayers, noticeFreeUseAlerts, tellAccountDeleted, tellAlertNotices, tellGameServerErrors } from "../../apps/site/src/webhooks.ts";
+import { deliverDueWebhooks, eraseDuePlayers, tellAccountDeleted, tellAlertNotices, tellGameServerErrors } from "../../apps/site/src/webhooks.ts";
+import { runHostingJob } from "../../apps/site/src/hosting-job.ts";
 import { triageReports, type TriageDeps } from "../../apps/site/src/triage.ts";
 import { WEBHOOK_EVENT } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
@@ -552,14 +553,14 @@ describe("room events", () => {
   }
 
   async function tellAlerts() {
-    await noticeFreeUseAlerts(testEnv);
+    await runHostingJob(testEnv);
     await tellAlertNotices(testEnv);
   }
 
   // Calls are limited per account each minute, so each test here has an account of its own.
   let accountNumber = 0;
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM alert_notices; DELETE FROM game_server_errors; DELETE FROM room_usage;");
+    await env.DB.exec("DELETE FROM alert_notices; DELETE FROM game_server_errors; DELETE FROM room_usage; DELETE FROM game_hosting_months;");
     await gameServers().takeSent(null);
     accountNumber++;
     await createAccount(env.DB, { id: `dev-room-${accountNumber}`, username: `Room_Dev_${accountNumber}`, ageBand: "18+" });
@@ -634,40 +635,42 @@ describe("room events", () => {
     expect(sent.map((each) => JSON.parse(each.eventJson).game_server_error.message)).toEqual(["onJoin threw: oops (zaisma-server.js:3:9)"]);
   });
 
-  it("tell a webhook when rooms are nearly used, once a month, then when they pause", async () => {
+  it("tell a webhook when free hosting is nearly used, once a month, then when it pauses", async () => {
     await publishedGame("sky-hopper");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
-    await setUse("sky-hopper", { room_play_duration_sec: 850 * 3600 });
+    // 2,100 player-hours of a rooms-only game: 84% of the free allowance.
+    await setUse("sky-hopper", { room_play_duration_sec: 2100 * 3600 });
 
     await tellAlerts();
     expect(received).toHaveLength(1);
     const [event] = events();
     expect(schemaProblems(WEBHOOK_EVENT, event)).toEqual([]);
-    expect(event).toMatchObject({ kind: "alert_raised", game: { slug: "sky-hopper" }, version: null, game_server_error: null, alert: { kind: "rooms_nearly_paused" } });
+    expect(event).toMatchObject({ kind: "alert_raised", game: { slug: "sky-hopper" }, version: null, game_server_error: null, alert: { kind: "hosting_nearly_paused" } });
     const { alerts } = await api("/games/sky-hopper");
-    expect(event.alert).toEqual(alerts.find((alert: { kind: string }) => alert.kind === "rooms_nearly_paused"));
+    expect(event.alert).toEqual(alerts.find((alert: { kind: string }) => alert.kind === "hosting_nearly_paused"));
 
     await tellAlerts();
     expect(received).toHaveLength(1);
 
-    await setUse("sky-hopper", { room_play_duration_sec: 1000 * 3600 });
+    await setUse("sky-hopper", { room_play_duration_sec: 2500 * 3600 });
     await tellAlerts();
     expect(received).toHaveLength(2);
-    expect(events()[1].alert.kind).toBe("rooms_paused");
-    expect(events()[1].alert).toEqual((await api("/games/sky-hopper")).alerts.find((alert: { kind: string }) => alert.kind === "rooms_paused"));
+    expect(events()[1].alert.kind).toBe("hosting_paused");
+    expect(events()[1].alert).toEqual((await api("/games/sky-hopper")).alerts.find((alert: { kind: string }) => alert.kind === "hosting_paused"));
     await tellAlerts();
     expect(received).toHaveLength(2);
   });
 
-  it("tell an address that requests paused, but not the game's own game server", async () => {
+  it("tell an address that hosting paused, but not the game's own game server", async () => {
     await publishedGame("sky-hopper");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
     await tool("create_webhook", { destination_kind: "game_server", event_kinds: ["alert_raised"], game_slugs: ["sky-hopper"] });
-    await setUse("sky-hopper", { game_server_request_count: 1_000_000 });
+    // 3,125,000 requests are the whole free allowance.
+    await setUse("sky-hopper", { game_server_request_count: 3_125_000 });
 
     await tellAlerts();
     // Straight past the heads-up: only the paused alert goes out.
-    expect(events().map((event) => event.alert.kind)).toEqual(["requests_paused"]);
+    expect(events().map((event) => event.alert.kind)).toEqual(["hosting_paused"]);
     expect(schemaProblems(WEBHOOK_EVENT, events()[0])).toEqual([]);
     expect(await gameServers().takeSent(null)).toEqual([]);
   });
@@ -677,7 +680,7 @@ describe("room events", () => {
     await tool("create_webhook", { endpoint_url: `${HOOKS}/bugs`, event_kinds: ["bug_reported", "game_server_error_found"] });
     await tool("create_webhook", { endpoint_url: `${HOOKS}/theirs`, event_kinds: ["alert_raised"] }, other);
     await tool("create_webhook", { endpoint_url: `${HOOKS}/alerts`, event_kinds: ["alert_raised"] });
-    await setUse("sky-hopper", { room_play_duration_sec: 900 * 3600 });
+    await setUse("sky-hopper", { room_play_duration_sec: 2200 * 3600 });
 
     await tellAlerts();
     expect(received.map((request) => request.url)).toEqual([`${HOOKS}/alerts`]);

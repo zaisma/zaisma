@@ -104,7 +104,7 @@ export const DATABASE_LIMITS = {
   maximumRowCount: 10_000,
 } as const;
 
-export type DatabaseErrorCode = "bad_sql" | "bad_values" | "bad_player_id" | "too_many_rows" | "database_write_limit" | "database_read_limit" | "database_storage_limit" | "database_unavailable";
+export type DatabaseErrorCode = "bad_sql" | "bad_values" | "bad_player_id" | "too_many_rows" | "hosting_paused" | "database_full" | "database_unavailable";
 
 /** A call the database refused, with a code, what happened and what to do (like the developer API's errors, docs/NAMING.md). */
 export class DatabaseError extends Error {

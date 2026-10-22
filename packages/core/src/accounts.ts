@@ -400,6 +400,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           // Their games are taken down and deleted with them, their links never given to another game;
           // one under a child-safety hold is kept whole for Zaisma (packages/core/src/game-deletion.ts).
           ...ownerGameDeletions(database, owner.id),
+          // Their credit goes with them: the site refunds what still refunds first (credit-api.ts, refundForDeletion).
+          database.prepare("DELETE FROM credit_entries WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]
       : []),

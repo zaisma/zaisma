@@ -7,7 +7,7 @@ import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
 
-const UNITS = ["ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct"];
+const UNITS = ["ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct", "cents"];
 const RATE = /_per_(sec|min|hour|day)$/;
 /** Short forms and vague words that never make a name on their own (rules 1 and 3). */
 const VAGUE = new Set(["t", "data", "info", "value", "result", "context", "time", "size", "length", "rate", "duration", "timeout", "delay", "interval", "count", "at", "since", "url", "max", "min"]);

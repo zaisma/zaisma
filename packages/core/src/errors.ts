@@ -147,9 +147,7 @@ export const ERROR_CODES = {
   bad_player_id: { httpStatus: 400, meaning: "player_id isn't a player ID (player_…)." },
   too_many_rows: { httpStatus: 400, meaning: "A statement answered more than 10,000 rows." },
   answer_too_big: { httpStatus: 400, meaning: "The rows answered come to more than 8 MB." },
-  database_write_limit: { httpStatus: 429, meaning: "The game's database has written its free rows this month, so writes wait for the next." },
-  database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
-  database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
+  database_full: { httpStatus: 403, meaning: "The statement would grow the game's storage (its database and kept rooms) past the 10 GB a game can keep." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
   database_restore_unavailable: { httpStatus: 501, meaning: "This Zaisma's game databases can't go back in time: its storage keeps no history, like a local preview." },
   no_database_restore: { httpStatus: 404, meaning: "The game has no database restore with that ID in the last 30 days." },
@@ -160,6 +158,16 @@ export const ERROR_CODES = {
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
   no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
+
+  // Hosting and credit
+  hosting_paused: { httpStatus: 429, meaning: "The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used. It starts again when the month resets, the budget is raised or credit is added." },
+  confirmation_needed: { httpStatus: 403, meaning: "Turning spending on or up needs the developer's passkey on zaisma.com: confirm_url is where they do it." },
+  bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting." },
+  bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000)." },
+  no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
+  top_up_not_refundable: { httpStatus: 409, meaning: "The top-up has nothing left to refund: it's spent, refunded, or over 180 days old." },
+  bad_automatic_top_up: { httpStatus: 400, meaning: "The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up." },
+  stripe_unavailable: { httpStatus: 503, meaning: "Stripe didn't answer, or this Zaisma has no Stripe account set up." },
 
   // A game server's logs
   bad_room_code: { httpStatus: 400, meaning: "room_code isn't a room's code: six characters like K7Q2MX." },
@@ -287,11 +295,13 @@ export interface ErrorDetails {
   fix: string;
   /** How long to wait first, when waiting helps. */
   retryAfterSec?: number | null;
+  /** Where the developer confirms it themselves on zaisma.com, for confirmation_needed alone. */
+  confirmUrl?: string;
 }
 
-/** An error answer: { "error": { code, message, field, fix, retry_after_sec } }, the same in the API and the MCP. */
+/** An error answer: { "error": { code, message, field, fix, retry_after_sec } }, the same in the API and the MCP; confirmation_needed adds confirm_url. */
 export interface ErrorAnswer {
-  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null };
+  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null; confirm_url?: string };
 }
 
 /** A refusal the developer API and MCP answer with, as docs/NAMING.md describes. */
@@ -300,6 +310,7 @@ export class ApiError extends Error {
   readonly field: string | null;
   readonly fix: string;
   readonly retryAfterSec: number | null;
+  readonly confirmUrl: string | null;
 
   constructor(
     readonly code: ErrorCode,
@@ -310,6 +321,7 @@ export class ApiError extends Error {
     this.field = details.field ?? null;
     this.fix = details.fix;
     this.retryAfterSec = details.retryAfterSec ?? null;
+    this.confirmUrl = details.confirmUrl ?? null;
   }
 
   /** What happened and what to do, for a page to show. */
@@ -318,7 +330,7 @@ export class ApiError extends Error {
   }
 
   toAnswer(): ErrorAnswer {
-    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec } };
+    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}) } };
   }
 }
 

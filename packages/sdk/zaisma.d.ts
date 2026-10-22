@@ -124,8 +124,8 @@ declare namespace Zaisma {
    *
    * Fails with an error whose code says why and whose message says it in words. The room won't take
    * the player: full, closed (to new players), ended, kept_out (removed for the rest of the match),
-   * refused (the game server's canJoin said no; the message is its refusalMessage), month_limit (the
-   * game has used this month's multiplayer time). No player pass: unchecked, or account_needed for a
+   * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
+   * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
    * guest when the game needs accounts (see {@link player}). The
    * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
    * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
@@ -655,8 +655,8 @@ declare namespace Zaisma {
      *
      * Fails with error.code: no_request_handler (the game server has no onRequest), game_server_error
      * (onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10
-     * seconds; you see why with the game server's errors), request_limit (the game has used this
-     * month's free requests, 1 million on Zaisma), too_big, bad_request (not plain JSON), slow_down
+     * seconds; you see why with the game server's errors), hosting_paused (the game's hosting
+     * on Zaisma is paused this month: its free allowance or its developer's budget or credit is used), too_big, bad_request (not plain JSON), slow_down
      * (over about 120 a minute from one address), bad_pass, account_needed, unchecked,
      * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (no serverUrl outside
      * Zaisma), unknown_option and request_failed.
@@ -729,8 +729,8 @@ declare namespace Zaisma {
     /** The room's labels, like { Mode: "Classic", Map: "Docks" }. */
     readonly labels: Readonly<Record<string, string>>;
     /**
-     * When Zaisma will end this match, an ISO time, or null: set once the game has used this month's free
-     * multiplayer time, an hour ahead (the "ending" event). Never set in a room on your own server.
+     * When Zaisma will end this match, an ISO time, or null: set once the game's hosting pauses for the
+     * month, an hour after the pause (the "ending" event). Never set in a room on your own server.
      */
     readonly endsAt: string | null;
     /**
@@ -907,8 +907,8 @@ declare namespace Zaisma {
     /** The match ended (the game server's room.end), with its message. The connection closes. */
     ended: (message: string) => void;
     /**
-     * Zaisma will end this match at endsAt (an ISO time, also room.endsAt), because the game used this
-     * month's free multiplayer time on Zaisma rooms: tell your players and save what should last.
+     * Zaisma will end this match at endsAt (an ISO time, also room.endsAt), because the game's hosting on
+     * Zaisma rooms paused for the month: tell your players and save what should last.
      * "ended" follows then.
      */
     ending: (endsAt: string) => void;
@@ -1105,7 +1105,7 @@ declare namespace Zaisma {
    * - ended: the match is over.
    * - kept_out: the player was removed for the rest of the match.
    * - refused: the game server's canJoin turned them away.
-   * - month_limit: the game has used this month's multiplayer time; new rooms open again next month (UTC), and a running match takes no new players.
+   * - hosting_paused: the game's hosting on Zaisma is paused this month (its free allowance, or its developer's budget or credit, is used); new rooms open again when the month resets (UTC) or its developer adds credit, and a running match takes no new players and ends within the hour.
    * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
    * - game_not_open_to_player: the account is younger than the game's minimum age (set on the dashboard); the game never learns its age.
    * - game_unavailable: the game can't be played right now.
@@ -1125,7 +1125,7 @@ declare namespace Zaisma {
     | "ended"
     | "kept_out"
     | "refused"
-    | "month_limit"
+    | "hosting_paused"
     | "account_needed"
     | "game_not_open_to_player"
     | "game_unavailable"
@@ -1152,7 +1152,7 @@ declare namespace Zaisma {
    * - game_unavailable: the game can't be played right now.
    * - no_request_handler: the game's server has no onRequest.
    * - game_server_error: onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds.
-   * - request_limit: the game has used this month's free requests; they work again next month (UTC).
+   * - hosting_paused: the game's hosting on Zaisma is paused this month; requests work again when the month resets (UTC) or its developer adds credit.
    * - slow_down: too many requests from this address; try again in a minute.
    * - bad_origin: the request didn't come from the game's own page.
    * - busy: Zaisma couldn't answer right now; try again soon.
@@ -1166,7 +1166,7 @@ declare namespace Zaisma {
     | "game_unavailable"
     | "no_request_handler"
     | "game_server_error"
-    | "request_limit"
+    | "hosting_paused"
     | "slow_down"
     | "bad_origin"
     | "busy";
