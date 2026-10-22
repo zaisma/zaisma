@@ -34,7 +34,7 @@ export const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaisma
 /** One page on the four screens: a desktop beside a phone, light over dark, each with what the measuring check finds under it. */
 export function screens(options: ScreensOptions): Raw {
   const shown = SCREEN_THEMES.flatMap((theme) => [SCREEN_SIZES[1], SCREEN_SIZES[0]].map((screenSize) => ({ theme, screenSize })));
-  return html`<div class="screens" data-screens data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
+  return html`<div class="screens" data-screens data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
@@ -74,12 +74,12 @@ export function screensPane(options: ScreensOptions): Raw {
 }
 
 /**
- * The screens' script. Each frame is scaled to fit its cell at its screen's size (its own window keeps that size, so its media queries
- * and the measuring check see the screen's), takes its light or dark once loaded (data-theme-choice, which the page's theme script
- * follows), then runs the measuring check in the page and shows what it found. Pointing at anything in a frame outlines the component
- * under the pointer and says what it is and what placed it: its layout's gap and why, its size class, its pane's width and margins.
+ * What placed a thing, as a script any page can load (Screens puts it in each screen's page, and the preview's feedback overlay calls
+ * it): window.zaismaInspect(element) answers { component, label, layoutRule, element } for the component under it (null for words of a
+ * page's own), its words, what placed it (its size class, its layout's gap and why, its pane's width and margins), and the element to
+ * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
-export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
+export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
   var COMPONENTS = { "run-wrap": "Runner button", "cut-btn": "Cut button", "glass-btn": "Glass button", "guest-btn": "Guest button", "text-btn": "Text button", "cut-field": "Field", "field": "Field", "find": "Search", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
@@ -89,45 +89,59 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
     return null;
   }
   // A token's length, worked out: a probe in the page takes it as its margin for a moment.
-  function lengthPx(doc, token) {
-    var probe = doc.createElement("div"); probe.style.cssText = "position:absolute;visibility:hidden;margin-left:var(" + token + ")"; doc.body.append(probe);
+  function lengthPx(token) {
+    var probe = document.createElement("div"); probe.style.cssText = "position:absolute;visibility:hidden;margin-left:var(" + token + ")"; document.body.append(probe);
     var found = parseFloat(getComputedStyle(probe).marginLeft); probe.remove(); return Math.round(found * 10) / 10;
   }
-  function px(doc, token) { var found = lengthPx(doc, token); return found < 0 ? -found + "px overlap" : found + "px"; }
+  function px(token) { var found = lengthPx(token); return found < 0 ? -found + "px overlap" : found + "px"; }
   var SIZES = ["small", "regular", "field", "big"];
-  function sizeOf(doc, el) {
+  function sizeOf(el) {
     var face = (el.matches(".run-wrap, .cut-btn") ? el.querySelector(".face") : el.querySelector(".field")) || el, height = parseFloat(getComputedStyle(face).height);
-    var named = SIZES.find(function (name) { return Math.abs(lengthPx(doc, "--control-height-" + name) - height) < 1; });
+    var named = SIZES.find(function (name) { return Math.abs(lengthPx("--control-height-" + name) - height) < 1; });
     return height ? Math.round(height) + "px tall" + (named ? " (" + named + ")" : "") : "";
   }
   function gapOf(cell, prefix) { var found = Array.prototype.find.call(cell.classList, function (name) { return name.indexOf(prefix) === 0; }); return found ? found.slice(prefix.length) : ""; }
-  function placed(doc, target) {
+  window.zaismaInspect = function (target) {
     var cell = target.closest(".stack-cell, .row-cell, .grid-cell"), thing = componentOf(target, cell ? cell.parentElement : null), said = [];
     var el = thing ? thing.el : cell || target;
     var label = (el.getAttribute("aria-label") || el.innerText || "").trim().replace(/\s+/g, " ").slice(0, 32);
     var kind = cell ? (cell.classList.contains("is-words") ? "words" : cell.classList.contains("is-control") ? "a control" : "a block") : "";
-    said.push((thing ? thing.name : kind === "words" ? "Words" : "Block") + (label ? ' "' + label + '"' : ""));
-    var sizeWords = thing && kind === "a control" ? sizeOf(doc, thing.el) : "";
+    var sizeWords = thing && kind === "a control" ? sizeOf(thing.el) : "";
     if (sizeWords) said.push(sizeWords);
     if (cell && cell.classList.contains("stack-cell")) {
       var above = gapOf(cell, "gap-top-");
-      said.push(above ? "Stack: " + px(doc, "--gap-" + above) + " above it, " + GAPS[above] + " (--gap-" + above + ")" : "Stack: first, at the top");
+      said.push(above ? "Stack: " + px("--gap-" + above) + " above it, " + GAPS[above] + " (--gap-" + above + ")" : "Stack: first, at the top");
     } else if (cell && cell.classList.contains("row-cell")) {
       var after = cell.nextElementSibling ? gapOf(cell, "gap-end-") : "";
-      said.push("Row, " + (cell.classList.contains("fills") ? "filling" : "fitting its words") + (after ? ": " + px(doc, "--gap-" + after) + " after it, " + GAPS[after] + " (--gap-" + after + ")" : ""));
+      said.push("Row, " + (cell.classList.contains("fills") ? "filling" : "fitting its words") + (after ? ": " + px("--gap-" + after) + " after it, " + GAPS[after] + " (--gap-" + after + ")" : ""));
     } else if (cell) said.push("Grid: a cell of " + (Array.prototype.find.call(cell.parentElement.classList, function (name) { return name.indexOf("item-") === 0; }) || "item-").slice(5) + "s");
     var pane = el.closest(".glass-pane, .tray, .sheet");
     if (pane && pane !== el) {
       said.push((pane.classList.contains("fit") ? "In a pane that fits what's in it" : pane.classList.contains("glass-pane") ? "In a full-width pane" : "On a " + (pane.classList.contains("tray") ? "tray" : "sheet")) +
-        (kind === "words" ? ": keeps the words' margin, " + px(doc, "--pad-pane") + " (--pad-frame and --pad-words)" : ": at the frame gap, " + px(doc, "--pad-frame") + " (--pad-frame)"));
+        (kind === "words" ? ": keeps the words' margin, " + px("--pad-pane") + " (--pad-frame and --pad-words)" : ": at the frame gap, " + px("--pad-frame") + " (--pad-frame)"));
     }
-    return { el: el, words: said.join(" · ") };
+    return { component: thing ? thing.name : null, label: label, layoutRule: said.length ? said.join(" · ") : null, element: el };
+  };
+})();
+`);
+
+/**
+ * The screens' script. Each frame is scaled to fit its cell at its screen's size (its own window keeps that size, so its media queries
+ * and the measuring check see the screen's), takes its light or dark once loaded (data-theme-choice, which the page's theme script
+ * follows), then runs the measuring check in the page and shows what it found. Pointing at anything in a frame outlines the component
+ * under the pointer and says what it is and what placed it (LAYOUT_INSPECT_SCRIPT, in the frame's page).
+ */
+export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
+  // One of the site's scripts, put in a screen's page once.
+  function loaded(doc, src, done) {
+    if (doc.querySelector('script[src="' + src + '"]')) return done();
+    var script = doc.createElement("script"); script.src = src; script.onload = done; doc.head.append(script);
   }
   document.querySelectorAll("[data-screen]").forEach(function (figure) {
     var view = figure.querySelector(".screen-view"), frame = view.querySelector("iframe"), pointer = view.querySelector(".screen-pointer");
     var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
     var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
-    var measureScript = figure.closest("[data-screens]").dataset.measureScript, idle = pointed.textContent;
+    var scripts = figure.closest("[data-screens]").dataset, idle = pointed.textContent;
     function fit() { scale = Math.min(1, view.clientWidth / widthPx); frame.style.transform = "scale(" + scale + ")"; view.style.height = Math.round(heightPx * scale) + "px"; }
     fit(); window.zaismaWatch.size(view, fit);
     function found(failures) {
@@ -136,27 +150,26 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       problems.replaceChildren.apply(problems, failures.map(function (failure) { var item = document.createElement("li"); item.textContent = failure.check + ": " + failure.element + ", " + failure.said; return item; }));
       problems.hidden = !failures.length;
     }
-    function measure(doc) {
-      var inside = frame.contentWindow;
-      var run = function () { (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false })); }, 600); }); };
-      if (inside.zaismaMeasureLayout) return run();
-      var script = doc.createElement("script"); script.src = measureScript; script.onload = run; doc.head.append(script);
-    }
     function hide() { pointer.hidden = true; pointed.textContent = idle; }
     frame.addEventListener("load", function () {
       var doc = null; try { doc = frame.contentDocument; } catch (error) {}
       if (!doc || !doc.documentElement) { verdict.textContent = "Not a page on this site"; return; }
+      var inside = frame.contentWindow;
       doc.documentElement.setAttribute("data-theme-choice", theme);
       frame.classList.add("is-shown");
-      measure(doc);
-      doc.addEventListener("pointermove", function (event) {
-        if (!event.target.closest) return;
-        var at = placed(doc, event.target), r = at.el.getBoundingClientRect();
-        pointer.hidden = false;
-        pointer.style.left = r.left * scale + "px"; pointer.style.top = r.top * scale + "px"; pointer.style.width = r.width * scale + "px"; pointer.style.height = r.height * scale + "px";
-        pointed.textContent = at.words;
-      }, { passive: true });
-      doc.documentElement.addEventListener("mouseleave", hide);
+      loaded(doc, scripts.measureScript, function () {
+        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false })); }, 600); });
+      });
+      loaded(doc, scripts.inspectScript, function () {
+        doc.addEventListener("pointermove", function (event) {
+          if (!event.target.closest) return;
+          var at = inside.zaismaInspect(event.target), r = at.element.getBoundingClientRect();
+          pointer.hidden = false;
+          pointer.style.left = r.left * scale + "px"; pointer.style.top = r.top * scale + "px"; pointer.style.width = r.width * scale + "px"; pointer.style.height = r.height * scale + "px";
+          pointed.textContent = [(at.component || "Words") + (at.label ? ' "' + at.label + '"' : ""), at.layoutRule].filter(Boolean).join(" · ");
+        }, { passive: true });
+        doc.documentElement.addEventListener("mouseleave", hide);
+      });
     });
   });
 })();
