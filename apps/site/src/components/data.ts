@@ -482,6 +482,8 @@ export interface TableOptions {
   /** The one column that stays put as the table scrolls sideways, in the header row's look; a table has one at most. "first": it names
    *  each row (a version, a player), so it's the row's head. "last": its buttons (a room's Join), kept in reach at the right on a phone. */
   headColumn?: "first" | "last";
+  /** A last row that sums the columns up (a Total), in the header's look: it stays under the rows as they scroll, one cell a column. */
+  footRow?: (Raw | string)[];
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
   /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
@@ -529,22 +531,30 @@ export function table(options: TableOptions): Raw {
     isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="row-head"><span class="sr">${row[columnIndex]}</span></th>` : html`<td${numeric(columnIndex)}>${row[columnIndex]}</td>`;
   const body = (indexes: number[], part: "head" | "rows" | "side") =>
     html`<tbody>${options.rows.map((row) => html`<tr>${indexes.map((columnIndex) => cell(row, columnIndex, part))}</tr>`)}</tbody>`;
+  // The footer row: shown in its own part, flat in the rows' part (its words for screen readers), hidden in the header's.
+  const footCell = (columnIndex: number, part: "head" | "rows" | "foot") => {
+    const value = options.footRow?.[columnIndex] ?? "";
+    if (isRowHead(columnIndex) && part !== "foot") return html`<td class="row-head"><span class="sr">${value}</span></td>`;
+    return part === "rows" ? html`<td${numeric(columnIndex)}><span class="table-label" aria-hidden="true">${value}</span><span class="sr">${value}</span></td>` : html`<td${numeric(columnIndex)}>${value}</td>`;
+  };
+  const foot = (indexes: number[], part: "head" | "rows" | "foot") => (options.footRow ? html`<tfoot><tr>${indexes.map((columnIndex) => footCell(columnIndex, part))}</tr></tfoot>` : "");
   const minimumWidth = options.isEven ? html` style="--table-min-width:${mainIndexes.reduce((widthPx, columnIndex) => widthPx + (isRowHead(columnIndex) ? 0 : options.columns[columnIndex]!.widthPx ?? EVEN_COLUMN_MINIMUM_WIDTH_PX), 0)}px"` : "";
   const columnWidths = options.isEven
     ? html`<colgroup>${mainIndexes.map((columnIndex) => (isRowHead(columnIndex) ? raw('<col style="width:0">') : options.columns[columnIndex]!.widthPx ? html`<col style="width:${options.columns[columnIndex]!.widthPx}px">` : raw("<col>")))}</colgroup>`
     : "";
   // The columns that scroll: in the header (role presentation, its rows hidden) and in the rows' part, the table screen readers read.
-  const main = (part: "head" | "rows") =>
-    html`<table class="data-table${compact}${options.isEven ? " even" : ""}"${part === "head" ? raw(' role="presentation"') : html` aria-labelledby="${id}-caption"`}${minimumWidth}>${columnWidths}<thead><tr>${mainIndexes.map((columnIndex) => heading(columnIndex, part))}</tr></thead>${body(mainIndexes, part)}</table>`;
+  const main = (part: "head" | "rows" | "foot") =>
+    html`<table class="data-table${compact}${options.isEven ? " even" : ""}"${part === "rows" ? html` aria-labelledby="${id}-caption"` : raw(' role="presentation"')}${minimumWidth}>${columnWidths}<thead><tr>${mainIndexes.map((columnIndex) => heading(columnIndex, part === "head" ? "head" : "rows"))}</tr></thead>${body(mainIndexes, part === "rows" ? "rows" : "head")}${foot(mainIndexes, part)}</table>`;
   // The head column: its heading in the header, its cells beside the rows. A first one's words are read in the rows' part already; a last
   // one's buttons are read here.
-  const side = (part: "head" | "rows") =>
+  const side = (part: "head" | "rows" | "foot") =>
     headIndex === null
       ? ""
-      : html`<table class="data-table table-side ${options.headColumn}${compact}"${part === "rows" && options.headColumn === "first" ? raw(' aria-hidden="true"') : raw(' role="presentation"')}><thead><tr>${heading(headIndex, part === "head" ? "head" : "rows")}</tr></thead>${body([headIndex], "side")}</table>`;
-  const first = (part: "head" | "rows") => (options.headColumn === "first" ? side(part) : "");
-  const last = (part: "head" | "rows") => (options.headColumn === "last" ? side(part) : "");
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div></div></div></div>`;
+      : html`<table class="data-table table-side ${options.headColumn}${compact}"${part === "rows" && options.headColumn === "first" ? raw(' aria-hidden="true"') : raw(' role="presentation"')}><thead><tr>${heading(headIndex, part === "head" ? "head" : "rows")}</tr></thead>${body([headIndex], "side")}${foot([headIndex], part === "rows" ? "head" : "foot")}</table>`;
+  const first = (part: "head" | "rows" | "foot") => (options.headColumn === "first" ? side(part) : "");
+  const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
+  const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div></div>`;
 }
 
 /**
@@ -591,15 +601,20 @@ export const TABLE_SCRIPT = `/* tables */(function () {
   });
   var follows = window.CSS && CSS.supports("animation-timeline: scroll()");
   window.zaismaWatch.each(".table-frame", function (frame) {
-    var main = mainOf(frame), rows = frame.querySelector(".table-x"), head = frame.querySelector(".table-head-main > .data-table"), table = frame.closest(".table");
+    var main = mainOf(frame), rows = frame.querySelector(".table-x"), table = frame.closest(".table");
+    var follow = slice(frame.querySelectorAll(":is(.table-head-main, .table-foot-main) > .data-table"));
     if (!main || !rows) return;
     var sort = sorts.get(main.getAttribute("aria-labelledby")); if (sort) sortRows(frame, sort.column, sort.order);
     // How far the rows scroll sideways, so the header's columns follow them all the way (its scroll timeline runs from 0 to this).
-    function reach() { table.style.setProperty("--table-x-max", Math.max(0, rows.scrollWidth - rows.clientWidth) + "px"); }
+    // And how wide the head column's sides are, so the sideways rail spans only the columns that scroll.
+    function reach() {
+      table.style.setProperty("--table-x-max", Math.max(0, rows.scrollWidth - rows.clientWidth) + "px");
+      ["first", "last"].forEach(function (end) { var side = frame.querySelector(".table-rows .table-side." + end); table.style.setProperty("--table-" + end + "-w", (side ? side.offsetWidth : 0) + "px"); });
+    }
     function fit() { evenRows(frame); reach(); }
     fit(); window.zaismaWatch.size(main, fit); window.zaismaWatch.size(rows, reach);
     partsOf(frame).forEach(function (part) { if (part !== main) window.zaismaWatch.size(part, function () { evenRows(frame); }); });
-    if (!follows && head) rows.addEventListener("scroll", function () { head.style.transform = "translateX(" + -rows.scrollLeft + "px)"; }, { passive: true });
+    if (!follows) rows.addEventListener("scroll", function () { follow.forEach(function (part) { part.style.transform = "translateX(" + -rows.scrollLeft + "px)"; }); }, { passive: true });
   });
   function light(row) {
     if (lit === row) return;
@@ -644,8 +659,11 @@ component({
 .table > .table-caption { grid-row: 1; grid-column: 1; }
 .table > .table-well { grid-row: 2; grid-column: 1; }
 /* Its rails, outside the well: up and down beside its right edge, from the header's foot down, and sideways under it. */
-.table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 4px 4px; }
-.table > .rail.sideways { grid-row: 3; grid-column: 1; }
+/* Each spans only what it scrolls: the rows between the header and the footer, and the columns between the head column's sides
+   (--table-first-w, --table-last-w, from TABLE_SCRIPT). */
+.table:has(.table-foot) { --table-foot-h: var(--table-head-h); }
+.table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 calc(var(--table-foot-h, 0px) + 4px) 4px; }
+.table > .rail.sideways { grid-row: 3; grid-column: 1; margin: 0 calc(var(--table-last-w, 0px) + 4px) 0 calc(var(--table-first-w, 0px) + 4px); }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-well { position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .table-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
@@ -653,14 +671,20 @@ component({
    copy of the rows only sizes its columns. */
 .table-head { display: flex; flex: none; box-shadow: inset 0 -1px 0 var(--line); }
 .table-head-main { flex: 1; min-width: 0; overflow: hidden; }
-.table-head .data-table > tbody { visibility: collapse; }
+.table-head .data-table > :is(tbody, tfoot), .table-foot .data-table > :is(thead, tbody), .table-rows .table-side > tfoot { visibility: collapse; }
+/* The footer: the same, under the rows, a hairline above it. */
+.table-foot { display: flex; flex: none; box-shadow: inset 0 1px 0 var(--line); }
+.table-foot-main { flex: 1; min-width: 0; overflow: hidden; }
+.table-foot .data-table tfoot td { box-sizing: border-box; height: var(--table-head-h); padding: 10px 16px; border-top: 0; font: var(--type-facts); color: var(--ink-2); }
+.table-foot .data-table.compact tfoot td { padding: 8px 12px; }
+.table-rows .data-table tfoot td { height: 0; padding-top: 0; padding-bottom: 0; border-top: 0; }
 @supports (animation-timeline: scroll()) {
-  .table-head-main > .data-table { animation: table-follow linear both; animation-timeline: --table-x; }
+  :is(.table-head-main, .table-foot-main) > .data-table { animation: table-follow linear both; animation-timeline: --table-x; }
 }
 @keyframes table-follow { from { transform: none; } to { transform: translateX(calc(-1 * var(--table-x-max, 0px))); } }
 /* The rows: up and down in a box under the header, at most --table-height tall with the header (a page sets it where the table shares the
    screen, like a game's rooms); the head column beside them, and the rest of each row sideways inside. Their copy of the header is flat. */
-.table-scroll { position: relative; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; max-height: calc(var(--table-height, min(640px, 75dvh)) - var(--table-head-h)); }
+.table-scroll { position: relative; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; max-height: calc(var(--table-height, min(640px, 75dvh)) - var(--table-head-h) - var(--table-foot-h, 0px)); }
 .table-scroll::-webkit-scrollbar { display: none; }
 .table-rows { display: flex; align-items: flex-start; min-width: 0; }
 .table-x { flex: 1; min-width: 0; scroll-timeline: --table-x inline; }
@@ -715,12 +739,12 @@ component({
   mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent); transition: --table-fade-top 0.35s, --table-fade-bottom 0.35s; }
 /* Sideways, the fade stays on while the rows can scroll that way, its depth easing in and out (0 when there's no more), so it eases away
    at an end instead of snapping off. */
-.table-x, .table-head-main { transition: --fade-left 0.35s, --fade-right 0.35s; }
-.table-x.is-scrollable-sideways, .table:has(.table-x.is-scrollable-sideways) .table-head-main {
+.table-x, .table-head-main, .table-foot-main { transition: --fade-left 0.35s, --fade-right 0.35s; }
+.table-x.is-scrollable-sideways, .table:has(.table-x.is-scrollable-sideways) :is(.table-head-main, .table-foot-main) {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
-.table:has(.table-x.more-left) .table-head-main { --fade-left: var(--fade-sideways-px, 28px); }
-.table:has(.table-x.more-right) .table-head-main { --fade-right: var(--fade-sideways-px, 28px); }
+.table:has(.table-x.more-left) :is(.table-head-main, .table-foot-main) { --fade-left: var(--fade-sideways-px, 28px); }
+.table:has(.table-x.more-right) :is(.table-head-main, .table-foot-main) { --fade-right: var(--fade-sideways-px, 28px); }
 `,
   render: table,
   examples: [
@@ -746,13 +770,14 @@ component({
       }) }),
     },
     {
-      label: "A list to join from, its height set by the page, its Join pinned",
+      label: "A list to join from, its height set by the page, its Join pinned, with a footer row",
       isWide: true,
       markup: html`<div style="--table-height:240px">${glassPane({ paneSize: "full", body: table({
         caption: "Open rooms",
         isCompact: true,
         headColumn: "last",
         isEven: true,
+        footRow: ["5 rooms", "", "", "13 of 44", ""],
         columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true }, { label: "Join", isLabelHidden: true }],
         rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany", isNameHidden: true }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden", isNameHidden: true }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France", isNameHidden: true }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland", isNameHidden: true }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain", isNameHidden: true }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
       }) })}</div>`,

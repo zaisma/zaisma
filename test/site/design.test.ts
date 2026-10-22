@@ -563,13 +563,13 @@ const NOT_TYPE = new Set<string>([
 
 const NOT_SPACING = new Set<string>([
   // A table's up-and-down rail, set in from its header and edges, and the room its last column keeps for it.
-  '.table > .rail[data-rail="box"] | margin',
+  '.table > .rail[data-rail="box"] | margin', ".table > .rail.sideways | margin",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
   ".glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
-  ".table-head .data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".table-head .data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
+  ".table-head .data-table thead th | padding", ".table-foot .data-table tfoot td | padding", ".table-foot .data-table.compact tfoot td | padding", ".data-table td, .data-table tbody th | padding", ".table-head .data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
   ".chart-last | margin", ".chart-dot | margin",
   // A chart's room for the dots at its ends.
