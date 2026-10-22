@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
@@ -103,7 +103,7 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menu.classList.toggle("shut", !open); menu.setAttribute("aria-hidden", String(!open));
     if (open) { place(menu); if (focusFirst && items(menu)[0]) items(menu)[0].focus({ preventScroll: true }); }
   }
-  // Every menu on the page, and any swapped in later (the layout playground's): one gone from the page is let go.
+  // Every menu on the page, and any added later: one gone from the page is let go.
   var menus = [];
   function shown() { menus = menus.filter(function (menu) { return menu.isConnected; }); return menus; }
   window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
@@ -157,12 +157,12 @@ const DROPDOWN_STYLES = `
 `;
 
 const PANE_STYLES = `
-/* The pane: Zaisma's glass, the same as the home's and the header's. No sheen. Small, medium and large are 320, 480 and 720 wide; full is the whole width. */
+/* The pane: Zaisma's glass, the same as the home's and the header's. No sheen. Full is the whole width; fit is as wide as what's in it,
+   with its paragraphs running to a reading width at most, so words set it the way a line of text would. */
 .glass-pane { display: flex; flex-direction: column; max-width: 100%; }
-.glass-pane.small { width: ${PANE_SIZES.small}px; }
-.glass-pane.medium { width: ${PANE_SIZES.medium}px; }
-.glass-pane.large { width: ${PANE_SIZES.large}px; }
 .glass-pane.full { width: 100%; }
+.glass-pane.fit { width: fit-content; }
+.glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
    edge of its own sits there, and its words keep the pane's margin, --pad-words further in (layout.ts places them). */
@@ -258,11 +258,12 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
-  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. Its content scrolls inside it rather than shrinking.",
+  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.",
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
-    { label: "Sign-in, medium", markup: glassPane({ paneSize: "medium", body: signInBody("example-pane-medium") }), isWide: true },
+    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: signInBody("example-pane-fit") }), isWide: true },
+    { label: "Full: as wide as what holds it (one that should take half the screen goes in Columns)", markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>Rooms</h2>` }, { kind: "words", markup: html`<p>267 playing now in 78 rooms.</p>` }] }) }), isWide: true },
   ],
 });
 
@@ -398,8 +399,9 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 const SHEET_STYLES = `
 /* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
    little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
-   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
-.sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. Like a pane that fits,
+   it's as wide as what's in it, its words running to a reading width at most. */
+.sheet { width: fit-content; max-width: calc(100% - 2 * var(--pad-pane)); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
@@ -413,6 +415,7 @@ const SHEET_STYLES = `
 .sheet.in-place { position: relative; z-index: auto; margin: 0; }
 /* A sheet is a pane: it pads at the frame gap, so its close button sits in its top end corner and takes the corner's cut, and its words keep
    the pane's margin (--pad-words). */
+.sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
 .sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: what's in it keeps clear of the rail. */
 .sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
@@ -606,11 +609,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
   if (!isOnPage) {
     const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(nextLabel, { type: "submit" })}</div>`;
-    return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
+    return glassPane({ paneWidth: "full", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
   const buttons = html`<div class="control-row" data-step-buttons>${cutButton("Back", { type: "button", isHidden: options.currentIndex === 0 })}${runButton(nextLabel, { type: "submit" })}</div>`;
-  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
+  return glassPane({ paneWidth: "full", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
 }
 
 /**
@@ -712,7 +715,7 @@ component({
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
-const spacingPane = (body: Raw) => glassPane({ paneSize: "small", body });
+const spacingPane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 component({
   name: "Spacing",
   slug: "spacing",

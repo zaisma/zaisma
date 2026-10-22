@@ -622,7 +622,7 @@ component({
 });
 
 // Cut shapes sits with the buttons, so it can show the edge rule on real ones (foundations.ts can't import this file).
-const edgePane = (body: Raw) => glassPane({ paneSize: "small", body });
+const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;

@@ -14,7 +14,7 @@ import { row, stack } from "./components/layout.ts";
  */
 export function examplePage(env: Env): Response {
   const body = glassPane({
-    paneSize: "medium",
+    paneWidth: "fit",
     body: stack({
       items: [
         { kind: "words", markup: html`<h2>Tell players about your game</h2>` },
@@ -27,5 +27,6 @@ export function examplePage(env: Env): Response {
       ],
     }),
   });
-  return layout(env, { title: "Example page · Design · Zaisma", body, isRebuilt: true });
+  // The gallery shows it on the four screens (Screens, in the layout group), so the site's own pages may frame it.
+  return layout(env, { title: "Example page · Design · Zaisma", body, isRebuilt: true, isFramedBySelf: true });
 }

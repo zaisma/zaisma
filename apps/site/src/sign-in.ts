@@ -356,7 +356,7 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
     // The Continue button's answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
     body: glassPane({
-      paneSize: "medium",
+      paneWidth: "fit",
       label: `Sign in to ${app.name}`,
       body: stack({
         items: [
@@ -388,7 +388,7 @@ function continuePage(env: Env, app: SignInApp, back: string): Response {
     isPrivate: true,
     isRebuilt: true,
     body: glassPane({
-      paneSize: "medium",
+      paneWidth: "fit",
       body: html`${stack({
         items: [
           { kind: "words", markup: html`<h1>Back to ${app.name}</h1>` },

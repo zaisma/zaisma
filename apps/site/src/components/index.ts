@@ -10,7 +10,7 @@ import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, SHEET_SCRIPT, STEP_FLOW_SCRIPT } from "
 import { CHART_SCRIPT } from "./data.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
 import "./layout-gallery.ts";
-import "./playground.ts";
+import "./screens.ts";
 // The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it.
 import "./city.ts";
 
@@ -22,7 +22,7 @@ import "./city.ts";
 
 export { COMPONENTS, COMPONENT_GROUPS, componentBySlug } from "./component.ts";
 export { HEADER_SCRIPT } from "./navigation.ts";
-export { grid, paneParts, row, split, stack, track, type LayoutControl, type LayoutItem } from "./layout.ts";
+export { columns, grid, paneParts, row, stack, track, type LayoutControl, type LayoutItem } from "./layout.ts";
 
 /** The tokens, then every component's CSS in gallery order. */
 export const COMPONENT_STYLES = (): string => TOKEN_STYLES + COMPONENTS().map((each) => each.styles).join("");

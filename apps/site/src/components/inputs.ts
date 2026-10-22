@@ -168,8 +168,8 @@ component({
 `,
   render: fileDrop,
   examples: [
-    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
-    { label: "A file held over it", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
   ],
 });

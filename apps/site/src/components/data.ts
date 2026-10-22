@@ -174,7 +174,7 @@ component({
 });
 
 const HOUR_MS = 60 * MINUTE_MS;
-const glancePane = (body: Raw) => glassPane({ paneSize: "small", body });
+const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 
 component({
   name: "Glance facts",
@@ -250,15 +250,15 @@ component({
     {
       label: "Rows that go somewhere",
       isWide: true,
-      markup: glassPane({ paneSize: "medium", body: listRows({ rows: [
+      markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [
         { title: "Version 14", detail: "2 days ago · 312 files, 48 MB", href: "#list-rows", end: tag("Live", "new") },
         { title: "Version 13", detail: "5 days ago · 309 files, 47 MB", href: "#list-rows", end: "Replaced" },
         { title: "Version 15", detail: "An hour ago · 314 files, 49 MB", href: "#list-rows", end: tag("Held", "warning") },
       ] }) }),
     },
-    { label: "Pointed", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
-    { label: "Keyboard focus", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
-    { label: "Rows to read, not to open", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
+    { label: "Pointed", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
+    { label: "Keyboard focus", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
+    { label: "Rows to read, not to open", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
   ],
 });
 
@@ -292,8 +292,8 @@ component({
   styles: STATE_STYLES,
   render: emptyState,
   examples: [
-    { label: "With what starts it", markup: glassPane({ paneSize: "medium", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button" }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneSize: "small", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
+    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button" }) }) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
   ],
 });
 
@@ -310,7 +310,7 @@ component({
   styles: "",
   render: problemState,
   examples: [
-    { label: "With what to do", markup: glassPane({ paneSize: "medium", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button" }) }) }) },
+    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button" }) }) }) },
   ],
 });
 
@@ -327,7 +327,7 @@ component({
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
    under it. Under reduced motion the light rests in the middle. */
-.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) 0; }
+.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) var(--pad-words); }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
 .loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run 1.3s cubic-bezier(.45,0,.25,1) infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
@@ -335,7 +335,7 @@ component({
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
 `,
   render: loadingState,
-  examples: [{ label: "Loading", markup: glassPane({ paneSize: "small", body: loadingState({ label: "Getting your versions" }) }) }],
+  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: loadingState({ label: "Getting your versions" }) }) }],
 });
 
 export interface TableColumn {
@@ -417,12 +417,12 @@ component({
     {
       label: "Versions",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
+      markup: glassPane({ paneWidth: "full", body: table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
     },
     {
       label: "Compact, for long lists",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({
+      markup: glassPane({ paneWidth: "full", body: table({
         caption: "Requests to your game server",
         isCompact: true,
         columns: [{ label: "When" }, { label: "Route" }, { label: "Status", isNumeric: true }, { label: "Took", isNumeric: true }],
@@ -479,7 +479,7 @@ component({
     {
       label: "This week",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
         { label: "Players", figure: "1,284", change: "+18% on last week", isChangeGood: true },
         { label: "Hours played", figure: "3,906", unit: "hours", change: "+6% on last week", isChangeGood: true },
         { label: "Plays", figure: "9,412", change: "−3% on last week" },
@@ -666,13 +666,13 @@ ${SHARE_RING_CSS}
 `,
   render: chart,
   examples: [
-    { label: "A line: plays a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
-    { label: "Bars: players a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
-    { label: "Many points: on a phone, it scrolls sideways from the latest", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a week", points: MONTHLY_PLAYERS, unit: "players", chartKind: "bars" }) }) },
+    { label: "A line: plays a day", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
+    { label: "Bars: players a day", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
+    { label: "Many points: on a phone, it scrolls sideways from the latest", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Players a week", points: MONTHLY_PLAYERS, unit: "players", chartKind: "bars" }) }) },
     {
       label: "A ring: how a whole splits",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: chart({ label: "Players by browser", unit: "players", chartKind: "ring", points: [
+      markup: glassPane({ paneWidth: "full", body: chart({ label: "Players by browser", unit: "players", chartKind: "ring", points: [
         { label: "Chrome", amountNumber: 6120 }, { label: "Safari", amountNumber: 3480 }, { label: "Edge", amountNumber: 1210 }, { label: "Firefox", amountNumber: 860 }, { label: "Others", amountNumber: 330 },
       ] }) }),
     },
@@ -719,8 +719,8 @@ component({
 `,
   render: usageMeter,
   examples: [
-    { label: "Under way", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Player-hours this month", usedNumber: 412.6, limitNumber: 1000, unit: "hours" }) }) },
-    { label: "Past 80%", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Requests this month", usedNumber: 86200, limitNumber: 100000, unit: "requests" }) }) },
-    { label: "All used", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Stored", usedNumber: 500, limitNumber: 500, unit: "MB" }) }) },
+    { label: "Under way", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Player-hours this month", usedNumber: 412.6, limitNumber: 1000, unit: "hours" }) }) },
+    { label: "Past 80%", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Requests this month", usedNumber: 86200, limitNumber: 100000, unit: "requests" }) }) },
+    { label: "All used", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Stored", usedNumber: 500, limitNumber: 500, unit: "MB" }) }) },
   ],
 });

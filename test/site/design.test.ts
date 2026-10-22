@@ -10,10 +10,10 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, SPLIT_STYLES, STACK_STYLES, TRACK_STYLES, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
-import { BACKDROP_SCRIPT, PANE_SIZES, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
@@ -34,13 +34,14 @@ import layoutSource from "../../apps/site/src/components/layout.ts?raw";
 import layoutGallerySource from "../../apps/site/src/components/layout-gallery.ts?raw";
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
 import citySource from "../../apps/site/src/components/city.ts?raw";
+import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
   "design-page.ts": galleryPageSource,
 };
 
@@ -160,7 +161,7 @@ describe("the gallery", () => {
       }
     }
     // Classes that only say a state or a size, shared with things that aren't glass.
-    for (const state of ["shut", "is-compact", "is-page", "is-collapsed", "medium", "small", "large", "full", "face"]) glassClasses.delete(state);
+    for (const state of ["shut", "is-compact", "is-page", "is-collapsed", "fit", "full", "face"]) glassClasses.delete(state);
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
@@ -734,20 +735,30 @@ describe("layout", () => {
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });
 
-  it("takes only named sizes: a grid's cells, a split's side, a track's covers, never a number of a page's", () => {
+  it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
     expect(grid({ itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
-    // Every width, height, basis or template in the layout components is a named size, a share, or a pane's size (PANE_SIZES).
+    // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
-    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, a pane's size, or a track's cover.
-    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)", ...Object.values(PANE_SIZES).map((sizePx) => `${sizePx}px`)];
+    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
+    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)"];
     const problems: string[] = [];
-    for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, SPLIT_STYLES, PANE_PARTS_STYLES]) {
+    for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
       for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {
         const rest = NAMED_LENGTHS.reduce((left, named) => left.split(named).join(""), sizeValue).replace(/var\(--[a-z-]+\)/g, "");
         if (/\d(px|em|rem|vw|vh|cqi|cqw)/.test(rest)) problems.push(`${property}: ${sizeValue.trim()}`);
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it("gives a pane the whole width or what's in it, never a width of its own: one that should take half the screen is a column", () => {
+    expect(glassPane({ paneWidth: "fit", body: html`<p>Hi</p>` }).html).toContain('class="glass glass-pane fit"');
+    const paneWidths = [...COMPONENT_STYLES().matchAll(/\.glass-pane(?:\.[a-z-]+)*\s*\{[^}]*?\bwidth:\s*([^;]+);/g)].map((match) => match[1]!.trim());
+    expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content"]);
+    const halves = columns({ columns: [html`<p>A</p>`, html`<p>B</p>`] }).html;
+    expect(halves.match(/<div class="column">/g)).toHaveLength(2);
+    expect(COLUMNS_STYLES).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+    expect(COLUMNS_STYLES).toContain(`@container (max-width: ${2 * COLUMN_LEAST_PX + 24 - 1}px)`);
   });
 
   it("is made of controls only from the controls' own functions, so a paragraph can't be passed as one", () => {

@@ -6,7 +6,7 @@ import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
 import { table } from "./data.ts";
-import { GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, SPLIT_STYLES, STACK_STYLES, TRACK_STYLES, grid, paneParts, row, split, stack, track, type LayoutItem } from "./layout.ts";
+import { GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, paneParts, row, stack, track, type LayoutItem } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -20,7 +20,7 @@ const covers = (slugs: string[]): LayoutItem[] => slugs.map((slug) => block(STAN
 /** A game's pane: its title, who made it, Play and Details (the lead fills), then Share and Report as words. */
 export const gamePane = (): Raw =>
   glassPane({
-    paneSize: "small",
+    paneWidth: "fit",
     label: "Ashen Crown",
     body: stack({
       items: [
@@ -35,7 +35,7 @@ export const gamePane = (): Raw =>
 /** A banner with Read more and Dismiss: one height, slanting toward each other at the banner's end. */
 export const newsBanner = (): Raw =>
   glassPane({
-    paneSize: "full",
+    paneWidth: "full",
     body: stack({
       items: [
         block(banner({ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", icon: "megaphone", action: { label: "Read more", href: "#row" }, closeLabel: "Dismiss" })),
@@ -47,7 +47,7 @@ export const newsBanner = (): Raw =>
 /** A pane whose head has a control in its corner: Rooms, with Refresh. */
 export const roomsPane = (): Raw =>
   glassPane({
-    paneSize: "full",
+    paneWidth: "full",
     label: "Rooms",
     body: paneParts({
       head: { words: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: cutButton("Refresh", { type: "button" }) },
@@ -67,7 +67,7 @@ component({
     {
       label: "Words, fields and a button: words are 8px apart, a labeled field is a block (24px), a button under words 8px",
       markup: glassPane({
-        paneSize: "small",
+        paneWidth: "fit",
         body: stack({
           items: [
             words(html`<h2>Welcome back</h2>`),
@@ -83,7 +83,7 @@ component({
     { label: "A game's pane: words, then Play and Details, then Share and Report", markup: gamePane() },
     {
       label: "Controls stacked: 8px, square between, cut only at the stack's ends",
-      markup: glassPane({ paneSize: "small", body: stack({ items: ["Settings", "Account", "Sign out"].map((label) => ({ kind: "control" as const, markup: cutButton(label, { type: "button", isFullWidth: true }) })) }) }),
+      markup: glassPane({ paneWidth: "fit", body: stack({ items: ["Settings", "Account", "Sign out"].map((label) => ({ kind: "control" as const, markup: cutButton(label, { type: "button", isFullWidth: true }) })) }) }),
     },
   ],
 });
@@ -98,29 +98,29 @@ component({
   examples: [
     {
       label: "Lead fills: Play takes the rest, Details fits its words",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: runButton("Play", { type: "button", icon: "play", isBig: true }) }, { kind: "control", markup: cutButton("Details", { type: "button", isBig: true }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: runButton("Play", { type: "button", icon: "play", isBig: true }) }, { kind: "control", markup: cutButton("Details", { type: "button", isBig: true }) }] }) }),
     },
     {
       label: "Equal: Continue and Cancel share the width",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Continue", { type: "button" }) }, { kind: "control", markup: cutButton("Cancel", { type: "button" }) }] }) }),
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Continue", { type: "button" }) }, { kind: "control", markup: cutButton("Cancel", { type: "button" }) }] }) }),
     },
     {
       label: "One height: a small Dismiss beside Read more takes its height",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: cutButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: cutButton("Read more", { type: "button" }) }] }) }),
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: cutButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: cutButton("Read more", { type: "button" }) }] }) }),
     },
     {
       label: "Fit, between: a heading at the start, its control at the end, on the control's center line",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: cutButton("New version", { type: "button", icon: "upload" }) }] }) }),
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: cutButton("New version", { type: "button", icon: "upload" }) }] }) }),
     },
     {
       label: "A field and its button: the field fills, Join fits, on the field's box",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "row-code", name: "room_code", label: "Room code", type: "text", icon: "people", placeholder: "ABCD" }) }, { kind: "control", markup: cutButton("Join", { type: "button" }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "row-code", name: "room_code", label: "Room code", type: "text", icon: "people", placeholder: "ABCD" }) }, { kind: "control", markup: cutButton("Join", { type: "button" }) }] }) }),
     },
     {
       label: "Equal: two pickers share the width, on their fields' boxes",
       isWide: true,
       markup: glassPane({
-        paneSize: "full",
+        paneWidth: "full",
         body: row({
           widths: "equal",
           items: [
@@ -132,7 +132,7 @@ component({
     },
     {
       label: "Words in a row: links, a word's gap apart",
-      markup: glassPane({ paneSize: "medium", body: row({ widths: "fit", items: [words(textLink("Share", "#row")), words(textLink("Report", "#row")), words(html`<span>${tag("Updated", "new")}</span>`)] }) }),
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", items: [words(textLink("Share", "#row")), words(textLink("Report", "#row")), words(html`<span>${tag("Updated", "new")}</span>`)] }) }),
     },
   ],
 });
@@ -145,8 +145,8 @@ component({
   styles: GRID_STYLES,
   render: grid,
   examples: [
-    { label: "Covers", isWide: true, markup: glassPane({ paneSize: "full", body: grid({ itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
-    { label: "Cards", isWide: true, markup: glassPane({ paneSize: "full", body: grid({ itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneSize: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: cutButton("Open", { type: "button" }) }] }) }))) }) }) },
+    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: cutButton("Open", { type: "button" }) }] }) }))) }) }) },
   ],
 });
 
@@ -158,27 +158,25 @@ component({
   styles: TRACK_STYLES,
   render: track,
   examples: [
-    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneSize: "full", body: track({ id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
-    { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneSize: "full", body: shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) }) },
+    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
+    { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) }) },
   ],
 });
 
 component({
-  name: "Split",
-  slug: "split",
+  name: "Columns",
+  slug: "columns",
   group: "layout",
-  summary: "A pane beside a scroll of sections, like a game's details beside its rooms and updates: the side a small or a medium pane's width, staying in view as the sections scroll. One over the other where there isn't room for both.",
-  styles: SPLIT_STYLES,
-  render: split,
+  summary: "Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room.",
+  styles: COLUMNS_STYLES,
+  render: columns,
   examples: [
     {
-      label: "A game's pane beside its sections",
+      label: "A game's pane beside its sections, staying in view",
       isWide: true,
-      markup: split({
-        sideSize: "pane-small",
-        isSideSticky: true,
-        side: gamePane(),
-        main: html`${roomsPane()}${glassPane({ paneSize: "full", label: "About", body: stack({ items: [words(html`<h2>About</h2>`), words(html`<p>A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself.</p>`)] }) })}`,
+      markup: columns({
+        stickyColumn: "first",
+        columns: [gamePane(), html`${roomsPane()}${glassPane({ paneWidth: "full", label: "About", body: stack({ items: [words(html`<h2>About</h2>`), words(html`<p>A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself.</p>`)] }) })}`],
       }),
     },
   ],
@@ -194,8 +192,8 @@ component({
   examples: [
     { label: "A head with Refresh in its corner, a table, a foot with a control in its corner", isWide: true, markup: roomsPane() },
     {
-      label: "In a small pane",
-      markup: glassPane({ paneSize: "small", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: cutButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: textButton("See all", { type: "button" }) } }) }),
+      label: "In a pane that fits what's in it",
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: cutButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: textButton("See all", { type: "button" }) } }) }),
     },
   ],
 });

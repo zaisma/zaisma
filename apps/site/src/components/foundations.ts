@@ -27,10 +27,12 @@ export function ago(durationMs: number): string {
   return dayCount === 1 ? "yesterday" : `${dayCount} days ago`;
 }
 
-export const PANE_SIZES = { small: 320, medium: 480, large: 720 } as const;
-
 export interface GlassPaneOptions {
-  paneSize: "small" | "medium" | "large" | "full";
+  /**
+   * "full": as wide as what holds it. "fit": as wide as what's in it, its paragraphs running to a reading width (--size-reading) at
+   * most. A pane never takes a width of its own: one that should take half the screen is a column of a full-width columns layout.
+   */
+  paneWidth: "full" | "fit";
   body: Raw;
   label?: string;
 }
@@ -40,7 +42,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
 /**
@@ -174,7 +176,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneSize: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
 
 component({
   name: "Color",
@@ -199,7 +201,7 @@ component({
     { label: "Every token", markup: swatches(), isWide: true },
     {
       label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneSize: "small", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
     },
   ],
 });

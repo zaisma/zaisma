@@ -116,6 +116,8 @@ export default defineConfig({
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"] } },
+      // The measuring check in headless Chrome on the preview (scripts/layout-check.mjs): GitHub's check runs it in its own job.
+      { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"] } },
       worker("site", "apps/site/wrangler.jsonc", {
         SITE_ORIGIN: "https://zaisma.test",
         GAME_ORIGIN: "https://games.zaisma.test",

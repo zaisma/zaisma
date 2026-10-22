@@ -1,6 +1,6 @@
 /**
  * The measuring check (docs/DESIGN.md, Layout), run in a page: what's out of line on it, as failures, each { check, element, said }.
- * scripts/layout-check.mjs runs it on every page in Chrome, and the layout playground on what's built in it, live. It's a function's
+ * scripts/layout-check.mjs runs it on every page in Chrome, and Screens (screens.ts) on each page it shows, live. It's a function's
  * source, since it runs in the browser: (MEASURE_LAYOUT_SOURCE)({ isMainActionChecked }). Things with an edge of their own are framed:
  * cut by the edge rule (data-cut-line), glass of their own (data-glass), a cover, or a list's rows.
  */

@@ -216,7 +216,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   const body = games.length
     ? html`<div id="home-games">${glassPane({
-        paneSize: "full",
+        paneWidth: "full",
         label: "Games",
         body: html`<h1 class="sr">Games on Zaisma</h1>${stack({
           items: [
@@ -230,7 +230,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
           ],
         })}`,
       })}</div>`
-    : glassPane({ paneSize: "medium", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
+    : glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
     // Filtered for a signed-in viewer's age, so no shared cache keeps it.

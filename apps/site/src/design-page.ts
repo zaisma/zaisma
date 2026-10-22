@@ -1,12 +1,11 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, layout, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
-import { PLAYGROUND_PATH, PLAYGROUND_SCRIPT_SOURCE, playground, playgroundBuilt, readPlaygroundState, writePlaygroundState, type PlaygroundState } from "./components/playground.ts";
-import { MEASURE_LAYOUT_SOURCE } from "./components/layout-measure.ts";
-import { CLOUDS_SHADER, NEON_DRIFT_SHADER } from "./components/shaders.ts";
+import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screensPane, screensPicker } from "./components/screens.ts";
+import { CHECKED_PAGES } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
@@ -66,7 +65,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -84,15 +83,15 @@ function olderVersionsPage(env: Env, url: URL): Response {
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   if (url.pathname === "/design/example") return examplePage(env);
-  if (url.pathname === PLAYGROUND_PATH) return playgroundPage(env, url);
-  if (url.pathname === `${PLAYGROUND_PATH}/frame`) return playgroundFramePage(env, url);
+  if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
   const theme = themeOf(url);
   const components = COMPONENTS();
   const main = html`<h1 class="group-name">${COMPONENT_GROUPS.find((each) => each.group === group)!.name}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}`;
-  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main });
+  // The layout group's Screens example frames the example page.
+  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main, frames: group === "layout" ? ["'self'"] : [] });
 }
 
 /** A page of the gallery: its bar with light or dark and the groups, the groups down its side, and what it shows. */
@@ -126,30 +125,17 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
   return new Response(page.html, { headers: securityHeaders(env, {}, false, options.frames ?? []) });
 }
 
-const PLAYGROUND_SCRIPT = pageScript("playground", PLAYGROUND_SCRIPT_SOURCE);
-/** The measuring check, in a page for the playground to run on what's built (scripts/layout-check.mjs runs the same on every page). */
-const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaismaMeasureLayout = ${MEASURE_LAYOUT_SOURCE};`);
-
-/** GET /design/layout/playground?layout=…: the workbench, its state the address. */
-function playgroundPage(env: Env, url: URL): Response {
+/**
+ * GET /design/screens?page=/signin&page=…: each page asked for on the four screens, measured, the groups folded away for the room. Only on
+ * a local preview, where every page may be framed by the site's own (html.ts, securityHeaders); live, pages refuse it.
+ */
+function screensPage(env: Env, url: URL): Response {
   const theme = themeOf(url);
-  const state = readPlaygroundState(url.searchParams.get("layout"));
-  const frameHref = `${PLAYGROUND_PATH}/frame?layout=${writePlaygroundState(state)}${theme === "dark" ? "&theme=dark" : ""}`;
-  const main = html`<h1 class="group-name">Layout playground</h1>${playground({ state, theme, frameHref })}`;
-  // The groups start folded away here, so the controls and the preview have the room to sit side by side.
-  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Layout playground", main, scripts: [PLAYGROUND_SCRIPT], frames: ["'self'"], isIndexHidden: true });
-}
-
-const PLAYGROUND_BACKDROPS: Record<PlaygroundState["backdrop"], Raw> = {
-  zaisma: backdrop(),
-  "dark-game": backdrop({ fragmentShader: NEON_DRIFT_SHADER, isGlassAdaptive: true }),
-  "bright-game": backdrop({ fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true }),
-};
-
-/** GET /design/layout/playground/frame?layout=…: what's built, alone in a page's own shell, for the workbench's frame. */
-function playgroundFramePage(env: Env, url: URL): Response {
-  const state = readPlaygroundState(url.searchParams.get("layout"));
-  return layout(env, { title: "What's built · Layout playground · Design · Zaisma", body: playgroundBuilt(state), isRebuilt: true, isFramedBySelf: true, theme: themeOf(url), stage: PLAYGROUND_BACKDROPS[state.backdrop], head: scriptTags(LAYOUT_MEASURE_SCRIPT) });
+  const asked = url.searchParams.getAll("page").map((path) => path.trim()).filter(isSitePath);
+  const paths = asked.length ? asked : ["/design/example"];
+  const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path)?.name ?? path;
+  const main = html`<h1 class="group-name">Screens</h1>${screensPicker(paths[0]!)}${paths.map((path) => screensPane({ path, title: titleOf(path) }))}`;
+  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", main, frames: ["'self'"], isIndexHidden: true });
 }
 
 export const GALLERY_STYLES = `
@@ -165,8 +151,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
-.gallery-bar > a.cut-btn { margin-left: auto; }
-/* The groups fold away, so a page that wants the room (the layout playground) has the whole width. */
+.gallery-bar > .cut-btn[href] { margin-left: auto; }
+/* The groups fold away, so a page that wants the room (Screens) has the whole width. */
 .gallery-layout.is-index-hidden { grid-template-columns: minmax(0, 1fr); }
 .gallery-layout.is-index-hidden > .gallery-index { display: none; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
@@ -266,8 +252,8 @@ export const GALLERY_SCRIPT = pageScript(
   // The groups down the side fold away and back (Groups, in the bar), and this browser remembers which.
   var layout = document.querySelector(".gallery-layout"), groupsButton = document.querySelector('.gallery-bar > [aria-controls="gallery-index"]');
   function showGroups(isShown) { layout.classList.toggle("is-index-hidden", !isShown); groupsButton.setAttribute("aria-expanded", String(isShown)); }
-  // Remembered apart for the playground, which starts with them folded, and the groups' own pages.
-  var groupsKey = "zaisma-gallery-groups:" + (location.pathname === "/design/layout/playground" ? "playground" : "pages");
+  // Remembered apart for Screens, which starts with them folded, and the groups' own pages.
+  var groupsKey = "zaisma-gallery-groups:" + (location.pathname === "/design/screens" ? "screens" : "pages");
   try { var kept = localStorage.getItem(groupsKey); if (groupsButton && (kept === "shown" || kept === "hidden")) showGroups(kept === "shown"); } catch (error) {}
   if (groupsButton) groupsButton.addEventListener("click", function () {
     var isShown = layout.classList.contains("is-index-hidden"); showGroups(isShown);
@@ -280,7 +266,7 @@ export const GALLERY_SCRIPT = pageScript(
       if (tab && tab.getAttribute("aria-pressed") !== "true" && sw.pickTab) sw.pickTab(tab);
     });
   }
-  // An address with this theme, its other parts kept (the playground's layout).
+  // An address with this theme, its other parts kept (the pages Screens shows).
   function themed(href, theme) {
     var url = new URL(href, location.href);
     if (theme === "dark") url.searchParams.set("theme", "dark"); else url.searchParams.delete("theme");
@@ -290,7 +276,7 @@ export const GALLERY_SCRIPT = pageScript(
     window.zaismaSettings.set({ theme: theme }, stage);
     pickTheme(theme);
     if (button) { button.href = themed(location.href, theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
-    document.querySelectorAll('[data-gallery-page], .gallery-groups a, a[href^="/design/layout/playground"]').forEach(function (link) { link.href = themed(link.href, theme); });
+    document.querySelectorAll('[data-gallery-page], .gallery-groups a').forEach(function (link) { link.href = themed(link.href, theme); });
     history.replaceState(null, "", themed(location.href, theme));
   }
   document.addEventListener("click", function (event) {
@@ -301,8 +287,7 @@ export const GALLERY_SCRIPT = pageScript(
   });
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
-    // A link to the layout playground goes there: it's the one place the examples send you.
-    if (link && link.pathname !== "/design/layout/playground") event.preventDefault();
+    if (link) event.preventDefault();
   });
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {

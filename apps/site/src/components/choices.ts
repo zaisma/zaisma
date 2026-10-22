@@ -419,8 +419,8 @@ component({
   render: choiceCards,
   examples: [
     ...pressExamples((state, exampleKey) => choiceCards({ id: `example-choice-${exampleKey}`, name: `visibility_${exampleKey}`, label: "Who can see it", choices: VISIBILITIES.slice(0, 2), pickedValue: "unlisted", state }), "choice"),
-    { label: "Three, in a pane", markup: glassPane({ paneSize: "medium", body: choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" }) }), isWide: true },
-    { label: "Compact: many choices, scrolling", markup: glassPane({ paneSize: "medium", body: choiceCards({ id: "example-choice-compact", name: "report_reason_compact", label: "What's wrong", choices: REPORT_REASONS, pickedValue: "malware", isCompact: true }) }), isWide: true },
+    { label: "Three, in a pane", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-pane", name: "visibility_pane", label: "Who can see it", choices: VISIBILITIES, pickedValue: "listed" }) }), isWide: true },
+    { label: "Compact: many choices, scrolling", markup: glassPane({ paneWidth: "full", body: choiceCards({ id: "example-choice-compact", name: "report_reason_compact", label: "What's wrong", choices: REPORT_REASONS, pickedValue: "malware", isCompact: true }) }), isWide: true },
   ],
 });
 

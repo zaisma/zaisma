@@ -581,7 +581,7 @@ component({
 }
 `,
   render: footer,
-  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],
+  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneWidth: "full", body: footer() }) }],
 });
 
 component({
@@ -673,21 +673,21 @@ component({
   examples: [
     {
       label: "Down a box",
-      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
     },
     {
       label: "Sideways, under a box (a table, a chart)",
-      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
     },
     {
       label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
-      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
         (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
       )}` })}</div>`,
     },
     {
       label: "Sideways, its parts marked",
-      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
         (day) => html`<span data-rail-mark="${day}">${day}: 1,204 players, 3,906 hours. </span>`,
       )}</p></div>` }),
     },
@@ -779,12 +779,12 @@ component({
 `,
   render: shelf,
   examples: [
-    { label: "Popular, its title a link to Browse", isWide: true, markup: glassPane({ paneSize: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block" as const, markup: cover })) }) }) },
+    { label: "Popular, its title a link to Browse", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block" as const, markup: cover })) }) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
       markup: glassPane({
-        paneSize: "full",
+        paneWidth: "full",
         body: shelf({
           id: "example-shelf-continue",
           trackId: "example-shelf-continue-track",
@@ -822,7 +822,7 @@ component({
   render: sectionTabs,
   examples: [
     { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Stats", "Settings"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneSize: "small", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
@@ -880,7 +880,7 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneSize: "medium", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
   ],
 });

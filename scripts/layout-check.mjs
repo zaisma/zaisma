@@ -23,48 +23,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES } from "../apps/site/src/components/checked-pages.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The sizes every page is measured at: Julius's phone, and a desktop. */
-export const LAYOUT_CHECK_SIZES = [
-  { name: "320 x 667", widthPx: 320, heightPx: 667, isPhone: true },
-  { name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false },
-];
-export const LAYOUT_CHECK_THEMES = ["light", "dark"];
-
-const GALLERY_GROUPS = ["", "/layout", "/actions", "/inputs", "/navigation", "/panes", "/data"];
-
-/**
- * Every page and state the check opens. path is on the site, or on the stand-in site of a developer using Sign in with Zaisma
- * (onSignInSite), which sends the player on to Zaisma's own page; account signs in as that test account first. mainActionShows: where
- * the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the city's pane starts low on
- * a phone, showing down to its heading, so the city has the screen: docs/DECISIONS.md, "Signing in happens in the city"), or nowhere
- * (the page has none, or many, like the gallery).
- */
-const CITY = { mainActionShows: "desktop" };
-export const LAYOUT_CHECK_PAGES = [
-  { name: "Home", path: "/", mainActionShows: "nowhere" },
-  { name: "Sign in", path: "/signin", ...CITY },
-  { name: "Make an account", path: "/join", ...CITY },
-  { name: "Forgot your password", path: "/signin/email", ...CITY },
-  { name: "Example page", path: "/design/example", mainActionShows: "everywhere" },
-  { name: "Connect an app", path: "/mcp-start", onSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
-  { name: "Sign in with Zaisma", path: "/start", onSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },
-  ...GALLERY_GROUPS.map((group) => ({ name: `Gallery${group || " foundations"}`, path: `/design${group}`, mainActionShows: "nowhere", isGallery: true })),
-  { name: "Layout playground", path: "/design/layout/playground", mainActionShows: "nowhere", isGallery: true },
-];
-
-/** The layout playground's presets (its Start from menu), each as what it builds alone in the page's shell: the real cases, measured. */
-async function playgroundPresetPages(site) {
-  const markup = await (await fetch(`${site}/design/layout/playground`)).text();
-  const menu = /<div class="dropdown glass[^"]*" id="playground-presets"[\s\S]*?<\/div>/.exec(markup)?.[0] ?? "";
-  return [...menu.matchAll(/<a href="([^"]+)"[^>]*>(?:[\s\S]*?)<span>([^<]+)<\/span>/g)].map(([, href, label]) => ({
-    name: `Playground: ${label.replace(/&#39;/g, "'")}`,
-    path: href.replace("/design/layout/playground?", "/design/layout/playground/frame?").replace(/&amp;/g, "&"),
-    mainActionShows: "nowhere",
-  }));
-}
+/** The sizes every page is measured at, Julius's phone and a desktop, and the pages: the same Screens shows (checked-pages.ts). */
+export const LAYOUT_CHECK_SIZES = SCREEN_SIZES.map((size) => ({ name: `${size.widthPx} x ${size.heightPx}`, widthPx: size.widthPx, heightPx: size.heightPx, isPhone: size.isPhone }));
+export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
+export const LAYOUT_CHECK_PAGES = CHECKED_PAGES;
 
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
 const SETTLE = `(async () => {
@@ -143,9 +109,9 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
       const contextId = await contextFor(page.account);
       for (const size of sizes) {
         for (const theme of themes) {
-          const base = page.onSignInSite ? signInSite : site;
-          // The gallery, and the playground's frames, take light or dark from their address.
-          const url = `${base}${page.path}${(page.isGallery || page.path.includes("/playground/frame")) && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
+          const base = page.isOnSignInSite ? signInSite : site;
+          // The gallery takes light or dark from its address.
+          const url = `${base}${page.path}${page.isGallery && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
           const found = await checkPage(chrome, contextId, url, size, theme, page);
           checkedCount++;
           for (const failure of found) failures.push({ page: page.name, path: page.path, size: size.name, theme, ...failure });
@@ -170,7 +136,8 @@ export function previewSites({ isStarting = true } = {}) {
   };
   let state = read();
   const isUp = (offset) => spawnSync("curl", ["-s", "-o", "/dev/null", "-w", "%{http_code}", `http://localhost:${8800 + offset}/design/example`], { encoding: "utf8" }).stdout === "200";
-  if ((!state || !isUp(state.offset)) && isStarting) {
+  if (!state || !isUp(state.offset)) {
+    if (!isStarting) return null;
     console.log("Starting this checkout's preview (a few minutes)…");
     const started = spawnSync(process.execPath, [join(ROOT, "scripts/preview/background.mjs"), "start"], { stdio: "inherit" });
     if (started.status !== 0) return null;
@@ -195,7 +162,7 @@ async function main() {
   if (!chromePath) stop("No Chrome: set CHROME_PATH, or let it download Chrome for Testing (it couldn't).", isJson, "no_chrome");
   const sites = previewSites();
   if (!sites) stop("The preview didn't start: see .wrangler/preview-run/preview.log.", isJson, "no_preview");
-  const allPages = [...LAYOUT_CHECK_PAGES, ...(await playgroundPresetPages(sites.site))];
+  const allPages = LAYOUT_CHECK_PAGES;
   const pages = only ? allPages.filter((page) => page.path.includes(only)) : allPages;
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
   const { checkedCount, failures } = await checkPages({

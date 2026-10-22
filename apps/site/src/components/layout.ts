@@ -1,14 +1,13 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { CONTROL_HEIGHTS, type ControlHeight, type ControlMarkup } from "./control-markup.ts";
-import { PANE_SIZES } from "./foundations.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
  * layout included"). A stack puts things one under another, a row side by side, a grid in cells of one size, a track in a row that
- * scrolls sideways, a split a pane beside a scroll of sections, and pane parts a pane's head, body and foot. Each picks its own
+ * scrolls sideways, columns two halves of the width side by side, and pane parts a pane's head, body and foot. Each picks its own
  * spacing from what's on each side (the spacing table, docs/DESIGN.md), so nobody passes a gap; widths and sizes are named, never numbers;
  * and each goes by the room it's given (container queries), never the window's, so it holds the same wherever it's put. The gallery
- * shows them in layout-gallery.ts, with the playground (playground.ts).
+ * shows them in layout-gallery.ts, and Screens (screens.ts) shows any page on a phone and a desktop, measured.
  */
 
 export type { ControlMarkup } from "./control-markup.ts";
@@ -39,13 +38,13 @@ export type LayoutItem =
   | (LayoutItemPlace & { kind: "block"; markup: NotControlMarkup });
 
 /** Where an item sits, for its margins: words (and a control that's words alone, a text button) keep the pane's; the rest the frame gap. */
-const placedKind = (item: LayoutItem): "words" | "control" | "block" => (item.kind === "control" && item.markup.isWordsAlone ? "words" : item.kind);
+const placedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.isWordsAlone ? "words" : layoutItem.kind);
 
 /** The spacing tokens a layout picks from (docs/DESIGN.md, Spacing), by what's on each side. */
 type LayoutGap = "control-row-boxes" | "control-stack" | "words-control" | "words-words" | "block-block";
 
 /** What an item is to the spacing table: a control with words of its own is a block. */
-const spacedKind = (item: LayoutItem): "words" | "control" | "block" => (item.kind === "control" && item.markup.hasOwnWords ? "block" : item.kind);
+const spacedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.hasOwnWords ? "block" : layoutItem.kind);
 
 /** The gap between two things one under the other. */
 function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
@@ -65,7 +64,7 @@ function rowGap(before: LayoutItem, after: LayoutItem): LayoutGap {
   return "words-control";
 }
 
-const placeAttributes = (item: LayoutItemPlace): Raw => html`${item.id ? html` id="${item.id}"` : ""}${item.isHidden ? raw(" hidden") : ""}`;
+const placeAttributes = (layoutItem: LayoutItemPlace): Raw => html`${layoutItem.id ? html` id="${layoutItem.id}"` : ""}${layoutItem.isHidden ? raw(" hidden") : ""}`;
 const groupLabel = (label: string | undefined): Raw => (label ? html` role="group" aria-label="${label}"` : raw(""));
 
 export interface StackOptions {
@@ -77,9 +76,9 @@ export interface StackOptions {
 
 /** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
 export function stack(options: StackOptions): Raw {
-  return html`<div class="layout-stack"${groupLabel(options.label)}>${options.items.map((item, itemIndex) => {
+  return html`<div class="layout-stack"${groupLabel(options.label)}>${options.items.map((layoutItem, itemIndex) => {
     const above = options.items[itemIndex - 1];
-    return html`<div class="stack-cell is-${placedKind(item)}${above ? ` gap-top-${stackGap(above, item)}` : ""}"${placeAttributes(item)}>${item.markup}</div>`;
+    return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   })}</div>`;
 }
 
@@ -101,22 +100,22 @@ export interface RowOptions {
  * side slant toward each other; words beside controls sit on their center line, and on a field's box when a field shows its label.
  */
 export function row(options: RowOptions): Raw {
-  const controls = options.items.flatMap((item) => (item.kind === "control" ? [item.markup] : []));
+  const controls = options.items.flatMap((layoutItem) => (layoutItem.kind === "control" ? [layoutItem.markup] : []));
   const tallest = controls.reduce<ControlHeight | null>((found, control) => (found === null || CONTROL_HEIGHTS.indexOf(control.controlHeight) > CONTROL_HEIGHTS.indexOf(found) ? control.controlHeight : found), null);
   const isOnFieldBoxes = controls.some((control) => control.hasOwnWords);
   const alignment = options.widths === "fit" ? (options.alignment ?? "start") : "start";
-  const cells = options.items.map((item, itemIndex) => {
+  const cells = options.items.map((layoutItem, itemIndex) => {
     const after = options.items[itemIndex + 1];
     // A control only a mouse shows (the row arrows) keeps the room before it on itself, so the row closes up when it's gone.
     const isAfterPointerOnly = after?.kind === "control" && after.markup.isPointerOnly;
     const before = options.items[itemIndex - 1];
-    const isPointerOnly = item.kind === "control" && item.markup.isPointerOnly;
+    const isPointerOnly = layoutItem.kind === "control" && layoutItem.markup.isPointerOnly;
     // The last cell reaches past the row's end as far as a control reaches over the next, and the row stops that far short of its own end
     // (ROW_STYLES), so a control ends at the row's end whether its line wraps there or not.
-    const endGap = after ? (isAfterPointerOnly ? "" : rowGap(item, after)) : "control-row-boxes";
-    const gaps = [endGap ? `gap-end-${endGap}` : "", before && isPointerOnly ? `gap-start-${rowGap(before, item)}` : ""].filter(Boolean).join(" ");
+    const endGap = after ? (isAfterPointerOnly ? "" : rowGap(layoutItem, after)) : "control-row-boxes";
+    const gaps = [endGap ? `gap-end-${endGap}` : "", before && isPointerOnly ? `gap-start-${rowGap(before, layoutItem)}` : ""].filter(Boolean).join(" ");
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
-    return html`<div class="row-cell is-${placedKind(item)}${isFilling ? " fills" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(item)}>${item.markup}</div>`;
+    return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
   return html`<div class="layout-row alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
 }
@@ -130,7 +129,7 @@ export interface GridOptions {
 
 /** Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. */
 export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${groupLabel(options.label)}>${options.items.map((item) => html`<div class="grid-cell is-${item.kind}"${placeAttributes(item)}>${item.markup}</div>`)}</div>`;
+  return html`<div class="layout-grid item-${options.itemSize}"${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>`;
 }
 
 export interface TrackOptions {
@@ -145,27 +144,27 @@ export interface TrackOptions {
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
 export function track(options: TrackOptions): Raw {
-  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((item) => item.markup)}</div>`;
+  return html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div>`;
 }
 
-export interface SplitOptions {
-  /** The pane at the side (a game's details): it stays in view while the sections scroll, when isSideSticky. */
-  side: Raw;
-  /** The sections beside it. */
-  main: Raw;
-  /** The side's width: a small pane's or a medium pane's (Glass pane's sizes). */
-  sideSize: "pane-small" | "pane-medium";
-  isSideSticky?: boolean;
+export interface ColumnsOptions {
+  /** Start to end: what each half holds (a pane, or a stack of them). */
+  columns: [Raw, Raw];
+  /** The column that stays in view under the header while the other scrolls: a game's details. */
+  stickyColumn?: "first" | "second";
 }
 
-/** The narrowest a split's main column gets before the side goes over it: a medium pane's width. */
-const SPLIT_MAIN_LEAST_PX = PANE_SIZES.medium;
-/** --gap-block-block, for the container queries, which can't read a token. */
+/** The least a column gets before the two go one over the other: a little more than a phone's width, so what's made for one fits. */
+export const COLUMN_LEAST_PX = 360;
+/** --gap-block-block, for the container query, which can't read a token. */
 const BLOCK_GAP_PX = 24;
 
-/** A pane beside a scroll of sections; one over the other where there isn't room for both. */
-export function split(options: SplitOptions): Raw {
-  return html`<div class="layout-split side-${options.sideSize}${options.isSideSticky ? " is-side-sticky" : ""}"><div class="split-in"><div class="split-side">${options.side}</div><div class="split-main">${options.main}</div></div></div>`;
+/**
+ * Two halves of the width side by side, one over the other where both can't have a column's least width. A pane takes the whole width or
+ * fits what's in it; one that should take half the screen goes in a column here.
+ */
+export function columns(options: ColumnsOptions): Raw {
+  return html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`;
 }
 
 export interface PanePartsOptions {
@@ -214,8 +213,8 @@ const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is
 function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
-  const selectors = [0, 1, 2, 3].flatMap((depth) => {
-    const into = ` > *${end}`.repeat(depth) + " > ";
+  const selectors = [0, 1, 2, 3].flatMap((depthCount) => {
+    const into = ` > *${end}`.repeat(depthCount) + " > ";
     return [
       `${into}.is-words${end}`,
       `${into}:is(h1, h2, h3, p)${end}`,
@@ -235,7 +234,7 @@ const PANE_CONTENT = [".glass-pane > .pane-in", ".tray", ".sheet-in"];
 function edgeRows(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
-  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3].map((depth) => `${pane}${` > *${end}`.repeat(depth)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
+  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3].map((depthCount) => `${pane}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
 }
 
 export const STACK_STYLES = `
@@ -306,19 +305,16 @@ export const TRACK_STYLES = `
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
-export const SPLIT_STYLES = `
-/* A split: the side pane beside the main column, by the split's own width (a container); one over the other below the side and a medium
-   pane's width together. The side stays in view under the header while the main column scrolls, when it's sticky. */
+export const COLUMNS_STYLES = `
+/* Columns: two halves of the width, by the layout's own width (a container); one over the other below two columns' least width. A column's
+   pane takes its whole width. The sticky one stays in view under the header while the other scrolls, only while they're side by side. */
 /* Its own width is what it's given, never its content's, so it can be measured: as wide as what holds it. */
-.layout-split { container-type: inline-size; width: 100%; min-width: 0; }
-.split-in { display: grid; gap: var(--gap-block-block); align-items: start; }
-.layout-split.side-pane-small > .split-in { grid-template-columns: ${PANE_SIZES.small}px minmax(0, 1fr); }
-.layout-split.side-pane-medium > .split-in { grid-template-columns: ${PANE_SIZES.medium}px minmax(0, 1fr); }
-.split-side, .split-main { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
-.layout-split .split-side > .glass-pane, .layout-split .split-main > .glass-pane { width: 100%; }
-.layout-split.is-side-sticky > .split-in > .split-side { position: sticky; top: var(--header-room, var(--pad-pane)); }
-@container (max-width: ${PANE_SIZES.small + SPLIT_MAIN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-split.side-pane-small > .split-in { grid-template-columns: minmax(0, 1fr); } .layout-split.side-pane-small > .split-in > .split-side { position: static; } }
-@container (max-width: ${PANE_SIZES.medium + SPLIT_MAIN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-split.side-pane-medium > .split-in { grid-template-columns: minmax(0, 1fr); } .layout-split.side-pane-medium > .split-in > .split-side { position: static; } }
+.layout-columns { container-type: inline-size; width: 100%; min-width: 0; }
+.columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
+.columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.columns-in > .column > .glass-pane { width: 100%; }
+.layout-columns.sticky-first > .columns-in > .column:first-child, .layout-columns.sticky-second > .columns-in > .column:last-child { position: sticky; top: var(--header-room, var(--pad-pane)); }
+@container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
 `;
 
 export const PANE_PARTS_STYLES = `

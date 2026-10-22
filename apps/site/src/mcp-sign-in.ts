@@ -375,7 +375,7 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
     // The answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],
     body: glassPane({
-      paneSize: "medium",
+      paneWidth: "fit",
       label: `Connect ${name}`,
       body: html`${stack({
         items: [
