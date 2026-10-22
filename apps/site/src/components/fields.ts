@@ -136,8 +136,8 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
     input.type = on ? "text" : "password";
-    // Only its words change: the slab and its drawn edge stay.
-    show.querySelector(".face > span").textContent = on ? "Hide" : "Show";
+    // Only its words change: the slab and its drawn edge stay. The label, not the loader's span before it.
+    show.querySelector(".face > span:not(.loader)").textContent = on ? "Hide" : "Show";
     show.setAttribute("aria-pressed", String(on));
   });
 })();

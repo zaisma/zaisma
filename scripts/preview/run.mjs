@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -32,6 +32,8 @@ const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = `http://localhost:${PORTS.mail}`;
+// The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
+const FEEDBACK = `http://localhost:${PORTS.feedback}`;
 const EMAIL = "preview@zaisma.test";
 // The token Cloudflare's test keys answer for (the preview uses them).
 const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
@@ -58,6 +60,8 @@ writeFileSync(
   [`SITE_ORIGIN=${SITE}`, `SIGN_IN_SIGNING_KEY='${readFileSync(signInKeyFile, "utf8")}'`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
     // Email codes go to the stand-in mailbox, never to a real address.
     `EMAIL_OUTBOX_URL=${MAIL}/`,
+    // The feedback overlay and its comments (workers/site.mjs, withFeedback): the preview's entry only, never production.
+    `PREVIEW_FEEDBACK_ORIGIN=${FEEDBACK}`,
     // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
     "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`,
     // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
@@ -139,6 +143,8 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), Stri
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-dns.mjs"), String(PORTS.dns)], { stdio: "ignore" }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-mail.mjs"), String(PORTS.mail), STATE], { stdio: "ignore" }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-turnstile.mjs"), String(PORTS.turnstile)], { stdio: "ignore" }));
+const feedbackLog = openSync(join(STATE, "feedback.log"), "w");
+children.push(spawn("node", [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-site.mjs"), String(PORTS.signInSite), SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID], { stdio: "ignore" }));
 // One at a time: they share the preview's database, and starting together can find it locked.
 children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
@@ -383,6 +389,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test; the code arrives in the mailbox below)
   Mailbox         ${MAIL}  (the email codes the preview sent, as players get them; nothing goes to a real address)
+  Feedback        the Feedback button at the bottom right of every page: click a thing or drag a box to comment; a session runs
+                  npm run feedback for every open comment with its pictures, and its replies show on the page
   Wrong passwords ${SITE}/signin  (Guessed_At had 20 wrong passwords today: its password shows the lockout message; get in
                   with Forgot password, guessed@example.test, and its account page says so once, then its password
                   works on this device. Guessed_Twice has no email or passkey: its account page adds both buttons)
