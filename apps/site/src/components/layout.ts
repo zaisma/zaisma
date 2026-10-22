@@ -115,7 +115,7 @@ export function row(options: RowOptions): Raw {
     const endGap = after ? (isAfterPointerOnly ? "" : rowGap(layoutItem, after)) : "control-row-boxes";
     const gaps = [endGap ? `gap-end-${endGap}` : "", before && isPointerOnly ? `gap-start-${rowGap(before, layoutItem)}` : ""].filter(Boolean).join(" ");
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
-    return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
+    return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${isPointerOnly ? " is-pointer-only" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
   return html`<div class="layout-row alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
 }
@@ -263,6 +263,13 @@ export const ROW_STYLES = `
 .layout-row.is-on-field-boxes { align-items: flex-end; }
 .row-cell { display: flex; align-items: center; }
 ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
+/* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
+   and reaches past the row's end like any last cell. */
+@media not ((hover: hover) and (pointer: fine)) {
+  .row-cell.is-pointer-only { display: none; }
+  .layout-row > .row-cell:has(+ .row-cell.is-pointer-only:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
+}
+.layout-row > .row-cell:has(+ .row-cell.is-pointer-only:last-child > [hidden]:only-child) { margin-inline-end: var(--gap-control-row-boxes); }
 .layout-row.alignment-start { justify-content: flex-start; }
 .layout-row.alignment-end { justify-content: flex-end; }
 .layout-row.alignment-center { justify-content: center; }

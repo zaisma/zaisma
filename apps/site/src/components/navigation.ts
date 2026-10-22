@@ -707,8 +707,7 @@ component({
 /* Each arrow is a Cut button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
 .steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
-/* Without a mouse there are none, so a row's cell holding them takes no room (layout.ts puts the gap before them on that cell). */
-@media not ((hover: hover) and (pointer: fine)) { .row-cell:has(> .steps) { display: none; } }
+/* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
 .steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
 .steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
 .steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
