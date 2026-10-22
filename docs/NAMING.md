@@ -133,9 +133,9 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `mcp_client` (an AI app that connects to the MCP by signing in; one that uses a metadata document is named by its URL instead) | `mcp_client_…` |
 | `database_restore` (a restore of a game's database to a time, or the undo of one) | `database_restore_…` |
 | `announcement` (short news Zaisma posts for players, shown on zaisma.com's home) | `announcement_…` |
-| `purchase` (a player's purchase or grant of an item in a game) | `purchase_…` |
 | `top_up` (credit a developer bought, on Stripe's page or by automatic top-up) | `top_up_…` |
 | `credit_entry` (any other change to a developer's credit: a game's hosting charge for a day, a refund, what Zaisma wrote off) | `credit_entry_…` |
+| `purchase` (a player's purchase or grant of an item in a game) | `purchase_…` |
 
 `ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know), connected apps' access and refresh tokens (`zat_…`, `zrt_…`), webhook signing secrets (`whsec_…`, Standard Webhooks' form) and file hashes (`sha256`).
 
