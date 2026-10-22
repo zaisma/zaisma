@@ -51,6 +51,8 @@ export interface RoomList {
 }
 
 const MAXIMUM_SHOWN_ROOM_COUNT = 50;
+/** Open rooms in one page of a list asked for by page (pageNumber): the game page's rooms table loads them a page at a time. */
+export const ROOM_PAGE_ROOM_COUNT = 50;
 
 /**
  * Until Hosting billing exists, each game's rooms stop at the free tier, 1,000 player-hours a month
@@ -207,15 +209,17 @@ export const hasSpace = (room: Pick<ListedRoom, "isOpen" | "playerCount" | "held
 export async function listRooms(
   database: D1Database,
   gameId: string,
-  options: { country?: string | null; continent?: string | null; region?: string | null; labels?: Record<string, string> | null; cacheDurationSec?: number; nowMs?: number } = {},
+  options: { country?: string | null; continent?: string | null; region?: string | null; labels?: Record<string, string> | null; pageNumber?: number; cacheDurationSec?: number; nowMs?: number } = {},
 ): Promise<RoomList> {
   const near = options.continent && CONTINENTS[options.continent] ? options.continent : null;
   const here = isCountry(options.country ?? null) ? options.country! : null;
   const region = options.region && CONTINENTS[options.region] ? options.region : null;
   const wanted = Object.entries(options.labels ?? {}).filter(([labelName, labelValue]) => typeof labelName === "string" && typeof labelValue === "string" && labelName && labelValue).slice(0, 4);
+  // A page of open rooms (the game page's table), from 1; left out, the first rooms of every kind, as games list them.
+  const pageNumber = options.pageNumber && Number.isInteger(options.pageNumber) && options.pageNumber > 0 ? options.pageNumber : null;
   const cacheDurationSec = options.cacheDurationSec ?? 0;
   const key = new Request(
-    `https://rooms-list.zaisma.internal/v2/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
+    `https://rooms-list.zaisma.internal/v2/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}${pageNumber ? `&page=${pageNumber}` : ""}`,
   );
   const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
@@ -265,7 +269,9 @@ export async function listRooms(
   const same = (first: string, second: string) => first.localeCompare(second, "en", { sensitivity: "base" }) === 0;
   const fits = (room: ListedRoom) => wanted.every(([labelName, labelValue]) => Object.entries(room.labels).some(([roomLabelName, roomLabelValue]) => same(roomLabelName, labelName) && same(roomLabelValue, labelValue)));
   const inRegion = all.filter((room) => (!region || where.get(room.roomCode) === region) && fits(room));
-  const shown = inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
+  const shown = pageNumber
+    ? inRegion.filter((room) => room.isOpen).slice((pageNumber - 1) * ROOM_PAGE_ROOM_COUNT, pageNumber * ROOM_PAGE_ROOM_COUNT)
+    : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
     playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: results.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
@@ -273,7 +279,9 @@ export async function listRooms(
     openRoomCount: inRegion.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),
     region,
-    moreOpenRoomCount: inRegion.filter((room) => room.isOpen).length - shown.filter((room) => room.isOpen).length,
+    moreOpenRoomCount: pageNumber
+      ? Math.max(0, inRegion.filter((room) => room.isOpen).length - pageNumber * ROOM_PAGE_ROOM_COUNT)
+      : inRegion.filter((room) => room.isOpen).length - shown.filter((room) => room.isOpen).length,
     filters: labelFilters(all),
     changedAtMs: Object.fromEntries(shown.map((room) => [room.roomCode, updated.get(room.roomCode)!])),
   };

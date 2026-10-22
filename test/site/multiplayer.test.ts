@@ -253,18 +253,28 @@ describe("room browsing on the game page", () => {
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).not.toContain("Bad name");
   });
 
-  it("says Play finds you a room only for a game that joins players by itself", async () => {
+  it("pages through every open room, a page from the server at a time", async () => {
     const id = await addGame("arena", "relay");
     const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
-    // More open rooms than the list shows.
     for (let i = 0; i < 52; i++) await room(id, `${codes[i % codes.length]!.repeat(4)}${codes[Math.floor(i / codes.length)]}2`, 1);
-    const more = async () => (await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text()).match(/And 2 more rooms with fewer players\.[^<]*/)?.[0];
-    expect(await more()).toBe("And 2 more rooms with fewer players.");
+    const first = await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text();
+    expect(first).toContain('data-first-row-number="1" data-total-row-count="52"');
+    expect(rowsOf(first)).toBe(50);
+    const second = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?page=2")).text();
+    expect(second).toContain('data-first-row-number="51" data-total-row-count="52"');
+    expect(rowsOf(second)).toBe(2);
+  });
+
+  it("says Play finds you a room only for a game that joins players by itself", async () => {
+    const id = await addGame("arena", "relay");
+    await room(id, "BCDFGH", 1);
+    const hint = async () => (await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text()).includes("Or press Play and the game finds you one.");
+    expect(await hint()).toBe(false);
     await noteQuickJoin(env.DB, id);
-    expect(await more()).toBe("And 2 more rooms with fewer players. Press Play and the game finds you one.");
+    expect(await hint()).toBe(true);
     // A quick join more than 30 days ago no longer counts.
     await env.DB.prepare("UPDATE games SET quick_joined_at_ms = ? WHERE id = ?").bind(Date.now() - QUICK_JOIN_KEPT_MS - 1, id).run();
-    expect(await more()).toBe("And 2 more rooms with fewer players.");
+    expect(await hint()).toBe(false);
   });
 
   it("says when there's no room to join", async () => {

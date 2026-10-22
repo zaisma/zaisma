@@ -1,4 +1,4 @@
-import {
+import { ROOM_PAGE_ROOM_COUNT,
   ALLOWED_CONTENT,
   canOpenLink,
   CONTENT_RULES,
@@ -187,7 +187,7 @@ ${developer || pageLinks.length
     ? glassPane({
         paneSize: "full",
         label: "Rooms",
-        body: html`<div class="rooms-top"><div class="rooms-title"><h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p></div>${codeBox(game.slug)}</div><div id="rooms-list">${roomsPanel(game, rooms)}</div>`,
+        body: html`<div class="rooms-top"><div class="rooms-title"><h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p></div>${codeBox(game.slug)}</div><div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
       })
     : "";
   const response = layout(env, {
@@ -672,6 +672,8 @@ const roomsPanel = document.getElementById("rooms");
 let roomsAt = Date.now();
 let roomsRegion = "";
 let roomsLabels = {};
+// The page of open rooms the table is on (${ROOM_PAGE_ROOM_COUNT} a page), from 1.
+let roomsPage = 1;
 const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort());
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
@@ -702,6 +704,7 @@ async function refreshRooms(force) {
     const query = new URLSearchParams();
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
+    if (roomsPage > 1) query.set("page", roomsPage);
     const left = justLeft();
     if (left) query.set("left", left);
     const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
@@ -744,8 +747,12 @@ if (roomsPanel) {
     const again = e.target.closest("#rooms-refresh");
     if (again) { again.setAttribute("aria-busy", "true"); refreshRooms(true); return; }
   });
+  // The table stepped past the rooms it has: load the page of rooms with that row.
+  roomsPanel.addEventListener("table-rows-wanted", (e) => { roomsPage = Math.ceil(e.detail.rowNumber / ${ROOM_PAGE_ROOM_COUNT}); refreshRooms(true); });
   roomsPanel.addEventListener("change", (e) => {
     // A region picked: remembered for next time, and the list brought to it.
+    // Another region or label lists other rooms: back to the first.
+    roomsPage = 1; delete document.getElementById("rooms-list").dataset.tableRow;
     if (e.target.closest("[data-region-filter]")) {
       roomsRegion = e.target.value;
       try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}

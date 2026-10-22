@@ -488,6 +488,10 @@ export interface TableOptions {
   /** The most rows a page shows. Past it, or past what fits in the table's height (--table-height), the table turns pages instead of
    *  scrolling, with a pager under it; a table with few enough rows never shows one. */
   maximumRowCount?: number;
+  /** The rows are one slice of a longer list the page loads a slice at a time (a game's rooms): where in it they start, from 1, and how
+   *  many there are in all. The pager counts them all, and a step past the slice asks the page for the next one: a table-rows-wanted
+   *  event on the table, its detail the row's number (rowNumber). */
+  rowSlice?: { firstRowNumber: number; totalRowCount: number };
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
   /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
@@ -560,7 +564,7 @@ export function table(options: TableOptions): Raw {
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
   // The pager: hidden until the rows need pages (TABLE_SCRIPT).
   const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}</div></nav>`;
-  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div>${pager}</div>`;
+  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div>${pager}</div>`;
 }
 
 /**
@@ -569,7 +573,7 @@ export function table(options: TableOptions): Raw {
  * the pointer is on every move and every scroll, so the light stays under the pointer as rows scroll past it.
  */
 export const TABLE_SCRIPT = `/* tables */(function () {
-  var lit = null, pointer = null, sorts = new Map(), pages = new Map(), slice = function (list) { return Array.prototype.slice.call(list); };
+  var lit = null, pointer = null, sorts = new Map(), slice = function (list) { return Array.prototype.slice.call(list); };
   function partsOf(frame) { return slice(frame.querySelectorAll(".table-rows .data-table")); }
   function mainOf(frame) { return frame.querySelector(".table-x .data-table"); }
   // Every row as tall as its tallest part (a Join button beside a row of words).
@@ -577,7 +581,9 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
     if (bodies.length < 2) return;
     bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.style.height = ""; }); });
+    // Rows on another page (hidden) are left as they are: they have no height to match until they show.
     slice(bodies[0].rows).forEach(function (row, i) {
+      if (row.hidden) return;
       var tallest = 0; bodies.forEach(function (body) { if (body.rows[i]) tallest = Math.max(tallest, body.rows[i].offsetHeight); });
       bodies.forEach(function (body) { if (body.rows[i]) body.rows[i].style.height = tallest + "px"; });
     });
@@ -599,29 +605,47 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     slice(frame.querySelectorAll(".table-head-main th, .table-x thead th")).forEach(function (head) { if (head.hasAttribute("aria-sort")) head.setAttribute("aria-sort", head.cellIndex === column ? order : "none"); });
     paginate(frame);
   }
-  // Pages: as many rows as the table's height holds, or its maximum row count if that's fewer; every part shows the same rows. A table
-  // that's put in again keeps its page, by its id.
+  // Pages: as many rows as the table's height holds, or its maximum row count if that's fewer; every part shows the same rows, and the
+  // rows' box keeps a whole page's height, so the well never changes size from page to page. A table whose rows are a slice of a longer
+  // list (data-first-row-number, data-total-row-count) counts the whole list and asks the page for another slice past its own. Where it
+  // is (the first row shown, by its number in the whole list) is kept on what holds it (the nearest data-table-holder that stays while
+  // the table is put in again, or its parent), so a refreshed list or the next slice lands where it was; a page that changes what it
+  // lists clears it (data-table-row on the holder).
+  function sizeOf(frame) {
+    // A row is as tall as its tallest part (a Join button beside words), whether or not its parts were matched yet.
+    var table = frame.closest(".table"), rowPx = 0;
+    partsOf(frame).forEach(function (part) { var shown = part.tBodies[0] && slice(part.tBodies[0].rows).filter(function (row) { return !row.hidden; })[0]; if (shown) rowPx = Math.max(rowPx, shown.offsetHeight); });
+    var roomPx = parseFloat(getComputedStyle(frame.querySelector(".table-scroll")).maxHeight);
+    var most = parseInt(table.dataset.maximumRowCount, 10) || Infinity, fitting = rowPx && isFinite(roomPx) ? Math.max(1, Math.floor(roomPx / rowPx)) : Infinity;
+    // The rows' box holds a page at a fixed height: its whole height when that's what limits a page, else a page of its tallest rows.
+    return { size: Math.min(most, fitting), pagePx: fitting <= most ? roomPx : Math.min(most, fitting) * (rowPx + 1) };
+  }
   function paginate(frame) {
-    var table = frame.closest(".table"), pager = table.querySelector(":scope > .table-pages"), main = mainOf(frame);
+    var table = frame.closest(".table"), holder = table.closest("[data-table-holder]") || table.parentElement, pager = table.querySelector(":scope > .table-pages"), scroll = frame.querySelector(".table-scroll");
     var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
     if (!pager || !bodies.length) return;
     bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.hidden = false; }); });
-    var rowCount = bodies[0].rows.length, rowPx = rowCount ? bodies[0].rows[0].offsetHeight : 0;
-    var roomPx = parseFloat(getComputedStyle(frame.querySelector(".table-scroll")).maxHeight);
-    var size = Math.min(parseInt(table.dataset.maximumRowCount, 10) || Infinity, rowPx && isFinite(roomPx) ? Math.max(1, Math.floor(roomPx / rowPx)) : Infinity);
-    if (rowCount <= size) { pager.hidden = true; return; }
-    var pageCount = Math.ceil(rowCount / size), page = Math.min(pages.get(main.id) || 0, pageCount - 1);
-    pages.set(main.id, page);
-    bodies.forEach(function (body) { slice(body.rows).forEach(function (row, i) { row.hidden = i < page * size || i >= (page + 1) * size; }); });
+    var rowCount = bodies[0].rows.length, first = (parseInt(table.dataset.firstRowNumber, 10) || 1) - 1, total = parseInt(table.dataset.totalRowCount, 10) || rowCount;
+    var measured = sizeOf(frame), size = measured.size;
+    if (total <= size) { pager.hidden = true; scroll.style.minHeight = ""; return; }
+    var at = Math.max(0, Math.min(total - 1, parseInt(holder.dataset.tableRow, 10) || first)), local = Math.floor(Math.max(0, Math.min(rowCount - 1, at - first)) / size) * size;
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row, i) { row.hidden = i < local || i >= local + size; }); });
+    holder.dataset.tableRow = first + local;
+    scroll.style.minHeight = measured.pagePx + "px";
     pager.hidden = false;
-    pager.querySelector(".table-page-words").textContent = (page * size + 1) + "–" + Math.min(rowCount, (page + 1) * size) + " of " + rowCount;
-    pager.querySelector('[data-page-step="-1"]').disabled = page === 0;
-    pager.querySelector('[data-page-step="1"]').disabled = page === pageCount - 1;
+    pager.querySelector(".table-page-words").textContent = (first + local + 1) + "–" + Math.min(first + rowCount, first + local + size) + " of " + total;
+    pager.querySelector('[data-page-step="-1"]').disabled = first + local === 0;
+    pager.querySelector('[data-page-step="1"]').disabled = first + local + size >= total;
   }
   document.addEventListener("click", function (event) {
     var step = event.target.closest && event.target.closest(".table-pages [data-page-step]"); if (!step) return;
-    var frame = step.closest(".table").querySelector(".table-frame"), main = mainOf(frame);
-    pages.set(main.id, Math.max(0, (pages.get(main.id) || 0) + parseInt(step.getAttribute("data-page-step"), 10)));
+    var table = step.closest(".table"), frame = table.querySelector(".table-frame"), holder = table.closest("[data-table-holder]") || table.parentElement;
+    var rowCount = mainOf(frame).tBodies[0].rows.length, first = (parseInt(table.dataset.firstRowNumber, 10) || 1) - 1, size = sizeOf(frame).size;
+    var now = parseInt(holder.dataset.tableRow, 10) || first, next = step.getAttribute("data-page-step") === "1" ? now + size : now - 1 < first ? now - 1 : Math.max(first, now - size);
+    if (next < 0) return;
+    holder.dataset.tableRow = next;
+    // Past this slice: the page loads the one with that row, and the table lands on it.
+    if (next < first || next >= first + rowCount) { table.dispatchEvent(new CustomEvent("table-rows-wanted", { bubbles: true, detail: { rowNumber: next + 1 } })); return; }
     paginate(frame);
   });
   document.addEventListener("click", function (event) {
@@ -695,6 +719,8 @@ component({
 .table:has(.table-foot) { --table-foot-h: var(--table-head-h); }
 .table > .rail[data-rail="box"] { position: relative; grid-row: 1; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 calc(var(--table-foot-h, 0px) + 4px) 4px; }
 .table > .table-pages { grid-row: 3; grid-column: 1; }
+/* A rail with nothing to scroll keeps its room, out of sight, so the well is the same size whether the rows scroll or not. */
+.table > .rail[hidden] { display: block; visibility: hidden; }
 .table > .rail.sideways { grid-row: 2; grid-column: 1; margin: 0 calc(var(--table-last-w, 0px) + 4px) 0 calc(var(--table-first-w, 0px) + 4px); }
 /* The pager: where the rows are, and a step back and on, shown only while the rows need pages. */
 .table-pages { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); }

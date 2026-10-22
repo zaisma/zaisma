@@ -1,4 +1,4 @@
-import { checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
+import { ROOM_PAGE_ROOM_COUNT, checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
@@ -18,8 +18,10 @@ import { playingNowCounts } from "./plays.ts";
 /** The game runs on Zaisma rooms and its developer lists them on the page. */
 export const roomsOnPage = (game: Game) => game.multiplayer_mode !== "none" && game.room_browsing === "page";
 
-export function pageRooms(env: Env, game: Game, request: Request, pick: { region?: string | null; labels?: Record<string, string> | null } = {}): Promise<RoomList> {
+/** The page's rooms, a page of open rooms at a time (ROOM_PAGE_ROOM_COUNT), the first unless it asks for another. */
+export function pageRooms(env: Env, game: Game, request: Request, pick: { region?: string | null; labels?: Record<string, string> | null; pageNumber?: number } = {}): Promise<RoomList> {
   return listRooms(env.DB, game.id, {
+    pageNumber: pick.pageNumber ?? 1,
     country: request.cf?.country as string | undefined,
     continent: request.cf?.continent as string | undefined,
     region: pick.region,
@@ -58,7 +60,7 @@ export function roomsPlayingLine(list: RoomList): Raw | string {
  * compare and join from, scrolling inside its own height. "Press Play and the game finds you one" only for a game that joins players by
  * itself (isQuickJoining).
  */
-export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}, ticketPlayerCount = 0): Raw {
+export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}, ticketPlayerCount = 0, pageNumber = 1): Raw {
   const open = list.rooms.filter((room) => room.isOpen);
   const { playerCount, roomCount, closedRoomCount } = list.playing;
   const region = list.region ? list.regions.find((entry) => entry.region === list.region) : null;
@@ -102,8 +104,8 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
       : "Nobody's in an open room right now. Press Play to start.";
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
 <div class="rooms-pick">${regions || filterFields.length ? html`<div class="rooms-filters">${regions}${filterFields}</div>` : ""}${cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true })}</div>
-${open.length ? roomsTable(game.slug, open, region?.name ?? null) : emptyState({ title: "No open rooms", text: empty })}
-${list.moreOpenRoomCount > 0 ? html`<p class="rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
+${open.length ? roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }) : emptyState({ title: "No open rooms", text: empty })}
+${open.length && isQuickJoining(game) ? html`<p class="rooms-more">Or press Play and the game finds you one.</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
 </div>`;
 }
@@ -117,7 +119,7 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
  * column, staying at the right as the table scrolls sideways, so Join is always in reach on a phone. The columns are
  * even, so they stay put as the list refreshes. Never who's in it. Its code shows, for telling a friend which room.
  */
-function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null): Raw {
+function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null, rowSlice: { firstRowNumber: number; totalRowCount: number }): Raw {
   const shown = rooms.map((room) => ({ room, ...shownText(room) }));
   const hasNames = shown.some((each) => each.name);
   const labelNames = [...new Set(shown.flatMap((each) => each.labels.map(([labelName]) => labelName)))].slice(0, MAXIMUM_LABEL_COLUMN_COUNT);
@@ -147,7 +149,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true, headColumn: "last" });
+  return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, rowSlice, isCompact: true, isEven: true, headColumn: "last" });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */
@@ -162,10 +164,12 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   if (!shown) return new Response("", { status: 404, headers: { "Cache-Control": "no-store" } });
   const query = new URL(request.url).searchParams;
   const picked = readLabelParameter(query.get("labels")) ?? {};
-  const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked });
+  // The page of open rooms the table is on, from 1.
+  const pageNumber = Math.max(1, Math.min(10_000, Number.parseInt(query.get("page") ?? "1", 10) || 1));
+  const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked, pageNumber });
   // The page says which room this player just left, so they don't see themselves in it while lists catch up.
   const left = readLeftParameter(query.get("left"));
   // "Playing now" under the title is the larger of the rooms' players and the browsers playing (plays.ts).
-  const body = roomsPanel(game, left ? leaveOut(list, left) : list, picked, (await playingNowCounts(env)).get(game.id) ?? 0);
+  const body = roomsPanel(game, left ? leaveOut(list, left) : list, picked, (await playingNowCounts(env)).get(game.id) ?? 0, pageNumber);
   return new Response(String(body), { headers: securityHeaders(env, { "Cache-Control": "private, max-age=10" }) });
 }
