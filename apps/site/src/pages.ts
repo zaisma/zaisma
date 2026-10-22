@@ -743,15 +743,15 @@ if (roomsPanel) {
     // Refresh: the list now, the button busy until it's in.
     const again = e.target.closest("#rooms-refresh");
     if (again) { again.setAttribute("aria-busy", "true"); refreshRooms(true); return; }
-    const pick = e.target.closest("button[data-region]");
-    if (pick) {
-      roomsRegion = pick.dataset.region;
-      // The list is about to change: stay where the player is (the switch's slab moves there meanwhile).
-      try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
-      refreshRooms(true);
-    }
   });
   roomsPanel.addEventListener("change", (e) => {
+    // A region picked: remembered for next time, and the list brought to it.
+    if (e.target.closest("[data-region-filter]")) {
+      roomsRegion = e.target.value;
+      try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
+      refreshRooms(true);
+      return;
+    }
     const filter = e.target.closest("[data-label-filter]");
     if (!filter) return;
     const labelName = filter.dataset.labelFilter;

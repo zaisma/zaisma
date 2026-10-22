@@ -164,14 +164,16 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(page).toMatch(/<button type="button" data-region="EU" title="Europe" aria-pressed="false"><span>EU<\/span><span class="tag count">12<\/span><\/button>/);
+    // Each region in the picker: its continent's globe, its name and its rooms.
+    expect(page).toMatch(/data-choice-value="EU" aria-selected="false" data-cut-line="8">[\s\S]*?<span class="select-mark"><svg[\s\S]*?<\/svg><\/span><span class="select-words">Europe<\/span><span class="tag count">12<\/span>/);
     expect(page).toContain('<span class="sr">United States</span></span></td><td class="num">31 of 40</td>');
     expect(rowsOf(page)).toBe(13);
     expect(page).not.toContain("more rooms</span>");
     expect(page).toContain('data-count="13"');
 
     const na = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=NA")).text();
-    expect(na).toContain('data-region="NA" title="North America" aria-pressed="true"');
+    expect(na).toContain('data-choice-value="NA" aria-selected="true"');
+    expect(na).toContain('<input type="hidden" name="region" value="NA">');
     // The tab's number follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
     expect(rowsOf(na)).toBe(1);

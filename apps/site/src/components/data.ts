@@ -205,7 +205,7 @@ export interface Fact {
 
 /** Facts: what something is, a few short facts side by side, each a quiet label over its words (a game's players and devices). */
 export function facts(options: { facts: Fact[]; label?: string }): Raw {
-  return html`<dl class="facts"${options.label ? html` aria-label="${options.label}"` : ""}>${options.facts.map((fact) => html`<div class="fact"><dt>${fact.label}</dt><dd>${fact.items ? fact.items.map((item) => html`<span class="fact-item">${icon(item.icon)}<span>${item.text}</span></span>`) : fact.text ?? ""}</dd></div>`)}</dl>`;
+  return html`<dl class="facts"${options.label ? html` aria-label="${options.label}"` : ""}>${options.facts.map((fact) => html`<div class="fact"><dt>${fact.label}</dt><dd>${fact.items ? fact.items.map((factItem) => html`<span class="fact-item">${icon(factItem.icon)}<span>${factItem.text}</span></span>`) : fact.text ?? ""}</dd></div>`)}</dl>`;
 }
 
 component({
@@ -485,6 +485,9 @@ export interface TableOptions {
   headColumn?: "first" | "last";
   /** A last row that sums the columns up (a Total), in the header's look: it stays under the rows as they scroll, one cell a column. */
   footRow?: (Raw | string)[];
+  /** The most rows a page shows. Past it, or past what fits in the table's height (--table-height), the table turns pages instead of
+   *  scrolling, with a pager under it; a table with few enough rows never shows one. */
+  maximumRowCount?: number;
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
   /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
@@ -534,9 +537,9 @@ export function table(options: TableOptions): Raw {
     html`<tbody>${options.rows.map((row) => html`<tr>${indexes.map((columnIndex) => cell(row, columnIndex, part))}</tr>`)}</tbody>`;
   // The footer row: shown in its own part, flat in the rows' part (its words for screen readers), hidden in the header's.
   const footCell = (columnIndex: number, part: "head" | "rows" | "foot") => {
-    const value = options.footRow?.[columnIndex] ?? "";
-    if (isRowHead(columnIndex) && part !== "foot") return html`<td class="row-head"><span class="sr">${value}</span></td>`;
-    return part === "rows" ? html`<td${numeric(columnIndex)}><span class="table-label" aria-hidden="true">${value}</span><span class="sr">${value}</span></td>` : html`<td${numeric(columnIndex)}>${value}</td>`;
+    const footValue = options.footRow?.[columnIndex] ?? "";
+    if (isRowHead(columnIndex) && part !== "foot") return html`<td class="row-head"><span class="sr">${footValue}</span></td>`;
+    return part === "rows" ? html`<td${numeric(columnIndex)}><span class="table-label" aria-hidden="true">${footValue}</span><span class="sr">${footValue}</span></td>` : html`<td${numeric(columnIndex)}>${footValue}</td>`;
   };
   const foot = (indexes: number[], part: "head" | "rows" | "foot") => (options.footRow ? html`<tfoot><tr>${indexes.map((columnIndex) => footCell(columnIndex, part))}</tr></tfoot>` : "");
   const minimumWidth = options.isEven ? html` style="--table-min-width:${mainIndexes.reduce((widthPx, columnIndex) => widthPx + (isRowHead(columnIndex) ? 0 : options.columns[columnIndex]!.widthPx ?? EVEN_COLUMN_MINIMUM_WIDTH_PX), 0)}px"` : "";
@@ -555,7 +558,9 @@ export function table(options: TableOptions): Raw {
   const first = (part: "head" | "rows" | "foot") => (options.headColumn === "first" ? side(part) : "");
   const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
-  return html`<div class="table"><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div></div>`;
+  // The pager: hidden until the rows need pages (TABLE_SCRIPT).
+  const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}</div></nav>`;
+  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div>${pager}</div>`;
 }
 
 /**
@@ -564,7 +569,7 @@ export function table(options: TableOptions): Raw {
  * the pointer is on every move and every scroll, so the light stays under the pointer as rows scroll past it.
  */
 export const TABLE_SCRIPT = `/* tables */(function () {
-  var lit = null, pointer = null, sorts = new Map(), slice = function (list) { return Array.prototype.slice.call(list); };
+  var lit = null, pointer = null, sorts = new Map(), pages = new Map(), slice = function (list) { return Array.prototype.slice.call(list); };
   function partsOf(frame) { return slice(frame.querySelectorAll(".table-rows .data-table")); }
   function mainOf(frame) { return frame.querySelector(".table-x .data-table"); }
   // Every row as tall as its tallest part (a Join button beside a row of words).
@@ -592,7 +597,33 @@ export const TABLE_SCRIPT = `/* tables */(function () {
       places.forEach(function (place) { if (byPlace[place]) each.appendChild(byPlace[place]); });
     });
     slice(frame.querySelectorAll(".table-head-main th, .table-x thead th")).forEach(function (head) { if (head.hasAttribute("aria-sort")) head.setAttribute("aria-sort", head.cellIndex === column ? order : "none"); });
+    paginate(frame);
   }
+  // Pages: as many rows as the table's height holds, or its maximum row count if that's fewer; every part shows the same rows. A table
+  // that's put in again keeps its page, by its id.
+  function paginate(frame) {
+    var table = frame.closest(".table"), pager = table.querySelector(":scope > .table-pages"), main = mainOf(frame);
+    var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
+    if (!pager || !bodies.length) return;
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.hidden = false; }); });
+    var rowCount = bodies[0].rows.length, rowPx = rowCount ? bodies[0].rows[0].offsetHeight : 0;
+    var roomPx = parseFloat(getComputedStyle(frame.querySelector(".table-scroll")).maxHeight);
+    var size = Math.min(parseInt(table.dataset.maximumRowCount, 10) || Infinity, rowPx && isFinite(roomPx) ? Math.max(1, Math.floor(roomPx / rowPx)) : Infinity);
+    if (rowCount <= size) { pager.hidden = true; return; }
+    var pageCount = Math.ceil(rowCount / size), page = Math.min(pages.get(main.id) || 0, pageCount - 1);
+    pages.set(main.id, page);
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row, i) { row.hidden = i < page * size || i >= (page + 1) * size; }); });
+    pager.hidden = false;
+    pager.querySelector(".table-page-words").textContent = (page * size + 1) + "–" + Math.min(rowCount, (page + 1) * size) + " of " + rowCount;
+    pager.querySelector('[data-page-step="-1"]').disabled = page === 0;
+    pager.querySelector('[data-page-step="1"]').disabled = page === pageCount - 1;
+  }
+  document.addEventListener("click", function (event) {
+    var step = event.target.closest && event.target.closest(".table-pages [data-page-step]"); if (!step) return;
+    var frame = step.closest(".table").querySelector(".table-frame"), main = mainOf(frame);
+    pages.set(main.id, Math.max(0, (pages.get(main.id) || 0) + parseInt(step.getAttribute("data-page-step"), 10)));
+    paginate(frame);
+  });
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest(".table-head .table-sort"); if (!button) return;
     var head = button.closest("th"), frame = button.closest(".table-frame"), now = head.getAttribute("aria-sort");
@@ -612,7 +643,7 @@ export const TABLE_SCRIPT = `/* tables */(function () {
       table.style.setProperty("--table-x-max", Math.max(0, rows.scrollWidth - rows.clientWidth) + "px");
       ["first", "last"].forEach(function (end) { var side = frame.querySelector(".table-rows .table-side." + end); table.style.setProperty("--table-" + end + "-w", (side ? side.offsetWidth : 0) + "px"); });
     }
-    function fit() { evenRows(frame); reach(); }
+    function fit() { evenRows(frame); paginate(frame); reach(); }
     fit(); window.zaismaWatch.size(main, fit); window.zaismaWatch.size(rows, reach);
     partsOf(frame).forEach(function (part) { if (part !== main) window.zaismaWatch.size(part, function () { evenRows(frame); }); });
     if (!follows) rows.addEventListener("scroll", function () { follow.forEach(function (part) { part.style.transform = "translateX(" + -rows.scrollLeft + "px)"; }); }, { passive: true });
@@ -663,7 +694,12 @@ component({
    (--table-first-w, --table-last-w, from TABLE_SCRIPT). */
 .table:has(.table-foot) { --table-foot-h: var(--table-head-h); }
 .table > .rail[data-rail="box"] { position: relative; grid-row: 1; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 calc(var(--table-foot-h, 0px) + 4px) 4px; }
+.table > .table-pages { grid-row: 3; grid-column: 1; }
 .table > .rail.sideways { grid-row: 2; grid-column: 1; margin: 0 calc(var(--table-last-w, 0px) + 4px) 0 calc(var(--table-first-w, 0px) + 4px); }
+/* The pager: where the rows are, and a step back and on, shown only while the rows need pages. */
+.table-pages { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); }
+.table-pages[hidden] { display: none; }
+.table-page-words { margin: 0; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
 .table-well { position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .table-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
 /* The header: the head column's heading, and the scrolling columns' headings in a box that clips them, following the rows sideways. Its
@@ -766,6 +802,17 @@ component({
           ["14:01:40", html`<code>GET /inventory</code>`, "200", "9 ms"],
           ["14:01:22", html`<code>POST /trade</code>`, "429", "2 ms"],
         ],
+      }) }),
+    },
+    {
+      label: "Many rows, in pages of five: the pager shows only when the rows need it",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: table({
+        label: "Crashes this week",
+        isCompact: true,
+        maximumRowCount: 5,
+        columns: [{ label: "When" }, { label: "Error" }, { label: "Players", isNumeric: true, isSortable: true }],
+        rows: ["Mon 09:12", "Mon 14:40", "Tue 08:03", "Tue 19:55", "Wed 11:20", "Wed 22:48", "Thu 07:31", "Thu 16:09", "Fri 12:44", "Fri 21:17", "Sat 10:02", "Sun 18:36"].map((when, rowIndex) => [when, html`<code>${["TypeError: save is null", "RangeError: map too large", "WebGL context lost"][rowIndex % 3]}</code>`, String(3 + ((rowIndex * 7) % 40))]),
       }) }),
     },
     {

@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, glassPane, icon, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, glassPane, icon, tag, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
 import { tabSwitch } from "./switch.ts";
 
@@ -98,6 +98,10 @@ export interface SelectChoice {
   label: string;
   /** What the form sends when it's picked. */
   choiceValue: string;
+  /** A mark before its words, in the list and in the field once picked (a region's globe). */
+  icon?: IconName;
+  /** How many there are of it, a count tag after its words in the list (a region's rooms). */
+  badgeCount?: number | string;
 }
 
 export interface SelectFieldOptions {
@@ -128,10 +132,10 @@ export function selectField(options: SelectFieldOptions): Raw {
   const className = ["field", "select", "cut-carved", options.isSmall ? "small" : "", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
   const list = html`<div class="select-list glass${isOpen ? " in-place" : ""}" id="${id}-list" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-glass data-glass-corners="18 14 18 14"${isOpen ? "" : raw(" popover")}>${EDGE}${options.choices.map(
     (choice, choiceIndex) =>
-      html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span>${icon("check")}</div>`,
+      html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}${choice.icon ? html`<span class="select-mark">${icon(choice.icon)}</span>` : ""}<span class="select-words">${choice.label}</span>${choice.badgeCount !== undefined ? tag(String(choice.badgeCount), "count") : ""}${icon("check")}</div>`,
   )}</div>`;
   return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}"${options.isSmall ? raw(' class="sr"') : ""}>${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.isSmall ? html`<span class="select-name" aria-hidden="true">${options.label}</span>` : ""}<span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.isSmall ? html`<span class="select-name" aria-hidden="true">${options.label}</span>` : ""}${picked?.icon ? html`<span class="select-mark">${icon(picked.icon)}</span>` : ""}<span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
 ${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}">
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
 }
@@ -156,12 +160,14 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     }
     function place() {
       var r = field.getBoundingClientRect(), height = list.offsetHeight, below = window.innerHeight - r.bottom - GAP_PX;
-      list.style.width = r.width + "px"; list.style.left = r.left + "px";
+      // At least as wide as its field, wider when its choices need it (a region's name and count), never past the screen's edge.
+      list.style.minWidth = r.width + "px"; list.style.left = Math.max(GAP_PX, Math.min(r.left, window.innerWidth - list.offsetWidth - GAP_PX)) + "px";
       list.style.top = (below >= height || below >= r.top ? r.bottom + GAP_PX : r.top - GAP_PX - height) + "px";
     }
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
-      root.querySelector(".select-value").textContent = options[i].textContent;
+      root.querySelector(".select-value").textContent = options[i].querySelector(".select-words").textContent;
+      var mark = button.querySelector(".select-mark"), chosen = options[i].querySelector(".select-mark"); if (mark && chosen) mark.innerHTML = chosen.innerHTML;
       if (hidden.value !== options[i].getAttribute("data-choice-value")) { hidden.value = options[i].getAttribute("data-choice-value"); hidden.dispatchEvent(new Event("change", { bubbles: true })); }
       list.hidePopover(); button.focus();
     }
@@ -236,7 +242,7 @@ component({
 .select-name { flex: none; color: var(--muted); }
 .field.select.small .select-value { min-width: 0; }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. */
-.select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); overflow-y: auto; padding: var(--pad-inner-pane); border: 0; color: var(--ink);
+.select-list { position: fixed; inset: auto; margin: 0; width: max-content; max-width: calc(100vw - 32px); max-height: min(320px, 50vh); overflow-y: auto; padding: var(--pad-inner-pane); border: 0; color: var(--ink);
   display: flex; flex-direction: column; gap: 2px; outline: none; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Closed, it takes no room and no clicks: its own display would otherwise keep a closed popover on the page, unseen. */
@@ -246,11 +252,15 @@ component({
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 14px 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
-.select-option > span { flex: 1; }
-.select-option > .ico { width: 16px; height: 16px; color: var(--run); stroke-width: 2.4; opacity: 0; }
+.select-option > .select-words { flex: 1; }
+/* A choice's mark (a region's globe), in the list and in the field, and its count. */
+.select-mark { display: flex; flex: none; }
+.select-button:has(.select-mark) { display: flex; align-items: center; gap: var(--gap-words-words); }
+.select-mark > .ico { width: 16px; height: 16px; }
+.select-option > .ico:last-child { width: 16px; height: 16px; color: var(--run); stroke-width: 2.4; opacity: 0; }
 .select-option.is-active { --face-color: var(--ghost); color: var(--ink); }
 .select-option[aria-selected="true"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
-.select-option[aria-selected="true"] > .ico { opacity: 1; }
+.select-option[aria-selected="true"] > .ico:last-child { opacity: 1; }
 .select-list:focus-visible .select-option.is-active > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 @media (prefers-reduced-motion: reduce) { .select-list, .select-chev { transition: var(--glass-transition); } }
 `,

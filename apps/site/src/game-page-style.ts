@@ -57,11 +57,12 @@ html[data-game-world] canvas.backdrop.is-shown { opacity: 1; }
 .rooms-in { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* The region switch and the small label pickers share one row while they fit. */
 .rooms-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); }
-.rooms-regions { flex: 0 1 auto; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-.rooms-regions > .tab-switch { width: max-content; }
 /* The label pickers stay together: beside the switch while they fit, or all on the next line. */
-.rooms-filters { flex: 1 1 360px; display: flex; gap: var(--gap-words-control); min-width: 0; }
-.rooms-filter { flex: 1 1 0; min-width: 0; max-width: 200px; }
+.rooms-filters { flex: 1 1 360px; display: flex; flex-wrap: wrap; gap: var(--gap-words-control); min-width: 0; }
+/* Each picker keeps room for its name, its pick and its chevron; on a narrow phone they wrap two to a row. */
+.rooms-filter { flex: 1 1 128px; min-width: 0; max-width: 200px; }
+/* The region's picker has its globe to fit beside its words too. */
+.rooms-filter[data-region-filter] { flex: 1.4 1 160px; max-width: 240px; }
 /* Refresh at the row's end. */
 #rooms-refresh { margin-left: auto; }
 /* The rooms table keeps to about five rooms' height, so the rest of the page stays near; more scroll inside it under its header. */

@@ -4,8 +4,8 @@ import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
 import { country, emptyState, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { tabSwitch } from "./components/switch.ts";
-import { html, raw, securityHeaders, type Raw } from "./html.ts";
+import type { IconName } from "./components/foundations.ts";
+import { html, securityHeaders, type Raw } from "./html.ts";
 import { playingNowCounts } from "./plays.ts";
 
 /**
@@ -41,6 +41,9 @@ function shownText(room: ListedRoom): { name: string | null; labels: [string, st
   return { name: room.name && fine(room.name) ? room.name : null, labels: Object.entries(room.labels).filter(([labelName, labelValue]) => fine(labelName) && fine(labelValue)) };
 }
 
+/** Each continent's globe, marking its region in the picker. */
+const CONTINENT_ICONS: Record<string, IconName> = { AF: "globe-africa", AN: "globe-antarctica", AS: "globe-asia", EU: "globe-europe", NA: "globe-north-america", OC: "globe-oceania", SA: "globe-south-america" };
+
 /** Label columns the table shows at most, in the order rooms carry them. */
 const MAXIMUM_LABEL_COLUMN_COUNT = 3;
 
@@ -59,16 +62,19 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   const open = list.rooms.filter((room) => room.isOpen);
   const { playerCount, roomCount, closedRoomCount } = list.playing;
   const region = list.region ? list.regions.find((entry) => entry.region === list.region) : null;
-  // Regions to pick from, once rooms run in more than one: each with how many rooms it has.
+  // Regions to pick from, once rooms run in more than one: each its continent's globe, its name and how many rooms it has.
   const regions =
     list.regions.length > 1 || (list.region && list.regions.length)
-      ? html`<div class="rooms-regions" data-fades-sideways>${tabSwitch({
+      ? html`<div class="rooms-filter" data-region-filter>${selectField({
+          id: "rooms-region",
+          name: "region",
           label: "Region",
-          switchSize: "small",
-          tabs: [
-            { label: "All", isCurrent: !list.region, extra: raw(' data-region=""') },
-            ...list.regions.map((entry) => ({ label: entry.region, badgeCount: entry.roomCount, isCurrent: list.region === entry.region, extra: html` data-region="${entry.region}" title="${entry.name}"` })),
+          isSmall: true,
+          choices: [
+            { label: "All", choiceValue: "", icon: "globe" },
+            ...list.regions.map((entry) => ({ label: entry.name, choiceValue: entry.region, icon: CONTINENT_ICONS[entry.region] ?? "globe", badgeCount: entry.roomCount })),
           ],
+          pickedValue: list.region ?? "",
         })}</div>`
       : "";
   // Labels worth filtering by, with only the values that pass the filter.
@@ -95,7 +101,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
-<div class="rooms-pick">${regions}${filterFields.length ? html`<div class="rooms-filters">${filterFields}</div>` : ""}${cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true })}</div>
+<div class="rooms-pick">${regions || filterFields.length ? html`<div class="rooms-filters">${regions}${filterFields}</div>` : ""}${cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true })}</div>
 ${open.length ? roomsTable(game.slug, open, region?.name ?? null) : emptyState({ title: "No open rooms", text: empty })}
 ${list.moreOpenRoomCount > 0 ? html`<p class="rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}

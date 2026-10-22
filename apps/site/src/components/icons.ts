@@ -13,6 +13,14 @@ export const ICONS = {
   // Playing on your own, in your own world.
   headphones: stroke("0 0 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
   // Everyone, everywhere: meeting new players.
+  // A globe turned to a continent, marking a region (a game's rooms by where they run).
+  "globe-africa": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M7.4 6.6l3.8-.2 1.9 1.7-.4 2.1-1.5 2.2-.8 2.5-1.3-.4-.6-2.4-1.5-1.9.4-2z"/>'),
+  "globe-antarctica": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M5.2 14.4l2.7-.9h4.2l2.7.9-1.7 1.6H6.9z"/>'),
+  "globe-asia": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M5.6 6l4.2-1.6 4.4 1 1.7 2.5-1.3 1.7-2.5.4-1 1.9-1.9-.6-1.3-1.7-1.9-.8z"/>'),
+  "globe-europe": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M6.8 5.6l2.3-1 2.8.5 1.5 1.7-.6 1.9-2.1.5-1.5 1.5-1.9-.4-.6-1.7.8-1.2z"/>'),
+  "globe-north-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M4.4 6.6l2.7-2.1 3.4.2 1 1.9-1.7 1.7-.6 2.3-1.7 1.3-1.3-1.5-1.7-.6z"/>'),
+  "globe-oceania": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M9.6 11.4l3.1-.6 1.9 1.3.2 1.9-1.7 1.3-2.1-.2-1.5-1.3z"/>'),
+  "globe-south-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M8.8 10.2l2.5.4 1.5 1.9-.8 2.5-1.7 2.1-.8-2.3-.8-2.3z"/>'),
   globe: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2z"/>'),
   clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.5"'),
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
