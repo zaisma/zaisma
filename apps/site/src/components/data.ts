@@ -532,6 +532,13 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     sortRows(table, head.cellIndex, order);
   });
   window.zaismaWatch.each(".data-table", function (table) { var sort = sorts.get(table.getAttribute("aria-labelledby")); if (sort) sortRows(table, sort.column, sort.order); });
+  // How wide the rows' heads are, so the sideways fade starts past them.
+  window.zaismaWatch.each(".data-table.has-row-heads", function (table) {
+    var box = table.closest(".table-scroll"), head = table.tHead && table.tHead.rows[0] && table.tHead.rows[0].cells[0];
+    if (!box || !head) return;
+    function measure() { box.style.setProperty("--table-row-head-w", head.offsetWidth + "px"); }
+    measure(); window.zaismaWatch.size(head, measure);
+  });
   function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
   function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
   document.addEventListener("pointermove", function (event) {
@@ -619,9 +626,12 @@ component({
    (SCROLL_FADE_SCRIPT sets --fade-top and --fade-bottom); the header itself never fades. Scrolling sideways too, both fades hold. */
 .table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
   -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --fade-top 0.2s, --fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
+/* Sideways, the rows' heads never fade: the fade on the left starts past them (--table-row-head-w, measured by TABLE_SCRIPT). */
+.table-scroll { --fade-columns: linear-gradient(90deg, #000 var(--table-row-head-w, 0px), transparent var(--table-row-head-w, 0px), #000 calc(var(--table-row-head-w, 0px) + var(--fade-left)), #000 calc(100% - var(--fade-right)), transparent 100%); }
+.table-scroll:is(.more-left, .more-right) { -webkit-mask-image: var(--fade-columns); mask-image: var(--fade-columns); }
 .table-scroll.is-fading:is(.more-left, .more-right) {
-  -webkit-mask-image: var(--fade-rows), linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); -webkit-mask-composite: source-in;
-  mask-image: var(--fade-rows), linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); mask-composite: intersect; }
+  -webkit-mask-image: var(--fade-rows), var(--fade-columns); -webkit-mask-composite: source-in;
+  mask-image: var(--fade-rows), var(--fade-columns); mask-composite: intersect; }
 @supports (animation-timeline: view()) {
   .data-table tbody tr { animation: table-row-under linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit 0% exit 70%; }
 }
