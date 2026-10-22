@@ -697,13 +697,27 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const resetDay = nextMonthStart();
   const shares = use.shares.length ? html`<small>${use.shares.map((share) => `${HOSTING_KIND_LABELS[share.kind]} ${share.share_pct}%`).join(", ")}</small>` : "";
   const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
-  const paused =
-    use.paused_reason === "budget_used" ? "Paused: its budget for this month is used." : use.paused_reason === "credit_used" ? "Paused: your credit ran out." : `Paused: free hosting is used up. It's back on ${resetDay}.`;
+  const [pausedWhy, pausedFix] =
+    use.paused_reason === "budget_used"
+      ? ["This month's budget is used.", "Raise the game's budget to start it again now."]
+      : use.paused_reason === "credit_used"
+        ? ["Your credit ran out.", "Add credit to start it again now."]
+        : [`This month's free hosting is used. It's back on ${resetDay}.`, "Add credit and give the game a budget to keep it going sooner."];
+  const paused = use.is_paused
+    ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>${pausedWhy} No new matches start, and running ones get an hour to finish. ${pausedFix}</p></div>`
+    : "";
+  const free = (isMain: boolean) =>
+    html`<div class="num plate${isMain && use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span><span class="meter"><span style="width:${use.free_used_pct}%"></span></span>${isMain ? shares : html`<small>Used first, before the budget.</small>`}</div>`;
+  // A game with paid hosting is measured by its budget; its free allowance is used up early in the month and says little.
+  const budgetCents = use.monthly_budget_cents;
+  const budget =
+    budgetCents !== null
+      ? html`<div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}"><strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget this month</span><span class="meter"><span style="width:${Math.min(100, Math.round((use.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100))}%"></span></span>${shares}</div>`
+      : "";
   return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
-<div class="numbers hosting">
-<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span><span class="meter"><span style="width:${use.free_used_pct}%"></span></span>${shares}${use.monthly_budget_cents !== null ? html`<small>${dollars(use.spent_from_credit_cents)} of ${dollars(use.monthly_budget_cents)} budget this month</small>` : ""}</div>
-</div>
-${use.is_paused ? html`<p class="hint">${paused} No new matches start, and running ones get an hour to finish.</p>` : ""}`;
+${paused}<div class="numbers hosting">
+${budget ? html`${budget}${free(false)}` : free(true)}
+</div>`;
 }
 
 const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests" };
@@ -1468,6 +1482,9 @@ const GAME_STYLES = `
 .numbers.hosting .num:only-child{grid-column:1/-1;max-width:560px}
 .numbers.hosting .meter{height:8px}
 .numbers.hosting .meter+small{margin-top:6px}
+.hosting-paused{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);padding:14px 18px;margin:0 0 16px;max-width:680px}
+.hosting-paused strong{display:block;font-size:20px;color:var(--warn);margin-bottom:4px}
+.hosting-paused p{margin:0;color:var(--text)}
 @media (max-width:640px){.numbers.hosting{grid-template-columns:minmax(0,1fr)}}
 .database{display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px;align-items:start;margin-top:8px}
 .database .note p{margin:0}
