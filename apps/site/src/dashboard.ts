@@ -697,26 +697,32 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const resetDay = nextMonthStart();
   const shares = use.shares.length ? html`<small>${use.shares.map((share) => `${HOSTING_KIND_LABELS[share.kind]} ${share.share_pct}%`).join(", ")}</small>` : "";
   const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
-  const [pausedWhy, pausedFix] =
+  const pausedWhy =
     use.paused_reason === "budget_used"
-      ? ["This month's budget is used.", "Raise the game's budget to start it again now."]
+      ? "This month's budget is used: raise it to start again."
       : use.paused_reason === "credit_used"
-        ? ["Your credit ran out.", "Add credit to start it again now."]
-        : [`This month's free hosting is used. It's back on ${resetDay}.`, "Add credit and give the game a budget to keep it going sooner."];
+        ? "Your credit ran out: add credit to start again."
+        : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
   const paused = use.is_paused
-    ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>${pausedWhy} No new matches start, and running ones get an hour to finish. ${pausedFix}</p></div>`
+    ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
-  const free = (isMain: boolean) =>
-    html`<div class="num plate${isMain && use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span><span class="meter"><span style="width:${use.free_used_pct}%"></span></span>${isMain ? shares : html`<small>Used first, before the budget.</small>`}</div>`;
-  // A game with paid hosting is measured by its budget; its free allowance is used up early in the month and says little.
+  const freeMeter = html`<span class="meter"><span style="width:${use.free_used_pct}%"></span></span>`;
   const budgetCents = use.monthly_budget_cents;
-  const budget =
-    budgetCents !== null
-      ? html`<div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}"><strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget this month</span><span class="meter"><span style="width:${Math.min(100, Math.round((use.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100))}%"></span></span>${shares}</div>`
-      : "";
+  if (budgetCents === null) {
+    return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
+${paused}<div class="numbers hosting">
+<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${freeMeter}${shares}</div>
+</div>`;
+  }
+  // Paid hosting carries on where the free allowance ends: one meter, the free part first, then the budget. The free
+  // part is a share of the bar, never sized by dollars, and a game living on its budget isn't warned about it.
+  const budgetUsedPct = Math.min(100, Math.round((use.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
+  const isIntoBudget = use.free_used_pct >= 100;
   return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
 ${paused}<div class="numbers hosting">
-${budget ? html`${budget}${free(false)}` : free(true)}
+<div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}">${isIntoBudget
+    ? html`<strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget, after this month's free hosting. Resets ${resetDay}.</span>`
+    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}<span class="meter split"><span class="part free"><i style="width:${use.free_used_pct}%"></i></span><span class="part paid"><i style="width:${budgetUsedPct}%"></i></span></span><span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span>${shares}</div>
 </div>`;
 }
 
@@ -1482,9 +1488,20 @@ const GAME_STYLES = `
 .numbers.hosting .num:only-child{grid-column:1/-1;max-width:560px}
 .numbers.hosting .meter{height:8px}
 .numbers.hosting .meter+small{margin-top:6px}
+.meter.split{display:flex;gap:3px;background:none;box-shadow:none}
+.meter.split .part{display:block;height:100%;background:rgba(0,0,0,.45);box-shadow:inset 0 1px 1px rgba(0,0,0,.6)}
+.meter.split .free{flex:1}
+.meter.split .paid{flex:2}
+.meter.split i{display:block;height:100%;background:var(--chrome)}
+.num.reached .meter.split .paid i{background:var(--warn)}
+.meter-labels{display:flex;margin-top:6px}
+.meter-labels small{flex:1}
+.meter-labels small+small{flex:2;padding-left:3px}
 .hosting-paused{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);padding:14px 18px;margin:0 0 16px;max-width:680px}
 .hosting-paused strong{display:block;font-size:20px;color:var(--warn);margin-bottom:4px}
 .hosting-paused p{margin:0;color:var(--text)}
+.hosting-paused small{display:block;margin-top:4px;color:var(--text-2)}
+.num.reached .meter-labels small,.num.reached .meter-labels+small{color:inherit}
 @media (max-width:640px){.numbers.hosting{grid-template-columns:minmax(0,1fr)}}
 .database{display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px;align-items:start;margin-top:8px}
 .database .note p{margin:0}
