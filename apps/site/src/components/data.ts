@@ -585,9 +585,9 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
     if (bodies.length < 2) return;
     bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.style.height = ""; }); });
-    // Rows on another page (hidden) are left as they are: they have no height to match until they show.
+    // Rows on another page (is-paged-out, collapsed) are left as they are: they have no height to match until they show.
     slice(bodies[0].rows).forEach(function (row, i) {
-      if (row.hidden) return;
+      if (row.classList.contains("is-paged-out")) return;
       var tallest = 0; bodies.forEach(function (body) { if (body.rows[i]) tallest = Math.max(tallest, body.rows[i].offsetHeight); });
       bodies.forEach(function (body) { if (body.rows[i]) body.rows[i].style.height = tallest + "px"; });
     });
@@ -618,7 +618,7 @@ export const TABLE_SCRIPT = `/* tables */(function () {
   function sizeOf(frame) {
     // A row is as tall as its tallest part (a Join button beside words), whether or not its parts were matched yet.
     var table = frame.closest(".table"), rowPx = 0;
-    partsOf(frame).forEach(function (part) { var shown = part.tBodies[0] && slice(part.tBodies[0].rows).filter(function (row) { return !row.hidden; })[0]; if (shown) rowPx = Math.max(rowPx, shown.offsetHeight); });
+    partsOf(frame).forEach(function (part) { var shown = part.tBodies[0] && slice(part.tBodies[0].rows).filter(function (row) { return !row.classList.contains("is-paged-out"); })[0]; if (shown) rowPx = Math.max(rowPx, shown.offsetHeight); });
     var roomPx = parseFloat(getComputedStyle(frame.querySelector(".table-scroll")).maxHeight);
     var most = parseInt(table.dataset.maximumRowCount, 10) || Infinity, fitting = rowPx && isFinite(roomPx) ? Math.max(1, Math.floor(roomPx / rowPx)) : Infinity;
     // The rows' box holds a page at a fixed height: its whole height when that's what limits a page, else a page of its tallest rows.
@@ -628,12 +628,12 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     var table = frame.closest(".table"), holder = table.closest("[data-table-holder]") || table.parentElement, pager = table.querySelector(":scope > .table-pages"), scroll = frame.querySelector(".table-scroll");
     var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
     if (!pager || !bodies.length) return;
-    bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.hidden = false; }); });
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.classList.remove("is-paged-out"); }); });
     var rowCount = bodies[0].rows.length, first = (parseInt(table.dataset.firstRowNumber, 10) || 1) - 1, total = parseInt(table.dataset.totalRowCount, 10) || rowCount;
     var measured = sizeOf(frame), size = measured.size;
     if (total <= size) { pager.hidden = true; scroll.style.minHeight = ""; return; }
     var at = Math.max(0, Math.min(total - 1, parseInt(holder.dataset.tableRow, 10) || first)), local = Math.floor(Math.max(0, Math.min(rowCount - 1, at - first)) / size) * size;
-    bodies.forEach(function (body) { slice(body.rows).forEach(function (row, i) { row.hidden = i < local || i >= local + size; }); });
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row, i) { row.classList.toggle("is-paged-out", i < local || i >= local + size); }); });
     holder.dataset.tableRow = first + local;
     scroll.style.minHeight = measured.pagePx + "px";
     pager.hidden = false;
@@ -772,10 +772,12 @@ component({
 .table:has(.table-x.is-scrollable-sideways) .table-side.first { box-shadow: inset -1px 0 0 var(--line); }
 .table:has(.table-x.is-scrollable-sideways) .table-side.last { box-shadow: inset 1px 0 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
-/* The first row shown has no line over it, on any page (rows of other pages are hidden). */
-.data-table tbody tr:nth-child(1 of :not([hidden])) > * { border-top: 0; }
+/* Rows on other pages are collapsed, not removed, so they keep sizing their columns: every page, and the header's copy of the rows, has
+   the same widths. The first row shown has no line over it, on any page. */
+.data-table tbody tr.is-paged-out { visibility: collapse; }
+.data-table tbody tr:nth-child(1 of :not(.is-paged-out)) > * { border-top: 0; }
 /* The last row shown closes with a line too, where the well has room under it (a short page, a few rows). */
-.data-table tbody tr:nth-last-child(1 of :not([hidden])) > * { border-bottom: var(--divider); }
+.data-table tbody tr:nth-last-child(1 of :not(.is-paged-out)) > * { border-bottom: var(--divider); }
 /* A first head column's words, in the rows' part, are for screen readers: the column takes no room there. */
 .data-table .table-row-head, .table-head .data-table thead th.table-row-head { width: 0; padding: 0; }
 .table-x .data-table td:first-child, .table-x .data-table .table-row-head + td { color: var(--ink); }
