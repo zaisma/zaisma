@@ -348,7 +348,7 @@ describe("migration 0123", () => {
     "0123_",
     `INSERT INTO games (id, slug, title, description, review_status, created_at_ms, updated_at_ms, glass_tint_color) VALUES
        ('game_one', 'one', 'Sky' || char(8238) || 'Hopper', 'A' || char(8203) || 'B', 'live', 1, 1, 'red;}'),
-       ('game_two', 'two', 'Café 東方 👨‍👩‍👧', 'Plain words', 'live', 1, 1, '#6B3FA0');
+       ('game_two', 'two', 'Café 東方 👨\u200d👩\u200d👧', 'Plain words', 'live', 1, 1, '#6B3FA0');
      INSERT INTO accounts (id, username, player_id, age_band, created_at_ms, updated_at_ms, display_name, bio) VALUES ('account_one', 'Ana', 'player_one', '18+', 1, 1, 'Za' || char(173) || 'isma', 'Hi' || char(8294) || ' there');`,
   );
 
@@ -362,7 +362,7 @@ describe("migration 0123", () => {
   it("takes invisible and direction characters out of shown text, and leaves every language and emoji", () => {
     expect(database.prepare("SELECT title, description FROM games ORDER BY slug").all()).toEqual([
       { title: "SkyHopper", description: "AB" },
-      { title: "Café 東方 👨‍👩‍👧", description: "Plain words" },
+      { title: "Café 東方 👨\u200d👩\u200d👧", description: "Plain words" },
     ]);
     expect(database.prepare("SELECT display_name, bio FROM accounts").get()).toEqual({ display_name: "Zaisma", bio: "Hi there" });
   });

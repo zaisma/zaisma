@@ -55,7 +55,7 @@ async function form(path: string, fields: Record<string, string | string[]>, coo
 
 // --- Shapes ---
 
-const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f­​‪-‮⁠-⁤⁦-⁩﻿]/;
+const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u200b\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
 
 /** Whether a stored value fits its shape, as the database holds it. */
 function fitsFormat(format: StoredValueFormat, value: string): boolean {
@@ -70,8 +70,8 @@ function fitsFormat(format: StoredValueFormat, value: string): boolean {
 function outsideShape(format: StoredValueFormat, mark: string): string {
   if (format === "hex_color") return `red;}</style><b>${mark}`;
   if (format === "web_address") return `javascript:alert('${mark}')`;
-  if (format === "pattern_name") return `sv‮${mark}`;
-  return `Sky ${mark}‮Hopper`;
+  if (format === "pattern_name") return `sv\u202e${mark}`;
+  return `Sky ${mark}\u202eHopper`;
 }
 
 /** A value inside the shape, with a mark. */
@@ -248,7 +248,7 @@ function planted(entryIndex: number): string | null {
   if (stored === "games.slug" || stored === "accounts.username") return null;
   if (format === "hex_color") return `red;}</style><b class=zsv-breakout>${mark}`;
   if (format === "web_address") return `javascript:alert('${mark}')`;
-  return `${mark} "'><b class=zsv-breakout>x</b>‮</style></script>`;
+  return `${mark} "'><b class=zsv-breakout>x</b>\u202e</style></script>`;
 }
 
 /** A value in shape that still says which entry it is, for the shapes a mark can't hide in as text: a color, an address, a name. */
@@ -337,7 +337,7 @@ async function pagesToOpen(): Promise<{ doorId: string; url: string; cookie?: st
 function pageProblems(page: string): string[] {
   const problems: string[] = [];
   if (/<b class=zsv-breakout/i.test(page)) problems.push(`markup got through: ${page.slice(Math.max(0, page.search(/<b class=zsv-breakout/i) - 120), page.search(/<b class=zsv-breakout/i) + 40)}`);
-  if (/[‪-‮⁦-⁩]/.test(page)) problems.push("a direction control got through");
+  if (/[\u202a-\u202e\u2066-\u2069]/.test(page)) problems.push("a direction control got through");
   for (const found of page.matchAll(/\sstyle="[^"]*"|<style[^>]*>[\s\S]*?<\/style>/gi)) if (/zsv\d+z|zsv-breakout/.test(found[0])) problems.push(`a stored value in CSS: ${found[0].slice(0, 160)}`);
   // Pictures the server drew (a QR code) are data: images; nothing else may be anything but a web address.
   for (const found of page.matchAll(/\s(href|src|action|formaction|poster|srcset|data-out)="\s*(javascript:|vbscript:|data:(?!image\/))[^"]*"/gi)) problems.push(`a live ${found[2]} address: ${found[0].slice(0, 160)}`);

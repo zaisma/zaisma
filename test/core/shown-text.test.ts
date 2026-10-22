@@ -7,22 +7,22 @@ const title = (input: unknown) => checkShownText(input, { field: "title", maximu
 
 describe("shown text", () => {
   it("takes any language and emoji, tidied", () => {
-    for (const given of ["Sky Hopper", "東方の空", "سماء القفز", "Привет мир", "Café Ünter", "👨‍👩‍👧 Family Run", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Highland Clash", "मेरा खेल", "❤️ Hearts", "עולם‏ 2"]) {
+    for (const given of ["Sky Hopper", "東方の空", "سماء القفز", "Привет мир", "Café Ünter", "👨\u200d👩\u200d👧 Family Run", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Highland Clash", "मेरा खेल", "❤️ Hearts", "עולם\u200f 2"]) {
       expect(title(given), given).toEqual({ text: given });
     }
     expect(title("  Sky \t  Hopper ")).toEqual({ text: "Sky Hopper" });
     // NFC: the same letters always stored the same way.
-    expect(title("Café")).toEqual({ text: "Café" });
+    expect(title("Cafe\u0301")).toEqual({ text: "Café" });
   });
 
   it("refuses invisible characters and ones that flip direction, naming the one it found", () => {
     for (const [given, character] of [
-      ["Sky‮Hopper", "U+202E"],
-      ["Sky⁦Hopper", "U+2066"],
-      ["Sky​Hopper", "U+200B"],
-      ["Sky⁠Hopper", "U+2060"],
-      ["Za­isma", "U+00AD"],
-      ["ㅤHopper", "U+3164"],
+      ["Sky\u202eHopper", "U+202E"],
+      ["Sky\u2066Hopper", "U+2066"],
+      ["Sky\u200bHopper", "U+200B"],
+      ["Sky\u2060Hopper", "U+2060"],
+      ["Za\u00adisma", "U+00AD"],
+      ["\u3164Hopper", "U+3164"],
       ["Sky\u0007Hopper", "U+0007"],
       ["Sky\u{e0041}Hopper", "U+E0041"],
     ]) {

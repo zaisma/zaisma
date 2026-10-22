@@ -15,7 +15,7 @@ import type { InputProblem } from "./developers.ts";
  * space, word joiner and invisible operators, direction embeddings, overrides and isolates, the byte
  * order mark, and tag characters (outside a flag, checked apart).
  */
-export const HIDDEN_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f­͏ᅟᅠ឴឵᠎​‪-‮⁠-⁤⁦-⁩ㅤ﻿ﾠ]|[\u{e0000}-\u{e007f}]/u;
+export const HIDDEN_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u115f\u1160\u17b4\u17b5\u180e\u200b\u202a-\u202e\u2060-\u2064\u2066-\u2069\u3164\ufeff\uffa0]|[\u{e0000}-\u{e007f}]/u;
 
 /** A black flag followed by tag characters and the cancel tag: England's, Scotland's and Wales's flags. */
 const TAG_FLAG = /\u{1f3f4}[\u{e0020}-\u{e007e}]+\u{e007f}/gu;
