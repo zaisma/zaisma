@@ -387,17 +387,18 @@ describe("components", () => {
   });
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
-    const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
-    expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
-    expect(markup).toContain('aria-labelledby="table-versions-caption"');
+    const markup = data.table({ label: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    // The table is its well and rails: no caption on screen, its label for screen readers.
+    expect(markup).not.toContain("table-caption");
+    expect(markup).toContain('id="table-versions" aria-label="Versions"');
     expect(markup).toContain('<th scope="col"><span class="table-label" aria-hidden="true">Version</span><span class="sr">Version</span></th><th scope="col" class="num"><span class="table-label" aria-hidden="true">Files</span><span class="sr">Files</span></th>');
     // The header is its own part, clipped by itself: its copy of the headings, for the eye.
     expect(markup).toContain('<div class="table-head"><div class="table-head-main"><table class="data-table" role="presentation"><thead><tr><th><span aria-hidden="true">Version</span></th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ caption: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="row-head"><span class="sr">Version 14</span></th><td class="num">312</td>');
+    expect(data.table({ label: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="row-head"><span class="sr">Version 14</span></th><td class="num">312</td>');
     // A table's one head column can be its last instead: its buttons, staying at the right.
-    const pinned = data.table({ caption: "Rooms", headColumn: "last", columns: [{ label: "Room" }, { label: "Players", isNumeric: true }, { label: "Join" }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
+    const pinned = data.table({ label: "Rooms", headColumn: "last", columns: [{ label: "Room" }, { label: "Players", isNumeric: true }, { label: "Join" }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
     expect(pinned).toContain('<td>Friday night</td><td class="num">6 of 8</td></tr>');
     expect(pinned).toContain('<table class="data-table table-side last" role="presentation"><thead><tr><th scope="col"><span class="table-label" aria-hidden="true">Join</span><span class="sr">Join</span></th></tr></thead><tbody><tr><td>Join</td></tr></tbody></table></div></div>');
   });

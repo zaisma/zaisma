@@ -141,7 +141,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", isCaptionHidden: true, columns, rows, isCompact: true, isEven: true, headColumn: "last" });
+  return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true, headColumn: "last" });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */
