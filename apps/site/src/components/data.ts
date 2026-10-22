@@ -712,13 +712,15 @@ component({
 .table-scroll.more-up { --table-fade-top: 28px; }
 .table-scroll.more-down { --table-fade-bottom: 28px; }
 .table-scroll.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent); transition: --table-fade-top 0.2s, --table-fade-bottom 0.2s; }
-.table-head-main { transition: --fade-left 0.25s, --fade-right 0.25s; }
-.table:has(.table-x.more-left) .table-head-main { --fade-left: var(--fade-sideways-px, 28px); }
-.table:has(.table-x.more-right) .table-head-main { --fade-right: var(--fade-sideways-px, 28px); }
-.table:has(.table-x:is(.more-left, .more-right)) .table-head-main {
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent); transition: --table-fade-top 0.35s, --table-fade-bottom 0.35s; }
+/* Sideways, the fade stays on while the rows can scroll that way, its depth easing in and out (0 when there's no more), so it eases away
+   at an end instead of snapping off. */
+.table-x, .table-head-main { transition: --fade-left 0.35s, --fade-right 0.35s; }
+.table-x.is-scrollable-sideways, .table:has(.table-x.is-scrollable-sideways) .table-head-main {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
+.table:has(.table-x.more-left) .table-head-main { --fade-left: var(--fade-sideways-px, 28px); }
+.table:has(.table-x.more-right) .table-head-main { --fade-right: var(--fade-sideways-px, 28px); }
 `,
   render: table,
   examples: [
