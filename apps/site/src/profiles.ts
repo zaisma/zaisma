@@ -24,7 +24,7 @@ import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { JOIN_OFF_STYLES, joinAndWatch } from "./friends-now.ts";
 import { tile } from "./home.ts";
-import { accountPicture, html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { accountPicture, html, layout, message, metalButton, raw, scriptTags, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { checkProfile } from "./profile-check.ts";
 
@@ -224,8 +224,11 @@ ${Array.from({ length: MAXIMUM_LINK_COUNT }, (_, i) => html`<input name="link_ur
 }
 
 /** A link out of Zaisma says where it goes first, like a forum link (unless the site is trusted in this browser). */
-function outLink(linkUrl: string): Raw {
-  const parsedUrl = new URL(linkUrl);
+function outLink(linkUrl: string): Raw | string {
+  // Only an http: or https: address is linked, whatever the column holds (shownAddress).
+  const address = shownAddress(linkUrl);
+  if (!address) return "";
+  const parsedUrl = new URL(address);
   const label = (parsedUrl.hostname.replace(/^www\./, "") + parsedUrl.pathname).replace(/\/$/, "");
   return html`<a class="out" href="/forum/out?to=${encodeURIComponent(parsedUrl.href)}" data-out="${parsedUrl.href}" data-host="${parsedUrl.hostname}" rel="nofollow ugc noopener">${label}</a>`;
 }

@@ -3,6 +3,7 @@ import type { ReviewReason } from "./review.ts";
 import { checkAllowedHosts } from "./reach.ts";
 import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
+import { checkShownText } from "./shown-text.ts";
 import { randomKey } from "./game-access.ts";
 import { GLASS_LIGHT_PASS } from "./glass-light.ts";
 import { ACCOUNT_REQUIREMENTS, MINIMUM_PLAYER_AGES, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type MinimumPlayerAge, type RoomBrowsing, type Visibility } from "./types.ts";
@@ -654,13 +655,14 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
   const change: DetailsChange = {};
   const refuse = (field: string, message: string, fix: string) => ({ problem: { field, message, fix } });
   if ("title" in input) {
-    const title = typeof input.title === "string" ? input.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) return refuse("title", "title is empty or over 80 characters.", "Give a title of 1 to 80 characters.");
-    change.title = title;
+    const checked = checkShownText(input.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
+    if ("problem" in checked) return checked;
+    change.title = checked.text;
   }
   if ("description" in input) {
-    if (typeof input.description !== "string" || input.description.trim().length > 500) return refuse("description", "description isn't text of up to 500 characters.", "Shorten it to 500 characters; it's shown on the game page.");
-    change.description = input.description.trim();
+    const checked = checkShownText(input.description, { field: "description", maximumCharacterCount: 500, isMultiline: true });
+    if ("problem" in checked) return checked;
+    change.description = checked.text;
   }
   if ("visibility" in input) {
     if (!VISIBILITIES.includes(input.visibility as Visibility)) {

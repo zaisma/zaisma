@@ -262,7 +262,8 @@ export const TOOLS: Tool[] = [
       'Not: { "links": { "store": "https://kit.itch.io/sky-hopper" } } (a list: [{ "link_name": "store", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }])\n' +
       'Not: { "links": [{ "link_name": "patreon", "destination_url": "patreon.com/kit", "is_on_game_page": true }] } (the whole address: "https://www.patreon.com/kit")\n' +
       'Not: { "links": [{ "link_name": "Store Page", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }] } (lowercase letters, digits and underscores: "store_page")\n' +
-      'Not: { "glass_tint_color": "purple" } (# and six hex digits: "#6b3fa0")',
+      'Not: { "glass_tint_color": "purple" } (# and six hex digits: "#6b3fa0")\n' +
+      'Not: { "title": "Sky\\u202eHopper" } (no invisible characters or ones that flip text direction: "Sky Hopper")',
     inputSchema: {
       ...object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
       examples: [

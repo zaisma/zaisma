@@ -34,7 +34,7 @@ type Evidence = { kind: string; ref: string; note: string };
 type Case = { case_id: string; case_name: string; status: string; severity_tier: string | null; evidence: Evidence | null; finding_id: string | null; verdict_at: string | null; verdict_anchor_hashes: Record<string, string | null> | null; stale_reason: string | null };
 type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; cases: Case[] };
 type Sector = { sector_id: string; sector_name: string; attacker_goal: string; doors: Door[] };
-type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[] };
+type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[]; STORED_VALUES: { stored: string }[] };
 type FrontierItem = { bucket: string; sector_id: string; door_id: string; case_id: string; case_ref: string };
 
 let workDir = "";
@@ -108,6 +108,14 @@ describe("doors from the real code", () => {
     const sourceByPath = new Map();
     const missing = doors.flatMap((door) => Object.entries(anchorHashes(ROOT, door.anchors, sourceByPath) as Record<string, string | null>).filter(([, hash]) => hash === null).map(([anchorId]) => `${door.door_id}: ${anchorId}`));
     expect(missing, "These anchors aren't in the code: point the door at where the code went (scripts/security-map/doors.mjs).").toEqual([]);
+  });
+
+  it("follows each stored value from doors on the map to pages on the map", () => {
+    const doorIds = new Set(doors.map((door) => door.door_id));
+    const stored = doors.filter((door) => door.door_kind === "stored_value") as (Door & { stored_value: { saved_by_door_ids: string[]; shown_on_door_ids: string[] } })[];
+    expect(stored.length).toBe(site.STORED_VALUES.length);
+    const missing = stored.flatMap((door) => [...door.stored_value.saved_by_door_ids, ...door.stored_value.shown_on_door_ids].filter((doorId) => !doorIds.has(doorId)).map((doorId) => `${door.door_id}: ${doorId}`));
+    expect(missing, "Name doors as the map does (apps/site/src/stored-values.ts)").toEqual([]);
   });
 
   it("finds every kind of door", () => {

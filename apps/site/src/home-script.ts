@@ -201,7 +201,7 @@ function showWorld(slug, isInstant) {
   const key = background.source + "|" + (background.imageUrl || background.frameUrl || "");
   const isFirst = !worldKey;
   worldSlug = slug;
-  if (game.glass_tint_color) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
+  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
   if (key === worldKey) return;
   worldKey = key;
   // The page opens on the opening game's color (or its own plain one) and the first background fades in over it, Zaisma's or the game's,
