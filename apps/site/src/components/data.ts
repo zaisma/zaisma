@@ -488,6 +488,8 @@ export interface TableOptions {
   /** The most rows a page shows. Past it, or past what fits in the table's height (--table-height), the table turns pages instead of
    *  scrolling, with a pager under it; a table with few enough rows never shows one. */
   maximumRowCount?: number;
+  /** Said inside the table, under its header, when it has no rows (nothing yet, or filters nothing matches): the table stays. */
+  emptyText?: string;
   /** The rows are one slice of a longer list the page loads a slice at a time (a game's rooms): where in it they start, from 1, and how
    *  many there are in all. The pager counts them all, and a step past the slice asks the page for the next one: a table-rows-wanted
    *  event on the table, its detail the row's number (rowNumber). */
@@ -527,22 +529,24 @@ export function table(options: TableOptions): Raw {
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const compact = options.isCompact ? " compact" : "";
   // A heading as the header shows it (a sort button, or words), and as the rows' part carries it: flat, its words for screen readers.
-  const heading = (columnIndex: number, part: "head" | "rows") => {
+  const heading = (columnIndex: number, part: "head" | "rows", isSide = false) => {
     const column = options.columns[columnIndex]!;
     const sort = column.isSortable ? raw(' aria-sort="none"') : "";
-    const shown = column.isLabelHidden || isRowHead(columnIndex) && part === "rows" ? "" : column.isSortable ? html`<button type="button" class="table-sort"${part === "rows" ? raw(' tabindex="-1"') : ""}>${column.label}${icon("chevron-down")}</button>` : column.label;
+    // A first head column's heading shows in its own part (side), never in the zero-width column the scrolling columns keep for it.
+    const shown = column.isLabelHidden || isRowHead(columnIndex) && !isSide ? "" : column.isSortable ? html`<button type="button" class="table-sort"${part === "rows" ? raw(' tabindex="-1"') : ""}>${column.label}${icon("chevron-down")}</button>` : column.label;
+    if (isRowHead(columnIndex) && !isSide) return part === "head" ? raw('<th class="table-row-head"></th>') : html`<th scope="col" class="table-row-head"><span class="sr">${column.label}</span></th>`;
     return part === "head"
       ? html`<th${numeric(columnIndex)}${sort}>${column.isSortable ? shown : html`<span aria-hidden="true">${shown}</span>`}</th>`
       : html`<th scope="col"${numeric(columnIndex)}${sort}><span class="table-label" aria-hidden="true">${shown}</span><span class="sr">${column.label}</span></th>`;
   };
   const cell = (row: (Raw | string)[], columnIndex: number, part: "head" | "rows" | "side") =>
-    isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="row-head"><span class="sr">${row[columnIndex]}</span></th>` : html`<td${numeric(columnIndex)}>${row[columnIndex]}</td>`;
+    isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="table-row-head"><span class="sr">${row[columnIndex]}</span></th>` : html`<td${numeric(columnIndex)}>${row[columnIndex]}</td>`;
   const body = (indexes: number[], part: "head" | "rows" | "side") =>
     html`<tbody>${options.rows.map((row) => html`<tr>${indexes.map((columnIndex) => cell(row, columnIndex, part))}</tr>`)}</tbody>`;
   // The footer row: shown in its own part, flat in the rows' part (its words for screen readers), hidden in the header's.
   const footCell = (columnIndex: number, part: "head" | "rows" | "foot") => {
     const footValue = options.footRow?.[columnIndex] ?? "";
-    if (isRowHead(columnIndex) && part !== "foot") return html`<td class="row-head"><span class="sr">${footValue}</span></td>`;
+    if (isRowHead(columnIndex) && part !== "foot") return html`<td class="table-row-head"><span class="sr">${footValue}</span></td>`;
     return part === "rows" ? html`<td${numeric(columnIndex)}><span class="table-label" aria-hidden="true">${footValue}</span><span class="sr">${footValue}</span></td>` : html`<td${numeric(columnIndex)}>${footValue}</td>`;
   };
   const foot = (indexes: number[], part: "head" | "rows" | "foot") => (options.footRow ? html`<tfoot><tr>${indexes.map((columnIndex) => footCell(columnIndex, part))}</tr></tfoot>` : "");
@@ -558,13 +562,13 @@ export function table(options: TableOptions): Raw {
   const side = (part: "head" | "rows" | "foot") =>
     headIndex === null
       ? ""
-      : html`<table class="data-table table-side ${options.headColumn}${compact}"${part === "rows" && options.headColumn === "first" ? raw(' aria-hidden="true"') : raw(' role="presentation"')}><thead><tr>${heading(headIndex, part === "head" ? "head" : "rows")}</tr></thead>${body([headIndex], "side")}${foot([headIndex], part === "rows" ? "head" : "foot")}</table>`;
+      : html`<table class="data-table table-side ${options.headColumn}${compact}"${part === "rows" && options.headColumn === "first" ? raw(' aria-hidden="true"') : raw(' role="presentation"')}><thead><tr>${heading(headIndex, part === "head" ? "head" : "rows", true)}</tr></thead>${body([headIndex], "side")}${foot([headIndex], part === "rows" ? "head" : "foot")}</table>`;
   const first = (part: "head" | "rows" | "foot") => (options.headColumn === "first" ? side(part) : "");
   const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
   // The pager: hidden until the rows need pages (TABLE_SCRIPT).
   const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("First page", { type: "button", icon: "arrow-first", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "first" } })}${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}${cutButton("Last page", { type: "button", icon: "arrow-last", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "last" } })}</div></nav>`;
-  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div>${pager}</div>`;
+  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div>${options.rows.length ? "" : html`<p class="table-empty">${options.emptyText ?? "Nothing here yet."}</p>`}</div>${footPart}</div></div>${pager}</div>`;
 }
 
 /**
@@ -750,6 +754,8 @@ component({
    screen, like a game's rooms); the head column beside them, and the rest of each row sideways inside. Their copy of the header is flat. */
 .table-scroll { position: relative; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; max-height: calc(var(--table-height, min(640px, 75dvh)) - var(--table-head-h) - var(--table-foot-h, 0px)); }
 .table-scroll::-webkit-scrollbar { display: none; }
+/* No rows: the header stays, and the rows' room says so, a page's height tall so the well keeps its size. */
+.table-empty { display: grid; place-items: center; min-height: calc(var(--table-height, 240px) - var(--table-head-h)); margin: 0; padding: var(--pad-pane); font: var(--type-words); color: var(--muted); text-align: center; }
 .table-rows { display: flex; align-items: flex-start; min-width: 0; }
 .table-x { flex: 1; min-width: 0; scroll-timeline: --table-x inline; }
 .table-rows .data-table thead th { height: 0; padding-top: 0; padding-bottom: 0; }
@@ -767,9 +773,11 @@ component({
 .table:has(.table-x.is-scrollable-sideways) .table-side.last { box-shadow: inset 1px 0 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
 .data-table tbody tr:first-child > * { border-top: 0; }
+/* The last row shown closes with a line too, where the well has room under it (a short page, a few rows). */
+.data-table tbody tr:nth-last-child(1 of :not([hidden])) > * { border-bottom: var(--divider); }
 /* A first head column's words, in the rows' part, are for screen readers: the column takes no room there. */
-.data-table .row-head { width: 0; padding: 0; }
-.table-x .data-table td:first-child, .table-x .data-table .row-head + td { color: var(--ink); }
+.data-table .table-row-head, .table-head .data-table thead th.table-row-head { width: 0; padding: 0; }
+.table-x .data-table td:first-child, .table-x .data-table .table-row-head + td { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { font-variant-numeric: tabular-nums; }
 /* A heading that sorts: its words and a small chevron, quiet until it sorts, then in full ink with the chevron pointing the way it runs. */
@@ -832,6 +840,11 @@ component({
           ["14:01:22", html`<code>POST /trade</code>`, "429", "2 ms"],
         ],
       }) }),
+    },
+    {
+      label: "No rows: the table stays and says so",
+      isWide: true,
+      markup: html`<div style="--table-height:200px">${glassPane({ paneSize: "full", body: table({ label: "Open rooms", isCompact: true, emptyText: "No open rooms like that right now. Pick something else, or press Play to start.", columns: [{ label: "Room" }, { label: "Mode" }, { label: "Players", isNumeric: true }], rows: [] }) })}</div>`,
     },
     {
       label: "Many rows, in pages of five: the pager shows only when the rows need it",

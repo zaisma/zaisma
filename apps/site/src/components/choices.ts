@@ -135,7 +135,7 @@ export function selectField(options: SelectFieldOptions): Raw {
       html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}${choice.icon ? html`<span class="select-mark">${icon(choice.icon)}</span>` : ""}<span class="select-words">${choice.label}</span>${choice.badgeCount !== undefined ? tag(String(choice.badgeCount), "count") : ""}${icon("check")}</div>`,
   )}</div>`;
   return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}"${options.isSmall ? raw(' class="sr"') : ""}>${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.isSmall ? html`<span class="select-name" aria-hidden="true">${options.label}</span>` : ""}${picked?.icon ? html`<span class="select-mark">${icon(picked.icon)}</span>` : ""}<span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.isSmall ? html`<span class="select-name" aria-hidden="true">${options.label}</span>` : ""}${picked?.icon ? html`<span class="select-mark">${icon(picked.icon)}</span>` : ""}<span class="select-fit"><span class="select-value">${picked?.label ?? ""}</span>${options.choices.map((choice) => html`<span class="select-sizer" aria-hidden="true">${choice.label}</span>`)}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
 ${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}">
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
 }
@@ -229,6 +229,11 @@ component({
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.select.no-icon .select-button { padding-left: 18px; }
 .select-value { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The pick sits over every choice's words, unseen, so a field sized to its words is as wide as its widest choice and never changes width
+   as the pick changes (a small field in a Tool row). */
+.select-fit { display: grid; min-width: 0; }
+.select-fit > * { grid-area: 1 / 1; }
+.select-sizer { visibility: hidden; white-space: nowrap; overflow: hidden; height: 0; }
 .field.select:hover .select-button { --face-color: var(--field-hover); }
 .select-button:focus-visible, .field.select.is-focused .select-button, .field.select.is-open .select-button { outline: none; --face-color: var(--field-focus); }
 .field.select:focus-within > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }

@@ -908,9 +908,9 @@ export interface ToolRowOptions {
 
 /**
  * A row of small controls over what they work on (a table's pickers and its Refresh): each only as wide as its words, all one height (a
- * small control's), with the end's always at the right of the first row. Where they don't fit in one row (a phone), the controls wrap
- * beside the end and each row's controls share out its whole width, so no row is left ragged and the end never sits on a row of its
- * own. It sits close to what it works on: the page puts it a pane's margin above it.
+ * small control's; a select field as wide as its widest choice), with the end's always at the right of the first row, so it never sits
+ * on a row of its own. Where they don't fit in one row (a phone), the controls wrap beside the end. It sits close to what it works on:
+ * the page puts it a pane's margin above it.
  */
 export function toolRow(options: ToolRowOptions): Raw {
   return html`<div class="tool-row"><div class="tool-row-items">${options.items.map((item) => html`<div class="tool-row-item">${item}</div>`)}</div>${options.end ? html`<div class="tool-row-end">${options.end}</div>` : ""}</div>`;
@@ -922,17 +922,12 @@ component({
   group: "panes",
   summary: "Small controls in one row over what they work on: pickers and a Refresh over a table. Each fits its words, all one height; they wrap only when they don't fit.",
   styles: `
-/* A tool row: the controls, wrapping among themselves, and the end beside them at the top right. In a narrow row (under 560px, by its
-   own width) each row of controls shares out its whole width. */
-.tool-row { container-type: inline-size; display: flex; align-items: flex-start; gap: var(--gap-words-control); min-width: 0; }
+/* A tool row: the controls, each fitting its words, wrapping among themselves, and the end beside them at the top right. */
+.tool-row { display: flex; align-items: flex-start; gap: var(--gap-words-control); min-width: 0; }
 .tool-row-items { flex: 1; display: flex; flex-wrap: wrap; gap: var(--gap-words-control); min-width: 0; }
 .tool-row-item { flex: 0 1 auto; min-width: 0; }
 .tool-row-end { display: flex; flex: none; gap: var(--gap-words-control); margin-left: auto; }
 .tool-row-item > .cut-field, .tool-row-item .field.select.small { width: max-content; max-width: 100%; }
-@container (max-width: 560px) {
-  .tool-row-item { flex: 1 1 auto; }
-  .tool-row-item > .cut-field, .tool-row-item .field.select.small { width: 100%; }
-}
 `,
   render: toolRow,
   examples: [

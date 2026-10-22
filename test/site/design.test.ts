@@ -396,7 +396,7 @@ describe("components", () => {
     expect(markup).toContain('<div class="table-head"><div class="table-head-main"><table class="data-table" role="presentation"><thead><tr><th><span aria-hidden="true">Version</span></th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ label: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="row-head"><span class="sr">Version 14</span></th><td class="num">312</td>');
+    expect(data.table({ label: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="table-row-head"><span class="sr">Version 14</span></th><td class="num">312</td>');
     // A table's one head column can be its last instead: its buttons, staying at the right.
     const pinned = data.table({ label: "Rooms", headColumn: "last", columns: [{ label: "Room" }, { label: "Players", isNumeric: true }, { label: "Join" }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
     expect(pinned).toContain('<td>Friday night</td><td class="num">6 of 8</td></tr>');

@@ -3,7 +3,7 @@ import type { Env } from "./env.ts";
 import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
 import { toolRow } from "./components/panes.ts";
-import { country, emptyState, table, type TableColumn } from "./components/data.ts";
+import { country, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import type { IconName } from "./components/foundations.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
@@ -105,7 +105,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
       : "Nobody's in an open room right now. Press Play to start.";
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
 ${toolRow({ items: [regions, ...filterFields].filter(Boolean) as Raw[], end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }) })}
-${open.length ? roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }) : emptyState({ title: "No open rooms", text: empty })}
+${roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }, empty)}
 ${open.length && isQuickJoining(game) ? html`<p class="rooms-more">Or press Play and the game finds you one.</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
 </div>`;
@@ -120,7 +120,7 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
  * column, staying at the right as the table scrolls sideways, so Join is always in reach on a phone. The columns are
  * even, so they stay put as the list refreshes. Never who's in it. Its code shows, for telling a friend which room.
  */
-function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null, rowSlice: { firstRowNumber: number; totalRowCount: number }): Raw {
+function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null, rowSlice: { firstRowNumber: number; totalRowCount: number }, emptyText: string): Raw {
   const shown = rooms.map((room) => ({ room, ...shownText(room) }));
   const hasNames = shown.some((each) => each.name);
   const labelNames = [...new Set(shown.flatMap((each) => each.labels.map(([labelName]) => labelName)))].slice(0, MAXIMUM_LABEL_COLUMN_COUNT);
@@ -150,7 +150,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, rowSlice, isCompact: true, isEven: true, headColumn: "last" });
+  return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, rowSlice, emptyText, isCompact: true, isEven: true, headColumn: "last" });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */
