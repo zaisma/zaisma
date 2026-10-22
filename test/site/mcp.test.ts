@@ -124,13 +124,14 @@ describe("publishing a game through the MCP", () => {
 
     const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", content_text: "<!doctype html><p>v1</p>" }, { path: "pic.png", content_base64: btoa("not really a png") }], patch_notes: "First." });
     expect(first.sent_file_count).toBe(2);
-    expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", is_live: false });
+    expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", has_threads: false, is_live: false });
     expect(first.next_steps).toEqual([{ tool: "get_version", arguments: { slug: "tiny-jump", version_id: first.version.id }, after_sec: 30, reason: expect.any(String) }]);
     // Held first (image matching isn't connected), so its history shows what Zaisma did; then it passes.
     await scanVersion(testEnv, first.version.id, { ...pass, images: notConnected });
     await passScan(first.version.id);
     const checked = await tool("get_version", { slug: "tiny-jump", version_id: first.version.id });
     expect(checked.version.scan_status).toBe("approved");
+    expect(checked.version.has_threads).toBe(false);
     expect(checked.version.preview_url).toContain(`/p/${first.version.id}.`);
 
     await tool("publish_version", { slug: "tiny-jump", version_id: first.version.id });
