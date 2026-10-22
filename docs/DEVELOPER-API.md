@@ -759,6 +759,7 @@ Rooms a game server keeps with `room.setKept(true)`, for worlds that last, like 
 - **Storage:** saved worlds count toward the game's storage with its database, 500 MB free. A kept room writes its size as it empties and at most hourly while players are in it, so the total is close, not exact. Past the free storage, `room.setKept(true)` leaves the room unkept and the game server's log says why, and the database can't grow (`database_storage_limit`), but rooms already kept keep saving: no world is lost to the limit.
 - **Waking:** a world waking runs `onRestored` with `restoreInfo.lostDurationSec` 0, since it saved as the last player left, and `restoreInfo.savedAt`, for the time that passed. It wakes on the game's live version; `restoreInfo.savedVersionId` says which version saved it, so you can bring an older world up to date.
 - **When the game is unavailable** (taken down, made private): players in a kept room are sent out and it sleeps, kept. Deleting the game deletes its kept rooms.
+- **One shared world:** `room.roomCode` tells the game server which room it's in, so it can keep only its world's room and refuse players elsewhere in `canJoin`.
 - **On your own server** the Node runner keeps kept rooms' states in its `--room-state` file until they end.
 - A key lists with `game_access` `read` and deletes with `write`.
 

@@ -1773,6 +1773,14 @@ describe("latest-only messages", () => {
 });
 
 describe("Kept rooms", () => {
+  it("tells the game server its room's code, or null where the transport has none", () => {
+    const seen: (string | null)[] = [];
+    const server = defineGameServer({ setup: () => ({}), onJoin: (_state, _player, room) => void seen.push(room.roomCode) });
+    new RoomCore(server, { ...transport().t, roomCode: "WRLD22" }).join({ id: "a", name: "A", kind: "guest" });
+    new RoomCore(server, transport().t).join({ id: "b", name: "B", kind: "guest" });
+    expect(seen).toEqual(["WRLD22", null]);
+  });
+
   it("keeps a room through room.setKept, tells the transport through listingChanged once, and does nothing after the end", () => {
     const room = new RoomCore(counter, transport().t);
     room.join({ id: "a", name: "A", kind: "guest" });

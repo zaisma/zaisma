@@ -496,7 +496,7 @@ describe("Kept rooms on the developer's own server", () => {
       onMessage(state, player, message, room) {
         if (message === "build") state.stoneCount++;
         if (message === "end") return room.end("The world is gone.");
-        room.send(player.id, { stoneCount: state.stoneCount, restored: state.restored, isKept: room.isKept });
+        room.send(player.id, { stoneCount: state.stoneCount, restored: state.restored, isKept: room.isKept, roomCode: room.roomCode });
       },
     });
     const start = async () => {
@@ -511,7 +511,8 @@ describe("Kept rooms on the developer's own server", () => {
     olivia.say({ type: "hello", pass: await pass("olivia") });
     await until(olivia, "welcome");
     for (const _ of [1, 2, 3]) olivia.say({ type: "message", data: "build" });
-    expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 1, isKept: true });
+    // The game server knows which room it's in, as in Zaisma rooms.
+    expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 1, isKept: true, roomCode: "KEPTWD" });
     await until(olivia, "message");
     expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 3 });
     // She leaves, so the room empties and sleeps, saved as it emptied.
@@ -539,7 +540,7 @@ describe("Kept rooms on the developer's own server", () => {
     noah.say({ type: "hello", pass: await pass("noah") });
     await until(noah, "welcome");
     noah.say({ type: "message", data: "how" });
-    expect((await until(noah, "message")).data).toEqual({ stoneCount: 3, restored: { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: 0, savedVersionId: null }, isKept: true });
+    expect((await until(noah, "message")).data).toEqual({ stoneCount: 3, restored: { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: 0, savedVersionId: null }, isKept: true, roomCode: "KEPTWD" });
 
     // room.end() ends it for good: its saved state goes.
     noah.say({ type: "message", data: "end" });

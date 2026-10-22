@@ -231,7 +231,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A post saved to read again, private to the account | `bookmark`; `is_bookmarked`, `bookmarked_post_ids` | |
 | Taking back a vote, a rating, a bookmark or a follow | `undo: true` in the MCP; `DELETE` in the API | |
 | Posts an account can still make today | `remaining_post_count` | |
-| A room players join by typing it | `room_code` | `roomCode` |
+| A room players join by typing it | `room_code` | `roomCode`; the game server's own room's, `room.roomCode` |
 | A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |
 | Whether a player is signed in | a player's `kind`: `account`, `guest` (also the player pass's `kind` claim) | `kind`; `playerKind` where it isn't on a player |
 | What anyone sees of an account | `player`: `{ id, name, username, display_name, bio, link_urls, profile_url, is_profile_private, published_games, played_games, playing_now }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` (`displayName`, `linkUrls`, `profileUrl`, `isProfilePrivate`, `publishedGames`, `playedGames`, `playingNow`) |

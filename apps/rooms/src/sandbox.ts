@@ -91,6 +91,8 @@ interface Snapshot {
   friendJoinsEnabled: boolean;
   /** room.isKept: the room sleeps with its state when everyone leaves. */
   isKept: boolean;
+  /** room.roomCode: this room's code, or null. */
+  roomCode: string | null;
   name: string | null;
   labels: Record<string, string>;
   /** When Zaisma will end the match (an ISO time), or null, for room.endsAt. */
@@ -252,6 +254,7 @@ function recorder(snapshot, effects, database, secrets) {
     get friendJoinsEnabled() { return snapshot.friendJoinsEnabled; },
     setFriendJoinsEnabled(isEnabled) { snapshot.friendJoinsEnabled = Boolean(isEnabled); effects.push({ do: "friend_joins", friendJoinsEnabled: snapshot.friendJoinsEnabled }); },
     get isKept() { return snapshot.isKept === true; },
+    get roomCode() { return typeof snapshot.roomCode === "string" ? snapshot.roomCode : null; },
     setKept(isKept) { snapshot.isKept = Boolean(isKept); effects.push({ do: "kept", isKept: snapshot.isKept }); },
     get name() { return snapshot.name; },
     get labels() { return { ...snapshot.labels }; },
@@ -299,7 +302,7 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
+  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, roomCode: null, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
   // What each player was last sent of the state, with stateSyncEnabled; a fresh session sends everyone a full copy.
   #stateTracker = server.stateSyncEnabled === true ? stateSync.newStateTracker(MAXIMUM_STATE_VIEW_SIZE_BYTES) : null;
   constructor(database, secrets) {
@@ -803,7 +806,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const was = sent;
     const players = [...room.players];
     const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}`).join("\n");
-    const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, isKept: room.isKept, name: room.name, labels: room.labels, endsAt: room.endsAt };
+    const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, isKept: room.isKept, roomCode: room.roomCode, name: room.name, labels: room.labels, endsAt: room.endsAt };
     const settingsKey = JSON.stringify(settings);
     const pingDurationsMs = pingsOf(room);
     const pingsKey = JSON.stringify(pingDurationsMs);

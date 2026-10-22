@@ -159,6 +159,30 @@ describe("kept rooms", () => {
     b.ws.close(1000);
   });
 
+  it("let a game keep only its one shared world, by the room's code, and turn players away from any other", async () => {
+    await addSandboxGame(
+      "one-world",
+      `export default {
+  setup: () => ({ visitCount: 0 }),
+  canJoin(state, player, room) { return room.roomCode === "WRLD22" || { refusalMessage: "Join the main world." }; },
+  onJoin(state, player, room) { room.setKept(true); state.visitCount++; room.send(player.id, { roomCode: room.roomCode, visitCount: state.visitCount }); return state; },
+};`,
+    );
+    const a = await join("one-world", "WRLD22");
+    expect((await a.next()).data).toEqual({ roomCode: "WRLD22", visitCount: 1 });
+    await until(() => keptRow("one-world", "WRLD22"));
+    // A changed page opening another code gets nowhere: the game server refuses, and nothing else is kept.
+    const { pass } = await newPass("one-world");
+    const up = await SELF.fetch(`${R}/v1/rooms/one-world/XTRA22`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+    const ws = up.webSocket!;
+    ws.accept();
+    const refused = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
+    ws.send(JSON.stringify({ type: "hello", pass }));
+    expect(await refused).toMatchObject({ type: "error", message: "Join the main world." });
+    expect(await e.DB.prepare("SELECT room_code FROM kept_rooms WHERE game_id = ?").bind(gameIdOf("one-world")).all()).toMatchObject({ results: [{ room_code: "WRLD22" }] });
+    a.ws.close(1000);
+  });
+
   it("stop being kept with setKept(false) or room.end(), and their rows go", async () => {
     await addSandboxGame("thawing", WORLD);
     const a = await join("thawing", "THAWED");

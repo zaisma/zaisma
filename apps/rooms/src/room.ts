@@ -1091,6 +1091,7 @@ export class Room extends DurableObject<Env> {
       return [{ id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest" }];
     });
     const transport = {
+      ...(this.meta?.roomCode ? { roomCode: this.meta.roomCode } : {}),
       send: (id: string, text: string) => this.sockets(id).forEach((socket) => socket.send(text)),
       sendBytes: (id: string, frame: Uint8Array) => this.sockets(id).forEach((socket) => socket.send(frame)),
       close: (id: string, code: number, reason: string) => {

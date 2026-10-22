@@ -352,6 +352,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const core = new RoomCore(
       definition,
       {
+        roomCode: code,
         database,
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),

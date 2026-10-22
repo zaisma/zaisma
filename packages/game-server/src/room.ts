@@ -25,6 +25,12 @@ export interface Player {
 }
 
 export interface Room {
+  /**
+   * This room's code, like K7Q2MX: the code players join it by. Use it to treat rooms differently, like
+   * keeping only your one shared world (setKept in "WRLD22", canJoin refusing elsewhere). null only in a
+   * room made before Zaisma rooms knew their codes.
+   */
+  readonly roomCode: string | null;
   /** Players in the room right now, in join order. */
   readonly players: readonly Player[];
   /**
@@ -891,6 +897,8 @@ export interface Transport {
    * "move" message, then hand the answer to this room's moved(). Without it, rooms can't move players.
    */
   moveTo?(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void;
+  /** This room's code, as room.roomCode. Without it, null. */
+  roomCode?: string;
   /** The game's database, as room.database. Without it, its calls fail with database_unavailable. */
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
@@ -1262,6 +1270,7 @@ export class RoomCore<S = any> {
     }
     const core = this;
     this.api = {
+      roomCode: transport.roomCode ?? null,
       get players() {
         return [...core.players.values()];
       },
