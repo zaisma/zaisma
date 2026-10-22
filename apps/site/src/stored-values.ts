@@ -67,6 +67,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "games.game_server_allowed_hosts[]", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/reach.ts", "checkAllowedHosts"), saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug"], shown_on_door_ids: [] },
   { stored: "games.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "games.title_listing_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
+  // Which law and what a country's notice names, as the admin wrote it (country-blocks.ts); its country_code is a closed list.
+  { stored: "games.country_blocks[].review_reason", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "versions.patch_notes", format: "shown_text_block", source: "developer", checked_by: checkedIn("apps/site/src/developer.ts", "shownTextOrThrow"), saved_by_door_ids: ["api:POST /games/:slug/versions"], shown_on_door_ids: [DASHBOARD, GAME_PAGE] },
   { stored: "versions.scan_report", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "versions.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },

@@ -181,7 +181,7 @@ export function countryName(code: string): string {
 }
 
 /** Countries Cloudflare names by a real two-letter code: not XX (unknown) or T1 (Tor). */
-const isCountry = (countryCode: string | null): countryCode is string => Boolean(countryCode && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "XX");
+export const isCountry = (countryCode: string | null): countryCode is string => Boolean(countryCode && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "XX");
 
 /** A game joins players automatically (its Rooms tab says Play finds you one) for this long after a player last came in through quickJoin. */
 export const QUICK_JOIN_KEPT_MS = 30 * 24 * 3600_000;

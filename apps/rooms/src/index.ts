@@ -1,4 +1,4 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isOldEnoughFor, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
@@ -66,6 +66,7 @@ export interface RoomGame {
   room_browsing: string;
   account_requirement: AccountRequirement;
   minimum_player_age_years: number;
+  country_blocks: string;
 }
 
 /**
@@ -81,9 +82,10 @@ async function isTooYoungFor(database: D1Database, game: Pick<RoomGame, "minimum
   return !row || !isOldEnoughFor(row.age_band, game.minimum_player_age_years);
 }
 
-export async function playableGame(database: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
-  return game && game.review_status === "live" && game.live_version_id ? game : null;
+/** A live game, or null; given the player's country (a browser's own call), also null when the game is blocked there (country-blocks.ts). */
+export async function playableGame(database: D1Database, slug: string, countryCode: string | null = null): Promise<RoomGame | null> {
+  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years, country_blocks FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  return game && game.review_status === "live" && game.live_version_id && !isBlockedInCountry(game, countryCode) ? game : null;
 }
 
 /**
@@ -400,7 +402,7 @@ export default {
       const { slug, body } = await readBody(request);
       if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
       const cors = origin!;
-      const game = await playableGame(env.DB, slug);
+      const game = await playableGame(env.DB, slug, requestCountryCode(request));
       if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
 
       // Zaisma's text filter, for games that want to check what players type (Zaisma.filterText).
@@ -529,7 +531,7 @@ export default {
       if (await limited(env.CONNECT_LIMIT, request)) return new Response("Too many connections. Try again in a minute.", { status: 429 });
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin, url.searchParams.get("tester")) : null;
       if (!from) return new Response("Not allowed from here", { status: 403 });
-      const game = await playableGame(env.DB, slug);
+      const game = await playableGame(env.DB, slug, requestCountryCode(request));
       if (!game || !usesRooms(gameServerOf(game))) return new Response("This game isn't available right now", { status: 404 });
 
       const headers = new Headers(request.headers);

@@ -26,6 +26,7 @@ export * from "./glass-light.ts";
 export * from "./uploads.ts";
 export * from "./compression.ts";
 export * from "./rooms.ts";
+export * from "./country-blocks.ts";
 export * from "./game-database.ts";
 export * from "./game-storage.ts";
 export * from "./text-filter.ts";

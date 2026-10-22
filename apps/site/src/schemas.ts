@@ -98,6 +98,14 @@ export const LINK = object({
   review_reason: nullable(reviewReason("Why it opens for nobody; null when it opens.")),
 });
 
+/** A country whose players can't open the game, on a notice under its law (country-blocks.ts). */
+const COUNTRY_BLOCK = object({
+  country_code: text("The country, ISO 3166-1 alpha-2, like GB."),
+  country_name: text("Its name in English, like United Kingdom."),
+  review_reason: reviewReason("Why: country_law_notice, with which law and what the notice names, and the fix."),
+  blocked_at: isoTime(),
+});
+
 export const GAME = object({
   slug: text("The game's link name, as in zaisma.com/g/<slug>"),
   page_url: url(),
@@ -106,6 +114,7 @@ export const GAME = object({
   visibility: VISIBILITY,
   review_status: REVIEW_STATUS,
   review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
+  country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open the game, on a notice from a court, regulator or police there under a law US law doesn't share; everyone else still can. [] for none."),
   devices: list(choice(DEVICES)),
   controls: list(choice(CONTROLS)),
   screen_orientation: nullable(choice(SCREENS, "null: not set.")),
@@ -131,6 +140,7 @@ export const GAME_ALERT = object({
   kind: choice({
     game_removed: "Zaisma took the game down",
     game_held: "players can't open the game while Zaisma checks it",
+    game_blocked_in_country: "players in one country can't open the game, on a notice under that country's law (country_blocks says which and why); everyone else still can",
     version_rejected: "the newest version was rejected",
     version_held: "a version is waiting for a person at Zaisma",
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
@@ -780,6 +790,7 @@ export const WEBHOOK_EVENT = object({
       scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
       live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
       review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
+      country_blocks_changed: "Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks)",
       game_server_error_found: "a new distinct error in the game's own game server, once per error per version (game_server_error, version: the version it happened in)",
       alert_raised: "one of the game's free-use alerts appeared, at most once a month per kind (alert)",
       account_deleted:
@@ -1092,6 +1103,7 @@ const ADMIN_GAME = object({
   game_server_name: nullable(text("What runs its multiplayer on Zaisma rooms: relay, sandbox (the game's own game server) or a built-in one's name; null without rooms.")),
   has_own_servers: yes("The game talks to servers of its own."),
   review_reason: nullable(reviewReason("What the developer reads about why it's held or removed.")),
+  country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open it, on a notice under that country's law; [] for none."),
   created_at: isoTime(),
 });
 const ADMIN_VERSION = object({
@@ -1401,6 +1413,12 @@ const PUBLISHING_ACCOUNT = object({
 });
 const PUBLISHING_ACCOUNTS = list(PUBLISHING_ACCOUNT, "By username.");
 export const PUBLISHING_ACCOUNT_LIST = object({ publishing_accounts: PUBLISHING_ACCOUNTS });
+export const COUNTRY_BLOCK_DECIDED = object({
+  decision: choice({ block: "players in that country can't open the game; everyone else still can", lift: "players in that country can open it again" }),
+  game: ADMIN_GAME,
+  next_steps: NEXT,
+});
+
 export const NOTICE_DECIDED = object({
   decision: choice({ hold: "players can't open the game until a person shows it again", show_again: "players can open it again" }),
   game: ADMIN_GAME,
