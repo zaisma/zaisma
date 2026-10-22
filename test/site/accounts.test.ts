@@ -2335,8 +2335,8 @@ describe("a game for 16 and up", () => {
 
     // A younger account never finds it: home and Continue playing; everyone else does.
     expect(await (await teen.go("/")).text()).not.toContain("grown-up");
-    expect(await (await adult.go("/")).text()).toContain("/g/grown-up");
-    expect(await (await guest.go("/")).text()).toContain("/g/grown-up");
+    expect(await (await adult.go("/")).text()).toContain('"slug":"grown-up"');
+    expect(await (await guest.go("/")).text()).toContain('"slug":"grown-up"');
     for (const b of [teen, adult]) await b.go("/api/me/played/grown-up", undefined, { method: "POST", body: "{}" });
     expect(await (await teen.go("/api/me/played")).json()).toEqual({ played: [] });
     expect(((await (await adult.go("/api/me/played")).json()) as { played: { slug: string }[] }).played.map((played) => played.slug)).toEqual(["grown-up"]);
@@ -2755,8 +2755,7 @@ describe("recently played", () => {
   it("shows games on the home page and patch notes on the game page", async () => {
     await liveGame("hop", "Hop");
     const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect(home).toContain('id="home-title"');
-    expect(home).toContain('href="/g/hop?play"');
+    expect(pageDataOf(home, "home-data").games.map((game: { slug: string }) => game.slug)).toContain("hop");
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
     expect(page).toContain('id="tab-updates"');
