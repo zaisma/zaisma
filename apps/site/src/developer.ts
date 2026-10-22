@@ -157,6 +157,8 @@ import {
   checkShownText,
   type ShownTextOptions,
   hasThreads,
+  ITEM_FIELDS,
+  purchaseLabelFor,
 } from "@zaisma/core";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -173,6 +175,7 @@ import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
+import { itemsRoute, playerItemsRoute, purchaseSettingsRoute, purchasesRoute } from "./items-api.ts";
 import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shaderJson } from "./backgrounds-api.ts";
 import { exportDownload, exportSummary } from "./game-export.ts";
 import { logsFor } from "./logs-api.ts";
@@ -235,6 +238,10 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
  *   GET    /api/dev/games/:slug/kept-rooms     the game's kept rooms and its storage (see kept-rooms-api.ts)
+ *   …/api/dev/games/:slug/items                what the game sells or grants: set and remove items (see items-api.ts)
+ *   PATCH  /api/dev/games/:slug/purchase-settings   refund_policy, refund_policy_text, own_payment_categories
+ *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund (see items-api.ts)
+ *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
@@ -613,6 +620,15 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
+  call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
+  call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
+  call({ method: "PATCH", path: "/games/:slug/purchase-settings", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories") } }),
+  call({ method: "GET", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
+  call({ method: "POST", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
+  call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/players/:player_id/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
   call({ method: "PATCH", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
@@ -835,7 +851,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const keyGames = gameSlugs ? games.filter((game) => gameSlugs.includes(game.slug)) : games;
     // Your forum topics with a reply or change from Zaisma you haven't opened yet.
     const alertsByGameId = await gameAlerts(env, keyGames);
-    return answer({ games: keyGames.map((game) => ({ ...gameJson(env, game), alerts: alertsByGameId.get(game.id)! })), unread_topic_count: unread?.topic_count ?? 0 });
+    return answer({ games: await Promise.all(keyGames.map(async (game) => ({ ...(await gameJson(env, game)), alerts: alertsByGameId.get(game.id)! }))), unread_topic_count: unread?.topic_count ?? 0 });
   }
 
   if (apiRoute.path === "/forum" || apiRoute.path.startsWith("/forum/")) {
@@ -882,7 +898,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await logCallerEvent(env, caller, "game_created", { gameId: made.id });
     return answer(
       {
-        game: gameJson(env, made),
+        game: await gameJson(env, made),
         next_steps: [
           {
             tool: "upload_files",
@@ -932,6 +948,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
+  if (apiRoute.path.startsWith("/games/:slug/items")) return answer(...(await itemsRoute(request, env, game!, pathValues.item_name, caller, checked)));
+  if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund"), caller, checked)));
+  if (apiRoute.path === "/games/:slug/players/:player_id/items") return answer(...(await playerItemsRoute(env, game!, pathValues.player_id!)));
   if (apiRoute.path.startsWith("/games/:slug/shaders") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
@@ -956,7 +976,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     ]);
     const performanceChecks = await performanceChecksFor(env, versions.map((version) => version.id));
     return answer({
-      game: gameJson(env, game),
+      game: await gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
       // The exact number, whatever the public minimum: it's the developer's own game. As on the game page, the larger of browsers and rooms.
       playing_now_player_count: Math.max(playingNow.get(game.id) ?? 0, rooms?.playing.playerCount ?? 0),
@@ -1033,7 +1053,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: passedForGore[0]!.id }, after_sec: null, reason: "It passed now that the game is for 16 and up." }]
       : [];
     return answer({
-      game: gameJson(env, changed),
+      game: await gameJson(env, changed),
       review_message: isWaitingForReview ? "The new title or description is checked in about a minute, then shows." : null,
       game_server_problem: gameServerProblem,
       next_steps: [...goreSteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
@@ -1405,13 +1425,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
       version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
-    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
-    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+    return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
@@ -1441,7 +1461,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const nextSteps: NextStep[] = isHidden
       ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
       : [];
-    return [{ game: gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: await gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
 
   throw badMethod(method, new URL(request.url).pathname);
@@ -2412,7 +2432,7 @@ export function closedQuery(queryParameters: URLSearchParams, fields: string[]):
 
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
-export function gameJson(env: Env, game: Game) {
+export async function gameJson(env: Env, game: Game) {
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,
@@ -2448,6 +2468,10 @@ export function gameJson(env: Env, game: Game) {
     glass_tint_color: game.glass_tint_color,
     // What it may draw from the developer's credit each month; null: no paid hosting, it stops at its free allowance.
     monthly_budget_cents: game.monthly_budget_cents,
+    // What the game page says it sells, from its items: pages and AIs read the label from here alone.
+    purchase_label: await purchaseLabelFor(env.DB, game),
+    refund_policy: game.refund_policy,
+    refund_policy_text: game.refund_policy_text,
     updated_at: iso(game.updated_at_ms),
   };
 }

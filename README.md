@@ -404,6 +404,10 @@ Signed-in players' progress follows them to any device, with no code in the game
 
 A game opens its store, Patreon, Steam page or Discord with `await Zaisma.links.open("store")`, from a tap or key press: the links registered on the game (its `links`, in the dashboard, `update_game` or `zaisma links set`). Zaisma's page shows "You're leaving Zaisma" with the address over the game's corner, and the game hears `"opened"` or `"stayed"`. Guests and under-18 accounts open only links on trusted store, payment and video sites. See "Registered links" in `docs/DEVELOPER-API.md`.
 
+### Items players own
+
+A game lists what it sells or grants as items (`set_item`, or `zaisma items set <slug> items.json` from a file kept beside the game): permanent ones a player owns for good on every device, and consumables the game counts. Prices are the game's own, in any of Stripe's currencies with a price per country if you like, and Zaisma takes no cut. A player's pass lists the items they own, so `Zaisma.items.owns("skin_red-dragon")` in the game and `player.ownedItemNames` on any game server need no extra call, and every purchase or grant has a receipt any server checks with `verifyReceipt`. See "Items and purchases" in `docs/DEVELOPER-API.md`.
+
 ### How games are kept safe
 
 - Every upload is scanned before it goes live: file-type and executable checks, static malware checks, known-illegal-image matching and an AI review. Anything unclear waits for a person.

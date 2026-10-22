@@ -1,6 +1,7 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
+import { signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
 import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
@@ -15,6 +16,7 @@ export { GameSecretsObject, GameSecretsService } from "./secrets.ts";
 export { GameServerOutbound } from "./outbound.ts";
 export { GameStorageService } from "./game-storage.ts";
 export { GameRoomsService } from "./room-updates.ts";
+export { ReceiptSigningService } from "./receipts.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;
@@ -125,11 +127,7 @@ async function testerLinkFor(env: Env, slug: string, testerId: string | null): P
   return link ? { page: `/t/${link.token}`, tester: testerId } : null;
 }
 
-let signing: { secret: string; key: Promise<SigningKey> } | null = null;
-export function signingKey(env: Env): Promise<SigningKey> {
-  if (signing?.secret !== env.PASS_SIGNING_KEY) signing = { secret: env.PASS_SIGNING_KEY, key: loadSigningKey(env.PASS_SIGNING_KEY) };
-  return signing.key;
-}
+export { signingKey } from "./signing.ts";
 
 /**
  * The opaque chat group an open-and-social account carries in this game's passes: a keyed hash of the
@@ -155,6 +153,16 @@ async function keyedHash(env: Env, text: string): Promise<string> {
   if (hashing?.secret !== env.PASS_SIGNING_KEY) hashing = { secret: env.PASS_SIGNING_KEY, key: crypto.subtle.importKey("raw", new TextEncoder().encode(env.PASS_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) };
   const digest = new Uint8Array(await crypto.subtle.sign("HMAC", await hashing.key, new TextEncoder().encode(text)));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 20);
+}
+
+/** The player's first language, for how prices are written ("$1.99", "1,99 €"); never what they cost. */
+function shownLocale(acceptLanguage: string | null): string {
+  const first = acceptLanguage?.split(",")[0]?.split(";")[0]?.trim();
+  try {
+    return first ? (Intl.NumberFormat.supportedLocalesOf([first])[0] ?? "en-US") : "en-US";
+  } catch {
+    return "en-US";
+  }
 }
 
 function json(body: unknown, httpStatus = 200, origin?: string): Response {
@@ -237,7 +245,7 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
     // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? await accountName(env, claims.sub) : claims.name;
     if (!name) return requestFailure("bad_pass", cors);
-    player = { id: claims.sub, name, kind: claims.kind };
+    player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return requestFailure("bad_pass", cors);
@@ -449,7 +457,10 @@ export default {
               block_tag_ids: await Promise.all((await blockPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
             }
           : {};
-        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        // The permanent items the account owns here, so any game server sees them on connect without calling Zaisma.
+        const ownedNames = account ? await ownedItemNames(env.DB, game.id, account.player_id) : [];
+        const owned = ownedNames.length ? { owned_item_names: ownedNames } : {};
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, ...owned, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }
@@ -521,6 +532,23 @@ export default {
       });
       const { changedAtMs: _, ...found } = left ? leaveOut(listed, left) : listed;
       return json(roomListForGame(found, inviteUrl), 200, origin!);
+    }
+
+    // The game's items for sale, at the price this player pays (Zaisma.items.list): by their country, never their browser's language.
+    const itemsMatch = url.pathname.match(/^\/v1\/items\/([a-z0-9-]{1,40})$/);
+    if (itemsMatch && request.method === "GET") {
+      const slug = itemsMatch[1]!;
+      if (!(await gameOrigin(env, slug, origin, url.searchParams.get("tester")))) return failure("bad_origin", "Not allowed from here.", 403);
+      const countryCode = requestCountryCode(request);
+      const game = await playableGame(env.DB, slug, countryCode);
+      if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, origin!);
+      const locale = shownLocale(request.headers.get("accept-language"));
+      const items = (await itemsOf(env.DB, game.id)).flatMap((forSale) => {
+        const price = priceFor(forSale, countryCode);
+        if (!price) return [];
+        return [{ itemName: forSale.item_name, title: forSale.title, description: forSale.description, itemKind: forSale.item_kind, itemCategory: forSale.item_category, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, priceText: priceText(price.currencyCode, price.priceMinorUnits, locale) }];
+      });
+      return json({ items }, 200, origin!);
     }
 
     const roomMatch = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/);

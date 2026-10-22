@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crate Racer</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#102030;color:#eee;text-align:center}button{font:inherit;padding:8px 14px;margin:6px}</style>
+</head>
+<body>
+<h1>Crate Racer</h1>
+<p>Your kart: <span id="skin">Plain Red</span></p>
+<button id="buy">Buy a Mystery Crate ($1.99)</button>
+<p id="result"></p>
+<script src="https://zaisma.com/sdk/zaisma.js"></script>
+<script>
+const SKINS = [["Plain Blue", 60], ["Chrome", 30], ["Gold Flame", 9], ["Rainbow Legend", 1]];
+function rollSkin() {
+  let roll = Math.random() * 100;
+  for (const [name, chance] of SKINS) { if ((roll -= chance) < 0) return name; }
+  return SKINS[0][0];
+}
+document.getElementById("buy").onclick = async () => {
+  // Paid with real money through the buy sheet; what's inside is random.
+  const bought = await Zaisma.items.buy("mystery_crate").catch(() => null);
+  if (!bought) return;
+  const skin = rollSkin();
+  document.getElementById("skin").textContent = skin;
+  document.getElementById("result").textContent = `The crate had: ${skin}!`;
+};
+</script>
+</body>
+</html>

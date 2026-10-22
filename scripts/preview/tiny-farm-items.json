@@ -1,0 +1,12 @@
+[
+  {
+    "item_name": "straw_hat",
+    "title": "Straw Hat",
+    "description": "A wide straw hat for sunny harvests.",
+    "item_kind": "permanent",
+    "item_category": "cosmetic",
+    "price_minor_units": 299,
+    "currency_code": "usd",
+    "local_prices": [{ "currency_code": "eur", "price_minor_units": 279 }]
+  }
+]
