@@ -264,8 +264,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
     box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
-  function setUp(bar) {
-    var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
+  function setUp(bar, given) {
+    var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : given || bar.previousElementSibling;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
@@ -394,13 +394,16 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end);
     layout(); wake();
   }
-  document.querySelectorAll("[data-rail]").forEach(setUp);
-  // A table put in later (a game's rooms, refreshed) gets its rail as one there from the start does.
+  document.querySelectorAll("[data-rail]").forEach(function (bar) { setUp(bar); });
+  // A table has both rails, up and down beside its rows (its scrollbar is hidden for its sideways fade, so the search above passes it by)
+  // and along its foot: one there from the start and one put in later (a game's rooms, refreshed) alike. The Table places them (data.ts).
   window.zaismaWatch.each(".table-scroll", function (box) {
-    if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
-    if (getComputedStyle(box.parentElement).position === "static") box.parentElement.style.position = "relative";
-    box.insertAdjacentHTML("afterend", '<div class="rail" data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
-    setUp(box.nextElementSibling);
+    var table = box.parentElement;
+    ["side", "box"].forEach(function (kind) {
+      if (table.querySelector(':scope > .rail[data-rail="' + kind + '"]')) return;
+      table.insertAdjacentHTML("beforeend", '<div class="rail' + (kind === "side" ? " sideways" : "") + '" data-rail="' + kind + '" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+      setUp(table.lastElementChild, box);
+    });
   });
 })();
 `;

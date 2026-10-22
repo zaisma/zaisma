@@ -511,13 +511,16 @@ export interface TextButtonOptions extends ButtonTarget {
   /** The id of the sheet it opens (aria-controls): a game page's Share. */
   controls?: string;
   icon?: IconName;
+  /** Only its icon shows, flat, with no slab: a room's Report beside its Join. The label is what a screen reader says (aria-label). */
+  isLabelHidden?: boolean;
   isBusy?: boolean;
   state?: ButtonState;
 }
 
 /** A text button: words alone, the quietest thing you press (Skip for now, Show all, Undo). The orange line draws in under them as you point. */
 export function textButton(label: string, options: TextButtonOptions = {}): Raw {
-  return html`${opening(classes("text-btn", options.state), options, options.isBusy, options.controls ? html` aria-controls="${options.controls}"` : "")}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
+  const extra = html`${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}`;
+  return html`${opening(classes("text-btn", options.isLabelHidden && "icon-only", options.state), options, options.isBusy, extra)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
 }
 
 component({
@@ -532,6 +535,8 @@ component({
 .text-btn { vertical-align: middle; }
 .text-btn:focus-visible { outline: none; }
 .text-btn > .face { display: inline-flex; flex-direction: column; align-items: stretch; padding: 12px 2px 6px; color: var(--ink-2); white-space: nowrap; transition: color 0.2s, transform 0.4s ${SPRING}; }
+/* Only its icon: no taller than a small button beside it, the line still drawing in under the icon. */
+.text-btn.icon-only > .face { padding: 9px 2px 0; }
 .text-words { display: inline-flex; align-items: center; justify-content: center; gap: var(--gap-words-words); font: var(--type-label); }
 .text-line { position: relative; display: block; height: 3px; margin-top: 5px; overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
   background: linear-gradient(90deg, #E9820C, var(--run) 40%, #FFB54D); transform: scaleX(0); transform-origin: right; transition: transform 0.22s cubic-bezier(.4,0,1,1); }
@@ -554,6 +559,7 @@ component({
   examples: [
     ...stateExamples((state) => textButton("Skip for now", { type: "button", state }), "text"),
     { label: "Busy", markup: textButton("Undo", { type: "button", isBusy: true }), isStill: true },
+    { label: "Only its icon, flat, beside a cut button: a room's Report", markup: html`<div class="control-row">${cutButton("Join", { type: "button", isSmall: true })}${textButton("Report the room", { type: "button", icon: "flag", isLabelHidden: true })}</div>` },
     { label: "Beside a cut button: the way out", markup: html`<div class="control-row">${cutButton("Save", { type: "button" })}${textButton("Cancel", { type: "button" })}</div>` },
   ],
 });

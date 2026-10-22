@@ -555,6 +555,8 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // A table's up-and-down rail, set in from its header and edges, and the room its last column keeps for it.
+  '.table > .rail[data-rail="box"] | margin', ".table:has(> .rail[data-rail=\"box\"]:not([hidden])) .data-table tr > :last-child | padding-right",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
@@ -578,7 +580,7 @@ const NOT_SPACING = new Set<string>([
   ".tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-start",
   ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
-  ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
+  ".text-btn > .face | padding", ".text-btn.icon-only > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
   ".field.select.no-icon .select-button | padding-left", ".field.select.small .select-button | padding", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.

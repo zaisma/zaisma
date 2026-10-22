@@ -230,6 +230,8 @@ export interface CountryOptions {
   countryCode: string;
   /** Its name, said beside the flag: Germany. */
   countryName: string;
+  /** Only the flag shows (a column of them); the name is said to screen readers and shown where the pointer rests. */
+  isNameHidden?: boolean;
 }
 
 /**
@@ -237,7 +239,7 @@ export interface CountryOptions {
  * flag-icons' (MIT), drawn small into brand/flags; the flag says it at a glance, the name says it in words.
  */
 export function country(options: CountryOptions): Raw {
-  return html`<span class="country"><span class="country-flag" aria-hidden="true"><img src="/flags/${options.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy" decoding="async"></span><span>${options.countryName}</span></span>`;
+  return html`<span class="country"${options.isNameHidden ? html` title="${options.countryName}"` : ""}><span class="country-flag" aria-hidden="true"><img src="/flags/${options.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy" decoding="async"></span><span${options.isNameHidden ? raw(' class="sr"') : ""}>${options.countryName}</span></span>`;
 }
 
 component({
@@ -256,6 +258,7 @@ component({
   render: country,
   examples: [
     { label: "Where a room runs", markup: html`${country({ countryCode: "DE", countryName: "Germany" })}` },
+    { label: "Only the flag, its name for screen readers", markup: html`${country({ countryCode: "JP", countryName: "Japan", isNameHidden: true })}` },
     { label: "Others", markup: html`${country({ countryCode: "JP", countryName: "Japan" })} ${country({ countryCode: "BR", countryName: "Brazil" })} ${country({ countryCode: "SE", countryName: "Sweden" })}` },
   ],
 });
@@ -458,6 +461,8 @@ export interface TableColumn {
   label: string;
   /** Its label is said only to screen readers: a column of buttons whose words say it (Join). */
   isLabelHidden?: boolean;
+  /** Its width, in a table of even columns (isEven): a column of flags or buttons keeps this; the rest share what's left equally. */
+  widthPx?: number;
   /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
   isNumeric?: boolean;
 }
@@ -472,6 +477,9 @@ export interface TableOptions {
   hasRowHeads?: boolean;
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
+  /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
+   *  rows change (a list that refreshes, like a game's rooms). Words too long for a column end in an ellipsis. */
+  isEven?: boolean;
   /** Unique on the page. Defaults to a slug of its caption. */
   id?: string;
 }
@@ -486,7 +494,7 @@ export function table(options: TableOptions): Raw {
   const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption">${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
     (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
@@ -529,7 +537,14 @@ component({
 /* A table: its caption in a label's words over a box that scrolls sideways under it, cut by the edge rule. Its header row is clearer glass
    that stays at the top while a long table's rows scroll under it, taking the glass's hue and light or dark as all glass does; a first
    column that names the rows is the same glass and stays at the left. A row under the pointer brightens a little, like a list row. */
-.table { display: grid; gap: var(--gap-words-control); min-width: 0; }
+.table { position: relative; display: grid; gap: var(--gap-words-control); min-width: 0; }
+/* Its rails: up and down along its right edge, from under the header to its foot, in the room its last column keeps for it while it
+   shows; sideways under it. */
+.table > .table-caption { grid-row: 1; }
+.table > .table-scroll { grid-row: 2; grid-column: 1; }
+.table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 1; justify-self: end; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 6px) 6px 6px 0; }
+.table > .rail.sideways { grid-row: 3; }
+.table:has(> .rail[data-rail="box"]:not([hidden])) .data-table tr > :last-child { padding-right: 28px; }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
 /* A long table scrolls inside its box, at most --table-height tall (a page sets it where the table shares the screen, like a game's rooms). */
@@ -549,6 +564,12 @@ component({
 .data-table td:first-child { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
+/* Even columns: laid out from the columns alone, never their rows, so a refresh never moves them; long words end in an ellipsis. */
+.data-table.even { table-layout: fixed; min-width: 0; }
+.data-table.even td, .data-table.even tbody th { overflow: hidden; text-overflow: ellipsis; }
+/* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
+.data-table td > .control-row { flex-wrap: nowrap; }
+[data-glass] .data-table td > .control-row > .shell { flex: none; }
 /* The row under the pointer: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since the browser's own hover keeps
    the row it lit until the pointer moves; without the script, the browser's hover does. */
 .data-table:not(.is-tracked) tbody tr:hover > td, .data-table tbody tr.is-lit > td { background: var(--row-hover); }

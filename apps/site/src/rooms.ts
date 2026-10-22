@@ -1,6 +1,6 @@
 import { checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
-import { cutButton } from "./components/actions.ts";
+import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
 import { country, emptyState, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
@@ -107,7 +107,8 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
 
 /**
  * The open rooms as a Table: a Room column when any room has a name, a column for each label they carry (Mode, Map),
- * the country each runs in (a Country: its flag and name), how full it is, then Join (or Full) and, for a named room, Report. Never who's in it, and never its code.
+ * the country each runs in (a Country's flag), how full it is, then Join (or Full) with, for a named room, a flat Report beside it. The columns are
+ * even, so they stay put as the list refreshes. Never who's in it, and never its code.
  */
 function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null): Raw {
   const shown = rooms.map((room) => ({ room, ...shownText(room) }));
@@ -116,29 +117,28 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
   const hasPlaces = rooms.some((room) => room.location);
   const columns: TableColumn[] = [
     ...(hasNames ? [{ label: "Room" }] : []),
-    ...labelNames.map((labelName) => ({ label: labelName })),
-    ...(hasPlaces ? [{ label: "Where" }] : []),
-    { label: "Players", isNumeric: true },
-    { label: "Join", isLabelHidden: true },
-    ...(hasNames ? [{ label: "Report", isLabelHidden: true }] : []),
+    ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 96 : undefined })),
+    ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
+    { label: "Players", isNumeric: true, widthPx: 84 },
+    { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104 },
   ];
   const rows = shown.map(({ room, name, labels }) => {
     const filled = `${room.playerCount} of ${room.maximumPlayerCount}`;
     const said = [name, labels.map(([, labelValue]) => labelValue).join(", ")].filter(Boolean).join(", ");
     const joinLabel = `Join ${name ? `“${name}”` : "a room"} with ${filled} ${room.maximumPlayerCount === 1 ? "player" : "players"}${room.location ? ` in ${room.location.countryName}` : ""}`;
     const labelOf = new Map(labels);
+    const join = hasSpace(room) ? html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>` : "Full";
+    // A named room can be reported: its Report is a flat icon beside Join, quieter than it.
+    const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : "";
     return [
       ...(hasNames ? [name ?? ""] : []),
       ...labelNames.map((labelName) => labelOf.get(labelName) ?? ""),
-      ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName }) : ""] : []),
+      ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName, isNameHidden: true }) : ""] : []),
       filled,
-      hasSpace(room) ? html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>` : "Full",
-      ...(hasNames
-        ? [name ? cutButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : ""]
-        : []),
+      report ? html`<div class="control-row">${join}${report}</div>` : join,
     ];
   });
-  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true });
+  return table({ id: "rooms-table", caption: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, isCompact: true, isEven: true });
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */

@@ -194,7 +194,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `state?: ButtonState`, `isBusy?: boolean`
 - **Text button** (`textButton(label: string, options?: TextButtonOptions)`, `actions.ts`): The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isNewTab?: boolean`, `controls?: string`, `icon?: IconName`, `isBusy?: boolean`, `state?: ButtonState`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isNewTab?: boolean`, `controls?: string`, `icon?: IconName`, `isLabelHidden?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
@@ -280,7 +280,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Facts** (`facts(options: { … })`, `data.ts`): What something is, in a few short facts: who a game is for, what it runs on. Each a quiet label over its words, side by side while they fit.
   - `options`: `facts: Fact[]`, `label?: string`
 - **Country** (`country(options: CountryOptions)`, `data.ts`): Where something is, like the country a room runs in: its flag, small, cut with slanted ends and carved into the glass like a Tag, beside its name.
-  - `options`: `countryCode: string`, `countryName: string`
+  - `options`: `countryCode: string`, `countryName: string`, `isNameHidden?: boolean`
 - **Person** (`person(options: PersonOptions)`, `data.ts`): Someone on Zaisma named in a pane, like a game's developer: their picture in its frame, their name a Link to their profile, and a line about them.
   - `options`: `username: string`, `href: string`, `note?: string`, `isNewTab?: boolean`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point.
@@ -292,7 +292,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
   - `options`: `label: string`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
-  - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `id?: string`
+  - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `hasRowHeads?: boolean`, `isCompact?: boolean`, `isEven?: boolean`, `id?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point in orange with its number, and any point's number where you point. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.
