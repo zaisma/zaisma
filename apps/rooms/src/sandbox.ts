@@ -76,6 +76,7 @@ type Effect =
   | { do: "listed"; isListed: boolean }
   | { do: "open"; isOpen: boolean }
   | { do: "friend_joins"; friendJoinsEnabled: boolean }
+  | { do: "kept"; isKept: boolean }
   | { do: "info"; nameAndLabels: unknown }
   | { do: "reserve"; reserveOptions: unknown; roomCode: string }
   | { do: "kick"; playerId: unknown; kickOptions: unknown }
@@ -90,6 +91,10 @@ interface Snapshot {
   isListed: boolean;
   isOpen: boolean;
   friendJoinsEnabled: boolean;
+  /** room.isKept: the room sleeps with its state when everyone leaves. */
+  isKept: boolean;
+  /** room.roomCode: this room's code, or null. */
+  roomCode: string | null;
   name: string | null;
   labels: Record<string, string>;
   /** When Zaisma will end the match (an ISO time), or null, for room.endsAt. */
@@ -252,6 +257,9 @@ function recorder(snapshot, effects, database, secrets) {
     setOpen(isOpen) { snapshot.isOpen = Boolean(isOpen); effects.push({ do: "open", isOpen: snapshot.isOpen }); },
     get friendJoinsEnabled() { return snapshot.friendJoinsEnabled; },
     setFriendJoinsEnabled(isEnabled) { snapshot.friendJoinsEnabled = Boolean(isEnabled); effects.push({ do: "friend_joins", friendJoinsEnabled: snapshot.friendJoinsEnabled }); },
+    get isKept() { return snapshot.isKept === true; },
+    get roomCode() { return typeof snapshot.roomCode === "string" ? snapshot.roomCode : null; },
+    setKept(isKept) { snapshot.isKept = Boolean(isKept); effects.push({ do: "kept", isKept: snapshot.isKept }); },
     get name() { return snapshot.name; },
     get labels() { return { ...snapshot.labels }; },
     get endsAt() { return snapshot.endsAt ?? null; },
@@ -298,7 +306,7 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
+  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, roomCode: null, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
   // What each player was last sent of the state, with stateSyncEnabled; a fresh session sends everyone a full copy.
   #stateTracker = server.stateSyncEnabled === true ? stateSync.newStateTracker(MAXIMUM_STATE_VIEW_SIZE_BYTES) : null;
   constructor(database, secrets) {
@@ -808,7 +816,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}`).join("\n");
     const spectators = [...room.spectators];
     const spectatorsKey = spectators.map((spectator) => `${spectator.id}\t${spectator.kind}\t${spectator.name}`).join("\n");
-    const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt };
+    const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, isKept: room.isKept, roomCode: room.roomCode, name: room.name, labels: room.labels, endsAt: room.endsAt };
     const settingsKey = JSON.stringify(settings);
     const pingDurationsMs = pingsOf(room);
     const pingsKey = JSON.stringify(pingDurationsMs);
@@ -1019,6 +1027,9 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "friend_joins":
           room.setFriendJoinsEnabled(effect.friendJoinsEnabled === true);
+          break;
+        case "kept":
+          room.setKept(effect.isKept === true);
           break;
         case "info":
           room.setInfo(asObject(effect.nameAndLabels) as never);

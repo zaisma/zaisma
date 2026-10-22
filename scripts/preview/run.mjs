@@ -1274,6 +1274,9 @@ function seedFriendsNow() {
     `UPDATE presences SET game_id = ${game("rocket-lab")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Quiet_Comet")}`,
     `UPDATE presences SET game_id = ${game("shard-dodge")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Moss_Runner")}`,
     room("arena", "MSSRNR", 3, 8, "DE", "EU", "Moss_Runner")[0],
+    // A kept world asleep with nobody in it (Kept rooms): listed below the room with players, with an empty seat meter and Join.
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, is_kept, country, continent, created_at_ms, updated_at_ms) SELECT ${game("arena")}, 'NRTHWC', 0, 8, 1, 'Northwatch', 1, 'DE', 'EU', ${later}, ${later} ${ifMade}`,
+    `INSERT OR REPLACE INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) SELECT ${game("arena")}, 'NRTHWC', 'Northwatch', 2400000, ${later}, ${later}, ${later} ${ifMade}`,
     ...room("four-in-a-row", "KTSPRK", 2, 2, "US", "NA", "Kit_Spark"),
     `UPDATE live_rooms SET spectator_count = 2, maximum_spectator_count = 20 WHERE room_code IN ('MSSRNR', 'KTSPRK')`,
     // Tiny Farm plays on a server of its own: Tall_Pine is in one of its rooms there, so Join carries the server (Friends in games).

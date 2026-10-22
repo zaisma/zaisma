@@ -27,6 +27,8 @@ export interface ListedRoom {
    */
   name: string | null;
   labels: Record<string, string>;
+  /** Kept by its game server (room.setKept): a world that's still there with nobody in it, like a server waiting for players. */
+  isKept: boolean;
 }
 
 export interface RoomList {
@@ -227,10 +229,13 @@ export async function listRooms(
   const hit = await cache?.match(key);
   if (hit) return hit.json();
 
+  // A kept room with nobody in it sleeps without checking in, so its row never goes stale.
   const { results } = await database
-    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND updated_at_ms > ?")
+    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND (updated_at_ms > ? OR (is_kept = 1 AND player_count = 0))")
     .bind(gameId, (options.nowMs ?? Date.now()) - ROOM_STALE_MS)
     .all<LiveRoom>();
+  // Rooms someone is in, for "playing now": an empty kept room isn't playing.
+  const playingRows = results.filter((row) => row.player_count > 0 || row.is_kept !== 1);
   const continent = (row: LiveRoom) => (row.continent && CONTINENTS[row.continent] ? row.continent : null);
   // Hidden rooms count toward "playing now"; only listed ones are ever shown.
   const all = results.filter((row) => row.is_listed === 1).map(
@@ -246,15 +251,20 @@ export async function listRooms(
       isNear: near !== null && row.continent === near,
       name: row.is_name_hidden ? null : row.name,
       labels: row.is_name_hidden ? {} : readLabels(row.labels),
+      isKept: row.is_kept === 1,
     }),
   );
   const created = new Map(results.map((row) => [row.room_code, row.created_at_ms]));
   const updated = new Map(results.map((row) => [row.room_code, row.updated_at_ms]));
   const where = new Map(results.map((row) => [row.room_code, continent(row)]));
   const mine = (room: ListedRoom) => Number(here !== null && room.location?.countryCode === here);
+  // Kept rooms with nobody in them go after rooms with players, by name.
+  const waiting = (room: ListedRoom) => Number(room.isKept && room.playerCount === 0);
   all.sort(
     (first, second) =>
       Number(hasSpace(second)) - Number(hasSpace(first)) ||
+      waiting(first) - waiting(second) ||
+      (waiting(first) && waiting(second) ? (first.name ?? "\uffff").localeCompare(second.name ?? "\uffff", "en") || first.roomCode.localeCompare(second.roomCode) : 0) ||
       mine(second) - mine(first) ||
       Number(second.isNear) - Number(first.isNear) ||
       second.playerCount - first.playerCount ||
@@ -276,7 +286,7 @@ export async function listRooms(
   const shown = inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
-    playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: results.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
+    playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: playingRows.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
     joinableRoomCount: all.filter(hasSpace).length,
     openRoomCount: inRegion.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),
@@ -306,7 +316,9 @@ export function leaveOut(list: RoomList, left: { roomCode: string; leftAtMs: num
   if (changedAtMs === undefined || nowMs - left.leftAtMs > LEFT_FOR_MS || changedAtMs >= left.leftAtMs - 1000 || changedAtMs < left.joinedAtMs - 1000) return list;
   const room = list.rooms.find((listed) => listed.roomCode === left.roomCode);
   if (!room || room.playerCount < 1) return list;
-  const isGone = room.playerCount === 1;
+  // A kept room they were last in stays listed with nobody in it, but nobody's playing there.
+  const isEmptied = room.playerCount === 1;
+  const isGone = isEmptied && !room.isKept;
   const next: ListedRoom = { ...room, playerCount: room.playerCount - 1 };
   const regionCode = room.location?.region ?? null;
   return {
@@ -314,7 +326,7 @@ export function leaveOut(list: RoomList, left: { roomCode: string; leftAtMs: num
     rooms: isGone ? list.rooms.filter((listed) => listed !== room) : list.rooms.map((listed) => (listed === room ? next : listed)),
     playing: {
       playerCount: Math.max(0, list.playing.playerCount - 1),
-      roomCount: list.playing.roomCount - Number(isGone),
+      roomCount: list.playing.roomCount - Number(isEmptied),
       closedRoomCount: list.playing.closedRoomCount - Number(isGone && !room.isOpen),
     },
     joinableRoomCount: list.joinableRoomCount - Number(hasSpace(room)) + Number(!isGone && hasSpace(next)),

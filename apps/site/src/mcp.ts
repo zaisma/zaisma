@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -1111,6 +1111,29 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ deleted_secret_name: text("The secret deleted."), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/secrets/${pathPart(toolArguments.secret_name)}`),
+  },
+  {
+    name: "list_kept_rooms",
+    title: "List a game's kept rooms",
+    description:
+      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the free 500 MB. Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: KEPT_ROOMS,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/kept-rooms`),
+  },
+  {
+    name: "delete_kept_room",
+    title: "Delete a kept room",
+    description:
+      "Deletes a kept room's world for good; players in it are sent out. Not for ending a match: the game server does that with room.end(). Frees the world's storage at once. Ask the developer first: nothing brings a deleted world back.",
+    inputSchema: {
+      ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],
+    },
+    outputSchema: KEPT_ROOM_DELETED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}`),
   },
   {
     name: "get_database",

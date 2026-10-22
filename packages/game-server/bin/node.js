@@ -36,7 +36,7 @@ const MAXIMUM_REQUEST_BODY_SIZE_BYTES = REQUEST_LIMITS.maximumRequestSizeBytes +
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
 const SEAT_MS = 60 * 1000;
-/** A room that empties keeps its saved state this long, like Zaisma's rooms, so players coming back find it as it was. */
+/** A room that empties keeps its saved state this long, like Zaisma's rooms, so players coming back find it as it was. A kept room (room.setKept) keeps it until it ends. */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often saved states of rooms that emptied over a day ago are deleted. */
 const ROOM_STATE_SWEEP_MS = 3600 * 1000;
@@ -166,31 +166,37 @@ export function localRoomStates(file) {
     const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
     database = new DatabaseSync(file);
     database.exec("CREATE TABLE IF NOT EXISTS room_states (room_code TEXT PRIMARY KEY, state_json TEXT NOT NULL, match_players_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL)");
+    // is_saved_empty (saved as the room emptied, so a room waking from it lost nothing) came later: files made before get it now.
+    if (!database.prepare("SELECT 1 FROM pragma_table_info('room_states') WHERE name = 'is_saved_empty'").get()) database.exec("ALTER TABLE room_states ADD COLUMN is_saved_empty INTEGER NOT NULL DEFAULT 0");
     return database;
   };
   const isThere = () => database !== null || (file !== ":memory:" && existsSync(file));
   return {
-    /** A room's saved state, the players in its match and the room, and when it was saved; null if it has none. */
+    /** A room's saved state, the players in its match and the room, when it was saved and whether it was empty then; null if it has none. */
     read(roomCode) {
       if (!isThere()) return null;
-      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms FROM room_states WHERE room_code = ?").get(roomCode);
+      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty FROM room_states WHERE room_code = ?").get(roomCode);
       if (!row) return null;
-      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms) };
+      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms), isSavedEmpty: row.is_saved_empty === 1 };
     },
-    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs }) {
+    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs, isSavedEmpty = false }) {
       open()
-        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms")
-        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs);
+        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms, is_saved_empty = excluded.is_saved_empty")
+        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs, isSavedEmpty ? 1 : 0);
+    },
+    /** A room's state unchanged since its last save, which now counts as saved as it emptied, with the room as it is (kept or not). */
+    markEmpty(roomCode, savedRoom) {
+      if (isThere()) open().prepare("UPDATE room_states SET saved_room_json = ?, is_saved_empty = 1 WHERE room_code = ?").run(JSON.stringify(savedRoom), roomCode);
     },
     remove(roomCode) {
       if (isThere()) open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
     },
-    /** Delete the states saved before then, except those of rooms still running. */
+    /** Delete the states saved before then, except those of rooms still running and kept rooms (room.setKept). */
     removeOlder(beforeMs, runningRoomCodes) {
       if (!isThere()) return;
       const running = [...runningRoomCodes];
       open()
-        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ?${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
+        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ? AND COALESCE(json_extract(saved_room_json, '$.isKept'), 0) = 0${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
         .run(beforeMs, ...running);
     },
   };
@@ -346,6 +352,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const core = new RoomCore(
       definition,
       {
+        roomCode: code,
         database,
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),
@@ -378,12 +385,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         },
       },
       // Its players aren't connected yet: they're away until they reconnect, as in Zaisma rooms.
-      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs), lostPlayers: saved.matchPlayers } : { start },
+      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (hasBlockBetween, areFriends).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
-    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers) : null, hasReportedStateSize: false };
+    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
   }
@@ -399,8 +406,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     }
   }
 
-  /** Save a room's state, the players in its match and the room, when its state changed. Ended rooms have nothing to come back to. */
-  function saveRoom(code, room) {
+  /**
+   * Save a room's state, the players in its match and the room, when its state changed (or it was kept or
+   * unkept). Ended rooms have nothing to come back to. isSavedEmpty: saved as the room emptied.
+   */
+  function saveRoom(code, room, isSavedEmpty = false) {
     if (!roomStates || room.core.ended) return;
     const nowMs = Date.now();
     room.core.savedAtMs = nowMs;
@@ -411,15 +421,19 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       return console.error(`Couldn't save room ${code}'s state:`, error);
     }
     const matchPlayers = [...room.core.players.values()];
-    const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers);
-    if (stateKey === null || stateKey === room.savedStateKey) return;
+    const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers, room.core.isKept);
+    if (stateKey === null) return;
+    if (stateKey === room.savedStateKey) {
+      if (isSavedEmpty) roomStates.markEmpty(code, room.core.saved);
+      return;
+    }
     if (Buffer.byteLength(stateJson) > ROOM_LIMITS.maximumSavedStateSizeBytes) {
       if (!room.hasReportedStateSize) console.warn(`Room ${code}'s state is over 32 MB, so it isn't saved and a restart starts it fresh.`);
       room.hasReportedStateSize = true;
       return;
     }
     try {
-      roomStates.write(code, { stateJson, matchPlayers, savedRoom: room.core.saved, savedAtMs: nowMs });
+      roomStates.write(code, { stateJson, matchPlayers, savedRoom: room.core.saved, savedAtMs: nowMs, isSavedEmpty });
       room.savedStateKey = stateKey;
     } catch (error) {
       console.error(`Couldn't save room ${code}'s state:`, error);
@@ -480,14 +494,14 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   // A room with nobody connected stays while players whose connection dropped have time to come back, and while it holds seats.
-  // One that empties keeps its saved state for a day; one that ended keeps none.
+  // One that empties keeps its saved state for a day (a kept one until it ends); one that ended keeps none.
   function closeIfEmpty(code, room) {
     if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0 || room.core.nextReconnectDeadlineMs() !== null))) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
     try {
       if (room.core.ended) roomStates?.remove(code);
-      else saveRoom(code, room);
+      else saveRoom(code, room, true);
     } catch (error) {
       console.error(`Couldn't update room ${code}'s saved state:`, error);
     }
@@ -639,9 +653,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   return { wss, httpServer, rooms, close };
 }
 
-/** A saved state's key: its JSON and who was in the match, since either changing is worth a save. */
-function stateKeyOf(stateJson, matchPlayers) {
-  return `${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
+/** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
+function stateKeyOf(stateJson, matchPlayers, isKept) {
+  return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
 }
 
 /** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */
