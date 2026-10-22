@@ -1,4 +1,4 @@
-import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
+import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -50,8 +50,11 @@ export interface ShowGame {
 
 const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/></svg>';
 
-/** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears and games the listing check keeps off lists ("No slop"). */
-export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200): Promise<ShowGame[]> {
+/**
+ * Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears,
+ * games the listing check keeps off lists ("No slop") and games blocked in the viewer's country (countryCode, null when unknown).
+ */
+export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200, countryCode: string | null = null): Promise<ShowGame[]> {
   const [{ results }, playingNow] = await Promise.all([env.DB
     .prepare(
       `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color,
@@ -63,10 +66,10 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN accounts ON accounts.id = owners.account_id
        LEFT JOIN versions ON versions.id = games.live_version_id
-       WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? AND ${SHOWN_IN_LISTS_SQL}
+       WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? AND ${SHOWN_IN_LISTS_SQL} AND ${NOT_BLOCKED_IN_COUNTRY_SQL}
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
-    .bind(viewerAgeFloorYears, maximumGameCount)
+    .bind(viewerAgeFloorYears, countryCode, maximumGameCount)
     .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
     playingNowCounts(env),
   ]);
@@ -194,7 +197,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
   // Back to progress they saved with neither a passkey nor an email: asked once to protect the account.
   const isProtectionOffered = viewer.account ? await isProtectionOfferDue(env, viewer.account, viewer.email) : false;
   if (isProtectionOffered) await markProtectionOffered(env, viewer.account!.id);
-  const games = await showcase(env, viewer.ageFloorYears);
+  const games = await showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
   const [{ popular, trending, fresh }, backgrounds, news] = await Promise.all([shelves(env, games, viewer.ageFloorYears), backgroundsOfGames(env, games), currentAnnouncement(env)]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));

@@ -56,6 +56,12 @@ export interface Env {
   EXPORT_LIMIT?: RateLimit;
   /** Script policy violation reports per connection address (security-alerts.ts). */
   CSP_REPORT_LIMIT?: RateLimit;
+  /** Credit top-ups and refunds an owner starts in a minute (credit-api.ts): each reaches Stripe. */
+  CREDIT_LIMIT?: RateLimit;
+  /** Zaisma's own Stripe account's secret key, for hosting credit (stripe.ts). Without it, top-ups answer stripe_unavailable. */
+  STRIPE_SECRET_KEY?: string;
+  /** The signing secret of Stripe's endpoint at /stripe/events (stripe-events.ts). */
+  STRIPE_EVENTS_SECRET?: string;
   ALERTS?: SendEmail;
   /** Cloudflare Email Sending, for players' email codes (email-codes.ts), from EMAIL_FROM on zaisma.com. */
   EMAIL?: SendEmail;

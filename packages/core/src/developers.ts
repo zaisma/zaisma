@@ -105,6 +105,8 @@ export function apiKeyTokensIn(text: string): string[] {
  *   forum_access        read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name
  *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
  *   webhook_access      webhooks (the whole account's)
+ *   credit_access       hosting credit (the whole account's). read: balance, top-ups and spending. write: also start a top-up,
+ *                       refund one, and turn automatic top-up off or down (on or up needs the developer's passkey on zaisma.com)
  */
 export const AREA_ACCESS_CHOICES = {
   game_access: ["read", "write"],
@@ -115,12 +117,13 @@ export const AREA_ACCESS_CHOICES = {
   forum_access: ["none", "read", "write"],
   sign_in_app_access: ["none", "read", "write"],
   webhook_access: ["none", "read", "write"],
+  credit_access: ["none", "read", "write"],
 } as const satisfies Record<string, readonly string[]>;
 export type AccessArea = keyof typeof AREA_ACCESS_CHOICES;
 export type AreaAccess = { [Area in AccessArea]: (typeof AREA_ACCESS_CHOICES)[Area][number] };
 export const ACCESS_AREAS = Object.keys(AREA_ACCESS_CHOICES) as AccessArea[];
 /** Areas that belong to the whole account, not to games, so only keys for every game reach them. */
-export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access"];
+export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access", "credit_access"];
 
 /** The four fixed levels, the same words as the Teams roles, and custom: a choice per area. */
 export const ACCESS_LEVELS = ["read", "upload", "publish", "full", "custom"] as const;
@@ -128,10 +131,10 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
 /** What each fixed level gives. Read and upload keys read the forum but don't post in the developer's name. */
 export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
-  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
-  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
+  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write", credit_access: "write" },
 };
 
 /** What a caller may do: a key's access, or everything for the developer on our own pages. */
@@ -195,7 +198,7 @@ export function checkKeyScope(scope: KeyScope): string | null {
     if (!options.includes(scope.areaAccess[area])) return "Choose what the key can do in each area.";
   }
   if (scope.gameSlugs && ACCOUNT_AREAS.some((area) => scope.areaAccess![area] !== "none")) {
-    return "Sign-in apps and webhooks belong to your whole account, so only a key for all your games can reach them.";
+    return "Sign-in apps, webhooks and hosting credit belong to your whole account, so only a key for all your games can reach them.";
   }
   return null;
 }
@@ -633,6 +636,8 @@ export interface DetailsChange {
   deleted_account_erase_enabled?: boolean;
   /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms. Off grays it as "This game doesn't take joins". */
   friend_joins_enabled?: boolean;
+  /** Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals for get_stats. */
+  performance_measuring_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
   account_requirement?: AccountRequirement;
@@ -705,6 +710,11 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     const fix = "Send true (the default: friends' Join on zaisma.com takes players into this game's rooms) or false (Join shows grayed as \"This game doesn't take joins\"). One room turns it off with room.setFriendJoinsEnabled(false).";
     if (typeof input.friend_joins_enabled !== "boolean") return refuse("friend_joins_enabled", "friend_joins_enabled isn't true or false.", fix);
     change.friend_joins_enabled = input.friend_joins_enabled;
+  }
+  if ("performance_measuring_enabled" in input) {
+    const fix = "Send true (the default: Zaisma measures load time, frame rate, stutter and crashes in players' browsers, as totals in get_stats) or false (nothing of Zaisma's measures the game, and get_stats has performance null).";
+    if (typeof input.performance_measuring_enabled !== "boolean") return refuse("performance_measuring_enabled", "performance_measuring_enabled isn't true or false.", fix);
+    change.performance_measuring_enabled = input.performance_measuring_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) {
@@ -817,6 +827,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.account_offer_enabled !== undefined) set("account_offer_enabled", change.account_offer_enabled ? 1 : 0);
   if (change.deleted_account_erase_enabled !== undefined) set("deleted_account_erase_enabled", change.deleted_account_erase_enabled ? 1 : 0);
   if (change.friend_joins_enabled !== undefined) set("friend_joins_enabled", change.friend_joins_enabled ? 1 : 0);
+  if (change.performance_measuring_enabled !== undefined) set("performance_measuring_enabled", change.performance_measuring_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   if (change.minimum_player_age_years !== undefined) set("minimum_player_age_years", change.minimum_player_age_years);

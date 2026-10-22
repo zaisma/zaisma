@@ -17,6 +17,7 @@ const now = () => Date.now();
  * - live_version_changed: players get another version: published, rolled back, published at its set
  *   time, or put back while a report is checked;
  * - review_status_changed: Zaisma held or took down a game, or put it back;
+ * - country_blocks_changed: Zaisma blocked the game in a country on a notice under its law, or lifted it;
  * - game_server_error_found: a new distinct error in the game's own game server (a handler threw or
  *   didn't start, or a call ran on too long), once per error per version;
  * - alert_raised: one of the game's alerts about its free use appeared (80% used, or used and
@@ -27,26 +28,15 @@ const now = () => Date.now();
  *   used from a new place, …): security_event, as get_activity lists it. About the account, so it reaches only
  *   webhooks for every game at an endpoint_url, like account_deleted for a sign-in app.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "country_blocks_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */
 export const MAXIMUM_ERROR_EVENT_COUNT_PER_DAY = 20;
 
-/** The alert kinds alert_raised is sent for, and the only values alert_notices.alert_kind holds. */
-export const FREE_USE_ALERT_KINDS = [
-  "rooms_nearly_paused",
-  "rooms_paused",
-  "requests_nearly_paused",
-  "requests_paused",
-  "database_nearly_paused",
-  "database_paused",
-  "database_writes_nearly_paused",
-  "database_writes_paused",
-  "database_nearly_full",
-  "database_full",
-] as const;
-export type FreeUseAlertKind = (typeof FREE_USE_ALERT_KINDS)[number];
+/** The alert kinds alert_raised is sent for, and the kinds alert_notices.alert_kind holds now (older rows keep older kinds until they're cleared). */
+export const HOSTING_ALERT_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "database_nearly_full", "database_full"] as const;
+export type HostingAlertKind = (typeof HOSTING_ALERT_KINDS)[number];
 /** What test_webhook sends: no webhook takes it otherwise, so it's not in the list above. */
 export const TEST_EVENT_KIND = "test";
 

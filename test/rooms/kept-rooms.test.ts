@@ -1,6 +1,6 @@
 import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { issueRoomKey, listRooms } from "@zaisma/core";
+import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, listRooms } from "@zaisma/core";
 import { REFUSED_CLOSE_CODE } from "@zaisma/game-server";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
@@ -203,13 +203,13 @@ describe("kept rooms", () => {
     expect(await liveRow("thawing", "ENDZZZ")).toBeNull();
   });
 
-  it("aren't kept while the game's storage is past its free 500 MB, and the game server's log says why", async () => {
+  it("aren't kept while the game's storage is full at its 10 GB, and the game server's log says why", async () => {
     await addSandboxGame("full-world", WORLD);
-    await e.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, saved_size_bytes, created_at_ms) VALUES (?, 'BIGONE', ?, 0)").bind(gameIdOf("full-world"), 500 * 1024 * 1024).run();
+    await e.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, saved_size_bytes, created_at_ms) VALUES (?, 'BIGONE', ?, 0)").bind(gameIdOf("full-world"), MAXIMUM_GAME_STORAGE_SIZE_BYTES).run();
     const a = await join("full-world", "NRMMMM");
     const stub = roomOf("full-world", "NRMMMM");
     const lines = await until(() => runInDurableObject(stub, (room: Room) => ((room as any).logs?.waiting as { text: string }[] | undefined)?.filter((line) => /can't be kept/.test(line.text))).then((found) => (found?.length ? found : null)));
-    expect(lines[0]!.text).toMatch(/^Zaisma: this room can't be kept, because this game's storage is past its free 500 MB\. Delete kept rooms \(zaisma kept-rooms\) or database rows to make room\.$/);
+    expect(lines[0]!.text).toMatch(/^Zaisma: this room can't be kept, because this game's storage is full at its 10 GB\. Delete kept rooms \(zaisma kept-rooms\) or database rows to make room\.$/);
     a.say("how");
     expect((await a.next()).data).toMatchObject({ isKept: false });
     expect(await keptRow("full-world", "NRMMMM")).toBeNull();
@@ -296,13 +296,13 @@ describe("kept rooms", () => {
   it("count towards the game's storage with its database", async () => {
     const gameId = `gstorage${Date.now()}`;
     const database = gameDatabaseObject(e, gameId);
-    // Kept rooms filling the free 500 MB; the database reads their size in the background, at most every 10 minutes.
-    await e.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, saved_size_bytes, created_at_ms) VALUES (?, 'FULLXX', ?, 0)").bind(gameId, 500 * 1024 * 1024).run();
+    // Kept rooms filling the 10 GB a game can have; the database reads their size in the background, at most every 10 minutes.
+    await e.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, saved_size_bytes, created_at_ms) VALUES (?, 'FULLXX', ?, 0)").bind(gameId, MAXIMUM_GAME_STORAGE_SIZE_BYTES).run();
     await database.query("CREATE TABLE logs (id INTEGER PRIMARY KEY, note TEXT)", []);
     await until(async () => (await runInDurableObject(database, (object: GameDatabaseObject) => (object as unknown as { keptRooms: { sizeBytes: number } }).keptRooms.sizeBytes)) > 0);
-    // A database well under 500 MB can't grow past what's left, but can still delete.
+    // A database can't grow past what's left, but can still delete.
     const refused = (await database.query("INSERT INTO logs (note) VALUES (?)", ["x".repeat(100_000)])) as { error?: { code: string; message: string } };
-    expect(refused.error).toMatchObject({ code: "database_storage_limit", message: expect.stringMatching(/^This game's storage \(its database and kept rooms\) would be over its free 500 MB/) });
+    expect(refused.error).toMatchObject({ code: "database_full", message: expect.stringMatching(/^This game's storage \(its database and kept rooms\) would be over the 10 GB a game can have/) });
     expect(await database.query("DELETE FROM logs", [])).toMatchObject({ queryResult: [] });
   });
 });

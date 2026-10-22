@@ -3,7 +3,8 @@
 // Chrome, and checks it got there unchanged and works: the upload command sent it, the scan passed it on
 // its own (scripts/preview/run.mjs seeds them with no hand approval), and on its game page the engine
 // starts, draws moving frames, and throws nothing and is refused nothing (no blocked file or address); Zaisma's own run
-// in Chrome found it starting, and the files its page preloads are the ones the game then uses.
+// in Chrome found it starting, the files its page preloads are the ones the game then uses, and the game page got
+// Zaisma's measuring of how it ran.
 //
 //   npm run engines:play                    against this checkout's preview (npm run preview:start first)
 //   CHROME_PATH=/path/to/chrome npm run engines:play
@@ -101,6 +102,8 @@ async function play(chrome, sample) {
     await send("Page.enable");
     await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    // What the game frame's measuring (packages/sdk/performance.js) sends the game page, kept for the check below.
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: "window.zaismaPerformanceReports = []; addEventListener('message', (e) => { if (e.data && e.data.type === 'zaisma:performance') window.zaismaPerformanceReports.push(e.data); });" });
     await send("Page.navigate", { url: `${site}/g/${sample.slug}?play` });
 
     let started = null;
@@ -133,6 +136,14 @@ async function play(chrome, sample) {
       if (first === second) fail(`${sample.engine}: the game didn't draw anything new in a second.`);
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
+      // Zaisma measured how it ran: a report with its load time and seconds of frames, its first 10 seconds in.
+      let measured = null;
+      for (const waitedAt = Date.now(); !measured && Date.now() - waitedAt < 20_000; await wait(1000)) {
+        const { result } = await send("Runtime.evaluate", { expression: "JSON.stringify((window.zaismaPerformanceReports || []).find((report) => report.loading_duration_sec !== null && report.measured_duration_sec > 0) || null)", returnByValue: true });
+        measured = JSON.parse(result.value ?? "null");
+      }
+      if (!measured) fail(`${sample.engine}: the game page got no performance report with a load time and frame seconds.`);
+      else console.log(`  measured: drew in ${measured.loading_duration_sec} s, ${measured.measured_duration_sec} s of frames`);
     }
     // Emscripten's pthreads warn on every threaded build that waits on the main thread (Godot's does): a warning, not a failure.
     const isThreadsWarning = (problem) => sample.engine.endsWith("-threads") && problem.startsWith("console.error: Blocking on the main thread is very dangerous");

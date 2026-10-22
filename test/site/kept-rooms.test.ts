@@ -84,7 +84,7 @@ describe("a game's kept rooms", () => {
     expect(listed.answer.kept_rooms[2]).toMatchObject({ name: null, saved_at: null, last_played_at: null });
     expect(listed.answer.kept_rooms_size_bytes).toBe(15_500_000);
     expect(listed.answer.storage_size_bytes).toBeGreaterThanOrEqual(15_500_000);
-    expect(listed.answer.free_storage_size_bytes).toBe(500 * 1024 * 1024);
+    expect(listed.answer.maximum_storage_size_bytes).toBe(10 * 1024 ** 3);
   });
 
   it("are none at first, with the storage the database alone", async () => {
@@ -123,12 +123,12 @@ describe("a game's kept rooms", () => {
 });
 
 describe("the game's storage alerts", () => {
-  it("count kept rooms with the database: nearly full at 80% of the free 500 MB, full at all of it", async () => {
+  it("count kept rooms with the database: nearly full at 80% of the 10 GB a game keeps, full at all of it", async () => {
     const alertKinds = async () => (await api("/games/frostbound")).answer.alerts.map((alert: { kind: string }) => alert.kind).filter((kind: string) => kind.startsWith("database_"));
     expect(await alertKinds()).toEqual([]);
-    await keep("K7Q2MX", { savedSizeBytes: 410 * 1024 * 1024, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() });
+    await keep("K7Q2MX", { savedSizeBytes: 8.2 * 1024 ** 3, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() });
     expect(await alertKinds()).toEqual(["database_nearly_full"]);
-    await keep("H4RB9T", { savedSizeBytes: 90 * 1024 * 1024, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() });
+    await keep("H4RB9T", { savedSizeBytes: 1.8 * 1024 ** 3, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() });
     expect(await alertKinds()).toEqual(["database_full"]);
     const full = (await api("/games/frostbound")).answer.alerts.find((alert: { kind: string }) => alert.kind === "database_full");
     expect(full.fix).toContain("delete_kept_room");

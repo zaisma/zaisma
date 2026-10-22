@@ -42,6 +42,10 @@ export interface Game {
   deleted_account_erase_enabled: number;
   /** 1 when Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms; 0 grays it as "This game doesn't take joins". */
   friend_joins_enabled: number;
+  /** 1 when Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals. */
+  performance_measuring_enabled: number;
+  /** What the game may draw from its developer's credit in a month, in cents; NULL: no paid hosting, so it stops at its free allowance. */
+  monthly_budget_cents: number | null;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */
@@ -74,6 +78,8 @@ export interface Game {
   details_waiting_for_review: string | null;
   /** Why the title keeps the game off lists ("No slop"), as JSON (a ReviewReason); NULL when none. */
   title_listing_reason: string | null;
+  /** The countries it's blocked in on a notice under their law, a JSON list of CountryBlock (country-blocks.ts); '[]' for none. */
+  country_blocks: string;
   /** The title a person cleared: the listing check leaves the title alone while it's this. */
   cleared_title: string | null;
   /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */

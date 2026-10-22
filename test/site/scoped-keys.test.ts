@@ -81,19 +81,20 @@ describe("levels and areas", () => {
     expect(checkKeyScope({ accessLevel: "custom", gameSlugs: null })).toMatch(/each area/);
     expect(checkKeyScope({ accessLevel: "custom", areaAccess: { ...custom, version_access: "none" as never }, gameSlugs: null })).toMatch(/each area/);
     expect(checkKeyScope({ accessLevel: "read", gameSlugs: [] })).toMatch(/at least one game/);
-    // Sign-in apps and webhooks belong to the whole account.
+    // Sign-in apps, webhooks and credit belong to the whole account.
     expect(checkKeyScope({ accessLevel: "custom", areaAccess: custom, gameSlugs: ["sky-hopper"] })).toMatch(/whole account/);
-    expect(checkKeyScope({ accessLevel: "custom", areaAccess: { ...custom, sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: ["sky-hopper"] })).toBeNull();
+    expect(checkKeyScope({ accessLevel: "custom", areaAccess: { ...custom, sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: ["sky-hopper"] })).toMatch(/whole account/);
+    expect(checkKeyScope({ accessLevel: "custom", areaAccess: { ...custom, sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: ["sky-hopper"] })).toBeNull();
   });
 
   it("read a custom key made before an area existed as that area's least", () => {
     const access = keyAccess({ id: "old", name: "old", access_level: "custom", area_access: JSON.stringify({ game_access: "write", forum_access: "read" }), game_slugs: null });
-    expect(access.areaAccess).toEqual({ game_access: "write", version_access: "read", stats_access: "none", database_access: "none", save_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none" });
+    expect(access.areaAccess).toEqual({ game_access: "write", version_access: "read", stats_access: "none", database_access: "none", save_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" });
   });
 
   it("keep keys made before scopes doing everything", async () => {
     const { answer } = await api("/access", full);
-    expect(answer).toEqual({ access: { api_key_name: "laptop", api_key_ends_at: null, access_level: "full", area_access: AREA_ACCESS_BY_LEVEL.full, game_slugs: null }, can_publish: true });
+    expect(answer).toEqual({ access: { api_key_name: "laptop", api_key_ends_at: null, access_level: "full", area_access: AREA_ACCESS_BY_LEVEL.full, game_slugs: null }, can_publish: true, credit_balance_cents: 0 });
   });
 });
 
@@ -171,7 +172,7 @@ describe("a key for some games", () => {
       api_key_name: "scoped",
       api_key_ends_at: null,
       access_level: "full",
-      area_access: { ...AREA_ACCESS_BY_LEVEL.full, sign_in_app_access: "none", webhook_access: "none" },
+      area_access: { ...AREA_ACCESS_BY_LEVEL.full, sign_in_app_access: "none", webhook_access: "none", credit_access: "none" },
       game_slugs: ["sky-hopper"],
     });
   });
@@ -179,7 +180,7 @@ describe("a key for some games", () => {
 
 describe("a custom key", () => {
   it("does what each area allows", async () => {
-    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: null });
+    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null });
     expect((await api("/games/sky-hopper/stats", key)).status).toBe(200);
     expect((await api("/games/sky-hopper/database", key)).code).toBe("key_not_allowed");
     expect((await api("/games/sky-hopper/saves", key)).code).toBe("key_not_allowed");

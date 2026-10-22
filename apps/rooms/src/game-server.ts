@@ -1,6 +1,6 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server";
-import { FREE_REQUEST_COUNT_PER_MONTH, nextMonthStartDate, usageMonth, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
+import { HOSTING_PAUSED_TEXT, HOSTING_PRICES, isHostingPaused, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
 import { errorLine, linesOf, sandboxOpener, type Session } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
@@ -14,17 +14,13 @@ export interface WebhookOutcome {
   failureMessage: string | null;
 }
 
-/** Requests counted this month (UTC), for the free requests. */
-interface RequestUse {
-  month: string;
-  requestCount: number;
-}
-
 /** Use and errors not yet in the stats (room_usage and game_server_errors), by date. */
 interface Unrecorded {
   date: string;
   requestCount: number;
   scheduledRunCount: number;
+  /** Game server CPU in requests, webhooks and schedule runs past the first includedCpuDurationMsPerRequest of each, for the hosting meter. */
+  outsideRoomCpuDurationMs: number;
   crashCount: number;
   stoppedCount: number;
   errors: { versionId: string; kind: "crash" | "stopped"; message: string; occurrenceCount: number; firstAtMs: number }[];
@@ -43,8 +39,10 @@ type Opened = { session: Session; handlerNames: string[]; schedules: Schedule[] 
 const RECORD_DELAY_MS = 60_000;
 /** A schedule's alarm this close before the record is due records too. */
 const RECORD_SLACK_MS = 30_000;
-/** The month's count is also saved after this many requests, so a busy game loses little if it restarts. */
+/** Unrecorded use is also saved after this many requests, so a busy game loses little if it restarts. */
 const SAVE_REQUEST_COUNT = 500;
+/** Whether the game's hosting is paused is read from D1 at most this often, not once per request. */
+const HOSTING_CHECK_MS = 60_000;
 /** Distinct errors kept until they're recorded. */
 const MAXIMUM_ERROR_COUNT = 5;
 /** A game server stopped this often (run on too long) within PAUSE_WINDOW_MS answers no requests and runs no schedules until it's been quiet. */
@@ -61,9 +59,9 @@ class TimedOut extends Error {}
  * game's requests (onRequest), runs its schedules (onSchedule) and takes its webhooks' events
  * (onWebhook) with its live version's code, in the same sandbox its rooms use, with the same database
  * (database.ts). It keeps one session with the sandbox while it's awake, so a request or a run costs
- * one call into it, and counts the month's requests, webhook events among them, against the free ones
- * (FREE_REQUEST_COUNT_PER_MONTH). Schedules are free, capped by their shape: up to 10, at most once a
- * minute. The rooms Worker checks the player's pass before it asks, and the site that the webhook's
+ * one call into it, and counts requests (webhook events among them), schedule runs and their CPU for the
+ * hosting meter (hosting.ts); while the game's hosting is paused, it answers none and runs none. Schedules
+ * are capped by their shape: up to 10, at most once a minute. The rooms Worker checks the player's pass before it asks, and the site that the webhook's
  * owner owns the game; nothing here trusts the request or the event.
  *
  * Its one alarm does four things: the next schedule due, recording stats about a minute after use,
@@ -72,7 +70,6 @@ class TimedOut extends Error {}
  * the schedules again when the live version changes (syncSchedules).
  */
 export class GameServerObject extends DurableObject<Env> {
-  private requestUse: RequestUse;
   private unrecorded: Unrecorded | null;
   private unsavedRequestCount = 0;
   private gameId: string | null;
@@ -88,13 +85,17 @@ export class GameServerObject extends DurableObject<Env> {
   /** What the game server printed outside rooms, waiting to go to the game's logs, and when it's written. */
   private logs: LogWriter | null = null;
   private logsWriteAtMs: number | null = null;
+  /** Whether the game's hosting was paused when last read, and when: in memory only, read again after HOSTING_CHECK_MS. */
+  private hosting: { isPaused: boolean; readAtMs: number } | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.requestUse = ctx.storage.kv.get<RequestUse>("request_use") ?? { month: usageMonth(), requestCount: 0 };
     this.unrecorded = ctx.storage.kv.get<Unrecorded>("unrecorded") ?? null;
-    // Saved before schedules counted runs.
-    if (this.unrecorded) this.unrecorded.scheduledRunCount ??= 0;
+    // Saved before schedules counted runs, or CPU outside rooms was counted.
+    if (this.unrecorded) {
+      this.unrecorded.scheduledRunCount ??= 0;
+      this.unrecorded.outsideRoomCpuDurationMs ??= 0;
+    }
     this.gameId = ctx.storage.kv.get<string>("game_id") ?? null;
     this.schedules = ctx.storage.kv.get<Schedules>("schedules") ?? null;
     this.scheduleRetryAtMs = ctx.storage.kv.get<number>("schedule_retry_at_ms") ?? null;
@@ -104,8 +105,8 @@ export class GameServerObject extends DurableObject<Env> {
   async deleteStorage(): Promise<void> {
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
-    this.requestUse = { month: usageMonth(), requestCount: 0 };
     this.unrecorded = null;
+    this.hosting = null;
     this.unsavedRequestCount = 0;
     this.gameId = null;
     this.schedules = null;
@@ -119,10 +120,7 @@ export class GameServerObject extends DurableObject<Env> {
 
   async request(gameId: string, versionId: string, player: Player, request: unknown): Promise<RequestOutcome> {
     this.knowGame(gameId);
-    this.newMonth();
-    if (this.requestUse.requestCount >= FREE_REQUEST_COUNT_PER_MONTH) {
-      return { code: "request_limit", message: `This game has used its free ${FREE_REQUEST_COUNT_PER_MONTH.toLocaleString("en-US")} requests this month. They work again on ${nextMonthStartDate()} (UTC).` };
-    }
+    if (await this.isHostingPaused()) return { code: "hosting_paused", message: HOSTING_PAUSED_TEXT };
     if (this.isPaused()) return { code: "game_server_error", message: "The game's server is paused for a few minutes: it kept running on too long." };
 
     const ready = await this.serverFor(gameId, versionId, "request");
@@ -148,14 +146,11 @@ export class GameServerObject extends DurableObject<Env> {
   /**
    * An event from one of the developer's webhooks for its live version's onWebhook (the site sends it,
    * GameServerWebhookService). It counts as one of the game's requests. A game players can't play (held, taken
-   * down, no version) runs no game server, so its events wait for their next try like any that fails.
+   * down, no version) or whose hosting is paused runs no game server, so its events wait for their next try like any that fails.
    */
   async webhook(gameId: string, event: unknown): Promise<WebhookOutcome> {
     this.knowGame(gameId);
-    this.newMonth();
-    if (this.requestUse.requestCount >= FREE_REQUEST_COUNT_PER_MONTH) {
-      return { failureMessage: `The game has used its free ${FREE_REQUEST_COUNT_PER_MONTH.toLocaleString("en-US")} requests this month, and each webhook event is one. They work again on ${nextMonthStartDate()} (UTC).` };
-    }
+    if (await this.isHostingPaused()) return { failureMessage: `${HOSTING_PAUSED_TEXT} Each webhook event is a request to the game server.` };
     if (this.isPaused()) return { failureMessage: "The game's server is paused for a few minutes: it kept running on too long." };
     const versionId = await this.liveVersionId();
     if (!versionId) return { failureMessage: "The game isn't playable (it has no live version, or Zaisma held or took it down), so its game server isn't running." };
@@ -197,6 +192,20 @@ export class GameServerObject extends DurableObject<Env> {
     this.logs = null;
     this.gameId = gameId;
     this.ctx.storage.kv.put("game_id", gameId);
+  }
+
+  /** Whether the game's hosting is paused this month (hosting.ts), as last read; a read that fails counts as not paused. */
+  private async isHostingPaused(): Promise<boolean> {
+    const nowMs = Date.now();
+    if (this.hosting && nowMs - this.hosting.readAtMs < HOSTING_CHECK_MS) return this.hosting.isPaused;
+    if (!this.gameId) return false;
+    try {
+      this.hosting = { isPaused: (await isHostingPaused(this.env.DB, this.gameId, nowMs)).isPaused, readAtMs: nowMs };
+    } catch (error) {
+      console.error("Couldn't read whether the game's hosting is paused:", error);
+      this.hosting = { isPaused: false, readAtMs: nowMs };
+    }
+    return this.hosting.isPaused;
   }
 
   private isPaused(): boolean {
@@ -249,6 +258,7 @@ export class GameServerObject extends DurableObject<Env> {
    */
   private async reach<T extends { error?: string; logLines?: unknown }>(versionId: string, sourceKind: LogSourceKind, work: () => Promise<T>, timeoutSec: number, handler: string, timeoutMessage: string): Promise<T | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedAtMs = Date.now();
     try {
       const reply = await Promise.race([
         work(),
@@ -257,6 +267,7 @@ export class GameServerObject extends DurableObject<Env> {
         }),
       ]);
       this.printed(versionId, sourceKind, linesOf(reply));
+      this.countCpu(Date.now() - startedAtMs - (typeof (reply as { ioWaitDurationMs?: unknown }).ioWaitDurationMs === "number" ? (reply as { ioWaitDurationMs: number }).ioWaitDurationMs : 0));
       return reply;
     } catch (error) {
       if (error instanceof TimedOut) {
@@ -264,7 +275,8 @@ export class GameServerObject extends DurableObject<Env> {
         this.printed(versionId, sourceKind, linesOf(null, `Zaisma: ${timeoutMessage}`));
         return null;
       }
-      // The next call gets a fresh session.
+      // Stopped for running on too long: that CPU was used all the same. The next call gets a fresh session.
+      this.countCpu(Date.now() - startedAtMs);
       this.stoppedAtMs.push(Date.now());
       const stopped = /CPU time/i.test(String(error)) ? `${handler} ran on too long and was stopped, like a loop that never ends` : `The game server stopped: ${String(error)}`;
       this.note(versionId, "stopped", stopped);
@@ -347,6 +359,8 @@ export class GameServerObject extends DurableObject<Env> {
     this.haveSchedulesRun = true;
     this.saveSchedules();
     this.recordSoon();
+    // A paused game's schedules don't run: its alerts and get_stats say why, so the skipped runs aren't errors.
+    if (await this.isHostingPaused()) return;
     if (this.isPaused()) {
       for (const run of runs) this.note(schedules.versionId, "stopped", `Schedule ${run.name} skipped a run: the game's server is paused for a few minutes, it kept running on too long.`);
       return;
@@ -364,12 +378,19 @@ export class GameServerObject extends DurableObject<Env> {
     );
   }
 
-  /** One more request this month, and in today's stats. */
+  /** One more request in today's stats. */
   private countRequest(): void {
-    this.requestUse.requestCount++;
     this.today().requestCount++;
     // A restart can lose the last minute's counts; that's a little free use, never a wrong limit.
     if (++this.unsavedRequestCount >= SAVE_REQUEST_COUNT) this.save();
+    this.recordSoon();
+  }
+
+  /** A call's CPU past what each request includes, for the hosting meter (CPU is the call's time less its waits). */
+  private countCpu(cpuDurationMs: number): void {
+    const pastIncludedMs = cpuDurationMs - HOSTING_PRICES.includedCpuDurationMsPerRequest;
+    if (pastIncludedMs <= 0) return;
+    this.today().outsideRoomCpuDurationMs += Math.round(pastIncludedMs);
     this.recordSoon();
   }
 
@@ -389,7 +410,7 @@ export class GameServerObject extends DurableObject<Env> {
     const date = new Date().toISOString().slice(0, 10);
     // Use from an earlier day goes out first, under its own date.
     if (this.unrecorded && this.unrecorded.date !== date) void this.record();
-    return (this.unrecorded ??= { date, requestCount: 0, scheduledRunCount: 0, crashCount: 0, stoppedCount: 0, errors: [] });
+    return (this.unrecorded ??= { date, requestCount: 0, scheduledRunCount: 0, outsideRoomCpuDurationMs: 0, crashCount: 0, stoppedCount: 0, errors: [] });
   }
 
   /** The game's log writer, once the object knows its game. */
@@ -459,8 +480,8 @@ export class GameServerObject extends DurableObject<Env> {
     try {
       await this.env.DB.batch([
         this.env.DB.prepare(
-          "INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET game_server_request_count = game_server_request_count + excluded.game_server_request_count, game_server_scheduled_run_count = game_server_scheduled_run_count + excluded.game_server_scheduled_run_count, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count",
-        ).bind(this.gameId, unrecorded.date, unrecorded.requestCount, unrecorded.scheduledRunCount, unrecorded.crashCount, unrecorded.stoppedCount),
+          "INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_scheduled_run_count, outside_room_cpu_duration_ms, game_server_crash_count, game_server_stopped_count) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET game_server_request_count = game_server_request_count + excluded.game_server_request_count, game_server_scheduled_run_count = game_server_scheduled_run_count + excluded.game_server_scheduled_run_count, outside_room_cpu_duration_ms = outside_room_cpu_duration_ms + excluded.outside_room_cpu_duration_ms, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count",
+        ).bind(this.gameId, unrecorded.date, unrecorded.requestCount, unrecorded.scheduledRunCount, unrecorded.outsideRoomCpuDurationMs, unrecorded.crashCount, unrecorded.stoppedCount),
         ...unrecorded.errors.map((error) =>
           this.env.DB.prepare(
             "INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET occurrence_count = occurrence_count + excluded.occurrence_count, last_at_ms = excluded.last_at_ms",
@@ -481,16 +502,7 @@ export class GameServerObject extends DurableObject<Env> {
     }
   }
 
-  /** A new month starts from nothing. */
-  private newMonth(): void {
-    const month = usageMonth();
-    if (this.requestUse.month === month) return;
-    this.requestUse = { month, requestCount: 0 };
-    this.save();
-  }
-
   private save(): void {
-    this.ctx.storage.kv.put("request_use", this.requestUse);
     if (this.unrecorded) this.ctx.storage.kv.put("unrecorded", this.unrecorded);
     else this.ctx.storage.kv.delete("unrecorded");
     this.unsavedRequestCount = 0;

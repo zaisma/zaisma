@@ -3,7 +3,7 @@
  * docs/DECISIONS.md). The relay script on every game page (packages/sdk/relay.js) sends each WebRTC
  * connection through Cloudflare's relay (TURN), with credentials from here: short-lived, issued per
  * game and player like passes, tagged with the game's ID so Cloudflare's analytics give each game's use,
- * which this reads back about once an hour for the free tier.
+ * which this reads back about once an hour for the hosting meter.
  */
 
 /** How long relay credentials work: as long as the room key that gets them. */

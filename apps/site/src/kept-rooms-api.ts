@@ -1,5 +1,5 @@
 import { isRoomCode } from "@zaisma/game-server";
-import { ApiError, FREE_GAME_STORAGE_SIZE_BYTES, audit, iso, type Game } from "@zaisma/core";
+import { ApiError, MAXIMUM_GAME_STORAGE_SIZE_BYTES, audit, iso, type Game } from "@zaisma/core";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { logCallerEvent } from "./security-log.ts";
@@ -36,7 +36,7 @@ export async function keptRoomsRoute(request: Request, env: Env, game: Game, roo
         kept_rooms: results.map((row) => ({ room_code: row.room_code, name: row.name, saved_size_bytes: row.saved_size_bytes, saved_at: iso(row.saved_at_ms), last_played_at: iso(row.last_played_at_ms), created_at: iso(row.created_at_ms) })),
         kept_rooms_size_bytes: keptRoomsSizeBytes,
         storage_size_bytes: (await databaseSizeBytes(env, game)) + keptRoomsSizeBytes,
-        free_storage_size_bytes: FREE_GAME_STORAGE_SIZE_BYTES,
+        maximum_storage_size_bytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES,
       },
     ];
   }
@@ -56,7 +56,7 @@ export async function keptRoomsRoute(request: Request, env: Env, game: Game, roo
   return [{ is_deleted: true, next_steps: nextSteps }];
 }
 
-/** The game database's size, which shares the free storage; 0 on a Zaisma without game databases. */
+/** The game database's size, which counts with the kept rooms; 0 on a Zaisma without game databases. */
 async function databaseSizeBytes(env: Env, game: Game): Promise<number> {
   if (!env.GAME_DATABASES) return 0;
   const answer = await env.GAME_DATABASES.usage(game.id);

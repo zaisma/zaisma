@@ -142,6 +142,9 @@ export default defineConfig({
         PHOTODNA_KEY: "",
         // Links' sites are checked with a stand-in for Cloudflare's DNS (test/site/links.test.ts answers it).
         LINK_CHECK_DNS_URL: "https://dns.zaisma.test/dns-query",
+        // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
+        STRIPE_SECRET_KEY: "sk_test_zaisma",
+        STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs to queues nothing reads.
