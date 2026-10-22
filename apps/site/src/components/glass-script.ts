@@ -262,7 +262,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .own-scroll),
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
-    var p = rectOf(holder), scroller = el.closest(".own-scroll");
+    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
     if (!scroller || scroller === holder || !holder.contains(scroller) || scroller.scrollHeight <= scroller.clientHeight + 1) return p;
     var s = rectOf(scroller), top = s.top - scroller.scrollTop;
     return { top: top, bottom: top + scroller.scrollHeight, left: p.left, right: p.right };

@@ -463,6 +463,8 @@ export interface TableColumn {
   isLabelHidden?: boolean;
   /** Its width, in a table of even columns (isEven): a column of flags or buttons keeps this; the rest share what's left equally. */
   widthPx?: number;
+  /** Its heading sorts the rows by its numbers: most first, then fewest first, then back to the table's own order. */
+  isSortable?: boolean;
   /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
   isNumeric?: boolean;
 }
@@ -495,7 +497,7 @@ export function table(options: TableOptions): Raw {
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
   return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption">${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
-    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.label}</th>`,
+    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}"${column.isSortable ? raw(' aria-sort="none"') : ""}>${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.isSortable ? html`<button type="button" class="table-sort">${column.label}${icon("chevron-down")}</button>` : column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
     (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
   )}</tbody></table></div></div>`;
@@ -506,7 +508,26 @@ export function table(options: TableOptions): Raw {
  * table's), so the light stays under the pointer as rows scroll past it, instead of riding up with the row it was on.
  */
 export const TABLE_SCRIPT = `/* tables */(function () {
-  var lit = null, pointer = null;
+  var lit = null, pointer = null, sorts = new Map();
+  // Sorting: by a column's first number, most or fewest first, ties and "none" in the table's own order. A table that's put in again
+  // (a refreshed list) keeps the sort it had, by its caption's id.
+  function sortRows(table, column, order) {
+    var body = table.tBodies[0]; if (!body) return;
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.forEach(function (row, i) { if (row.dataset.place === undefined) row.dataset.place = i; });
+    function numberOf(row) { var found = ((row.cells[column] || {}).textContent || "").match(/-?\\d+(\\.\\d+)?/); return found ? parseFloat(found[0]) : -Infinity; }
+    rows.sort(function (a, b) { var place = a.dataset.place - b.dataset.place; return order === "none" ? place : (order === "ascending" ? numberOf(a) - numberOf(b) : numberOf(b) - numberOf(a)) || place; });
+    rows.forEach(function (row) { body.appendChild(row); });
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (head, i) { if (head.hasAttribute("aria-sort")) head.setAttribute("aria-sort", i === column ? order : "none"); });
+  }
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest(".table-sort"); if (!button) return;
+    var head = button.closest("th"), table = button.closest("table"), now = head.getAttribute("aria-sort");
+    var order = now === "descending" ? "ascending" : now === "ascending" ? "none" : "descending";
+    sorts.set(table.getAttribute("aria-labelledby"), { column: head.cellIndex, order: order });
+    sortRows(table, head.cellIndex, order);
+  });
+  window.zaismaWatch.each(".data-table", function (table) { var sort = sorts.get(table.getAttribute("aria-labelledby")); if (sort) sortRows(table, sort.column, sort.order); });
   function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
   function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
   document.addEventListener("pointermove", function (event) {
@@ -564,6 +585,14 @@ component({
 .data-table td:first-child { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
+/* A heading that sorts: its words and a small chevron, quiet until it sorts, then in full ink with the chevron pointing the way it runs. */
+.table-sort { display: inline-flex; align-items: center; gap: var(--gap-words-words); margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.table-sort > .ico { width: 10px; height: 7px; stroke-width: 2.4; opacity: 0.35; transition: transform 0.25s, opacity 0.2s; }
+.table-sort:hover > .ico { opacity: 0.7; }
+.data-table th:is([aria-sort="ascending"], [aria-sort="descending"]) .table-sort { color: var(--ink); }
+.data-table th:is([aria-sort="ascending"], [aria-sort="descending"]) .table-sort > .ico { opacity: 1; }
+.data-table th[aria-sort="ascending"] .table-sort > .ico { transform: rotate(180deg); }
+.table-sort:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Even columns: laid out from the columns alone, never their rows, so a refresh never moves them; long words end in an ellipsis. */
 .data-table.even { table-layout: fixed; min-width: 0; }
 .data-table.even td, .data-table.even tbody th { overflow: hidden; text-overflow: ellipsis; }
@@ -596,7 +625,7 @@ component({
     {
       label: "Versions",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true }, { label: "Size", isNumeric: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
+      markup: glassPane({ paneSize: "full", body: table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true, isSortable: true }, { label: "Size", isNumeric: true, isSortable: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
     },
     {
       label: "Compact, for long lists",

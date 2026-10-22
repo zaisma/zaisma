@@ -420,7 +420,8 @@ describe("components", () => {
     // negative gaps and took the pane's bottom corners while Continue as guest, last, went square. Against the scrolled content,
     // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
     expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
-    expect(glassScriptSource).toContain('el.closest(".own-scroll")');
+    // The box that scrolls is one round the control, never the control itself: a table that scrolls inside itself sits square in its pane.
+    expect(glassScriptSource).toContain('el.parentElement.closest(".own-scroll")');
     expect(glassScriptSource).toContain("top - scroller.scrollTop");
     expect(glassScriptSource).toContain("top + scroller.scrollHeight");
     expect(glassScriptSource).toContain("p = contentRectOf(el, holder)");

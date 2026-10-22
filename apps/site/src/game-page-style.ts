@@ -62,6 +62,8 @@ html[data-game-world] canvas.backdrop.is-shown { opacity: 1; }
 /* The label pickers stay together: beside the switch while they fit, or all on the next line. */
 .rooms-filters { flex: 1 1 360px; display: flex; gap: var(--gap-words-control); min-width: 0; }
 .rooms-filter { flex: 1 1 0; min-width: 0; max-width: 200px; }
+/* Refresh at the row's end. */
+#rooms-refresh { margin-left: auto; }
 /* The rooms table keeps to about five rooms' height, so the rest of the page stays near; more scroll inside it under its header. */
 #rooms-list { --table-height: 340px; }
 .rooms-more { font: var(--type-note); color: var(--muted); }

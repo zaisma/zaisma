@@ -210,7 +210,7 @@ describe("room browsing on the game page", () => {
     await named("DFGHJK", null, { Mode: "Classic" });
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     // A column for the name and one for each label, in the order rooms carry them.
-    expect(page).toMatch(/<thead><tr><th scope="col" class="glass">Room<\/th><th scope="col" class="glass">Mode<\/th><th scope="col" class="glass">Map<\/th><th scope="col" class="glass num">Players<\/th>/);
+    expect(page).toMatch(/<thead><tr><th scope="col" class="glass">Room<\/th><th scope="col" class="glass">Mode<\/th><th scope="col" class="glass">Map<\/th><th scope="col" class="glass num" aria-sort="none"><button type="button" class="table-sort">Players/);
     expect(page).toContain('<td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num">2 of 8</td>');
     expect(page).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.

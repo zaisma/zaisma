@@ -95,7 +95,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
-${regions || filterFields.length ? html`<div class="rooms-pick">${regions}${filterFields.length ? html`<div class="rooms-filters">${filterFields}</div>` : ""}</div>` : ""}
+<div class="rooms-pick">${regions}${filterFields.length ? html`<div class="rooms-filters">${filterFields}</div>` : ""}${cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true })}</div>
 ${open.length ? roomsTable(game.slug, open, region?.name ?? null) : emptyState({ title: "No open rooms", text: empty })}
 ${list.moreOpenRoomCount > 0 ? html`<p class="rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
@@ -119,7 +119,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     ...(hasNames ? [{ label: "Room" }] : []),
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 96 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
-    { label: "Players", isNumeric: true, widthPx: 84 },
+    { label: "Players", isNumeric: true, widthPx: 96, isSortable: true },
     { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104 },
   ];
   const rows = shown.map(({ room, name, labels }) => {

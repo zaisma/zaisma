@@ -730,6 +730,9 @@ if (roomsPanel) {
   setInterval(refreshRooms, 5000);
   document.addEventListener("visibilitychange", () => refreshRooms());
   roomsPanel.addEventListener("click", (e) => {
+    // Refresh: the list now, the button busy until it's in.
+    const again = e.target.closest("#rooms-refresh");
+    if (again) { again.setAttribute("aria-busy", "true"); refreshRooms(true); return; }
     const pick = e.target.closest("button[data-region]");
     if (pick) {
       roomsRegion = pick.dataset.region;
