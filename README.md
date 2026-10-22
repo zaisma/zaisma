@@ -62,8 +62,8 @@ export default {
   schedules: [{ name: "daily-reset", cron: "0 0 * * *" }], // runs by itself, in UTC (below)
   onSchedule(run, server) {},                  // run.name: which schedule is due
 };
-// room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
-// room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId }), room.sendBytes(playerId, bytes),
+// room.broadcast(message, { exceptPlayerId, delivery }), room.send(playerId, message, { delivery }), room.players, room.end(message),
+// room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId, delivery }), room.sendBytes(playerId, bytes, { delivery }),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
 // await room.database.query(sql, values), await room.database.batch([{ sql, values }])  (the game database, below)
 ```
@@ -83,6 +83,31 @@ Each player's ping, measured by the room, is `room.pingDurationMs(playerId)` on 
 A room takes up to 100 players at up to 60 ticks a second. Each player's game sends up to 30 messages a second (a burst of 60), so a game at 60 ticks sends two inputs in one message; the game server can still send every tick. Past 100 players, split a world into rooms and move players between them (`room.moveTo`).
 
 **Bytes:** for snapshots and inputs where JSON is too big, a game sends bytes with `room.sendBytes(bytes)` (an `ArrayBuffer` or any typed array) and gets them with `room.on("bytes", (bytes, fromPlayerId) => {})`; the game server takes them in `onBytes` and sends them with `room.broadcastBytes(bytes)` and `room.sendBytes(playerId, bytes)`. `fromPlayerId` is the player they came from when the game server passes one player's bytes on (`room.broadcastBytes(bytes, { fromPlayerId: player.id })`, as the relay does), else `null`. Bytes have the same limits as messages: up to 16 KB each, counted together with them. The MCP's `get_stats` shows each game's room traffic per player and its biggest message types, with hints on what to send as bytes or send less.
+
+**Sending only what changed:** turn on `stateSyncEnabled` and keep the world in the game server's state; each player then gets a full copy as they join and after that only what changed, after every tick (or every move, in a turn-based game), with no code to send it. `stateView(state, viewer, room)` cuts what each player sees: only what's near them in a big world, or without the other team's cards. In the game, `room.state` is the player's view and `room.smoothedState()` the same a moment (100 ms) behind, with positions moving evenly between updates. A player whose connection is backed up gets nothing until they've caught up, then a full copy. See `examples/arena`, and "State sync" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md).
+
+```ts
+// A 100-player world where each player gets only the players within 800 units of them.
+export default {
+  maximumPlayerCount: 100,
+  ticksPerSec: 30,
+  stateSyncEnabled: true,
+  setup: () => ({ players: {} }),
+  onJoin(state, player) { state.players[player.id] = { name: player.name, x: 0, y: 0, health: 100 }; },
+  onLeave(state, player) { delete state.players[player.id]; },
+  stateView(state, viewer) {
+    const me = state.players[viewer.id];
+    const nearby = {};
+    for (const [id, other] of Object.entries(state.players)) {
+      if (me && Math.hypot(other.x - me.x, other.y - me.y) <= 800) nearby[id] = { name: other.name, x: Math.round(other.x), y: Math.round(other.y), health: other.health };
+    }
+    return { players: nearby };
+  },
+};
+// In the game: requestAnimationFrame(function draw() { drawPlayers(room.smoothedState()?.players ?? {}); requestAnimationFrame(draw); });
+```
+
+**Messages that can be dropped:** `{ delivery: "latest_only" }` on any send, from the game server or the game, marks a message only the newest of matters, like positions every tick or where a player aims: while a player's connection is backed up, a newer one with the same `latestKey` (by default its `type`) replaces it, and the newest goes once they catch up. Zaisma's rooms carry them over the WebSocket today, and the same call moves to real datagrams once Cloudflare carries them. `get_stats` says which of your message types would gain from it (`latest_only_available`).
 
 Games without server code can use the built-in `relay` (up to 16 players), which passes each message to everyone else as `{ fromPlayerId, data }`, and bytes with their `fromPlayerId`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 

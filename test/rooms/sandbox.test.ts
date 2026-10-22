@@ -90,7 +90,14 @@ async function join(game: string, code: string, joinData?: unknown, samePass?: s
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
   ws.send(JSON.stringify({ type: "hello", pass, ...(joinData !== undefined ? { joinData } : {}) }));
   expect((await next()).type).toBe("welcome");
-  return { ws, player, pass, say, next: fromGame };
+  /** The next state update (stateSyncEnabled), without its serverTimeMs, skipping anything else. */
+  const nextState = async () => {
+    for (;;) {
+      const { serverTimeMs, ...frame } = await next();
+      if (frame.type === "state") return frame;
+    }
+  };
+  return { ws, player, pass, say, next: fromGame, nextState };
 }
 
 const COUNTER = `
@@ -261,6 +268,66 @@ describe("sandboxed game servers", () => {
     again.ws.close(1000);
   });
 
+  it("sends each player their view of the state from the sandbox: a full copy, then what changed", async () => {
+    await addSandboxGame(
+      "cards",
+      `export default {
+  stateSyncEnabled: true,
+  setup: () => ({ turn: 0, hands: {} }),
+  onJoin(state, player) { state.hands[player.id] = ["A", "K"]; },
+  onMessage(state, player, message) { if (message === "draw") state.hands[player.id].push("Q"); },
+  stateView: (state, viewer, room) => ({ myHand: state.hands[viewer.id] || [], cardCounts: Object.fromEntries(Object.entries(state.hands).map(([id, hand]) => [id, hand.length])), players: room.players.length }),
+};`,
+    );
+    const a = await join("cards", "CARDSA");
+    expect(await a.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K"], cardCounts: { [a.player.id]: 2 }, players: 1 } });
+    const b = await join("cards", "CARDSA");
+    expect(await b.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K"], cardCounts: { [a.player.id]: 2, [b.player.id]: 2 }, players: 2 } });
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["cardCounts", b.player.id], 2], [["players"], 2]] });
+    b.say("draw");
+    // A never sees B's cards, only how many he holds.
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["cardCounts", b.player.id], 3]] });
+    expect(await b.nextState()).toEqual({ type: "state", changes: [[["myHand"], ["A", "K", "Q"]], [["cardCounts", b.player.id], 3]] });
+    // B's game connects again: a turn-based room has no tick, so the sandbox sends his copy at once.
+    const again = await join("cards", "CARDSA", undefined, b.pass);
+    expect(await again.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K", "Q"], cardCounts: { [a.player.id]: 2, [b.player.id]: 3 }, players: 2 } });
+  });
+
+  it("sends a real-time game's state after its ticks, even without onTick", async () => {
+    await addSandboxGame("drifter", `export default { ticksPerSec: 20, stateSyncEnabled: true, setup: () => ({ x: 0 }), onTick(state) { state.x++; } };`);
+    const a = await join("drifter", "DRFTAB");
+    const first = await a.nextState();
+    expect(first).toMatchObject({ type: "state", full: { x: expect.any(Number) } });
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["x"], first.full.x + 1]] });
+    await addSandboxGame("still", `export default { ticksPerSec: 20, stateSyncEnabled: true, setup: () => ({ map: "docks" }) };`);
+    const b = await join("still", "STLLAB");
+    expect(await b.nextState()).toEqual({ type: "state", full: { map: "docks" } });
+  });
+
+  it("takes latest-only sends from the sandbox, and throws in the game's handler on a delivery it doesn't take", async () => {
+    await addSandboxGame(
+      "aimer",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, message, room) {
+    if (message === "bad") room.broadcast({ type: "aim" }, { delivery: "lossy" });
+    else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only", latestKey: "aim" });
+  },
+};`,
+    );
+    const a = await join("aimer", "AMRAAB");
+    a.say("bad");
+    a.say(45);
+    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 } });
+    a.ws.close(1000);
+    let error: { message: string } | null = null;
+    for (let i = 0; i < 40 && !error; i++) {
+      error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gaimer'").first<{ message: string }>();
+      if (!error) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(error!.message).toContain('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
+  });
+
   it("ticks", async () => {
     await addSandboxGame(
       "ticker",
@@ -400,7 +467,7 @@ describe("sandboxed game servers", () => {
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 400 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 
