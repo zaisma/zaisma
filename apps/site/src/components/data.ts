@@ -772,7 +772,8 @@ component({
 .table:has(.table-x.is-scrollable-sideways) .table-side.first { box-shadow: inset -1px 0 0 var(--line); }
 .table:has(.table-x.is-scrollable-sideways) .table-side.last { box-shadow: inset 1px 0 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
-.data-table tbody tr:first-child > * { border-top: 0; }
+/* The first row shown has no line over it, on any page (rows of other pages are hidden). */
+.data-table tbody tr:nth-child(1 of :not([hidden])) > * { border-top: 0; }
 /* The last row shown closes with a line too, where the well has room under it (a short page, a few rows). */
 .data-table tbody tr:nth-last-child(1 of :not([hidden])) > * { border-bottom: var(--divider); }
 /* A first head column's words, in the rows' part, are for screen readers: the column takes no room there. */
