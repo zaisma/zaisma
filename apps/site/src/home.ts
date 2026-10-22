@@ -9,6 +9,7 @@ import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { currentAnnouncement } from "./announcements.ts";
+import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
 import { HOME_SCRIPT } from "./home-script.ts";
 import { pageStyle } from "./page-styles.ts";
@@ -202,8 +203,9 @@ export async function home(env: Env, request: Request): Promise<Response> {
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
   // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
+  const newsLink = news ? shownAddress(news.link_url) : null;
   const newsBanner = news
-    ? html`<div class="home-news" id="home-news" data-announcement-id="${news.id}" hidden>${banner({ text: news.text, icon: "megaphone", action: news.link_url ? { label: news.link_label ?? "Read more", href: news.link_url } : undefined, closeLabel: "Close" })}</div>`
+    ? html`<div class="home-news" id="home-news" data-announcement-id="${news.id}" hidden>${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>`
     : "";
   const body = games.length
     ? html`<div class="home" id="home-games">${glassPane({

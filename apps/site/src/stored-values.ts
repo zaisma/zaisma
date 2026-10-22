@@ -56,7 +56,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   // A game, as its developer sets it.
   { stored: "games.slug", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/slug.ts", "checkSlug"), saved_by_door_ids: ["api:POST /games", "page:POST /dashboard/new"], shown_on_door_ids: ["page:/admin", "page:/admin/audit", ACCOUNT, "page:GET /dashboard"] },
   { stored: "games.title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", "page:POST /dashboard/new"], shown_on_door_ids: [PROFILE, "page:/admin", ADMIN_GAME, ADMIN_REPORTS, DASHBOARD, GAME_PAGE, HOME, ACCOUNT, "page:GET /dashboard"] },
-  { stored: "games.description", format: "shown_text_block", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", ADMIN_GAME, GAME_PAGE, HOME] },
+  { stored: "games.description", format: "shown_text_block", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", ADMIN_GAME, GAME_PAGE] },
   { stored: "games.details_waiting_for_review.title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", DASHBOARD] },
   { stored: "games.details_waiting_for_review.description", format: "shown_text_block", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:PATCH /games/:slug"], shown_on_door_ids: ["page:/admin", DASHBOARD] },
   { stored: "games.cleared_title", format: "shown_text", source: "developer", checked_by: DETAILS, saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -151,6 +151,12 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "chat_reviews.text", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.recent_texts_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.ai_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // Zaisma's news for players, posted through the admin MCP (post_announcement).
+  { stored: "announcements.text", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  { stored: "announcements.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  // Its label shows on the home only beside a link in shape, which the hostile pass never plants with it, so no page is listed (it's escaped there).
+  { stored: "announcements.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "announcements.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:/admin/precedents"] },
   { stored: "precedents.decision", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },

@@ -299,6 +299,8 @@ async function insertRow(table: string, given: Record<string, unknown>): Promise
 const ROW_CHOICES: Record<string, Record<string, unknown>> = {
   // The live game's cover, so the home lists it.
   game_images: { content_type: "image/png", kind: "cover", review_status: "approved", width_px: 1200, height_px: 1600 },
+  // Zaisma's news, current, so the home shows it.
+  announcements: { starts_at_ms: 0, ends_at_ms: 9_999_999_999_999 },
 };
 
 /** IDs of the world's own rows, by the column names that point at them. */
