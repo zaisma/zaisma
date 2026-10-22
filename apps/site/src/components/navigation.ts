@@ -264,7 +264,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
     box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
-  document.querySelectorAll("[data-rail]").forEach(function (bar) {
+  function setUp(bar) {
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
@@ -393,6 +393,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end);
     layout(); wake();
+  }
+  document.querySelectorAll("[data-rail]").forEach(setUp);
+  // A table put in later (a game's rooms, refreshed) gets its rail as one there from the start does.
+  window.zaismaWatch.each(".table-scroll", function (box) {
+    if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
+    if (getComputedStyle(box.parentElement).position === "static") box.parentElement.style.position = "relative";
+    box.insertAdjacentHTML("afterend", '<div class="rail" data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+    setUp(box.nextElementSibling);
   });
 })();
 `;
@@ -432,14 +440,19 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     document.querySelectorAll("body *").forEach(function (box) {
       if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
       if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
-      box.classList.add("scroll-fades"); boxes.push(box); sync(box);
-      var queued = false;
-      box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
-      window.zaismaWatch.size(box, function () { sync(box); });
+      box.classList.add("scroll-fades"); follow(box);
     });
+    // A table fades its rows the same way, but under its header, which never fades (data.ts's Table): every table, a refreshed one too.
+    window.zaismaWatch.each(".table-scroll", function (box) { follow(box); window.zaismaWatch.size(box.firstElementChild || box, function () { sync(box); }); });
+  }
+  function follow(box) {
+    boxes.push(box); sync(box);
+    var queued = false;
+    box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
+    window.zaismaWatch.size(box, function () { sync(box); });
   }
   find();
-  window.zaismaWatch.resize(function () { boxes.forEach(sync); });
+  window.zaismaWatch.resize(function () { boxes = boxes.filter(function (box) { return box.isConnected; }); boxes.forEach(sync); });
   // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');

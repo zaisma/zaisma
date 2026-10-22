@@ -279,6 +279,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`
 - **Facts** (`facts(options: { … })`, `data.ts`): What something is, in a few short facts: who a game is for, what it runs on. Each a quiet label over its words, side by side while they fit.
   - `options`: `facts: Fact[]`, `label?: string`
+- **Country** (`country(options: CountryOptions)`, `data.ts`): Where something is, like the country a room runs in: its flag, small, cut with slanted ends and carved into the glass like a Tag, beside its name.
+  - `options`: `countryCode: string`, `countryName: string`
 - **Person** (`person(options: PersonOptions)`, `data.ts`): Someone on Zaisma named in a pane, like a game's developer: their picture in its frame, their name a Link to their profile, and a line about them.
   - `options`: `username: string`, `href: string`, `note?: string`, `isNewTab?: boolean`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point.

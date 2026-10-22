@@ -225,6 +225,41 @@ component({
   ],
 });
 
+export interface CountryOptions {
+  /** Its two-letter code (ISO 3166-1), any case: its flag. */
+  countryCode: string;
+  /** Its name, said beside the flag: Germany. */
+  countryName: string;
+}
+
+/**
+ * A country: its flag, small, cut with slanted ends like a Tag and carved into the glass, beside its name. Where a room runs. The flags are
+ * flag-icons' (MIT), drawn small into brand/flags; the flag says it at a glance, the name says it in words.
+ */
+export function country(options: CountryOptions): Raw {
+  return html`<span class="country"><span class="country-flag" aria-hidden="true"><img src="/flags/${options.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy" decoding="async"></span><span>${options.countryName}</span></span>`;
+}
+
+component({
+  name: "Country",
+  slug: "country",
+  group: "data",
+  summary: "Where something is, like the country a room runs in: its flag, small, cut with slanted ends and carved into the glass like a Tag, beside its name.",
+  styles: `
+/* A country: the flag and its name a word's gap apart. The flag is slanted at both ends like a Tag and carved the same way: its carving lies
+   over its edges, shaded along its top and lit along its foot, so it sits in the glass instead of on it. */
+.country { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; white-space: nowrap; }
+.country-flag { position: relative; flex: none; display: block; width: 22px; height: 15px; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.country-flag img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.country-flag::after { content: ""; position: absolute; inset: 0; box-shadow: var(--tag-carve); }
+`,
+  render: country,
+  examples: [
+    { label: "Where a room runs", markup: html`${country({ countryCode: "DE", countryName: "Germany" })}` },
+    { label: "Others", markup: html`${country({ countryCode: "JP", countryName: "Japan" })} ${country({ countryCode: "BR", countryName: "Brazil" })} ${country({ countryCode: "SE", countryName: "Sweden" })}` },
+  ],
+});
+
 export interface PersonOptions {
   username: string;
   /** Their profile. */
@@ -521,8 +556,15 @@ component({
 .data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; font: var(--type-facts); }
 /* Rows fade as they scroll up under the header, so its clear glass stays clear instead of showing their words through it: each row's
    view of the box starts below the header (--table-head-h), and a row leaving it fades out as it goes. Nothing moves by itself. */
-.data-table { --table-head-h: 36px; }
-.data-table.compact { --table-head-h: 32px; }
+.table { --table-head-h: 36px; }
+.table:has(.data-table.compact) { --table-head-h: 32px; }
+/* With more above or below, the rows fade at the top just under the header and at the foot, as a pane's content does
+   (SCROLL_FADE_SCRIPT sets --fade-top and --fade-bottom); the header itself never fades. Scrolling sideways too, both fades hold. */
+.table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
+  -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --fade-top 0.2s, --fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
+.table-scroll.is-fading:is(.more-left, .more-right) {
+  -webkit-mask-image: var(--fade-rows), linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); -webkit-mask-composite: source-in;
+  mask-image: var(--fade-rows), linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); mask-composite: intersect; }
 @supports (animation-timeline: view()) {
   .data-table tbody tr { animation: table-row-under linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit 0% exit 70%; }
 }
@@ -559,7 +601,7 @@ component({
         isCompact: true,
         hasRowHeads: true,
         columns: [{ label: "Room" }, { label: "Mode" }, { label: "Where" }, { label: "Players", isNumeric: true }, { label: "Join", isLabelHidden: true }],
-        rows: [["Friday night", "Survival", "Germany", "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", "Sweden", "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", "France", "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", "Poland", "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", "Spain", "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
+        rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany" }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden" }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France" }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland" }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain" }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
       }) })}</div>`,
     },
   ],

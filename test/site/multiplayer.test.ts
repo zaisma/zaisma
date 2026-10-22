@@ -142,8 +142,7 @@ describe("room browsing on the game page", () => {
     expect(page).toContain('<form class="control-row code-join" method="get" action="/g/arena">');
     expect(page).not.toContain(">BCDFGH<");
     // Each room is a row of the gallery's Table: the country it runs in, how full it is, then Join, or Full.
-    expect(page).toContain('<td>Germany</td><td class="num">3 of 8</td>');
-    expect(page).not.toContain("/flags/");
+    expect(page).toMatch(/<td><span class="country"><span class="country-flag" aria-hidden="true"><img src="\/flags\/de.png"[^>]*><\/span><span>Germany<\/span><\/span><\/td><td class="num">3 of 8<\/td>/);
     expect(page).toContain('<td class="num">8 of 8</td><td>Full</td>');
     expect(page).not.toContain("JKMN3P");
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
@@ -163,7 +162,7 @@ describe("room browsing on the game page", () => {
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toMatch(/<button type="button" data-region="EU" title="Europe" aria-pressed="false"><span>EU<\/span><span class="tag count">12<\/span><\/button>/);
-    expect(page).toContain('<td>United States</td><td class="num">31 of 40</td>');
+    expect(page).toContain('<span>United States</span></span></td><td class="num">31 of 40</td>');
     expect(rowsOf(page)).toBe(13);
     expect(page).not.toContain("more rooms</span>");
     expect(page).toContain('data-count="13"');

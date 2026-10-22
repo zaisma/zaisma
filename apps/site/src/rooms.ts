@@ -2,7 +2,7 @@ import { checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, r
 import type { Env } from "./env.ts";
 import { cutButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
-import { emptyState, table, type TableColumn } from "./components/data.ts";
+import { country, emptyState, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { html, raw, securityHeaders, type Raw } from "./html.ts";
@@ -11,7 +11,7 @@ import { playingNowCounts } from "./plays.ts";
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
  * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows each
- * room's name and labels, the country it runs in and how full it is, never who's in it. Join is an
+ * room's name and labels, the country it runs in (its flag and name) and how full it is, never who's in it. Join is an
  * ordinary room link, so the game decides what happens next, as with invites.
  */
 
@@ -107,7 +107,7 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
 
 /**
  * The open rooms as a Table: a Room column when any room has a name, a column for each label they carry (Mode, Map),
- * the country each runs in, how full it is, then Join (or Full) and, for a named room, Report. Never who's in it, and never its code.
+ * the country each runs in (a Country: its flag and name), how full it is, then Join (or Full) and, for a named room, Report. Never who's in it, and never its code.
  */
 function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null): Raw {
   const shown = rooms.map((room) => ({ room, ...shownText(room) }));
@@ -130,7 +130,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     return [
       ...(hasNames ? [name ?? ""] : []),
       ...labelNames.map((labelName) => labelOf.get(labelName) ?? ""),
-      ...(hasPlaces ? [room.location?.countryName ?? ""] : []),
+      ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName }) : ""] : []),
       filled,
       hasSpace(room) ? html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>` : "Full",
       ...(hasNames
