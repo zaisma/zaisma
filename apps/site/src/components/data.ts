@@ -263,7 +263,7 @@ component({
   examples: [
     { label: "Where a room runs", markup: html`${country({ countryCode: "DE", countryName: "Germany" })}` },
     { label: "Only the flag, its name for screen readers", markup: html`${country({ countryCode: "JP", countryName: "Japan", isNameHidden: true })}` },
-    { label: "Others", markup: html`${country({ countryCode: "JP", countryName: "Japan" })} ${country({ countryCode: "BR", countryName: "Brazil" })} ${country({ countryCode: "SE", countryName: "Sweden" })}` },
+    { label: "Others", markup: html`${country({ countryCode: "JP", countryName: "Japan" })} ${country({ countryCode: "BR", countryName: "Brazil" })} ${country({ countryCode: "SE", countryName: "Sweden", isNameHidden: true })}` },
   ],
 });
 
@@ -469,6 +469,9 @@ export interface TableColumn {
   widthPx?: number;
   /** Its heading sorts the rows by its numbers: most first, then fewest first, then back to the table's own order. */
   isSortable?: boolean;
+  /** It stays put at the right as the table scrolls sideways, so it's always in reach on a phone (a room's players and its Join). Only the
+   *  last columns pin, in a table of even columns (isEven), each keeping its widthPx. */
+  isPinned?: boolean;
   /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
   isNumeric?: boolean;
 }
@@ -491,20 +494,31 @@ export interface TableOptions {
 }
 
 /**
- * A table on glass: a header row of clearer glass that stays while its rows scroll under it, hairlines between rows, numbers right-aligned in
- * figures of one width, and, when the first column names the rows, that column staying put as it scrolls sideways. On a phone it scrolls
- * sideways inside its pane, fading at its edges, under a caption that stays: a row never folds into a card, since developers compare rows.
- * Its box is cut by the edge rule, so its corners follow the pane's where it sits in one.
+ * A table in a carved well, like the switch's: a header row that stays while its rows scroll under it, hairlines between rows, numbers
+ * right-aligned in figures of one width, and, when the first column names the rows, that column staying put as it scrolls sideways, as
+ * pinned columns at its right do (isPinned). On a phone it scrolls sideways inside its well, fading at its edges, under a caption that
+ * stays: a row never folds into a card, since players and developers compare rows. Its well is cut by the edge rule, so its corners follow
+ * the pane's where it sits in one.
  */
 export function table(options: TableOptions): Raw {
   const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption">${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
-    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}"${column.isSortable ? raw(' aria-sort="none"') : ""}>${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.isSortable ? html`<button type="button" class="table-sort">${column.label}${icon("chevron-down")}</button>` : column.label}</th>`,
+  // A pinned column stays as far in from the right as the pinned columns after it are wide.
+  const isPinned = (column: TableColumn) => Boolean(column.isPinned && options.isEven && column.widthPx);
+  const pinnedRightPx = options.columns.map((column, columnIndex) =>
+    isPinned(column) ? options.columns.slice(columnIndex + 1).reduce((widthPx, later) => widthPx + (isPinned(later) ? later.widthPx ?? 0 : 0), 0) : null,
+  );
+  const pinnedWidthPx = options.columns.reduce((widthPx, column) => widthPx + (isPinned(column) ? column.widthPx ?? 0 : 0), 0);
+  const firstPinnedIndex = pinnedRightPx.findIndex((rightPx) => rightPx !== null);
+  const cellAttributes = (columnIndex: number) => {
+    const classes = [options.columns[columnIndex]?.isNumeric ? "num" : "", pinnedRightPx[columnIndex] !== null ? "pin" : "", columnIndex === firstPinnedIndex ? "pin-first" : ""].filter(Boolean).join(" ");
+    return html`${classes ? html` class="${classes}"` : ""}${pinnedRightPx[columnIndex] !== null ? html` style="right:${pinnedRightPx[columnIndex]}px"` : ""}`;
+  };
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"${pinnedWidthPx ? html` style="--table-pin-w:${pinnedWidthPx}px"` : ""}><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption">${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
+    (column, columnIndex) => html`<th scope="col"${cellAttributes(columnIndex)}${column.isSortable ? raw(' aria-sort="none"') : ""}>${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.isSortable ? html`<button type="button" class="table-sort">${column.label}${icon("chevron-down")}</button>` : column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
-    (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
-  )}</tbody></table></div></div>`;
+    (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row">${cell}</th>` : html`<td${cellAttributes(columnIndex)}>${cell}</td>`))}</tr>`,
+  )}</tbody></table></div></div></div>`;
 }
 
 /**
@@ -532,12 +546,19 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     sortRows(table, head.cellIndex, order);
   });
   window.zaismaWatch.each(".data-table", function (table) { var sort = sorts.get(table.getAttribute("aria-labelledby")); if (sort) sortRows(table, sort.column, sort.order); });
-  // How wide the rows' heads are, so the sideways fade starts past them.
+  // How wide the rows' heads are, so the sideways fade and cut start past them. A box too narrow to keep both its rows' heads and its
+  // pinned columns in view with room to scroll between them (a phone) lets the heads scroll with the rest (is-narrow): the pinned
+  // columns are the ones kept in reach.
+  var SCROLL_ROOM_PX = 120;
   window.zaismaWatch.each(".data-table.has-row-heads", function (table) {
     var box = table.closest(".table-scroll"), head = table.tHead && table.tHead.rows[0] && table.tHead.rows[0].cells[0];
     if (!box || !head) return;
-    function measure() { box.style.setProperty("--table-row-head-w", head.offsetWidth + "px"); }
-    measure(); window.zaismaWatch.size(head, measure);
+    function measure() {
+      var pinnedPx = parseFloat(getComputedStyle(box).getPropertyValue("--table-pin-w")) || 0, isNarrow = box.clientWidth - head.offsetWidth - pinnedPx < SCROLL_ROOM_PX;
+      box.classList.toggle("is-narrow", isNarrow);
+      box.style.setProperty("--table-row-head-w", isNarrow ? "0px" : head.offsetWidth + "px");
+    }
+    measure(); window.zaismaWatch.size(head, measure); window.zaismaWatch.size(box, measure);
   });
   function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
   function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
@@ -566,36 +587,43 @@ component({
   group: "data",
   summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
   styles: `
-/* A table: its caption in a label's words over a box that scrolls sideways under it, cut by the edge rule. Its header row is clearer glass
-   that stays at the top while a long table's rows scroll under it, taking the glass's hue and light or dark as all glass does; a first
-   column that names the rows is the same glass and stays at the left. A row under the pointer brightens a little, like a list row. */
-.table { position: relative; display: grid; gap: var(--gap-words-control); min-width: 0; }
-/* Its rails: up and down along its right edge, from under the header to its foot, in the room its last column keeps for it while it
-   shows; sideways under it. */
+/* A table: its caption in a label's words over a carved well, like the switch's, that it scrolls inside. Nothing in it is glass: its
+   header row and the column that names the rows sit in the well itself, in the same words, with a hairline between them and the rows. */
+.table { position: relative; display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-h: 38px; }
+.table:has(.data-table.compact) { --table-head-h: 34px; }
 .table > .table-caption { grid-row: 1; }
-.table > .table-scroll { grid-row: 2; grid-column: 1; }
-.table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 1; justify-self: end; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 6px) 6px 6px 0; }
+.table > .table-well { grid-row: 2; grid-column: 1; }
+/* Its rails: up and down along the well's right edge, from under the header to its foot, in the room its last column keeps for it while
+   it shows; sideways under the well. */
+.table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 1; justify-self: end; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 10px) 10px 10px 0; }
 .table > .rail.sideways { grid-row: 3; }
 .table:has(> .rail[data-rail="box"]:not([hidden])) .data-table tr > :last-child { padding-right: 28px; }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
-.table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
-/* A long table scrolls inside its box, at most --table-height tall (a page sets it where the table shares the screen, like a game's rooms). */
+.table-well { position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.table-scroll { position: relative; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
+/* A long table scrolls inside its well, at most --table-height tall (a page sets it where the table shares the screen, like a game's rooms). */
 .table-scroll[data-fades-sideways] { overflow-y: auto; max-height: var(--table-height, min(640px, 75dvh)); }
 .data-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .data-table th, .data-table td { white-space: nowrap; text-align: left; }
-/* A column whose label is said only to screen readers (its buttons say it): the header's glass would otherwise place the label in it. */
+/* A column whose label is said only to screen readers (its buttons say it). */
 .data-table th > .sr { position: absolute; }
-.data-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px 16px; font: var(--type-facts); color: var(--muted);
-  --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
+/* The header row and the rows' heads: one look, the well's own, in the header's quieter words. The header stays at the top and the rows'
+   heads at the left, as pinned columns stay at the right; a hairline marks where the rows slide under them. */
+.data-table thead th, .data-table tbody th { font: var(--type-facts); color: var(--muted); }
+.data-table thead th { position: sticky; top: 0; z-index: 2; box-sizing: border-box; height: var(--table-head-h); padding: 10px 16px; box-shadow: inset 0 -1px 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
 .data-table tbody tr:first-child > * { border-top: 0; }
-/* The rows' heads are clearer glass too, but denser: the rest of each row slides under them sideways, so their words must win. Until the
-   table is scrolled sideways nothing slides under them, so their glass stays clear, like the rest of the row. */
-.data-table tbody th { position: sticky; left: 0; z-index: 1; font: var(--type-label); color: var(--ink);
-  --glass-tint: var(--table-row-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset -1px 0 0 var(--line); }
-.table-scroll:not(.more-left) .data-table tbody th, .table-scroll:not(.more-left) .data-table.has-row-heads thead th:first-child { box-shadow: none; }
-.table-scroll:not(.more-left) .data-table tbody th { --glass-tint: transparent; }
-.data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; --glass-tint: var(--table-row-head); box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line); }
+.data-table tbody th { position: sticky; left: 0; z-index: 1; }
+.data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; }
+/* Too narrow to keep the rows' heads and the pinned columns both (TABLE_SCRIPT's is-narrow, a phone): the heads scroll with the rest. */
+.table-scroll.is-narrow .data-table tbody th { position: relative; left: auto; z-index: 0; }
+.table-scroll.is-narrow .data-table.has-row-heads thead th:first-child { left: auto; z-index: 2; }
+.data-table .pin { position: sticky; z-index: 1; }
+.data-table thead .pin { z-index: 3; }
+.table-scroll.is-scrollable-sideways:not(.is-narrow) .data-table tbody th { box-shadow: inset -1px 0 0 var(--line); }
+.table-scroll.is-scrollable-sideways:not(.is-narrow) .data-table.has-row-heads thead th:first-child { box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line); }
+.table-scroll.is-scrollable-sideways .data-table tbody .pin-first { box-shadow: inset 1px 0 0 var(--line); }
+.table-scroll.is-scrollable-sideways .data-table thead .pin-first { box-shadow: inset 0 -1px 0 var(--line), inset 1px 0 0 var(--line); }
 .data-table td:first-child { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
@@ -613,29 +641,44 @@ component({
 /* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
 .data-table td > .control-row { flex-wrap: nowrap; }
 [data-glass] .data-table td > .control-row > .shell { flex: none; }
-/* The row under the pointer: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since the browser's own hover keeps
-   the row it lit until the pointer moves; without the script, the browser's hover does. */
-.data-table:not(.is-tracked) tbody tr:hover > td, .data-table tbody tr.is-lit > td { background: var(--row-hover); }
+/* The row under the pointer, its head and pinned cells too: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since
+   the browser's own hover keeps the row it lit until the pointer moves; without the script, the browser's hover does. */
+.data-table:not(.is-tracked) tbody tr:hover > *, .data-table tbody tr.is-lit > * { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
 .data-table.compact thead th { padding: 8px 12px; }
-.data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; font: var(--type-facts); }
-/* Rows fade as they scroll up under the header, so its clear glass stays clear instead of showing their words through it: each row's
-   view of the box starts below the header (--table-head-h), and a row leaving it fades out as it goes. Nothing moves by itself. */
-.table { --table-head-h: 36px; }
-.table:has(.data-table.compact) { --table-head-h: 32px; }
-/* With more above or below, the rows fade at the top just under the header and at the foot, as a pane's content does
-   (SCROLL_FADE_SCRIPT sets --fade-top and --fade-bottom); the header itself never fades. Scrolling sideways too, both fades hold. */
+.data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; }
+.data-table.compact td { font: var(--type-facts); }
+/* A row scrolling under the header, or a column under the rows' heads or the pinned columns, is cut away exactly at their hairline, so
+   they stay as clear as the well with nothing showing through them: each cell's own view of the box (inset by the header's height, the
+   heads' width and the pinned columns', --table-pin-w) cuts as much of it as has passed the line. Nothing moves by itself. */
+@property --cell-cut-top { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+@property --cell-cut-left { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+@property --cell-cut-right { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+@supports (animation-timeline: view()) {
+  .data-table tbody > tr > * { clip-path: inset(var(--cell-cut-top) var(--cell-cut-right) 0 var(--cell-cut-left)); animation: table-cut-top linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit; }
+  .data-table tbody > tr > td:not(.pin), .table-scroll.is-narrow .data-table tbody > tr > th { animation: table-cut-top linear both, table-cut-left linear both, table-cut-right linear both;
+    animation-timeline: view(block var(--table-head-h) 0px), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px));
+    animation-range: exit, exit, entry; }
+  .data-table.has-row-heads thead th:not(:first-child):not(.pin), .data-table:not(.has-row-heads) thead th:not(.pin), .table-scroll.is-narrow .data-table thead th:first-child { clip-path: inset(0 var(--cell-cut-right) 0 var(--cell-cut-left));
+    animation: table-cut-left linear both, table-cut-right linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)); animation-range: exit, entry; }
+}
+/* A browser that can't cut them gives the header, the rows' heads and the pinned columns the well's color, solid, to hide what's under them. */
+@supports not (animation-timeline: view()) {
+  .data-table thead th, .data-table tbody th, .data-table .pin { background-color: var(--table-row-head); }
+}
+@keyframes table-cut-top { from { --cell-cut-top: 0%; } to { --cell-cut-top: 100%; } }
+@keyframes table-cut-left { from { --cell-cut-left: 0%; } to { --cell-cut-left: 100%; } }
+@keyframes table-cut-right { from { --cell-cut-right: 100%; } to { --cell-cut-right: 0%; } }
+/* With more above, below or to a side, what scrolls fades into the well just past the header, the heads and the pinned columns and at its
+   other edges (SCROLL_FADE_SCRIPT sets --fade-top and --fade-bottom, the sideways fade --fade-left and --fade-right). The header, the heads,
+   the pinned columns and the well itself never fade. */
 .table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
   -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --fade-top 0.2s, --fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
-/* Sideways, the rows' heads never fade: the fade on the left starts past them (--table-row-head-w, measured by TABLE_SCRIPT). */
-.table-scroll { --fade-columns: linear-gradient(90deg, #000 var(--table-row-head-w, 0px), transparent var(--table-row-head-w, 0px), #000 calc(var(--table-row-head-w, 0px) + var(--fade-left)), #000 calc(100% - var(--fade-right)), transparent 100%); }
+.table-scroll { --fade-columns: linear-gradient(90deg, #000 var(--table-row-head-w, 0px), transparent var(--table-row-head-w, 0px), #000 calc(var(--table-row-head-w, 0px) + var(--fade-left)),
+  #000 calc(100% - var(--table-pin-w, 0px) - var(--fade-right)), transparent calc(100% - var(--table-pin-w, 0px)), #000 calc(100% - var(--table-pin-w, 0px))); }
 .table-scroll:is(.more-left, .more-right) { -webkit-mask-image: var(--fade-columns); mask-image: var(--fade-columns); }
 .table-scroll.is-fading:is(.more-left, .more-right) {
   -webkit-mask-image: var(--fade-rows), var(--fade-columns); -webkit-mask-composite: source-in;
   mask-image: var(--fade-rows), var(--fade-columns); mask-composite: intersect; }
-@supports (animation-timeline: view()) {
-  .data-table tbody tr { animation: table-row-under linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit 0% exit 70%; }
-}
-@keyframes table-row-under { from { opacity: 1; } to { opacity: 0; } }
 `,
   render: table,
   examples: [
@@ -661,14 +704,15 @@ component({
       }) }),
     },
     {
-      label: "A list to join from, its height set by the page",
+      label: "A list to join from, its height set by the page, its players and Join pinned",
       isWide: true,
       markup: html`<div style="--table-height:240px">${glassPane({ paneSize: "full", body: table({
         caption: "Open rooms",
         isCompact: true,
         hasRowHeads: true,
-        columns: [{ label: "Room" }, { label: "Mode" }, { label: "Where" }, { label: "Players", isNumeric: true }, { label: "Join", isLabelHidden: true }],
-        rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany" }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden" }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France" }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland" }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain" }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
+        isEven: true,
+        columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true, isPinned: true }, { label: "Join", isLabelHidden: true, widthPx: 104, isPinned: true }],
+        rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany", isNameHidden: true }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden", isNameHidden: true }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France", isNameHidden: true }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland", isNameHidden: true }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain", isNameHidden: true }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
       }) })}</div>`,
     },
   ],

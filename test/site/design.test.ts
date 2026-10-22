@@ -390,10 +390,14 @@ describe("components", () => {
     const markup = data.table({ caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
     expect(markup).toContain('<p class="table-caption" id="table-versions-caption">Versions</p>');
     expect(markup).toContain('aria-labelledby="table-versions-caption"');
-    expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
+    expect(markup).toContain('<th scope="col">Version</th><th scope="col" class="num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
+    expect(data.table({ caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row">Version 14</th><td class="num">312</td>');
+    // Pinned columns stay at the right, each as far in as the pinned ones after it are wide; the box knows how wide they are in all.
+    const pinned = data.table({ caption: "Rooms", isEven: true, columns: [{ label: "Room" }, { label: "Players", isNumeric: true, widthPx: 88, isPinned: true }, { label: "Join", widthPx: 104, isPinned: true }], rows: [["Friday night", "6 of 8", "Join"]] }).html;
+    expect(pinned).toContain('style="--table-pin-w:192px"');
+    expect(pinned).toContain('<td>Friday night</td><td class="num pin pin-first" style="right:104px">6 of 8</td><td class="pin" style="right:0px">Join</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
@@ -468,6 +472,8 @@ const HAND_CUT = new Set<string>([
   ".rail:not(.dragging) .rail-mark span", ".rail.sideways:not(.dragging) .rail-mark span", ".rail.sideways .rail-mark:not(.is-near) span",
   // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own; a country's flag, slanted like a tag.
   ".tag", ".cover-bar", ".country-flag",
+  // A table's cells, cut exactly where they scroll under its header, its rows' heads or its pinned columns (the line moves with the scroll).
+  ".data-table tbody > tr > *", ".data-table.has-row-heads thead th:not(:first-child):not(.pin), .data-table:not(.has-row-heads) thead th:not(.pin), .table-scroll.is-narrow .data-table thead th:first-child",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
   ".text-line", ".step-mark",
   // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
@@ -585,7 +591,7 @@ const NOT_SPACING = new Set<string>([
   ".field.select.no-icon .select-button | padding-left", ".field.select.small .select-button | padding", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
-  ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".table-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
   ".dropdown | gap", ".dropdown hr | margin",
   // Lines words up with the places' words under them.
   ".dropdown-head | padding",

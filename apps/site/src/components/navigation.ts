@@ -398,7 +398,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   // A table has both rails, up and down beside its rows (its scrollbar is hidden for its sideways fade, so the search above passes it by)
   // and along its foot: one there from the start and one put in later (a game's rooms, refreshed) alike. The Table places them (data.ts).
   window.zaismaWatch.each(".table-scroll", function (box) {
-    var table = box.parentElement;
+    var table = box.closest(".table") || box.parentElement;
     ["side", "box"].forEach(function (kind) {
       if (table.querySelector(':scope > .rail[data-rail="' + kind + '"]')) return;
       table.insertAdjacentHTML("beforeend", '<div class="rail' + (kind === "side" ? " sideways" : "") + '" data-rail="' + kind + '" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');

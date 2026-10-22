@@ -141,12 +141,12 @@ describe("room browsing on the game page", () => {
     // A player with a code from a friend types it into the box.
     expect(page).toContain('<form class="control-row code-join" method="get" action="/g/arena">');
     // Each room shows its code, for telling a friend which room.
-    expect(page).toContain('<th scope="row" class="glass"><code>BCDFGH</code></th>');
+    expect(page).toContain('<th scope="row"><code>BCDFGH</code></th>');
     // Each room is a row of the gallery's Table: the country it runs in, how full it is, then Join, or Full.
     // The country is its flag alone; its name is for screen readers and under the pointer.
-    expect(page).toMatch(/<td><span class="country" title="Germany"><span class="country-flag" aria-hidden="true"><img src="\/flags\/de.png"[^>]*><\/span><span class="sr">Germany<\/span><\/span><\/td><td class="num">3 of 8<\/td>/);
-    expect(page).toContain('<td class="num">8 of 8</td><td>Full</td>');
-    expect(page).toContain('<th scope="row" class="glass"><code>JKMN3P</code></th>');
+    expect(page).toMatch(/<td><span class="country" title="Germany"><span class="country-flag" aria-hidden="true"><img src="\/flags\/de.png"[^>]*><\/span><span class="sr">Germany<\/span><\/span><\/td><td class="num pin pin-first" style="right:104px">3 of 8<\/td>/);
+    expect(page).toContain('<td class="num pin pin-first" style="right:104px">8 of 8</td><td class="pin" style="right:0px">Full</td>');
+    expect(page).toContain('<th scope="row"><code>JKMN3P</code></th>');
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
     expect(page).not.toContain("QRSTVW");
     expect(page).toContain("Plus 1 match in progress that isn&#39;t taking new players.");
@@ -164,7 +164,7 @@ describe("room browsing on the game page", () => {
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toMatch(/<button type="button" data-region="EU" title="Europe" aria-pressed="false"><span>EU<\/span><span class="tag count">12<\/span><\/button>/);
-    expect(page).toContain('<span class="sr">United States</span></span></td><td class="num">31 of 40</td>');
+    expect(page).toContain('<span class="sr">United States</span></span></td><td class="num pin pin-first" style="right:104px">31 of 40</td>');
     expect(rowsOf(page)).toBe(13);
     expect(page).not.toContain("more rooms</span>");
     expect(page).toContain('data-count="13"');
@@ -211,12 +211,12 @@ describe("room browsing on the game page", () => {
     await named("DFGHJK", null, { Mode: "Classic" });
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     // A column for the name and one for each label, in the order rooms carry them.
-    expect(page).toMatch(/<thead><tr><th scope="col" class="glass">Code<\/th><th scope="col" class="glass">Room<\/th><th scope="col" class="glass">Mode<\/th><th scope="col" class="glass">Map<\/th><th scope="col" class="glass num" aria-sort="none"><button type="button" class="table-sort">Players/);
-    expect(page).toContain('<th scope="row" class="glass"><code>BCDFGH</code></th><td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num">2 of 8</td>');
+    expect(page).toMatch(/<thead><tr><th scope="col">Code<\/th><th scope="col">Room<\/th><th scope="col">Mode<\/th><th scope="col">Map<\/th><th scope="col" class="num pin pin-first" style="right:136px" aria-sort="none"><button type="button" class="table-sort">Players/);
+    expect(page).toContain('<th scope="row"><code>BCDFGH</code></th><td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num pin pin-first" style="right:136px">2 of 8</td>');
     expect(page).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.
     expect(page).not.toContain("coolkid");
-    expect(page).toContain('<th scope="row" class="glass"><code>CDFGHJ</code></th><td></td><td>Hardcore</td><td></td><td class="num">2 of 8</td>');
+    expect(page).toContain('<th scope="row"><code>CDFGHJ</code></th><td></td><td>Hardcore</td><td></td><td class="num pin pin-first" style="right:136px">2 of 8</td>');
     const modeFilter = page.match(/<div class="rooms-filter" data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
     expect([...modeFilter.matchAll(/data-choice-value="([^"]*)"/g)].map((choice) => choice[1])).toEqual(["", "Classic", "Hardcore"]);
     const classic = await (await SELF.fetch(`https://zaisma.test/g/arena/rooms?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`)).text();
