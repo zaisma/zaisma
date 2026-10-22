@@ -65,5 +65,10 @@
     { "case_id": "guessable", "case_name": "Guessable", "attack": "Guess or walk its values." },
     { "case_id": "works-cross-account", "case_name": "Across accounts", "attack": "Use one account's on another account's things." },
     { "case_id": "leaks-into-address-or-log", "case_name": "Leaked", "attack": "Find it in an address, a log, a referrer or a page another site can read." }
+  ],
+  "stored_value": [
+    { "case_id": "format-skipped", "case_name": "A door that skips the shape", "attack": "Save it through every door that writes it, including ones its entry doesn't list (imports, admin tools, page forms), with a value outside its shape: markup, CSS, a javascript: address, invisible or direction characters." },
+    { "case_id": "shown-in-wrong-context", "case_name": "Shown where escaping isn't enough", "attack": "With a hostile value straight in the database, open every page that shows it and look for it acting as markup, CSS, a live address or SVG instead of text." },
+    { "case_id": "script-puts-it-live", "case_name": "A page script puts it somewhere live", "attack": "Follow it from the page's data into its scripts and look for it reaching a style, an address, window.open or HTML unchecked." }
   ]
 }

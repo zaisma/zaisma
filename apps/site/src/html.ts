@@ -1,5 +1,5 @@
 // The markup primitives come first, so the components this module imports find them ready (markup.ts).
-export { Raw, accountPicture, esc, html, raw } from "./markup.ts";
+export { Raw, accountPicture, esc, html, raw, shownAddress, shownColor } from "./markup.ts";
 import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
@@ -36,12 +36,17 @@ export const styleTags = (...styles: PageStyle[]): Raw => raw(styles.map((style)
  * JSON.parse(document.getElementById(id).textContent). Every < is escaped, so nothing in it ends the block.
  */
 export function pageData(id: string, values: unknown): Raw {
-  return html`<script type="application/json" id="${id}">${raw(JSON.stringify(values).replace(/</g, "\\u003c"))}</script>`;
+  return html`<script type="application/json" id="${id}">${raw(dataJson(values))}</script>`;
+}
+
+/** JSON for a data block: every < escaped, so nothing in it ends the block, and no direction controls, which scripts would carry into the page's text (esc). */
+function dataJson(values: unknown): string {
+  return JSON.stringify(values).replace(/</g, "\\u003c").replace(/[\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
 /** Structured data for search engines (schema.org JSON-LD): a data block browsers never run. */
 export function structuredData(values: unknown): Raw {
-  return raw(`<script type="application/ld+json">${JSON.stringify(values).replace(/</g, "\\u003c")}</script>`);
+  return raw(`<script type="application/ld+json">${dataJson(values)}</script>`);
 }
 
 // Steel: the old design system, kept only for page bodies their own slices haven't rebuilt yet (main.steel, or a game

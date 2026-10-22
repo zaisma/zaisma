@@ -2,7 +2,7 @@ import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLi
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, metalButton, raw, type Raw } from "./html.ts";
+import { html, metalButton, raw, shownAddress, type Raw } from "./html.ts";
 import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -201,9 +201,11 @@ const GLOBE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 export function developerLinks(links: GameLink[]): Raw | string {
   if (!links.length) return "";
   return html`<nav class="dev-links" aria-label="The developer's links">${links.map((link) => {
-    const { brand, label } = linkBrand(link.destination_url);
+    const destinationUrl = shownAddress(link.destination_url);
+    if (!destinationUrl) return "";
+    const { brand, label } = linkBrand(destinationUrl);
     const icon = brand === "website" ? GLOBE_ICON : `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${LINK_BRAND_ICON_PATHS[brand]}"/></svg>`;
-    return html`<a class="dev-link brand-${brand}" href="${link.destination_url}" target="_blank" rel="noopener noreferrer">${raw(icon)}<span>${label}</span></a>`;
+    return html`<a class="dev-link brand-${brand}" href="${destinationUrl}" target="_blank" rel="noopener noreferrer">${raw(icon)}<span>${label}</span></a>`;
   })}</nav>`;
 }
 

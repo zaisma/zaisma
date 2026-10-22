@@ -71,7 +71,7 @@ function showWorld(slug, isInstant) {
   const game = bySlug[slug], background = backgroundOf(game);
   const key = background.source + "|" + (background.imageUrl || background.frameUrl || "");
   worldSlug = slug;
-  if (game.glass_tint_color) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
+  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
   if (key === worldKey) return;
   worldKey = key;
   const fadeMs = isReduced || isInstant ? 0 : 500;

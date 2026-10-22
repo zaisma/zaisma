@@ -2568,7 +2568,7 @@ describe("the dashboard", () => {
     const refused = await b.go("/dashboard/hop/details", { title: "" });
     expect(refused.status).toBe(400);
     const refusedText = await refused.text();
-    expect(refusedText).toContain("title is empty or over 80 characters. Give a title of 1 to 80 characters.");
+    expect(refusedText).toContain("title is empty. Give 1 to 80 characters.");
     expect(refusedText).toContain('<a href="/dashboard/hop/details" aria-current="page">');
   });
 
