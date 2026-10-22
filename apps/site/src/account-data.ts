@@ -45,6 +45,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   api_keys: { file_path: "developer.json", reason: "API keys and connected AIs and apps, never their secrets." },
   webhooks: { file_path: "developer.json", reason: "Webhooks, never their signing secrets." },
   sign_in_apps: { file_path: "developer.json", reason: "Sign-in apps, never their secrets." },
+  credit_entries: { file_path: "developer.json", reason: "Hosting credit: every top-up, charge and refund." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
   owned_blobs: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
@@ -225,6 +226,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     ),
     webhooks: await owned("webhooks", "id, destination_kind, endpoint_url, event_kinds, game_slugs, created_at_ms, updated_at_ms"),
     sign_in_apps: await owned("sign_in_apps", "id, name, kind, redirect_urls, created_at_ms, updated_at_ms"),
+    credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, is_automatic, created_at_ms"),
   });
 
   if (missing.length) {

@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { audit, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
+import { audit, monthStartDateOf, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
@@ -351,18 +351,18 @@ describe("reports, stats and history", () => {
     expect(stats.multiplayer_days).toEqual([
       { date: today, room_count: 3, room_play_duration_min: 10, message_count: 42, inbound_messages_per_player_sec: 0.1, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, game_server_cpu_duration_sec: 0, game_server: null },
     ]);
-    expect(stats.room_use_this_month).toEqual({ room_play_duration_hours: 0.2, relayed_size_bytes: 0, game_server_cpu_duration_sec: 0, counted_play_duration_hours: 0.2, free_room_play_duration_hours: 1000, has_reached_free_hours: false });
+    expect(stats.hosting_use_this_month).toMatchObject({ free_used_pct: 0, shares: [{ kind: "room_play", share_pct: 100 }], is_paused: false, paused_reason: null, monthly_budget_cents: null, spent_from_credit_cents: 0, room_play_duration_hours: 0.2, relayed_size_bytes: 0, game_server_cpu_duration_sec: 0 });
     expect(stats.room_traffic).toEqual({ inbound_messages_per_player_sec: 0.1, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, message_types: [], traffic_hints: [] });
     expect(stats.game_server_errors).toEqual([]);
     expect(stats.play_stats).toMatchObject({ play_count: 0, average_play_duration_min: null, came_back: { after_7_days: { returned_pct: null } } });
   });
 
-  it("counts game server CPU past what player-hours include, and says what to change in room traffic", async () => {
+  it("prices game server CPU past what player-hours include, and says what to change in room traffic", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE id = ?").bind(game.id).run();
     const today = new Date().toISOString().slice(0, 10);
-    // 4 player-hours include 100 CPU-seconds; 1,300 is 1,200 past them, 24 more player-hours.
+    // 4 player-hours include 100 CPU-seconds; 1,300 is 1,200 past them: 4.8 cents of CPU beside 0.8 of room time.
     const playSec = 4 * 3600;
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms) VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1300000)")
       .bind(game.id, today, playSec, 30 * playSec, 60 * playSec, 10 * playSec, 900 * 10 * playSec)
@@ -372,7 +372,7 @@ describe("reports, stats and history", () => {
       env.DB.prepare("INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) VALUES (?, ?, 'chat', 'inbound', 40, 20000, 13000)").bind(game.id, today),
     ]);
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
-    expect(stats.room_use_this_month).toMatchObject({ room_play_duration_hours: 4, game_server_cpu_duration_sec: 1300, counted_play_duration_hours: 28 });
+    expect(stats.hosting_use_this_month).toMatchObject({ room_play_duration_hours: 4, game_server_cpu_duration_sec: 1300, shares: [{ kind: "game_server_cpu", share_pct: 86 }, { kind: "room_play", share_pct: 14 }] });
     expect(stats.multiplayer_days[0]).toMatchObject({ inbound_messages_per_player_sec: 30, inbound_size_bytes_per_player_sec: 60, outbound_messages_per_player_sec: 10, outbound_size_bytes_per_player_sec: 9000, game_server_cpu_duration_sec: 1300 });
     expect(stats.room_traffic.message_types).toEqual([
       { message_type: "move", direction: "outbound", message_count: 10 * playSec, size_bytes: 900 * 10 * playSec, largest_size_bytes: 1200, average_size_bytes: 900 },
@@ -417,10 +417,10 @@ describe("reports, stats and history", () => {
     expect(stats.game_server_errors).toEqual([
       { kind: "crash", message: "oops (zaisma-server.js:3:9)", occurrence_count: 5, version_id: "version_8f3k2m9q1x7c4v6b0n5z", first_at: "2026-10-14T17:46:40.000Z", last_at: "2026-10-14T18:46:40.000Z" },
     ]);
-    expect(stats.request_use_this_month).toEqual({ request_count: 0, free_request_count: 1_000_000, has_reached_free_requests: false });
+    expect(stats.hosting_use_this_month).toMatchObject({ request_count: 0 });
   });
 
-  it("shows requests to a single-player game's own game server, against the month's free ones", async () => {
+  it("shows requests to a single-player game's own game server, on the hosting meter", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
     const today = new Date().toISOString().slice(0, 10);
@@ -431,7 +431,8 @@ describe("reports, stats and history", () => {
     ]);
     // No room play: no traffic, types or hints.
     expect(stats.room_traffic).toEqual({ inbound_messages_per_player_sec: 0, inbound_size_bytes_per_player_sec: 0, outbound_messages_per_player_sec: 0, outbound_size_bytes_per_player_sec: 0, message_types: [], traffic_hints: [] });
-    expect(stats.request_use_this_month).toEqual({ request_count: 1_000_000, free_request_count: 1_000_000, has_reached_free_requests: true });
+    // A million requests are $1.60 at Zaisma's prices: 32% of the free allowance.
+    expect(stats.hosting_use_this_month).toMatchObject({ request_count: 1_000_000, free_used_pct: 32, shares: [{ kind: "requests", share_pct: 100 }] });
     expect(stats.schedules).toEqual([]);
   });
 
@@ -503,13 +504,13 @@ describe("reports, stats and history", () => {
     expect(kinds(await listed("hop"))).toEqual(["version_rejected"]);
     await env.DB.prepare("UPDATE versions SET replaced_by_version_id = NULL, report_held_at_ms = ? WHERE id = ?").bind(Date.now(), heldVersion.id).run();
     const game = (await gameBySlug(env.DB, "hop"))!;
-    // Rooms past the month's free hours, and a report waiting for Zaisma (child safety never counts).
-    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) VALUES (?, ?, 1, ?, 0)").bind(game.id, new Date().toISOString().slice(0, 10), 1000 * 3600).run();
+    // Hosting paused at the month's free allowance (as the hosting job writes it), and a report waiting for Zaisma (child safety never counts).
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(game.id, monthStartDateOf(), Date.now()).run();
     await createReport(env.DB, { gameId: game.id, reason: "broken", playerText: "Stuck" });
     await createReport(env.DB, { gameId: game.id, reason: "child_safety", playerText: "secret" });
 
     const hop = await listed("hop");
-    expect(kinds(hop)).toEqual(["version_rejected", "version_held", "rooms_paused", "reports_open"]);
+    expect(kinds(hop)).toEqual(["version_rejected", "version_held", "hosting_paused", "reports_open"]);
     expect(hop.alerts[0]).toEqual({ kind: "version_rejected", message: expect.stringContaining("rejected"), fix: expect.stringContaining("get_version"), version_id: rejectedVersion.id });
     expect(hop.alerts[1].version_id).toBe(heldVersion.id);
     expect(hop.alerts[3].message).toBe("A player report is waiting for Zaisma.");
@@ -524,25 +525,40 @@ describe("reports, stats and history", () => {
     await adminForm(testEnv, `/admin/games/${game.id}/takedown`, form, "admin:julius@example.com");
     await env.DB.prepare("UPDATE versions SET created_at_ms = created_at_ms + 5000 WHERE id = ?").bind(heldVersion.id).run();
     const removed = (await tool("get_game", { slug: "hop" })).alerts;
-    expect(removed.map((alert: { kind: string }) => alert.kind)).toEqual(["game_removed", "version_held", "rooms_paused"]);
+    expect(removed.map((alert: { kind: string }) => alert.kind)).toEqual(["game_removed", "version_held", "hosting_paused"]);
     expect(removed[0]).toMatchObject({ message: expect.stringContaining("home address"), fix: expect.stringContaining("message_zaisma"), version_id: null });
   });
 
-  it("gives a heads-up at 80% of the free player-hours, and only the pause once they're used", async () => {
+  it("gives a heads-up at 80% of the free hosting, and only the pause once it's used", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
-    const today = new Date().toISOString().slice(0, 10);
-    const roomKinds = async () => (await tool("get_game", { slug: "hop" })).alerts.map((alert: { kind: string }) => alert.kind).filter((kind: string) => kind.startsWith("rooms_"));
-    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) VALUES (?, ?, 1, ?, 0)").bind(game.id, today, 799 * 3600).run();
-    expect(await roomKinds()).toEqual([]);
+    const hostingKinds = async () => (await tool("get_game", { slug: "hop" })).alerts.map((alert: { kind: string }) => alert.kind).filter((kind: string) => kind.startsWith("hosting_"));
+    // As the hosting job writes the month (apps/site/src/hosting-job.ts).
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES (?, ?, 399)").bind(game.id, monthStartDateOf()).run();
+    expect(await hostingKinds()).toEqual([]);
 
-    await env.DB.prepare("UPDATE room_usage SET room_play_duration_sec = ? WHERE game_id = ?").bind(850 * 3600, game.id).run();
-    expect(await roomKinds()).toEqual(["rooms_nearly_paused"]);
+    await env.DB.prepare("UPDATE game_hosting_months SET used_cents = 425 WHERE game_id = ?").bind(game.id).run();
+    expect(await hostingKinds()).toEqual(["hosting_nearly_paused"]);
     const listed = (await tool("list_games")).games.find((each: { slug: string }) => each.slug === "hop");
-    expect(listed.alerts).toEqual([{ kind: "rooms_nearly_paused", message: expect.stringContaining("80%"), fix: expect.stringContaining("get_stats"), version_id: null }]);
+    expect(listed.alerts).toEqual([{ kind: "hosting_nearly_paused", message: expect.stringContaining("85%"), fix: expect.stringContaining("get_stats"), version_id: null }]);
 
-    await env.DB.prepare("UPDATE room_usage SET room_play_duration_sec = ? WHERE game_id = ?").bind(1000 * 3600, game.id).run();
-    expect(await roomKinds()).toEqual(["rooms_paused"]);
+    await env.DB.prepare("UPDATE game_hosting_months SET used_cents = 500, paused_at_ms = ?, paused_reason = 'free_used' WHERE game_id = ?").bind(Date.now(), game.id).run();
+    expect(await hostingKinds()).toEqual(["hosting_paused"]);
+  });
+
+  it("gives a game with a budget a heads-up at 80% of it, and says why it paused", async () => {
+    // An account of its own, so its calls don't count against the file's shared minute of calls.
+    await createAccount(env.DB, { id: "dev-budget", username: "Budget_Keeper", ageBand: "18+" });
+    await letPublish(env.DB, "dev-budget");
+    const key = (await createApiKey(env.DB, "dev-budget", "claude")).token;
+    await tool("create_game", { title: "Budget Hop" }, key);
+    const game = (await gameBySlug(env.DB, "budget-hop"))!;
+    await env.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = ?").bind(game.id).run();
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents) VALUES (?, ?, 4500, 4000)").bind(game.id, monthStartDateOf()).run();
+    const alerts = (await tool("get_game", { slug: "budget-hop" }, key)).alerts;
+    expect(alerts).toEqual([{ kind: "hosting_budget_nearly_used", message: expect.stringContaining("$40 of its $50 budget"), fix: expect.stringContaining("monthly_budget_cents"), version_id: null }]);
+    await env.DB.prepare("UPDATE game_hosting_months SET charged_cents = 5000, paused_at_ms = ?, paused_reason = 'budget_used' WHERE game_id = ?").bind(Date.now(), game.id).run();
+    expect((await tool("get_game", { slug: "budget-hop" }, key)).alerts).toEqual([{ kind: "hosting_paused", message: expect.stringContaining("$50 budget"), fix: expect.stringContaining("Raise its budget"), version_id: null }]);
   });
 });
 

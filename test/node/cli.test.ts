@@ -553,7 +553,7 @@ describe("kept rooms", () => {
     ],
     kept_rooms_size_bytes: 12_500_000,
     storage_size_bytes: 12_600_000,
-    free_storage_size_bytes: 500 * 1024 * 1024,
+    maximum_storage_size_bytes: 10 * 1024 ** 3,
   };
 
   it("lists a game's kept rooms with their sizes and the game's storage, or the answer as-is with --json", async () => {
@@ -566,7 +566,7 @@ describe("kept rooms", () => {
     expect(result.stdout).toContain("11.9 MB");
     expect(result.stdout).toContain("Z2W8PD");
     expect(result.stdout).toContain("played never");
-    expect(result.stdout).toContain("Storage: 12.0 MB of 500.0 MB");
+    expect(result.stdout).toContain("Storage: 12.0 MB of the 10.0 GB a game can keep");
     expect(json((await zaisma(["kept-rooms", "sky-hopper", "--json"])).stdout)).toEqual(keptRooms);
   });
 

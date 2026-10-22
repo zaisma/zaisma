@@ -1,8 +1,8 @@
-import { GAME_DATABASE_FREE_LIMITS } from "./game-database.ts";
+import { MAXIMUM_DATABASE_SIZE_BYTES } from "./game-database.ts";
 
 /**
  * A game's storage on Zaisma: its database and the saved worlds of its kept rooms (room.setKept), which
- * share the free 500 MB (GAME_DATABASE_FREE_LIMITS.storageSizeBytes). Kept rooms write their size to
+ * count together on the hosting meter, up to MAXIMUM_GAME_STORAGE_SIZE_BYTES. Kept rooms write their size to
  * kept_rooms as they empty, and at most hourly while players are in them, so the sum is close, not exact.
  */
 
@@ -17,5 +17,5 @@ export async function gameStorageSizeBytes(database: D1Database, databaseSizeByt
   return databaseSizeBytes + (await keptRoomsSizeBytes(database, gameId));
 }
 
-/** The free storage every game gets, its database and kept rooms together. */
-export const FREE_GAME_STORAGE_SIZE_BYTES = GAME_DATABASE_FREE_LIMITS.storageSizeBytes;
+/** The most storage a game can have, its database and kept rooms together. */
+export const MAXIMUM_GAME_STORAGE_SIZE_BYTES = MAXIMUM_DATABASE_SIZE_BYTES;

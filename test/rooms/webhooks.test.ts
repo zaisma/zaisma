@@ -1,6 +1,6 @@
 import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FREE_REQUEST_COUNT_PER_MONTH, usageMonth } from "@zaisma/core";
+import { monthStartDateOf } from "@zaisma/core";
 import { GameServerWebhookService, type GameServerObject } from "../../apps/rooms/src/game-server.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
 import type { Env } from "../../apps/rooms/src/index.ts";
@@ -61,7 +61,7 @@ export default {
 
 describe("webhooks to the game server", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("reach onWebhook with the event, the game's secrets, database and reach, and count as requests", async () => {
@@ -94,12 +94,10 @@ describe("webhooks to the game server", () => {
     expect((await sendEvent(noServer, BUG)).failureMessage).toContain("has no game server");
   });
 
-  it("stop past the month's free requests", async () => {
+  it("stop while the game's hosting is paused", async () => {
     const { gameId } = await addGame("busy-game", DISCORD);
-    await runInDurableObject(objectOf(gameId), (object: GameServerObject) => {
-      (object as unknown as { requestUse: { month: string; requestCount: number } }).requestUse = { month: usageMonth(), requestCount: FREE_REQUEST_COUNT_PER_MONTH };
-    });
-    expect((await sendEvent(gameId, BUG)).failureMessage).toContain("free");
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES (?, ?, 500, ?, 'free_used')").bind(gameId, monthStartDateOf(), Date.now()).run();
+    expect((await sendEvent(gameId, BUG)).failureMessage).toContain("hosting is paused");
     expect(await gameRows(gameId, "SELECT name FROM sqlite_master WHERE name = 'posts'")).toEqual([]);
   });
 

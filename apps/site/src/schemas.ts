@@ -134,6 +134,7 @@ export const GAME = object({
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for the listing check (about a minute) or a person before players see it.")),
   title_listing_reason: nullable(reviewReason("Why the title keeps the game off Zaisma's lists (a famous name, a tag) or held it (a fake reward); null when nothing does. The game still plays by its link.")),
   glass_tint_color: nullable(describe({ type: "string", pattern: "^#[0-9a-f]{6}$" }, "The color Zaisma tints its glass with over the game's background, like #6b3fa0; Zaisma still decides how thick the glass is. null: no tint.")),
+  monthly_budget_cents: nullable(countOf("What the game may draw from your credit each month past its free hosting, in cents (5000 is $50); null: no paid hosting, so it pauses at its free allowance.")),
   updated_at: isoTime(),
 });
 
@@ -146,16 +147,11 @@ export const GAME_ALERT = object({
     version_held: "a version is waiting for a person at Zaisma",
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
     game_off_lists: "the listing check found something on a cover or the title that keeps the listed game off Zaisma's lists (home, All games, browse, search engines) until it's fixed; it still plays by its link",
-    rooms_paused: "the month's free player-hours on Zaisma rooms and the relay are used, so new rooms and relayed connections don't open, and running matches get an hour to finish",
-    requests_paused: "the month's free game server requests are used",
-    database_paused: "the month's free rows read from the game database are used, so it stops answering",
-    database_writes_paused: "the month's free rows written to the game database are used, so it takes no writes; reads keep working",
-    database_full: "the game's storage (its database and kept rooms) reached its free 500 MB, so the database can change and delete rows but not grow, and no more rooms can be kept",
-    rooms_nearly_paused: "80% of the month's free player-hours on Zaisma rooms and the relay are used",
-    requests_nearly_paused: "80% of the month's free game server requests are used",
-    database_nearly_paused: "80% of the month's free rows read from the game database are used",
-    database_writes_nearly_paused: "80% of the month's free rows written to the game database are used",
-    database_nearly_full: "the game database is 80% full",
+    hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget, or your credit is used): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
+    hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
+    hosting_budget_nearly_used: "80% of the game's monthly budget is used",
+    database_nearly_full: "the game's storage is 80% of the 10 GB a game can keep",
     player_erase_failed: "Zaisma couldn't erase players who deleted their accounts from the game database; the fix names their player IDs for erase_player",
     reports_open: "player reports are waiting for Zaisma",
   }),
@@ -364,6 +360,7 @@ export const ACCESS = object({
       forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
+      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com)."),
     },
     "What the key may do in each area.",
   ),
@@ -381,15 +378,16 @@ export const NEXT = list(
   "The calls that usually follow; empty when nothing does.",
 );
 
-/** Every error, in the API and the MCP (docs/NAMING.md, Errors). */
+const ERROR_FIELDS = object({
+  code: text("Stable, one problem per code; docs/DEVELOPER-API.md lists every code."),
+  message: text("What happened."),
+  field: nullable(text("The input at fault, like play_modes[1].play_style; null when no one input is.")),
+  fix: text("What to do about it."),
+  retry_after_sec: nullable(countOf("How long to wait before trying again, when waiting helps; else null.")),
+});
+/** Every error, in the API and the MCP (docs/NAMING.md, Errors). confirm_url comes with confirmation_needed alone. */
 export const ERROR = object({
-  error: object({
-    code: text("Stable, one problem per code; docs/DEVELOPER-API.md lists every code."),
-    message: text("What happened."),
-    field: nullable(text("The input at fault, like play_modes[1].play_style; null when no one input is.")),
-    fix: text("What to do about it."),
-    retry_after_sec: nullable(countOf("How long to wait before trying again, when waiting helps; else null.")),
-  }),
+  error: { ...ERROR_FIELDS, properties: { ...(ERROR_FIELDS.properties as Record<string, Schema>), confirm_url: url("confirmation_needed only: where the developer confirms with their passkey on zaisma.com.") } },
 });
 
 /**
@@ -492,6 +490,74 @@ export const PLAYER_PERFORMANCE = object(
   "How the game runs on players' devices, measured in their browsers at its public address and added up per day: no player IDs. Tester and preview links and the developer's own plays aren't measured. Never shown on the game page, the shelves or the ranking.",
 );
 
+/** A game's month on the one hosting meter (docs/DEVELOPER-API.md, Hosting and credit). */
+export const HOSTING_USE = object(
+  {
+    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100. Never shown in dollars."),
+    shares: list(
+      object({ kind: choice({ room_play: "player time in Zaisma rooms", game_server_cpu: "the game server's CPU past what's included", relayed_data: "data Zaisma's relay sent players", database: "the game database's rows and storage", requests: "requests, schedule runs and webhook events to the game server" }), share_pct: countOf("Its share of the use, adding to 100.") }),
+      "What used it, biggest first; [] before any use.",
+    ),
+    is_paused: yes("Whether the game's hosting is paused: no new rooms, relayed connections or requests start, and running matches get an hour to finish."),
+    paused_reason: nullable(choice({ free_used: "its free hosting is used and it has no budget", budget_used: "its monthly budget is used", credit_used: "your credit ran out" }, "null when it isn't paused.")),
+    paused_at: nullable(isoTime("When it paused; running matches end an hour after. null when it isn't paused.")),
+    resets_on_date: date("When the month resets (UTC): the free allowance starts again and a pause ends."),
+    monthly_budget_cents: nullable(countOf("What it may draw from credit this month; null: no paid hosting.")),
+    spent_from_credit_cents: countOf("What credit paid for it this month, past its free allowance."),
+    room_play_duration_hours: number("Player time in Zaisma rooms this month: a fact for tuning, never a price."),
+    relayed_size_bytes: countOf("Data Zaisma's relay sent its players this month, read from Cloudflare about once an hour."),
+    game_server_cpu_duration_sec: countOf("The game's own game server's CPU this month: in its rooms, and in requests, schedule runs and webhooks past their first 10 ms."),
+    request_count: countOf("Requests, webhook events and schedule runs to its game server this month."),
+    written_row_count: countOf("Rows its database wrote this month."),
+    read_row_count: countOf("Rows its database read this month."),
+    database_size_bytes: countOf("Its storage (database and kept rooms) as last recorded."),
+  },
+  "This month (UTC) on the game's one hosting meter: the free allowance as a percentage, what used it, and what credit paid past it.",
+);
+
+const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget or your credit, which Zaisma took on: never charged" });
+/** A developer's hosting credit (get_credit). */
+export const CREDIT = object({
+  credit: object({
+    balance_cents: countOf("What's left to spend, in cents. Never below 0."),
+    automatic_top_up: object({
+      is_enabled: yes("Whether Zaisma tops up from the card of the last top-up when the balance is under top_up_below_cents."),
+      top_up_below_cents: nullable(countOf()),
+      top_up_amount_cents: nullable(countOf()),
+      monthly_top_up_limit_cents: nullable(countOf("The most automatic top-ups add in a month (UTC).")),
+      topped_up_this_month_cents: countOf(),
+    }),
+    top_ups: list(
+      object({
+        id: idOf("top_up"),
+        amount_cents: countOf(),
+        refundable_cents: countOf("What refund_top_up gives back now: the unspent part (credit is spent oldest first), until refund_ends_at."),
+        refund_ends_at: nullable(isoTime("180 days after the top-up.")),
+        created_at: isoTime(),
+      }),
+      "The last 180 days' top-ups, newest first.",
+    ),
+    games: list(object({ slug: text(), title: text(), monthly_budget_cents: nullable(countOf()), spent_from_credit_this_month_cents: countOf() }), "Games with a budget or spending this month."),
+    entries: list(
+      object({ id: { type: "string", pattern: "^top_up_[a-z0-9]+$|^credit_entry_[a-z0-9]+$", description: "A top-up's top_up_…, anything else's credit_entry_…." }, entry_kind: CREDIT_ENTRY_KIND, amount_cents: { type: "integer", description: "Positive adds, negative spends; a written_off entry's is what Zaisma took on, and never touched the balance." }, game_slug: nullable(text()), created_at: isoTime() }),
+      "The last 90 days, newest first.",
+    ),
+  }),
+});
+/** Stripe's page for a top-up (top_up_credit). */
+export const TOP_UP_CHECKOUT = object({
+  checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
+  expires_at: isoTime("When the page stops taking payment."),
+  next_steps: NEXT,
+});
+/** A refund of a top-up (refund_top_up). */
+export const TOP_UP_REFUNDED = object({
+  refunded_cents: countOf("What goes back to the card it came from."),
+  next_steps: NEXT,
+});
+/** The credit after a change to automatic top-up (update_automatic_top_up). */
+export const CREDIT_CHANGED = object({ ...(CREDIT.properties as Record<string, Schema>), next_steps: NEXT });
+
 export const STATS = object({
   period_duration_days: countOf(),
   play_stats: PLAY_STATS,
@@ -519,20 +585,8 @@ export const STATS = object({
       ),
     }),
   ),
-  room_use_this_month: object({
-    room_play_duration_hours: number("Player time on Zaisma rooms this month, UTC."),
-    relayed_size_bytes: countOf("Data Zaisma's relay sent this game's players this month, UTC, read from Cloudflare about once an hour."),
-    game_server_cpu_duration_sec: countOf("The game's own game server running in its rooms this month, UTC."),
-    counted_play_duration_hours: number("What counts toward the free hours: room time, plus relayed data (every 20 MB the relay sends one hour), plus game server CPU past 25 CPU-seconds a player-hour (every 50 more CPU-seconds one hour)."),
-    free_room_play_duration_hours: countOf(),
-    has_reached_free_hours: yes("Until hosting billing is ready, no new rooms or relayed connections open until the month resets; matches and connections already running carry on."),
-  }),
+  hosting_use_this_month: HOSTING_USE,
   room_traffic: ROOM_TRAFFIC,
-  request_use_this_month: object({
-    request_count: countOf("Requests to the game's own game server this month, UTC, recorded about once a minute."),
-    free_request_count: countOf(),
-    has_reached_free_requests: yes("Until hosting billing is ready, requests answer request_limit until the month resets."),
-  }),
   schedules: list(
     object({
       schedule_name: text("Its name in the game server's schedules."),
@@ -559,8 +613,8 @@ export const STATEMENT_RESULT = object({
     },
     "What the statement answered: a SELECT's rows, or a change's with RETURNING; [] for none.",
   ),
-  read_row_count: countOf("Rows the statement read, as Cloudflare counts them towards the month's free reads."),
-  written_row_count: countOf("Rows it wrote, counting each index changed, towards the month's free writes."),
+  read_row_count: countOf("Rows the statement read, as Cloudflare counts them, on the game's hosting meter."),
+  written_row_count: countOf("Rows it wrote, counting each index changed, on the game's hosting meter."),
 });
 
 /** A restore of a game's database to a time, or the undo of one. */
@@ -580,16 +634,11 @@ export const DATABASE = object({
       read_row_count: countOf(),
       written_row_count: countOf(),
       storage_size_bytes: countOf("The database's size now."),
-      free_read_row_count: countOf(),
-      free_written_row_count: countOf(),
-      free_storage_size_bytes: countOf(),
-      has_reached_free_reads: yes("Until hosting billing is ready, past them queries stop (game servers' and the API's) until reset_date."),
-      has_reached_free_writes: yes("Past them writes stop until reset_date; reads keep working."),
-      has_reached_free_storage: yes("At it the database can change and delete rows but not grow."),
-      reset_date: date("When the month's reads and writes start again from 0 (UTC)."),
+      maximum_storage_size_bytes: countOf("The most a game can keep, its database and kept rooms together: 10 GB. At it the database can change and delete rows but not grow."),
     },
-    "This calendar month (UTC), against the free use every game has.",
+    "This calendar month (UTC). The rows and storage count on the game's hosting meter (hosting_use_this_month).",
   ),
+  hosting_use_this_month: HOSTING_USE,
   restores: list(DATABASE_RESTORE, "The last 30 days' restores and undos, newest first, up to 50."),
 });
 
@@ -771,7 +820,7 @@ export const KEPT_ROOMS = object({
   ),
   kept_rooms_size_bytes: countOf("All the kept rooms' saved worlds together."),
   storage_size_bytes: countOf("The game's storage: its database and its kept rooms."),
-  free_storage_size_bytes: countOf("The storage every game gets free: 500 MB. Past it, the database can't grow and no more rooms can be kept, though kept rooms keep saving."),
+  maximum_storage_size_bytes: countOf("The most a game can keep: 10 GB. At it the database can't grow and no more rooms can be kept, though kept rooms keep saving. Below it, storage counts on the game's hosting meter."),
 });
 
 /** A kept room deleted. */

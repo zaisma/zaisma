@@ -168,14 +168,14 @@ describe("the relay script", () => {
     expect(offZaisma.relayRequests).toEqual([]);
     expect(offZaisma.warnings).toEqual([expect.stringContaining("work when the game is played on Zaisma")]);
 
-    const pastFreeTier = gamePage({ relayAnswer: () => Response.json({ error: { code: "month_limit", message: "This game has used this month's multiplayer time." } }, { status: 403 }) });
-    const refused = new pastFreeTier.PeerConnection();
+    const hostingPaused = gamePage({ relayAnswer: () => Response.json({ error: { code: "hosting_paused", message: "This game's hosting is paused. It starts again when the month resets or its developer adds credit." } }, { status: 403 }) });
+    const refused = new hostingPaused.PeerConnection();
     await refused.createOffer();
-    await new pastFreeTier.PeerConnection().createOffer();
+    await new hostingPaused.PeerConnection().createOffer();
     expect(refused.gatheredWith).toEqual([{ iceTransportPolicy: "relay", iceServers: [], iceCandidatePoolSize: 0 }]);
     // One ask, not one per connection, and one warning.
-    expect(pastFreeTier.relayRequests).toHaveLength(1);
-    expect(pastFreeTier.warnings).toEqual([expect.stringContaining("used this month's multiplayer time")]);
+    expect(hostingPaused.relayRequests).toHaveLength(1);
+    expect(hostingPaused.warnings).toEqual([expect.stringContaining("hosting is paused")]);
   });
 
   it("wraps the RTCPeerConnection of a frame the game makes, as soon as the game reaches into it", async () => {

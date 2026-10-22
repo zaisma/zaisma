@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -148,7 +148,7 @@ const details = {
   multiplayer_mode: {
     enum: ["none", "relay", "own"],
     description:
-      "Multiplayer on Zaisma rooms. none: single-player or only the game's own servers (own_server_urls). relay: Zaisma passes each message to the others, no server code. own: your game server runs on Zaisma: put it in a zaisma-server/ folder at the top of the upload, where index.js default-exports { setup, onJoin, onLeave, onMessage, onTick, maximumPlayerCount, ticksPerSec } (plus, if it likes, canJoin, answering true, false or { refusalMessage }, onMoved, hostControlsEnabled, and idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, onAway and onBack for players who walk away: a player whose connection drops stays in the match as away (room.awayReason(playerId) \"lost\") for 30 seconds while they reconnect, and idle, hidden or still-disconnected players leave the match with their seat held for 5 minutes unless it decides otherwise; and onEnding(state, room), run once when the game has used the month's free player-hours and Zaisma will end the match at room.endsAt, an hour ahead, to save and tell players; and stateSaveIntervalSec (a real-time room saves its state every 5 seconds by default, 1 to 60) with onRestored(state, restoreInfo, room), run once when the room comes back from a restart with its saved state, restoreInfo.lostDurationSec seconds behind; and stateSyncEnabled, which sends each player the state as a full copy on join and then only what changed, with stateView(state, viewer, room) to cut what each player sees (their game reads room.state or room.smoothedState()); any other option stops it starting, and get_stats says why) and can import the folder's other .js, .json (data) and .wasm (WebAssembly, like a physics engine) files by relative path (plain JavaScript ES modules; npm packages or TypeScript: bundle into one zaisma-server.js instead). Up to 500 files and 5 MB. It runs sealed off: it talks to its players, calls other servers only on the hosts listed in game_server_allowed_hosts (plain fetch(), https only; anything else throws an OutsideCallError), reads the game's secrets (set_secret) as room.secrets and server.secrets, and has the game's own SQLite database as room.database, shared by its rooms and kept between matches (await room.database.query(sql, values) answers rows; room.database.batch([{ sql, values }]) is one transaction; free up to 500,000 rows written and 500 million read a month and 500 MB per game). Players never get the file. get_stats shows its errors. Any game's server (whatever this setting, even with no setup and no rooms) can also answer requests from the game outside rooms, like a leaderboard or a shop: onRequest(player, request, server) answers Zaisma.server.request(request) with plain JSON, with server.database the same database; free up to 1 million requests a month per game. And it can run on schedules: schedules: [{ name: \"daily-reset\", cron: \"0 0 * * *\" }] (up to 10, cron in UTC, at most once a minute, free) with onSchedule(run, server), where run.name says which is due; get_stats shows them with their next and last runs.",
+      "Multiplayer on Zaisma rooms. none: single-player or only the game's own servers (own_server_urls). relay: Zaisma passes each message to the others, no server code. own: your game server runs on Zaisma: put it in a zaisma-server/ folder at the top of the upload, where index.js default-exports { setup, onJoin, onLeave, onMessage, onTick, maximumPlayerCount, ticksPerSec } (plus, if it likes, canJoin, answering true, false or { refusalMessage }, onMoved, hostControlsEnabled, and idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, onAway and onBack for players who walk away: a player whose connection drops stays in the match as away (room.awayReason(playerId) \"lost\") for 30 seconds while they reconnect, and idle, hidden or still-disconnected players leave the match with their seat held for 5 minutes unless it decides otherwise; and onEnding(state, room), run once when the game's hosting pauses (its month's free hosting with no budget, its budget, or the developer's credit is used) and Zaisma will end the match at room.endsAt, an hour ahead, to save and tell players; and stateSaveIntervalSec (a real-time room saves its state every 5 seconds by default, 1 to 60) with onRestored(state, restoreInfo, room), run once when the room comes back from a restart with its saved state, restoreInfo.lostDurationSec seconds behind; and stateSyncEnabled, which sends each player the state as a full copy on join and then only what changed, with stateView(state, viewer, room) to cut what each player sees (their game reads room.state or room.smoothedState()); any other option stops it starting, and get_stats says why) and can import the folder's other .js, .json (data) and .wasm (WebAssembly, like a physics engine) files by relative path (plain JavaScript ES modules; npm packages or TypeScript: bundle into one zaisma-server.js instead). Up to 500 files and 5 MB. It runs sealed off: it talks to its players, calls other servers only on the hosts listed in game_server_allowed_hosts (plain fetch(), https only; anything else throws an OutsideCallError), reads the game's secrets (set_secret) as room.secrets and server.secrets, and has the game's own SQLite database as room.database, shared by its rooms and kept between matches (await room.database.query(sql, values) answers rows; room.database.batch([{ sql, values }]) is one transaction; its rows and storage count on the game's hosting meter, up to 10 GB). Players never get the file. get_stats shows its errors. Any game's server (whatever this setting, even with no setup and no rooms) can also answer requests from the game outside rooms, like a leaderboard or a shop: onRequest(player, request, server) answers Zaisma.server.request(request) with plain JSON, with server.database the same database; requests count on the game's hosting meter. And it can run on schedules: schedules: [{ name: \"daily-reset\", cron: \"0 0 * * *\" }] (up to 10, cron in UTC, at most once a minute, each run counting as a request) with onSchedule(run, server), where run.name says which is due; get_stats shows them with their next and last runs.",
   },
   friend_joins_enabled: {
     type: "boolean",
@@ -268,9 +268,24 @@ export const TOOLS: Tool[] = [
       'Not: { "links": [{ "link_name": "patreon", "destination_url": "patreon.com/kit", "is_on_game_page": true }] } (the whole address: "https://www.patreon.com/kit")\n' +
       'Not: { "links": [{ "link_name": "Store Page", "destination_url": "https://kit.itch.io/sky-hopper", "is_on_game_page": true }] } (lowercase letters, digits and underscores: "store_page")\n' +
       'Not: { "glass_tint_color": "purple" } (# and six hex digits: "#6b3fa0")\n' +
+      'Not: { "monthly_budget_cents": 50 } (that\'s 50 cents: cents, not dollars, so $50 is 5000)\n' +
       'Not: { "title": "Sky\\u202eHopper" } (no invisible characters or ones that flip text direction: "Sky Hopper")',
     inputSchema: {
-      ...object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
+      ...object(
+        {
+          slug,
+          ...details,
+          visibility: { enum: VISIBILITIES },
+          monthly_budget_cents: {
+            type: ["integer", "null"],
+            minimum: 100,
+            description:
+              "What the game may draw from the developer's credit each month past its free hosting, in cents (5000 is $50); null for no paid hosting, so it pauses at its free allowance. Off or lower works with any key that has credit_access write; a first or higher budget answers confirmation_needed, with confirm_url where the developer does it with their passkey.",
+          },
+          confirm: { type: "boolean", description: "The developer agreed to hide a public game" },
+        },
+        ["slug"],
+      ),
       examples: [
         { slug: "sky-hopper", play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] },
         { slug: "party-hop", play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: null, play_style: "versus" }], devices: ["phone", "tablet"], controls: ["touch"], screen_orientation: "landscape" },
@@ -284,6 +299,8 @@ export const TOOLS: Tool[] = [
         { slug: "sky-hopper", own_server_urls: ["wss://play.skyhopper.io"] },
         { slug: "sky-hopper", links: [{ link_name: "store", destination_url: "https://kit.itch.io/sky-hopper", is_on_game_page: true }, { link_name: "patreon", destination_url: "https://www.patreon.com/kit", is_on_game_page: true }] },
         { slug: "sky-hopper", glass_tint_color: "#6b3fa0" },
+        { slug: "sky-hopper", monthly_budget_cents: 5000 },
+        { slug: "sky-hopper", monthly_budget_cents: null },
       ],
     },
     outputSchema: answer({
@@ -294,7 +311,7 @@ export const TOOLS: Tool[] = [
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (toolArguments, call) => {
-      const change = pick(toolArguments, [...DETAILS, "visibility"]);
+      const change = pick(toolArguments, [...DETAILS, "visibility", "monthly_budget_cents"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${pathPart(toolArguments.slug)}`)) as { game: { visibility: string; review_status: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live" && toolArguments.confirm !== true) {
@@ -638,6 +655,57 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("DELETE", `/sign-in-apps/${pathPart(toolArguments.sign_in_app_id)}`),
   },
   {
+    name: "get_credit",
+    title: "My hosting credit",
+    description:
+      "The developer's hosting credit: the balance (in cents, never in dollars), automatic top-up, the last 180 days' top-ups with what each still refunds, each game's budget and what credit paid for it this month, and the last 90 days' entries. Every game gets free hosting each month on one meter (get_stats' hosting_use_this_month, a percentage); past it, only a game with a budget (update_game, monthly_budget_cents) draws from credit, never past its budget. Credit never expires and is never paid out.",
+    inputSchema: object({}),
+    outputSchema: CREDIT,
+    annotations: read,
+    run: (_, call) => call("GET", "/credit"),
+  },
+  {
+    name: "top_up_credit",
+    title: "Add hosting credit",
+    description:
+      "Start a top-up of the developer's hosting credit: answers Stripe's page (checkout_url), where only the developer can pay; give them the link. $10 buys $10 of credit, from 1000 to 100000 cents. Once they've paid, get_credit shows it, and games paused for credit start again. Their card is kept for automatic top-up.\n\n" +
+      'Not: { "amount_cents": 20 } (that\'s 20 cents; cents, not dollars, so $20 is 2000)\n' +
+      'Not: { "amount_cents": 500 } (the least is 1000, $10)',
+    inputSchema: { ...object({ amount_cents: { type: "integer", minimum: 1000, maximum: 100000, description: "Cents to add: 2000 is $20." } }, ["amount_cents"]), examples: [{ amount_cents: 2000 }] },
+    outputSchema: TOP_UP_CHECKOUT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/credit/top-ups", pick(toolArguments, ["amount_cents"])),
+  },
+  {
+    name: "refund_top_up",
+    title: "Refund a top-up",
+    description: "Give back what's unspent of one top-up to the card it came from, within 180 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
+    inputSchema: object({ top_up_id: { type: "string", pattern: "^top_up_[a-z0-9]+$", description: "A top-up's id from get_credit, like top_up_k2m9x4…" } }, ["top_up_id"]),
+    outputSchema: TOP_UP_REFUNDED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/credit/refunds", pick(toolArguments, ["top_up_id"])),
+  },
+  {
+    name: "update_automatic_top_up",
+    title: "Change automatic top-up",
+    description:
+      "Automatic top-up: when the balance is under top_up_below_cents, Zaisma charges top_up_amount_cents to the card of the developer's last top-up, never more than monthly_top_up_limit_cents in a month, and emails them each time. Leave out what stays the same. Turning it off or lowering an amount works here; turning it on or raising one answers confirmation_needed with confirm_url, where the developer does it with their passkey.\n\n" +
+      'Not: { "top_up_amount_cents": 20 } (cents: $20 is 2000)\n' +
+      'Not: { "is_enabled": true, "top_up_amount_cents": 2000, "monthly_top_up_limit_cents": 1000 } (the monthly limit is at least one top-up)',
+    inputSchema: {
+      ...object({
+        is_enabled: { type: "boolean" },
+        top_up_below_cents: { type: ["integer", "null"], minimum: 0, description: "Top up when the balance falls under this, in cents." },
+        top_up_amount_cents: { type: ["integer", "null"], minimum: 1000, maximum: 100000, description: "What each top-up adds, in cents." },
+        monthly_top_up_limit_cents: { type: ["integer", "null"], minimum: 1000, description: "The most automatic top-ups add in a month, in cents." },
+      }),
+      examples: [{ is_enabled: false }, { top_up_amount_cents: 1000 }],
+    },
+    outputSchema: CREDIT_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/credit/automatic-top-up", pick(toolArguments, ["is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents"])),
+  },
+  {
     name: "list_webhooks",
     title: "List my webhooks",
     description: "Your webhooks: the addresses your servers take Zaisma's events at (or the game servers on Zaisma that take them), which events each takes, and how many deliveries are still being tried or failed in the last 30 days. Signing secrets are never shown again; replace one with update_webhook.",
@@ -969,6 +1037,7 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({
       access: ACCESS,
       can_publish: yes("Whether this account can make, upload and publish games. Until the beta only accounts Zaisma adds can; false means create_game, upload_files and publish_version answer publishing_not_open."),
+      credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
     }),
     annotations: read,
     run: (_, call) => call("GET", "/access"),
@@ -1017,7 +1086,7 @@ export const TOOLS: Tool[] = [
     name: "get_stats",
     title: "Play stats",
     description:
-      "Play stats over the last period_duration_days (30 unless you say): counted plays, players, new players and play time per day, and how many new players came back 1, 7 and 30 days later. Counted plays are the official numbers: the game on screen for a minute in a browser Cloudflare checked; started_play_count is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. performance says how the game runs on players' devices, by version and by browser, device and graphics chip, with groups under 20 plays in other; players are never named. Also multiplayer use per day, room play time this month against the free hours (counted hours include relayed data and game server CPU past 25 CPU-seconds a player-hour; until hosting billing is ready, no new rooms open past them until the month resets; matches already running carry on), room_traffic: how much each player sends and gets a second, the biggest message types, and traffic_hints with what to change, requests to the game's own game server this month against the free 1 million (past them, requests answer request_limit until the month resets), the live version's schedules with their next and last runs, and for games with their own game server, its calls, requests, scheduled runs and recent errors.",
+      "Play stats over the last period_duration_days (30 unless you say): counted plays, players, new players and play time per day, and how many new players came back 1, 7 and 30 days later. Counted plays are the official numbers: the game on screen for a minute in a browser Cloudflare checked; started_play_count is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. performance says how the game runs on players' devices, by version and by browser, device and graphics chip, with groups under 20 plays in other; players are never named. Also multiplayer use per day; hosting_use_this_month, the game's one hosting meter: free_used_pct of this month's free hosting (a percentage, never dollars; at 100 a game without a budget pauses, so no new rooms, relayed connections or requests start and running matches get an hour), what used it as shares (rooms, game server CPU, relay, database, requests), whether it's paused and why, and for a game with a budget what credit paid (get_credit); room_traffic: how much each player sends and gets a second, the biggest message types, and traffic_hints with what to change; the live version's schedules with their next and last runs, and for games with their own game server, its calls, requests, scheduled runs and recent errors.",
     inputSchema: object({ slug, period_duration_days: { type: "integer", minimum: 1, maximum: 90, description: "How many days back, today included; 30 by default" } }, ["slug"]),
     outputSchema: STATS,
     annotations: read,
@@ -1145,7 +1214,7 @@ export const TOOLS: Tool[] = [
     name: "get_database",
     title: "Game database overview",
     description:
-      "The game's own SQLite database, the one its game servers use as room.database: its tables and indexes (their CREATE statements), and this month's rows read and written and its size against the free use every game has. Every game has one, empty until something writes to it. Read and change what's in it with query_database and batch_database. Also its restores and undos of the last 30 days (restore_database), each with the id undo_database_restore takes. No row counts here, because counting reads every row: query SELECT count(*) when you need one.",
+      "The game's own SQLite database, the one its game servers use as room.database: its tables and indexes (their CREATE statements), and this month's rows read and written and its size, which count on the game's one hosting meter (hosting_use_this_month, a percentage of its free hosting). Every game has one, empty until something writes to it. Read and change what's in it with query_database and batch_database. Also its restores and undos of the last 30 days (restore_database), each with the id undo_database_restore takes. No row counts here, because counting reads every row: query SELECT count(*) when you need one.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: DATABASE,
     annotations: read,
