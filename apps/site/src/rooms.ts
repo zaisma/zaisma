@@ -117,8 +117,8 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
   const hasPlaces = rooms.some((room) => room.location);
   const columns: TableColumn[] = [
     ...(hasNames ? [{ label: "Room" }] : []),
-    { label: "Code", widthPx: 88 },
-    ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 96 : undefined })),
+    { label: "Code", widthPx: 84 },
+    ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
     { label: "Players", isNumeric: true, widthPx: 96, isSortable: true },
     { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104 },
