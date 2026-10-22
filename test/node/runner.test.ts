@@ -292,6 +292,49 @@ describe("Node runner", () => {
     await second.own.close();
   });
 
+  it("lets spectators watch on your own server as in Zaisma rooms, and tells them when the last player leaves", async () => {
+    const { own, at } = await serve(
+      defineGameServer({
+        maximumPlayerCount: 1,
+        maximumSpectatorCount: 1,
+        setup: () => ({}),
+        onSpectatorJoin: (_state, spectator, room) => room.send(spectator.id, { watching: room.spectators.length }),
+        onMessage: (_state, _player, message, room) => room.broadcast({ said: message }, { audience: "spectators" }),
+      }),
+    );
+    const path = "/v1/rooms/arena/WATCHN";
+    // Nobody's playing: nothing to watch.
+    const early = connect(ORIGIN, path, at);
+    await early.open;
+    early.say({ type: "hello", pass: await pass("early"), isSpectator: true });
+    expect(await until(early, "error")).toMatchObject({ code: "no_room" });
+
+    const player = connect(ORIGIN, path, at);
+    await player.open;
+    player.say({ type: "hello", pass: await pass("p") });
+    await until(player, "welcome");
+    // The room is full, but there's room to watch.
+    const watcher = connect(ORIGIN, path, at);
+    await watcher.open;
+    watcher.say({ type: "hello", pass: await pass("w"), isSpectator: true });
+    expect(await until(watcher, "welcome")).toMatchObject({ isSpectator: true, spectatorCount: 1 });
+    expect(await until(watcher, "message")).toEqual({ type: "message", data: { watching: 1 } });
+    const second = connect(ORIGIN, path, at);
+    await second.open;
+    second.say({ type: "hello", pass: await pass("w2"), isSpectator: true });
+    expect(await until(second, "error")).toMatchObject({ code: "watching_full" });
+
+    player.say({ type: "message", data: "go" });
+    expect(await until(watcher, "message")).toEqual({ type: "message", data: { said: "go" } });
+    watcher.say({ type: "message", data: "me too" });
+    expect(await until(watcher, "error")).toMatchObject({ code: "spectator_cannot_send" });
+
+    player.ws.close(1000);
+    expect(await until(watcher, "ended")).toEqual({ type: "ended", message: "The match ended." });
+    expect(await watcher.closed).toBe(4000);
+    await own.close();
+  });
+
   it("sends state sync, and holds latest-only messages while a socket is backed up, as Zaisma rooms do", async () => {
     const game = defineGameServer({
       stateSyncEnabled: true,

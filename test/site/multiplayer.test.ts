@@ -32,6 +32,10 @@ describe("multiplayer on the site", () => {
     expect(page).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
     const bad = await (await SELF.fetch('https://zaisma.test/g/arena?room="><script>')).text();
     expect(bad).toContain('src="https://games.zaisma.test/arena/"');
+    // Watch beside Join passes watch=1 on, for Zaisma.rooms.isLinkedAsSpectator; only beside a room, and only as 1.
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?room=ABCDEF&watch=1")).text()).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF&amp;watch=1"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?room=ABCDEF&watch=yes")).text()).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?watch=1")).text()).not.toContain("watch=1");
   });
 
   it("marks games on our servers as online multiplayer until the developer says more", async () => {
@@ -153,6 +157,31 @@ describe("room browsing on the game page", () => {
     const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
     expect(fragment.headers.get("content-type")).toContain("text/html");
     expect(await fragment.text()).toContain('data-count="2"');
+  });
+
+  it("shows how many watch, and Watch beside Join or Full for rooms that take spectators", async () => {
+    const id = await addGame("arena", "own");
+    await room(id, "BCDFGH", 3);
+    await room(id, "JKMN3P", 8);
+    await room(id, "QRSTVW", 2);
+    const watching = (code: string, spectatorCount: number, maximumSpectatorCount: number) =>
+      env.DB.prepare("UPDATE live_rooms SET spectator_count = ?, maximum_spectator_count = ? WHERE room_code = ?").bind(spectatorCount, maximumSpectatorCount, code).run();
+    await watching("BCDFGH", 14, 20);
+    await watching("JKMN3P", 2, 20);
+    await watching("QRSTVW", 5, 5);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(page).toContain('<span class="watching">· 14 watching</span>');
+    expect(page).toContain('href="/g/arena?room=BCDFGH&watch=1"');
+    // A full room can still be watched.
+    expect(page).toMatch(/<span class="full">Full<\/span><a class="btn ghost" href="\/g\/arena\?room=JKMN3P&watch=1"/);
+    // One whose audience is full shows how many watch, and no Watch.
+    expect(page).toContain("· 5 watching");
+    expect(page).not.toContain("room=QRSTVW&watch=1");
+    // A game that doesn't take spectators shows neither.
+    await env.DB.exec("UPDATE live_rooms SET spectator_count = 0, maximum_spectator_count = 0");
+    const quiet = await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text();
+    expect(quiet).not.toContain("watching");
+    expect(quiet).not.toContain(">Watch<");
   });
 
   it("filters by region once rooms run in more than one, shows big rooms as shares of 16 seats, and the best ten first", async () => {

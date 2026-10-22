@@ -1556,6 +1556,57 @@ describe("friends", () => {
     expect(refused).not.toContain('href="/g/arena-game?room=ROOMAA"');
   });
 
+  it("shows Watch beside Join for a room that takes spectators, by Join's rules, live on a full or closed room", async () => {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES ('g-arena', 'arena-game', 'Arena', 'live', 'listed', 'v1', 'own', ?, ?)").bind(now, now).run();
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "quiet_comet@example.com", "Quiet_Comet");
+    expect((await ben.go(`/friends/add/${await inviteFrom(ana)}`, {})).status).toBe(303);
+    const benPlayerId = (await accountById(env.DB, users.get("quiet_comet@example.com")!))!.player_id;
+    await env.DB.prepare("INSERT INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', ?, ?, ?)").bind(benPlayerId, now, now).run();
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', 2, 8, 1, ?, ?)").bind(now, now).run();
+    await ben.go("/api/presence", undefined, { method: "POST", body: "{}" });
+    const watchLink = 'href="/g/arena-game?room=ROOMAA&watch=1"';
+    const pages = async () => [await (await ana.go("/friends")).text(), await (await ana.go("/g/arena-game/friends")).text(), await (await ana.go("/@Quiet_Comet")).text(), await (await ana.go("/g/arena-game/players/friends")).text()];
+
+    // A game server that doesn't take spectators: no Watch at all.
+    for (const page of await pages()) {
+      expect(page).toContain('href="/g/arena-game?room=ROOMAA"');
+      expect(page).not.toContain(">Watch<");
+    }
+    // One that does: Watch beside Join, everywhere Join is.
+    await env.DB.prepare("UPDATE live_rooms SET maximum_spectator_count = 20, spectator_count = 2").run();
+    for (const page of await pages()) expect(page).toContain(watchLink);
+    // A full or closed room can still be watched, while Join grays.
+    await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
+    const closed = await (await ana.go("/friends")).text();
+    expect(closed).toContain('data-reason="Match in progress"');
+    expect(closed).toContain(watchLink);
+    await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 8").run();
+    expect(await (await ana.go("/g/arena-game/players/friends")).text()).toContain(watchLink);
+    // No room for another spectator.
+    await env.DB.prepare("UPDATE live_rooms SET spectator_count = 20").run();
+    for (const page of await pages()) {
+      expect(page).toContain('aria-label="Watch: Watching full"');
+      expect(page).not.toContain(watchLink);
+    }
+    await env.DB.prepare("UPDATE live_rooms SET spectator_count = 2").run();
+    // Join's social rules gray Watch too: a private room, Join off for the game, a friend who doesn't take joins.
+    await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 0").run();
+    expect(await (await ana.go("/friends")).text()).toContain('aria-label="Watch: Private room"');
+    await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 1").run();
+    await env.DB.prepare("UPDATE games SET friend_joins_enabled = 0").run();
+    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('aria-label="Watch: This game doesn&#39;t take joins"');
+    await env.DB.prepare("UPDATE games SET friend_joins_enabled = 1").run();
+    await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
+    for (const page of await pages()) {
+      expect(page).toContain("Watch: Quiet_Comet isn&#39;t taking joins");
+      expect(page).not.toContain("?room=ROOMAA");
+    }
+  });
+
   it("takes invites back, lets them run out, and keeps a few waiting at most", async () => {
     const ana = new Browser();
     await join(ana, "ana@example.com", "Night_Owl");

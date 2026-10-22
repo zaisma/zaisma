@@ -12,6 +12,9 @@ export interface ListedRoom {
   /** Seats the room holds for players coming back or on their way: it has space while playerCount + heldSeatCount < maximumPlayerCount. */
   heldSeatCount: number;
   maximumPlayerCount: number;
+  /** Spectators watching, and how many the room takes: 0 when its game server turns watching off. */
+  spectatorCount: number;
+  maximumSpectatorCount: number;
   /** False: closed, only players who were already in it can come back. */
   isOpen: boolean;
   /** Where the room runs: the country its first player connected from (like DE and Germany), and its region (a continent, like EU). */
@@ -199,6 +202,9 @@ export const isQuickJoining = (game: { quick_joined_at_ms: number | null }, nowM
 /** Room with space a new player could join. */
 export const hasSpace = (room: Pick<ListedRoom, "isOpen" | "playerCount" | "heldSeatCount" | "maximumPlayerCount">) => room.isOpen && room.playerCount + room.heldSeatCount < room.maximumPlayerCount;
 
+/** Room to watch: the room takes spectators and has space for another. A closed or full room can still be watched. */
+export const hasWatchSpace = (room: Pick<ListedRoom, "spectatorCount" | "maximumSpectatorCount">) => room.maximumSpectatorCount > 0 && room.spectatorCount < room.maximumSpectatorCount;
+
 /**
  * A game's listed rooms, optionally in one region (a continent code), and how many are playing in
  * all its rooms. Pass where the asking player
@@ -217,7 +223,7 @@ export async function listRooms(
   const wanted = Object.entries(options.labels ?? {}).filter(([labelName, labelValue]) => typeof labelName === "string" && typeof labelValue === "string" && labelName && labelValue).slice(0, 4);
   const cacheDurationSec = options.cacheDurationSec ?? 0;
   const key = new Request(
-    `https://rooms-list.zaisma.internal/v2/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
+    `https://rooms-list.zaisma.internal/v3/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
   );
   const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
@@ -238,6 +244,8 @@ export async function listRooms(
       playerCount: row.player_count,
       heldSeatCount: row.held_seat_count ?? 0,
       maximumPlayerCount: row.maximum_player_count,
+      spectatorCount: row.spectator_count ?? 0,
+      maximumSpectatorCount: row.maximum_spectator_count ?? 0,
       isOpen: row.is_open === 1,
       location: isCountry(row.country) ? { countryCode: row.country, countryName: countryName(row.country), region: continent(row) } : null,
       isNear: near !== null && row.continent === near,

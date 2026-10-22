@@ -43,6 +43,9 @@ describe("arena", () => {
     const { room, sent, world } = arenaRoom();
     room.join({ id: "a", name: "A", kind: "guest" });
     room.join({ id: "b", name: "B", kind: "guest" });
+    // Players start at random places: b stands behind a, so a moving right never bumps into b.
+    Object.assign(room.state.bodies.a!, { x: 0, y: 0 });
+    Object.assign(room.state.bodies.b!, { x: -120, y: 0 });
     room.tick(0.05);
     const before = world("a").bodies.a!;
     room.receive("a", msg({ input: [1, 0] }));

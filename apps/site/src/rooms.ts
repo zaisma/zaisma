@@ -1,4 +1,4 @@
-import { checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
+import { checkText, gameBySlug, hasSpace, hasWatchSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, raw, securityHeaders, type Raw } from "./html.ts";
 import { playingNowCounts } from "./plays.ts";
@@ -83,7 +83,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-shown="${shownKey(list.region, picked)}">
 ${head}
 ${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
-${open.length ? html`<ol class="rooms">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
+${open.length ? html`<ol class="rooms${open.some(hasWatchSpace) ? " watchable" : ""}">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
 ${hiddenRoomCount > 0 ? html`<button class="btn ghost rooms-all" type="button">Show ${plural(hiddenRoomCount, "more room", "more rooms")}</button>` : ""}
 ${list.moreOpenRoomCount > 0 ? html`<p class="muted rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="muted rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
@@ -106,9 +106,9 @@ function roomRow(slug: string, room: ListedRoom, later: boolean): Raw {
   const said = [name, labels.map(([, labelValue]) => labelValue).join(", ")].filter(Boolean).join(", ");
   return html`<li class="room plate${later ? " later" : ""}${named ? " named" : ""}">
 <span class="main">${main}</span>
-<span class="fill">${meter}${name ? html`<span class="small-count">${filled}</span>` : ""}</span>
+<span class="fill">${meter}${name ? html`<span class="small-count">${filled}</span>` : ""}${room.spectatorCount > 0 ? html`<span class="watching">· ${room.spectatorCount} watching</span>` : ""}</span>
 <span class="where">${room.location ? html`<img class="flag" src="/flags/${room.location.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${room.location.countryName}">${room.location.countryCode}</abbr>` : ""}</span>
-${space ? html`<a class="btn" href="/g/${slug}?room=${room.roomCode}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}
+<span class="doors">${space ? html`<a class="btn" href="/g/${slug}?room=${room.roomCode}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}${hasWatchSpace(room) ? html`<a class="btn ghost" href="/g/${slug}?room=${room.roomCode}&watch=1" aria-label="Watch ${name ? `“${name}”` : "a room"} with ${filled}">Watch</a>` : ""}</span>
 <span class="act">${named ? html`<button class="report-room" type="button" data-report-room="${room.roomCode}" data-room-name="${said}" title="Report this room's name" aria-label="Report the room “${said}”">${raw(ICON_REPORT)}</button>` : ""}</span>
 </li>`;
 }

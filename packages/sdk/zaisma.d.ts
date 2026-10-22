@@ -555,10 +555,22 @@ declare namespace Zaisma {
      * game server's idleCheck is "client", as with the relay.
      */
     idleCheckEnabled?: boolean;
+    /**
+     * true: watch the room instead of playing, where the game server takes spectators (its
+     * maximumSpectatorCount). A spectator gets what the room sends everyone, sends nothing ({@link Room.send}
+     * throws error.code "spectator_cannot_send"), doesn't count as playing and is never asked "Still there?".
+     * A closed or full room can still be watched; a room with nobody playing can't (error.code "no_room"),
+     * and nor can one whose spectators are all there (error.code "watching_full"). Zaisma's Watch opens
+     * the game with {@link Rooms.isLinkedAsSpectator} true.
+     *
+     * @example
+     * const room = await Zaisma.joinRoom({ isSpectator: Zaisma.rooms.isLinkedAsSpectator });
+     */
+    isSpectator?: boolean;
   }
 
-  /** What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode, and region. */
-  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode"> {
+  /** What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode and isSpectator, and region. */
+  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode" | "isSpectator"> {
     /** Look for a room in this region only: a continent code, like "EU", as in {@link RoomList.regions}. */
     region?: string;
     /** Look for a room with these labels, like { Mode: "Classic" }; a new room gets them. */
@@ -573,8 +585,8 @@ declare namespace Zaisma {
     labels?: Record<string, string>;
   }
 
-  /** What {@link Move.join} takes: joinRoom's options but roomCode and serverUrl, which are the move's own. */
-  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl"> {}
+  /** What {@link Move.join} takes: joinRoom's options but roomCode and serverUrl, which are the move's own, and isSpectator (moves are for players). */
+  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl" | "isSpectator"> {}
 
   /** What {@link Room.kick} takes. */
   interface KickOptions {
@@ -604,6 +616,11 @@ declare namespace Zaisma {
      * it names none. Zaisma passes it on only when it's one of the game's own servers (own_server_urls).
      */
     readonly linkedServerUrl: string | null;
+    /**
+     * true when the player's link is a Watch (?watch=1 beside ?room=), from Zaisma's Watch beside Join: they
+     * came to watch the linked room, not to play. Join it with joinRoom({ isSpectator: true }).
+     */
+    readonly isLinkedAsSpectator: boolean;
     /**
      * The game's listed rooms on Zaisma, for a game's own lobby or server browser: rooms with space
      * first (the player's country, then region, then the busiest), up to 50. Never who's in them.
@@ -693,6 +710,10 @@ declare namespace Zaisma {
     readonly players: readonly ListedPlayer[];
     /** The host's player ID, when the game server gives the host controls (the relay does), else null. */
     readonly hostPlayerId: string | null;
+    /** This player is watching, not playing ({@link JoinOptions.isSpectator}): they're never in players. */
+    readonly isSpectator: boolean;
+    /** How many are watching the room; the "room" event says when it changes. */
+    readonly spectatorCount: number;
     /** Where the connection stands; the "connectionStatus" event says when it changes. */
     readonly connectionStatus: ConnectionStatus;
     /** The room's link on Zaisma, like "https://zaisma.com/g/sky-hopper?room=K7Q2MX", or null outside Zaisma. */
@@ -766,7 +787,8 @@ declare namespace Zaisma {
     /**
      * Send a message to the game server: plain JSON, up to 16 KB, about 30 a second at most. Send input
      * when it changes, not every frame. Nothing is sent while the player is away. With
-     * { delivery: "latest_only" }, a message may be dropped for a newer one (SendOptions).
+     * { delivery: "latest_only" }, a message may be dropped for a newer one (SendOptions). A spectator
+     * can't send: it throws error.code "spectator_cannot_send".
      *
      * @example
      * // Where the player aims, as it changes: only the newest matters.
@@ -776,7 +798,8 @@ declare namespace Zaisma {
     /**
      * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed
      * array, up to 16 KB, counted with messages (about 30 a second at most). Anything else throws
-     * error.code "bad_bytes". Nothing is sent while the player is away. Takes the same sendOptions as room.send.
+     * error.code "bad_bytes", and a spectator's throws "spectator_cannot_send". Nothing is sent while the
+     * player is away. Takes the same sendOptions as room.send.
      */
     sendBytes(bytes: ArrayBuffer | ArrayBufferView, sendOptions?: SendOptions): void;
     /** Leave the room for good. */
@@ -891,7 +914,7 @@ declare namespace Zaisma {
     ending: (endsAt: string) => void;
     /** The game server or the host removed the player from the room. The connection closes. */
     kicked: (kicked: Kicked) => void;
-    /** The room's listing, Join switch, name or labels changed: room.isListed, room.isOpen, room.friendJoinsEnabled, room.name and room.labels have the new ones. */
+    /** The room's listing, Join switch, name or labels changed, or how many watch: room.isListed, room.isOpen, room.friendJoinsEnabled, room.name, room.labels and room.spectatorCount have the new ones. */
     room: (settings: RoomSettings) => void;
     /**
      * The game server is sending the player to another room (its room.reserve or room.moveTo). Without
@@ -1093,6 +1116,8 @@ declare namespace Zaisma {
    * - busy, no_room: the room couldn't take the player right now, or doesn't exist.
    * - blocked_player_here: quickJoin's first try at a room with someone the player blocked; quickJoin tries the others first, and you won't see it.
    * - other_version: the room runs another version of the game. On its Zaisma page the game reloads at the room's version and joins it, and you won't see it; you see it outside Zaisma, through a tester link, or when that version is no longer kept.
+   * - watching_full: the room takes no more spectators (its game server's maximumSpectatorCount, 0 when it takes none).
+   * - spectator_cannot_send: a spectator tried to send to the room ({@link Room.send}, {@link Room.sendBytes}).
    */
   type RoomErrorCode =
     | "full"
@@ -1113,7 +1138,9 @@ declare namespace Zaisma {
     | "busy"
     | "no_room"
     | "blocked_player_here"
-    | "other_version";
+    | "other_version"
+    | "watching_full"
+    | "spectator_cannot_send";
 
   /**
    * The codes a request's errors have ({@link Server.request}), from Zaisma or the Node runner alike:
@@ -1268,6 +1295,10 @@ declare namespace Zaisma {
     /** Seats held for players coming back or on their way: a room has space while playerCount + heldSeatCount < maximumPlayerCount. */
     heldSeatCount: number;
     maximumPlayerCount: number;
+    /** Spectators watching the room. */
+    spectatorCount: number;
+    /** Spectators the room takes (its game server's maximumSpectatorCount): 0 when nobody can watch. Room to watch while spectatorCount < maximumSpectatorCount, full or closed rooms too. */
+    maximumSpectatorCount: number;
     /** false: closed, so only players who were in it can come back. */
     isOpen: boolean;
     /**

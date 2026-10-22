@@ -258,6 +258,8 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | An event on its way to one webhook, and how it went | `delivery_status`: `pending`, `delivered`, `failed`; `attempt_count`, `last_attempt_at`, `next_attempt_at`, `failure_message`; `pending_delivery_count`, `failed_delivery_count` | |
 | The youngest age that can play a game, in years: 13, 16 or 18; never a band name. A younger account turned away gets `game_not_open_to_player` | `minimum_player_age_years`; errors `bad_minimum_player_age`, `accounts_needed_for_minimum_age` | error `code` `game_not_open_to_player` |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |
+| Players who watch a room without playing: how many, the most a room takes, joining to watch, and their handlers | `spectator_count`, `maximum_spectator_count` | `maximumSpectatorCount`, `room.spectators`, `isSpectator` (joinRoom's option, `room.isSpectator`, `joinInfo.isSpectator`, a hello's), `spectatorCount`, `onSpectatorJoin(state, spectator, room)`, `onSpectatorLeave(state, spectator, room)`, `Zaisma.rooms.isLinkedAsSpectator` (a link's `watch=1`); errors `watching_full` (no room for another spectator) and `spectator_cannot_send` |
+| Who a broadcast reaches | | `audience`: `everyone` (the default), `players`, `spectators`, in `room.broadcast` and `room.broadcastBytes` |
 | How many files, and their total size | `file_count`, `size_bytes` | |
 | An image's size on screen | `width_px`, `height_px` | |
 | Counted plays, and time on screen in them | `play_count`, `play_duration_min` | |
@@ -312,7 +314,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A send that may be dropped for a newer one while a player's connection is backed up | | `delivery`: `reliable`, `latest_only`; `latestKey`; `SendOptions` in the SDK and on the game server, error `code` `bad_send_option`; a player's connection is backed up (`isBackedUp`, `ROOM_LIMITS.backedUpSizeBytes`, `backedUpDelayMs`); `ROOM_LIMITS.maximumLatestOnlySlotCount`, `maximumLatestKeyCharacterCount` |
 | A message between a game and its room, and the game's own message in it | | `type`, `data` |
 | What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |
-| How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked` |
+| How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning, isSpectator }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked` |
 | Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message`; `refusalMessage` in what `canJoin` answers (`true`, `false` or `{ refusalMessage }`) |
 | The room's host, who can run it from the game, and whether a game server has one | | `hostPlayerId`, `hostControlsEnabled` |
 | Whether a room shows in room lists, and takes new players | | `isListed`, `isOpen` |

@@ -284,7 +284,8 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
   if (!account) return failure("bad_pass", "This player's account is gone.", 401, cors);
 
   if (!isSettingRoom) {
-    const friends = await friendsInGameOf(env.DB, account.id, game.id);
+    // Watch is zaisma.com's own (its Players plate); games get Join's answer, as Zaisma.friends.list says.
+    const friends = (await friendsInGameOf(env.DB, account.id, game.id)).map((friend) => ({ player_id: friend.player_id, username: friend.username, room_code: friend.room_code, server_url: friend.server_url, join_refusal: friend.join_refusal }));
     return json({ friends }, 200, cors);
   }
   if (body.serverUrl === null && body.roomCode === null) {
