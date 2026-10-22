@@ -263,6 +263,7 @@ function plantedInShape(entryIndex: number): string | null {
 /** Columns that hold JSON, built around the hostile values so the pages that read them still can. field "" is the whole column's entry. */
 const JSON_COLUMNS: Record<string, (hostile: (field: string) => string) => unknown> = {
   "games.links": (hostile) => [{ link_name: hostile("link_name"), destination_url: hostile("destination_url"), is_on_game_page: true, review_reason: null, checked_at_ms: null }],
+  "games.country_blocks": (hostile) => [{ country_code: "GB", review_reason: { code: "needs_review", message: hostile("review_reason"), content_rule: null }, blocked_at_ms: 1 }],
   "games.details_waiting_for_review": (hostile) => ({ title: hostile("title"), description: hostile("description") }),
   "games.own_server_urls": (hostile) => [hostile("")],
   "games.game_server_allowed_hosts": (hostile) => [hostile("")],

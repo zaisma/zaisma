@@ -13,12 +13,14 @@ import {
   isCompressibleType,
   isEntryCookieValid,
   isServerPath,
+  isBlockedInCountry,
   isTesterLinkOn,
   manifestKey,
   ownServerUrlsOf,
   playsOnline,
   readGameAddress,
   readVersionAddress,
+  requestCountryCode,
   ROOM_STALE_MS,
   SAVE_LIMIT_BYTES,
   servableGame,
@@ -429,6 +431,10 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (game?.review_status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
   if (game?.review_status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
   if (!game) return page(404, "Game not found", "Check the link and try again.", env);
+  // Blocked in the player's country on a notice under its law; a preview link stays open, so a developer there can check a fix.
+  if (address?.addressKind !== "preview" && isBlockedInCountry(game, requestCountryCode(request))) {
+    return page(451, "This game isn't available in your country", "A legal notice under your country's law blocks it here. It's still available everywhere else.", env);
+  }
   // Its background, which Zaisma's pages frame behind their glass: on the game's own address, never a tester or preview one.
   if (!address && (target.path.startsWith("_zaisma/background") || target.path === "_zaisma/shader-preview")) {
     const background = await serveBackground(request, env, game, target.path, target.base);

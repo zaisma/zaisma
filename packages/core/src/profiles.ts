@@ -1,6 +1,7 @@
 import { isIdOf } from "./ids.ts";
 import type { Account } from "./accounts.ts";
 import { hasBlockBetweenAccounts } from "./blocks.ts";
+import { NOT_BLOCKED_IN_COUNTRY_SQL } from "./country-blocks.ts";
 import { playingNowOf } from "./friends-now.ts";
 import { socialSettingsOf } from "./social-settings.ts";
 import { checkText, tidyText } from "./text-filter.ts";
@@ -145,11 +146,11 @@ function lets(setting: "nobody" | "friends" | "anyone", viewer: ProfileViewer): 
   return setting === "anyone" || (setting === "friends" && viewer.kind === "friend");
 }
 
-/** Games the owner made that anyone can find: live and listed, and not for players older than the viewer. */
-export async function publishedGamesOf(database: D1Database, accountId: string, viewerAgeFloorYears: number): Promise<ProfileGame[]> {
+/** Games the owner made that anyone can find: live and listed, not for players older than the viewer, and not blocked in the viewer's country (null when unknown). */
+export async function publishedGamesOf(database: D1Database, accountId: string, viewerAgeFloorYears: number, viewerCountryCode: string | null = null): Promise<ProfileGame[]> {
   const { results } = await database
-    .prepare("SELECT games.slug, games.title FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? ORDER BY games.created_at_ms DESC LIMIT 24")
-    .bind(accountId, viewerAgeFloorYears)
+    .prepare(`SELECT games.slug, games.title FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? AND ${NOT_BLOCKED_IN_COUNTRY_SQL} ORDER BY games.created_at_ms DESC LIMIT 24`)
+    .bind(accountId, viewerAgeFloorYears, viewerCountryCode)
     .all<ProfileGame>();
   return results;
 }
@@ -158,9 +159,9 @@ export async function publishedGamesOf(database: D1Database, accountId: string, 
  * What a viewer sees of an account's profile. A block between them, either way, keeps the visitor at
  * the wall, as if the profile were private: the same view a private profile gives, so the blocked one
  * is never told. Games for players older than the viewer (viewerAgeFloorYears, 18 signed out) are left
- * out, as if they weren't there.
+ * out, as if they weren't there, and so are games blocked in the viewer's country (viewerCountryCode, null when unknown).
  */
-export async function profileView(database: D1Database, owner: Account, viewer: ProfileViewer, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<ProfileView> {
+export async function profileView(database: D1Database, owner: Account, viewer: ProfileViewer, viewerAgeFloorYears: number, nowMs = Date.now(), viewerCountryCode: string | null = null): Promise<ProfileView> {
   const settings = socialSettingsOf(owner);
   const visitorId = viewer.kind === "signed_in" || viewer.kind === "friend" ? viewer.accountId : null;
   const isBlocked = visitorId !== null && (await hasBlockBetweenAccounts(database, visitorId, owner.id));
@@ -168,11 +169,11 @@ export async function profileView(database: D1Database, owner: Account, viewer: 
   const isChecked = owner.profile_check_status === "passed" || viewer.kind === "owner";
   const showsPlayed = isPastWall && lets(settings.who_sees_played_games, viewer);
   const [publishedGames, played, mutual] = await Promise.all([
-    publishedGamesOf(database, owner.id, viewerAgeFloorYears),
+    publishedGamesOf(database, owner.id, viewerAgeFloorYears, viewerCountryCode),
     showsPlayed
       ? database
-          .prepare("SELECT games.slug, games.title, played.played_at_ms FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms DESC LIMIT 12")
-          .bind(owner.id, viewerAgeFloorYears)
+          .prepare(`SELECT games.slug, games.title, played.played_at_ms FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.minimum_player_age_years <= ? AND ${NOT_BLOCKED_IN_COUNTRY_SQL} ORDER BY played.played_at_ms DESC LIMIT 12`)
+          .bind(owner.id, viewerAgeFloorYears, viewerCountryCode)
           .all<{ slug: string; title: string; played_at_ms: number }>()
       : null,
     isPastWall && visitorId

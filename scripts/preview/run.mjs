@@ -253,6 +253,17 @@ seedFriendsNow();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
+// Country blocks, again this run: Night Drive in the United States, where the preview's own requests come from (its 451 page,
+// and the home leaves it out), and Four in a Row in the United Kingdom, which still plays here (its dashboard's alert).
+const countryBlock = (countryCode, words) =>
+  JSON.stringify([{ country_code: countryCode, review_reason: { code: "country_law_notice", message: `A notice under ${countryCode} law names this: ${words}`, content_rule: null }, blocked_at_ms: Date.now() }]).replaceAll("'", "''");
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `UPDATE games SET country_blocks = '${countryBlock("US", "A court order names the street race on level 2.")}' WHERE slug = 'night-drive';
+     UPDATE games SET country_blocks = '${countryBlock("GB", "Ofcom says the chant in the lobby stirs up racial hatred under the Public Order Act 1986.")}' WHERE slug = 'four-in-a-row'`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
 // clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
 spawnSync(
@@ -325,6 +336,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   or choose a .glsl file to preview it before sending; the purple glass tint)
                   ${SITE}/dashboard/arena/details#background  (a shader the check refused: "It flashes more than 3 times a second…")
                   ${GAMES}/shard-dodge/_zaisma/background?screen=phone  (the shader runner alone, on the game's own site)
+  Country blocks  ${SITE}/g/night-drive  (blocked in the United States, where the preview's requests come from: the 451 page, and the home leaves it out);
+                  ${SITE}/dashboard/four-in-a-row  (blocked in the United Kingdom: the alert; it still plays here); ${SITE}/admin/games/ for either
+                  game's Country blocks section; ${SITE}/legal/content-rules  (the paragraph under "If a game breaks a rule")
   Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)

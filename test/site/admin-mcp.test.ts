@@ -1,12 +1,13 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createAccount, createApiKey, type ImageMatcher } from "@zaisma/core";
+import { createAccount, createApiKey, NOT_BLOCKED_IN_COUNTRY_SQL, personOwner, type ImageMatcher } from "@zaisma/core";
 import { scanVersion } from "../../apps/site/src/scan.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
 import { triageReports, type TriageDeps } from "../../apps/site/src/triage.ts";
 import { ADMIN_TOOLS } from "../../apps/site/src/admin-mcp.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
+import { GAME } from "../../apps/site/src/schemas.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
@@ -115,6 +116,7 @@ describe("admin MCP", () => {
       "list_chat_reviews",
       "decide_chat_review",
       "decide_notice",
+      "decide_country_block",
       "list_publishing_accounts",
       "set_can_publish",
       "list_security_spikes",
@@ -340,6 +342,47 @@ describe("admin MCP", () => {
     expect(shown.game).toMatchObject({ review_status: "live", review_reason: null });
 
     expect(await refusal("decide_report_group", { report_group_id: "report_8f3k2m9q1x7c4v6b0n5z", decision: "take_down", why: "x", is_copyright_notice: true })).toMatchObject({ code: "unknown_field" });
+  });
+
+  it("blocks a game in one country only, and lifts it", async () => {
+    const from = (countryCode: string | null, path = "/g/test-game") => SELF.fetch(`${LOCAL}${path}`, countryCode ? ({ cf: { country: countryCode } } as RequestInit) : {});
+    expect(await refusal("decide_country_block", { slug: "test-game", decision: "block", country_code: "UK", why: "x" })).toMatchObject({ code: "bad_country_code", field: "country_code" });
+    expect(await refusal("decide_country_block", { slug: "test-game", decision: "block", country_code: "gb", why: "x" })).toMatchObject({ code: "bad_country_code", field: "country_code" });
+    expect(await refusal("decide_country_block", { slug: "test-game", decision: "lift", country_code: "GB", why: "x" })).toMatchObject({ code: "cant_decide", field: "country_code" });
+    expect(await refusal("decide_country_block", { slug: "nothere", decision: "block", country_code: "GB", why: "x" })).toMatchObject({ code: "no_game", field: "slug" });
+
+    const blocked = await data("decide_country_block", { slug: "test-game", decision: "block", country_code: "GB", why: "Ofcom says the poster in level 3 stirs up racial hatred under the Public Order Act 1986." });
+    expect(blocked).toMatchObject({ decision: "block", game: { review_status: "live", review_reason: null, country_blocks: [{ country_code: "GB", country_name: "United Kingdom", review_reason: { code: "country_law_notice", content_rule: null, message: "A notice under GB law names this: Ofcom says the poster in level 3 stirs up racial hatred under the Public Order Act 1986." } }] } });
+
+    // Players there get 451 and lists leave it out; everyone else, and an unknown country, plays it as before.
+    const there = await from("GB");
+    expect(there.status).toBe(451);
+    expect(await there.text()).toContain("(United Kingdom) blocks it here");
+    expect((await from("DE")).status).toBe(200);
+    expect((await from("T1")).status).toBe(200);
+    expect((await from(null)).status).toBe(200);
+    const { results } = await env.DB.prepare(`SELECT slug FROM games WHERE ${NOT_BLOCKED_IN_COUNTRY_SQL}`).bind("GB").all<{ slug: string }>();
+    expect(results).toEqual([]);
+    expect((await env.DB.prepare(`SELECT slug FROM games WHERE ${NOT_BLOCKED_IN_COUNTRY_SQL}`).bind("DE").all<{ slug: string }>()).results).toEqual([{ slug: "test-game" }]);
+
+    // The developer sees it in get_game, its alert and its history.
+    await createAccount(env.DB, { id: "blocked-dev", username: "Border_Dev", ageBand: "18+" });
+    const owner = await personOwner(env.DB, "blocked-dev");
+    await env.DB.prepare("UPDATE games SET owner_id = ? WHERE slug = 'test-game'").bind(owner.id).run();
+    const { token } = await createApiKey(env.DB, "blocked-dev", "Test");
+    const game = (await (await SELF.fetch("https://zaisma.test/api/dev/games/test-game", { headers: { authorization: `Bearer ${token}` } })).json()) as { game: { country_blocks: unknown[] }; alerts: { kind: string; message: string }[] };
+    expect(schemaProblems(GAME, game.game)).toEqual([]);
+    expect(game.game.country_blocks).toMatchObject([{ country_code: "GB", review_reason: { code: "country_law_notice" } }]);
+    expect(game.alerts.find((alert) => alert.kind === "game_blocked_in_country")?.message).toContain("Players in GB (United Kingdom) can't open this game");
+    const history = (await (await SELF.fetch("https://zaisma.test/api/dev/games/test-game/history", { headers: { authorization: `Bearer ${token}` } })).json()) as { events: { description: string; review_reason: { code: string } | null }[] };
+    expect(history.events[0]).toMatchObject({ review_reason: { code: "country_law_notice" } });
+
+    // Blocking it again replaces the reason; lifting it opens it there again.
+    const again = await data("decide_country_block", { slug: "test-game", decision: "block", country_code: "GB", why: "The poster and the chant in level 4." });
+    expect(again.game.country_blocks).toHaveLength(1);
+    const lifted = await data("decide_country_block", { slug: "test-game", decision: "lift", country_code: "GB", why: "Version 6 has neither." });
+    expect(lifted).toMatchObject({ decision: "lift", game: { country_blocks: [] } });
+    expect((await from("GB")).status).toBe(200);
   });
 
   it("shows a game as admin sees it", async () => {

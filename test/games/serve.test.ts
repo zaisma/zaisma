@@ -90,6 +90,25 @@ describe("game server", () => {
     expect((await SELF.fetch(`${G}/gone/sfx/beep.mp3`)).status).toBe(410);
   });
 
+  it("refuses players in a country the game is blocked in, and only there, except on its preview link", async () => {
+    const id = await addGame("blocked-here", "live");
+    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under GB law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
+    await env.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
+    const from = (countryCode: string, path = "/blocked-here/", headers: Record<string, string> = {}) => SELF.fetch(`${G}${path}`, { headers, cf: { country: countryCode } } as RequestInit);
+    const there = await from("GB");
+    expect(there.status).toBe(451);
+    expect(await there.text()).toContain("available in your country");
+    expect((await from("GB", "/blocked-here/sfx/beep.mp3")).status).toBe(451);
+    expect((await from("DE")).status).toBe(200);
+    expect((await from("XX")).status).toBe(200);
+
+    await env.DB.prepare("UPDATE versions SET preview_link_key = 'k' WHERE game_id = ?").bind(id).run();
+    const grantKey = await createAccessGrant(env.DB, { gameId: id, addressKind: "preview", versionId: `v${id}`, expiresAtMs: Date.now() + 3600_000 });
+    const entered = await SELF.fetch(`${G}/blocked-here--preview/_zaisma/enter?grant=${grantKey}`, { redirect: "manual", cf: { country: "GB" } } as RequestInit);
+    const cookie = (entered.headers.get("set-cookie") ?? "").split(";")[0]!;
+    expect((await from("GB", "/blocked-here--preview/", { cookie })).status).toBe(200);
+  });
+
   it("hides held, pending and unknown games", async () => {
     await addGame("held-one", "held");
     await addGame("pending-one", "pending", false);

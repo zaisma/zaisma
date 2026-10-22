@@ -1,4 +1,5 @@
 import {
+  countryBlocksAnswer,
   IMAGE_LIMITS,
   IMAGE_KINDS,
   isBackgroundShape,
@@ -1767,6 +1768,8 @@ const HISTORY: Record<string, string | null> = {
   takedown: "Zaisma took the game down",
   "notice-held": "A notice hid your game from players; see why",
   "notice-fix-published": null,
+  "country-blocked": "A notice under one country's law blocked your game for players there; see why",
+  "country-block-lifted": "Zaisma lifted a country's block: players there can open your game again",
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,
@@ -2355,6 +2358,8 @@ export function gameJson(env: Env, game: Game) {
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed, and why.
     review_status: game.review_status,
     review_reason: reasonAnswer(game.review_reason),
+    // Countries whose players can't open it, on a notice under that country's law; [] for none.
+    country_blocks: countryBlocksAnswer(game),
     devices: splitLabels(game.devices),
     controls: splitLabels(game.controls),
     screen_orientation: game.screen_orientation || null,
@@ -2392,7 +2397,7 @@ function linkJson(link: GameLink) {
 }
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "version_rejected", "version_held", "link_flagged", "game_off_lists", "rooms_paused", "requests_paused", "database_paused", "database_writes_paused", "database_full", "rooms_nearly_paused", "requests_nearly_paused", "database_nearly_paused", "database_writes_nearly_paused", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "rooms_paused", "requests_paused", "database_paused", "database_writes_paused", "database_full", "rooms_nearly_paused", "requests_nearly_paused", "database_nearly_paused", "database_writes_nearly_paused", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -2449,6 +2454,9 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     const reason = reasonAnswer(game.review_reason);
     if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.");
     if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.");
+    for (const block of countryBlocksAnswer(game)) {
+      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
+    }
     const gameVersions = versions.filter((version) => version.game_id === game.id);
     const rejected = gameVersions.find((version) => version.scan_status === "rejected" && version.is_newest);
     if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, rejected.id);

@@ -21,6 +21,10 @@ import {
   versionsForGame,
   CONTENT_RULES,
   NOTICE_KINDS,
+  countryBlocksAnswer,
+  countryName,
+  isKnownCountryCode,
+  readCountryBlocks,
   CHAT_REVIEW_STATUSES,
   readReviewReason,
   reviewReasonAnswer,
@@ -59,6 +63,7 @@ import {
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
   NOTICE_DECIDED,
+  COUNTRY_BLOCK_DECIDED,
   PUBLISHING_ACCOUNT_LIST,
   BLOCKED_SCRIPT_LIST,
   SECURITY_SPIKE_LIST,
@@ -215,6 +220,7 @@ function gameAnswer(game: Game) {
     game_server_name: gameServerOf(game),
     has_own_servers: ownServerUrlsOf(game).length > 0,
     review_reason: reasonAnswer(game.review_reason),
+    country_blocks: countryBlocksAnswer(game),
     created_at: iso(game.created_at_ms)!,
   };
 }
@@ -899,6 +905,52 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
+    name: "decide_country_block",
+    title: "Block a game in one country, or lift it",
+    description:
+      "A notice from a court, regulator or police in one country, under a law US law doesn't share (the UK's hatred offences, say), that reached safety@zaisma.com: block stops players in that country opening the game, on their word without judging it, and everyone else still can; its page, files, rooms and Zaisma's lists leave it out there. The developer reads why (which law and what it names) in get_game's country_blocks, an alert and a country_blocks_changed webhook. lift ends it, once the live version no longer has what the notice names (publishing one emails the admin). Blocking a country again replaces its why. Only a notice from that country's authorities blocks a game: a player's complaint goes through the Report button and the content rules. The same as the Country blocks form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
+      'Not: { "decision": "block", "country_code": "UK", "why": "…" } (the United Kingdom is GB, its ISO 3166-1 alpha-2 code)\n' +
+      'Not: { "decision": "block", "why": "…" } for every country (a game breaking Zaisma\'s own rules is held or taken down instead)',
+    inputSchema: {
+      ...object(
+        {
+          slug: { type: "string", maxLength: 60, description: "The game's link name, as in zaisma.com/g/<slug>, from the link the notice gives." },
+          decision: { enum: ["block", "lift"], description: "block: players in country_code can't open the game; lift: they can again." },
+          country_code: { type: "string", pattern: "^[A-Z]{2}$", description: "The country the notice is from, ISO 3166-1 alpha-2, like GB or DE." },
+          why: { type: "string", minLength: 1, maxLength: 500, description: "For block, which law and what the notice names (the words or scene), written for the developer, who reads it. For lift, why, for the audit log." },
+        },
+        ["slug", "decision", "country_code", "why"],
+      ),
+      examples: [
+        { slug: "border-patrol", decision: "block", country_code: "GB", why: "Ofcom says the recruitment poster in level 3 stirs up racial hatred under the Public Order Act 1986." },
+        { slug: "border-patrol", decision: "lift", country_code: "GB", why: "Version 6 no longer has the poster." },
+      ],
+    },
+    outputSchema: COUNTRY_BLOCK_DECIDED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const slug = String(toolArguments.slug);
+      const game = await gameBySlug(env.DB, slug);
+      if (!game) throw new ApiError("no_game", { message: `There's no game at zaisma.com/g/${slug}.`, field: "slug", fix: "Check the link in the notice: the slug is what follows zaisma.com/g/." });
+      const decision = String(toolArguments.decision);
+      const countryCode = String(toolArguments.country_code);
+      if (!isKnownCountryCode(countryCode)) {
+        throw new ApiError("bad_country_code", { message: `${countryCode} isn't a country's code.`, field: "country_code", fix: "Give the country's ISO 3166-1 alpha-2 code, like GB for the United Kingdom or DE for Germany." });
+      }
+      if (decision === "lift" && !readCountryBlocks(game).some((block) => block.country_code === countryCode)) {
+        throw new ApiError("cant_decide", { message: `${slug} isn't blocked in ${countryName(countryCode)}, so there's nothing to lift.`, field: "country_code", fix: "get_game shows its country_blocks." });
+      }
+      const form = new FormData();
+      form.set("country_code", countryCode);
+      form.set("reason", String(toolArguments.why).trim());
+      const response = await adminForm(env, `/admin/games/${game.id}/${decision === "block" ? "country-block" : "country-block-lift"}`, form, actor);
+      if (response.status !== 303) {
+        throw new ApiError("decision_refused", { message: "The decision didn't go through.", field: "decision", fix: `Look at it on zaisma.com/admin/games/${game.id}.` });
+      }
+      return { decision, game: gameAnswer((await gameBySlug(env.DB, slug))!), next_steps: [] };
+    },
+  },
+  {
     name: "list_publishing_accounts",
     title: "Who can publish",
     description: "The accounts that can make, upload and publish games before the beta, each with its username, player ID and how many games it has. Everyone else gets publishing_not_open until the beta opens.",
@@ -1076,6 +1128,7 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   maximum_group_count: "bad_maximum_group_count",
   decision: "bad_decision",
   notice_kind: "bad_notice_kind",
+  country_code: "bad_country_code",
   why: "bad_why",
   precedent: "bad_precedent",
   title: "bad_title",
