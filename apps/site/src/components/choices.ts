@@ -2,6 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, glassPane, icon, type IconName } from "./foundations.ts";
 import { examplePane } from "./example-pane.ts";
+import { tabSwitch } from "./switch.ts";
 
 /*
  * Choices: longer words, a pick from a list, yes or no, and one of a few. Split from inputs.ts; inputs.ts re-exports them.
@@ -110,6 +111,8 @@ export interface SelectFieldOptions {
   /** What kind of thing it picks, like a cut field's. Left out, the words start at the edge. */
   icon?: IconName;
   error?: string;
+  /** Small: a small switch's height, its label inside it before the pick (said once to screen readers), for a row of pickers beside a small switch (a game's rooms). */
+  isSmall?: boolean;
   /** The gallery's fixed states: focused, or open with its list under it. */
   state?: "is-focused" | "is-open";
 }
@@ -122,13 +125,13 @@ export function selectField(options: SelectFieldOptions): Raw {
   const id = options.id ?? `field-${options.name}`;
   const picked = options.choices.find((choice) => choice.choiceValue === options.pickedValue) ?? options.choices[0];
   const isOpen = options.state === "is-open";
-  const className = ["field", "select", "cut-carved", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
+  const className = ["field", "select", "cut-carved", options.isSmall ? "small" : "", options.icon ? "" : "no-icon", options.error ? "is-marked" : "", options.state === "is-focused" ? "is-focused" : "", isOpen ? "is-open" : ""].filter(Boolean).join(" ");
   const list = html`<div class="select-list glass${isOpen ? " in-place" : ""}" id="${id}-list" role="listbox" aria-labelledby="${id}-label" tabindex="-1" data-glass data-glass-corners="18 14 18 14"${isOpen ? "" : raw(" popover")}>${EDGE}${options.choices.map(
     (choice, choiceIndex) =>
       html`<div class="select-option" role="option" id="${id}-option-${choiceIndex}" data-choice-value="${choice.choiceValue}" aria-selected="${choice === picked ? "true" : "false"}" data-cut-line="8">${CUT_LINE}<span>${choice.label}</span>${icon("check")}</div>`,
   )}</div>`;
-  return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
+  return html`<div class="cut-field" data-select><label id="${id}-label" for="${id}"${options.isSmall ? raw(' class="sr"') : ""}>${options.label}</label>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-list"${isOpen ? "" : html` popovertarget="${id}-list"`}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}>${options.isSmall ? html`<span class="select-name" aria-hidden="true">${options.label}</span>` : ""}<span class="select-value">${picked?.label ?? ""}</span></button><span class="select-chev">${icon("chevron-down")}</span></span>
 ${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}">
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`;
 }
@@ -218,11 +221,18 @@ component({
 .select-chev { position: absolute; z-index: 3; right: 18px; display: inline-flex; color: var(--ink); pointer-events: none; transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
+/* Small: a small switch's height, its label quiet inside it before the pick, so a row of them sits beside a small switch. */
+.field.select.small { height: 36px; }
+.field.select.small .select-button { display: flex; align-items: center; gap: var(--gap-words-words); padding: 0 36px 0 14px; font-size: 15px; }
+.field.select.small .select-chev { right: 14px; }
+.select-name { flex: none; color: var(--muted); }
+.field.select.small .select-value { min-width: 0; }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. */
 .select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); overflow-y: auto; padding: var(--pad-inner-pane); border: 0; color: var(--ink);
   display: flex; flex-direction: column; gap: 2px; outline: none; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
-.select-list:not(:popover-open):not(.in-place) { opacity: 0; transform: translateY(-6px); }
+/* Closed, it takes no room and no clicks: its own display would otherwise keep a closed popover on the page, unseen. */
+.select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); }
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } }
 .select-list.in-place { position: relative; display: flex; width: 100%; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 14px 11px; cursor: pointer; flex: none;
@@ -239,6 +249,11 @@ component({
   render: selectField,
   examples: [
     { label: "Picked: try it", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
+    {
+      label: "Small, in a row beside a small switch: a game's rooms by region and mode",
+      isWide: true,
+      markup: glassPane({ paneSize: "large", body: html`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--gap-words-control)">${tabSwitch({ label: "Region", switchSize: "small", tabs: [{ label: "All", isCurrent: true }, { label: "EU", badgeCount: 12, isCurrent: false }, { label: "NA", badgeCount: 4, isCurrent: false }] })}<div style="width:170px">${selectField({ id: "example-select-mode", name: "mode", label: "Mode", isSmall: true, choices: [{ label: "Any", choiceValue: "" }, { label: "Survival", choiceValue: "survival" }, { label: "Creative", choiceValue: "creative" }] })}</div><div style="width:170px">${selectField({ id: "example-select-map", name: "map", label: "Map", isSmall: true, choices: [{ label: "Any", choiceValue: "" }, { label: "Glacier", choiceValue: "glacier" }, { label: "Desert", choiceValue: "desert" }] })}</div></div>` }),
+    },
     { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", icon: "people" })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
     { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },

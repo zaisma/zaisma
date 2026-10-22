@@ -22,16 +22,16 @@ import {
   type TesterLink,
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
-import { backgroundOf } from "./backgrounds.ts";
+import { backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import { glassPane, logo, tag } from "./components/foundations.ts";
 import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { GAME_BACKGROUND_SCRIPT } from "./game-background-script.ts";
+import { GAME_BACKGROUND_SCRIPT, GAME_OPENING_SCRIPT } from "./game-background-script.ts";
 import { GAME_PAGE_STYLE } from "./game-page-style.ts";
-import { html, layout, message, pageData, playerLine, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
+import { html, layout, message, openingScriptTags, pageData, playerLine, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { showcase, showcaseCover } from "./home.ts";
 import { viewerOf } from "./viewer.ts";
@@ -186,7 +186,8 @@ ${developer || pageLinks.length
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
-    head: html`${styleTags(GAME_PAGE_STYLE)}${tester ? "" : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null })}`,
+    // A game with its own background opens on its color and glass, never on Zaisma's world first (GAME_OPENING_SCRIPT).
+    head: html`${autoplay ? "" : html`${pageData("game-opening", { wide: openingOf(wideBackground), phone: openingOf(phoneBackground) })}${openingScriptTags(GAME_OPENING_SCRIPT)}`}${styleTags(GAME_PAGE_STYLE)}${tester ? "" : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null })}`,
     isBare: true,
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
     isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
@@ -316,6 +317,9 @@ ${isClosed
   if (!isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
+
+/** What the game page opens on for one screen: null for Zaisma's own world, or the game's own background's still and measured tone. */
+const openingOf = (background: ShownBackground) => (background.source === "zaisma" ? null : { stillUrl: background.stillUrl, tone: background.tone });
 
 /** A card over the game's top corner (Keep your progress, a game's sign-in ask): a small pane the page's scripts show and hide. */
 const gameCard = (id: string, titleId: string, body: Raw) => html`<aside class="game-card" id="${id}" aria-labelledby="${titleId}" hidden>${glassPane({ paneSize: "small", body })}</aside>`;

@@ -549,7 +549,7 @@ const NOT_TYPE = new Set<string>([
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
-  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font", ".field.select.small .select-button | font-size",
   // The +N at the back of a row of pictures, sized to the pictures.
   ".frame.more | font",
 ]);
@@ -579,7 +579,7 @@ const NOT_SPACING = new Set<string>([
   ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   ".text-btn > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
-  ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
+  ".field.select.no-icon .select-button | padding-left", ".field.select.small .select-button | padding", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
   ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",

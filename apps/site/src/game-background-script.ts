@@ -34,6 +34,8 @@ function layerFor(background) {
   }
   return layer;
 }
+// The game page's opening color and glass (GAME_OPENING_SCRIPT) step aside once a layer is in, so the backdrop script's glass leads.
+function forgetOpening() { delete root.dataset.gameGlass; ["--game-tone", "--game-glass-tint", "--game-still"].forEach((name) => root.style.removeProperty(name)); }
 function forget(layer) {
   if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer);
   layer.remove();
@@ -54,6 +56,7 @@ function show(background, options) {
   if (background.source === "zaisma") {
     // Back to Zaisma's own: the game's layer fades out over its canvas, which draws again, and the glass goes back to the theme's.
     if (defaultBackdrop) { defaultBackdrop.removeAttribute("data-backdrop-paused"); defaultBackdrop.classList.add("is-shown"); }
+    forgetOpening();
     if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
     layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
     const leaving = layers.slice();
@@ -75,6 +78,7 @@ function show(background, options) {
     setTimeout(() => {
       if (shownKey !== key) return;
       dropLayers(layer);
+      forgetOpening();
       // Zaisma's own waits shown underneath (a page may start it unseen, as the home does), so going back to it is only the game's fading out.
       if (defaultBackdrop) { defaultBackdrop.setAttribute("data-backdrop-paused", ""); defaultBackdrop.classList.add("is-shown"); }
     }, fadeMs + 80);
@@ -96,7 +100,26 @@ window.zaismaWorld = {
   clear: () => {
     shownKey = "";
     dropLayers(null);
+    forgetOpening();
     if (defaultBackdrop) defaultBackdrop.setAttribute("data-backdrop-paused", "");
   },
 };
+})();`);
+
+/**
+ * Before the game page's first paint (in its head, with its "game-opening" data): when the game has its own background for this screen,
+ * the page opens on that background's still picture, its color and its glass, and Zaisma's own backdrop stays unseen (game-page-style.ts), so the first frame is
+ * never Zaisma's world. The game's layer then fades in over that color (GAME_PAGE_SCRIPT, through zaismaWorld.show).
+ */
+export const GAME_OPENING_SCRIPT = pageScript("game-opening", String.raw`(() => {
+const DATA = JSON.parse(document.getElementById("game-opening").textContent), root = document.documentElement;
+const own = matchMedia("(max-width: 760px)").matches ? DATA.phone : DATA.wide;
+if (!own) return;
+root.dataset.gameWorld = "";
+// Its still (a picture's own, a shader's first frame) under it from the first paint, over its measured color while it loads.
+root.style.setProperty("--game-still", "url(" + JSON.stringify(own.stillUrl) + ")");
+if (!own.tone) return;
+root.dataset.gameGlass = own.tone.isGlassSmoked ? "smoked" : "light";
+root.style.setProperty("--game-tone", own.tone.averageColor);
+root.style.setProperty("--game-glass-tint", own.tone.glassTint);
 })();`);

@@ -1,3 +1,4 @@
+import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { pageStyle } from "./page-styles.ts";
 
 /**
@@ -6,6 +7,14 @@ import { pageStyle } from "./page-styles.ts";
  * is a gallery component; this only places them, picks the words' type, and sets what they offer (--table-height).
  */
 export const GAME_PAGE_STYLE = pageStyle("game-page", () => `
+/* A game with its own background opens on its color and glass (GAME_OPENING_SCRIPT), and Zaisma's own backdrop stays unseen until it's
+   shown (game-background-script.ts), or after a few seconds should the scripts not run, so the first frame is never Zaisma's world. */
+html[data-game-world] body { background: var(--game-still, none) center / cover no-repeat fixed, var(--game-tone, var(--page)); }
+html[data-game-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--game-glass-tint); }
+html[data-game-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--game-glass-tint); }
+html[data-game-world] canvas.backdrop { opacity: 0; transition: opacity 500ms ease; animation: game-backdrop-late 0s 4s forwards; }
+html[data-game-world] canvas.backdrop.is-shown { opacity: 1; }
+@keyframes game-backdrop-late { to { opacity: 1; } }
 /* Two states on one page: the details over the game's background, then the game filling the screen with the bar above it. */
 .game { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; padding: 0 var(--pad-pane); }
 /* The window: the game's world, clear, above the pane and the sections, which come up over it as the page scrolls. */
@@ -46,10 +55,13 @@ export const GAME_PAGE_STYLE = pageStyle("game-page", () => `
 .rooms-playing b { font-weight: 600; color: var(--ink); }
 .rooms-top > .code-join { flex: 0 1 320px; min-width: 240px; }
 .rooms-in { display: flex; flex-direction: column; gap: var(--gap-block-block); }
-.rooms-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--gap-words-control) var(--gap-block-block); }
-.rooms-regions { flex-basis: 100%; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+/* The region switch and the small label pickers share one row while they fit. */
+.rooms-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); }
+.rooms-regions { flex: 0 1 auto; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .rooms-regions > .tab-switch { width: max-content; }
-.rooms-filter { width: 180px; }
+/* The label pickers stay together: beside the switch while they fit, or all on the next line. */
+.rooms-filters { flex: 1 1 360px; display: flex; gap: var(--gap-words-control); min-width: 0; }
+.rooms-filter { flex: 1 1 0; min-width: 0; max-width: 200px; }
 /* The rooms table keeps to about five rooms' height, so the rest of the page stays near; more scroll inside it under its header. */
 #rooms-list { --table-height: 340px; }
 .rooms-more { font: var(--type-note); color: var(--muted); }
@@ -153,7 +165,6 @@ dialog.game-plate > .glass-pane { width: 100%; }
   .game-window { height: max(200px, calc(100svh - var(--header-room) - 480px)); }
   .game-pane { position: relative; top: auto; }
   .rooms-top > .code-join { flex: 1 1 100%; min-width: 0; }
-  .rooms-filter { flex: 1 1 140px; width: auto; }
 }
 @media (prefers-reduced-motion: reduce) { body.playing > .game, body.playing > .backdrop { transition: none; } #conn.retrying .face > .ico { animation: none; } }
 `);
