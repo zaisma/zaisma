@@ -1493,7 +1493,7 @@ const GAME_STYLES = `
 .meter.split .free{flex:1}
 .meter.split .paid{flex:2}
 .meter.split i{display:block;height:100%;background:var(--chrome)}
-.num.reached .meter.split .paid i{background:var(--warn)}
+.num.reached .meter.split i{background:var(--warn)}
 .meter-labels{display:flex;margin-top:6px}
 .meter-labels small{flex:1}
 .meter-labels small+small{flex:2;padding-left:3px}
