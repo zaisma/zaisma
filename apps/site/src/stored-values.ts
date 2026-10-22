@@ -63,6 +63,10 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "games.glass_tint_color", format: "hex_color", source: "developer", checked_by: DETAILS, saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", DASHBOARD], shown_on_door_ids: [DASHBOARD, HOME] },
   { stored: "games.links[].link_name", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/links.ts", "checkLinks"), saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", DASHBOARD], shown_on_door_ids: [DASHBOARD] },
   { stored: "games.links[].destination_url", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/links.ts", "checkLinks"), saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", DASHBOARD], shown_on_door_ids: [DASHBOARD] },
+  { stored: "game_items.item_name", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/items.ts", "checkItemName"), saved_by_door_ids: ["api:PUT /games/:slug/items/:item_name"], shown_on_door_ids: [] },
+  { stored: "game_items.title", format: "shown_text", source: "developer", checked_by: checkedIn("packages/core/src/items.ts", "checkItem"), saved_by_door_ids: ["api:PUT /games/:slug/items/:item_name"], shown_on_door_ids: [] },
+  { stored: "game_items.description", format: "shown_text", source: "developer", checked_by: checkedIn("packages/core/src/items.ts", "checkItem"), saved_by_door_ids: ["api:PUT /games/:slug/items/:item_name"], shown_on_door_ids: [] },
+  { stored: "games.refund_policy_text", format: "shown_text_block", source: "developer", checked_by: checkedIn("packages/core/src/items.ts", "checkPurchaseSettings"), saved_by_door_ids: ["api:PATCH /games/:slug/purchase-settings"], shown_on_door_ids: [] },
   { stored: "games.own_server_urls[]", format: "web_address", source: "developer", checked_by: checkedIn("packages/core/src/own-servers.ts", "checkOwnServerUrls"), saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug", DASHBOARD], shown_on_door_ids: [ADMIN_GAME, DASHBOARD, GAME_PAGE] },
   { stored: "games.game_server_allowed_hosts[]", format: "pattern_name", source: "developer", checked_by: checkedIn("packages/core/src/reach.ts", "checkAllowedHosts"), saved_by_door_ids: ["api:POST /games", "api:PATCH /games/:slug"], shown_on_door_ids: [] },
   { stored: "games.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
@@ -186,10 +190,13 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
   "performance_days.browser_name", "performance_days.os_name", "performance_days.graphics_family",
+  "game_items.item_category", "games.refund_policy", "games.own_payment_categories", "purchases.purchase_source",
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, places Cloudflare names, its own keys and records.
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
   "game_images.average_color", "game_shaders.average_color", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
   "domains.hostname", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret",
+  // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item.
+  "game_items.local_prices", "purchases.item_name",
   // Arrays of counts Zaisma's code adds up (player-performance.ts).
   "performance_days.loading_counts", "performance_days.frame_rate_seconds", "performance_days.memory_counts",
 ];

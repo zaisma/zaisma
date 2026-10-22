@@ -1,0 +1,8 @@
+{
+  "title": "Dungeon Delve",
+  "description": "Explore a dungeon, open a free chest each day, and buy outfits.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "A free daily chest with a random reward costs nothing, so it isn't a paid random reward. The shop sells each outfit by name and shows the real price beside the gem price."
+}
