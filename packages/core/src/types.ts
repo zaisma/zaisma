@@ -172,6 +172,8 @@ export interface ScanReport {
   read_file_sha256s?: string[];
   /** Another developer's game most of this version's files come from (matches_another_developers_game). For Zaisma's eyes only: the developer is never told which game. */
   matched_game?: { game_id: string; matched_file_count: number; compared_file_count: number };
+  /** The build needs threads (SharedArrayBuffer), found as the check finds needs_threads. Absent on reports from before Threads in Chrome and Edge. */
+  has_threads?: boolean;
 }
 
 /** The AI review in a scan report: readers, then one judge. */

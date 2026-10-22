@@ -216,6 +216,7 @@ export const VERSION = object({
   file_count: countOf(),
   size_bytes: countOf(),
   scan_status: SCAN_STATUS,
+  has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   preview_url: nullable(url("A private link to play this version, for the developer and their AI, once it's approved. A fresh one comes every time; each works for a day.")),
@@ -1084,6 +1085,7 @@ const ADMIN_GAME = object({
 const ADMIN_VERSION = object({
   id: idOf("version"),
   scan_status: SCAN_STATUS,
+  has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   published_at: nullable(isoTime("When it last went live.")),

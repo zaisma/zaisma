@@ -149,6 +149,7 @@ import {
   listRooms,
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
+  hasThreads,
 } from "@zaisma/core";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -1429,7 +1430,7 @@ async function goreVersionPlayersCanReach(env: Env, game: Game): Promise<Version
 
 /** A held or rejected version, which can't be published: why, and what to do, from its review reason or first finding. */
 function notApproved(game: Game, version: Version): ApiError {
-  const why = versionReviewReason(version) ?? findingsFor(version)[0] ?? null;
+  const why = versionReviewReason(version) ?? findingsFor(scanReportOf(version))[0] ?? null;
   return new ApiError("not_approved", {
     message: `This version is ${version.scan_status}, so it can't be published${why ? ` (${why.code}): ${why.message}` : "."}`,
     field: "version_id",
@@ -2205,12 +2206,14 @@ function performanceCheckJson(row: PerformanceCheckRow | null) {
 
 export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
   const preview = previewLinkToken(version);
+  const report = scanReportOf(version);
   return {
     id: version.id,
     file_count: version.file_count,
     size_bytes: version.size_bytes,
     // scanning, held (a person will look), approved or rejected.
     scan_status: version.scan_status,
+    has_threads: hasThreads(report),
     is_live: version.id === game.live_version_id,
     patch_notes: version.patch_notes,
     preview_url: preview ? `${env.SITE_ORIGIN}/p/${preview.token}` : null,
@@ -2221,7 +2224,7 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: findingsFor(version),
+    findings: findingsFor(report),
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
@@ -2235,8 +2238,9 @@ function versionReviewReason(version: Version) {
 }
 
 /** Why the scan held or rejected a version, with the rule and the fix. Child-safety signals are never described: a person needs to look. */
-function findingsFor(version: Version) {
-  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
+const scanReportOf = (version: Version): ScanReport | null => (version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null);
+
+function findingsFor(report: ScanReport | null) {
   if (!report) return [];
   const shown: Finding[] = report.is_child_safety
     ? [{ stage: "static", severity: "hold", code: "needs_review", message: "" }]
