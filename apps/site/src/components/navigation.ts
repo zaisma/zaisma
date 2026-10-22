@@ -428,6 +428,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function sync(box) {
     var top = Math.min(FADE_PX, box.scrollTop), bottom = Math.min(FADE_PX, box.scrollHeight - box.clientHeight - box.scrollTop);
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    // Whether there's more that way at all, for a box whose fades sit still (a table's).
+    box.classList.toggle("more-up", top > 0); box.classList.toggle("more-down", bottom > 0);
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", box.scrollHeight > box.clientHeight + 1);
     held(box);

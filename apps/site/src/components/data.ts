@@ -641,33 +641,34 @@ component({
 .data-table.compact thead th { padding: 8px 12px; }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; }
 .data-table.compact td { font: var(--type-facts); }
-/* A row scrolling under the header, or a column under the rows' heads or the pinned columns, is cut away exactly at their hairline, so
-   they stay as clear as the well with nothing showing through them: each cell's own view of the box (inset by the header's height, the
-   heads' width or the pinned column's, --table-pin-w) cuts as much of it as has passed the line, over the cell's own size (the crossing
-   ranges), so a cell wider than the room beside a head column on a phone is cut just as exactly. Nothing moves by itself. */
-@property --cell-cut-top { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-@property --cell-cut-left { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-@property --cell-cut-right { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+/* What scrolls fades into the well before it reaches the header or the head column, and is gone by the time anything in it would pass
+   under: the edge fades below fade it on its way to their hairline, and a row (or a column) that starts to pass under turns clear over
+   its cell's own padding, empty room, so its words and buttons never show through. Only opacity moves, on the browser's own scrolling,
+   so it keeps up with the quickest scroll. Each one's view of the box is inset by the header's height (--table-head-h), or the heads' or
+   the pinned column's width (--table-row-head-w, --table-pin-w); the crossing ranges keep to the cell's own size. */
+.data-table { --cell-room-y: 14px; --cell-room-x: 16px; }
+.data-table.compact { --cell-room-y: 8px; --cell-room-x: 12px; }
 @supports (animation-timeline: view()) {
-  .data-table tbody > tr > * { clip-path: inset(var(--cell-cut-top) var(--cell-cut-right) 0 var(--cell-cut-left)); animation: table-cut-top linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit-crossing; }
-  .data-table tbody > tr > td:not(.pin) { animation: table-cut-top linear both, table-cut-left linear both, table-cut-right linear both;
-    animation-timeline: view(block var(--table-head-h) 0px), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px));
-    animation-range: exit-crossing, exit-crossing, entry-crossing; }
-  .data-table.has-row-heads thead th:not(:first-child), .data-table:not(.has-row-heads) thead th:not(.pin) { clip-path: inset(0 var(--cell-cut-right) 0 var(--cell-cut-left));
-    animation: table-cut-left linear both, table-cut-right linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)); animation-range: exit-crossing, entry-crossing; }
+  .data-table tbody tr { animation: table-gone linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit-crossing 0px exit-crossing var(--cell-room-y); }
+  .data-table.has-row-heads :is(thead th:not(:first-child), tbody td) { animation: table-gone linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) 0px); animation-range: exit-crossing 0px exit-crossing var(--cell-room-x); }
+  .data-table:has(.pin) :is(thead th, tbody td):not(.pin) { animation: table-back linear both; animation-timeline: view(inline 0px var(--table-pin-w, 0px)); animation-range: entry-crossing calc(100% - var(--cell-room-x)) entry-crossing 100%; }
 }
-/* A browser that can't cut them gives the header and the head column the well's color, solid, to hide what's under them. */
+/* A browser that can't fade them gives the header and the head column the well's color, solid, to hide what's under them. */
 @supports not (animation-timeline: view()) {
   .data-table thead th, .data-table tbody th, .data-table .pin { background-color: var(--table-row-head); }
 }
-@keyframes table-cut-top { from { --cell-cut-top: 0%; } to { --cell-cut-top: 100%; } }
-@keyframes table-cut-left { from { --cell-cut-left: 0%; } to { --cell-cut-left: 100%; } }
-@keyframes table-cut-right { from { --cell-cut-right: 100%; } to { --cell-cut-right: 0%; } }
-/* With more above, below or to a side, what scrolls fades into the well just past the header, the heads and the pinned columns and at its
-   other edges (SCROLL_FADE_SCRIPT sets --fade-top and --fade-bottom, the sideways fade --fade-left and --fade-right). The header, the heads,
-   the pinned columns and the well itself never fade. */
-.table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
-  -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --fade-top 0.2s, --fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
+@keyframes table-gone { from { opacity: 1; } to { opacity: 0; } }
+@keyframes table-back { from { opacity: 0; } to { opacity: 1; } }
+/* With more above, below or to a side, what scrolls fades into the well just past the header, the heads and the pinned column and at its
+   other edges. Each fade is all there or not at all, set by whether there's more that way (more-up and more-down from SCROLL_FADE_SCRIPT,
+   more-left and more-right from the sideways fade), so it sits still while the rows scroll through it. The header, the head column and
+   the well itself never fade. */
+@property --table-fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --table-fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.table-scroll.more-up { --table-fade-top: 28px; }
+.table-scroll.more-down { --table-fade-bottom: 28px; }
+.table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--table-fade-top)), #000 calc(100% - var(--table-fade-bottom)), transparent);
+  -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --table-fade-top 0.2s, --table-fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
 .table-scroll { --fade-columns: linear-gradient(90deg, #000 var(--table-row-head-w, 0px), transparent var(--table-row-head-w, 0px), #000 calc(var(--table-row-head-w, 0px) + var(--fade-left)),
   #000 calc(100% - var(--table-pin-w, 0px) - var(--fade-right)), transparent calc(100% - var(--table-pin-w, 0px)), #000 calc(100% - var(--table-pin-w, 0px))); }
 .table-scroll:is(.more-left, .more-right) { -webkit-mask-image: var(--fade-columns); mask-image: var(--fade-columns); }
