@@ -4,7 +4,8 @@
 // best scores board with a request (onRequest), outside the room. Once a day a
 // schedule (onSchedule) keeps that board's table small. A player whose connection
 // drops stays frozen where they were for the room's reconnectTimeoutSec (30 seconds),
-// so a blip never costs them their place or their score.
+// so a blip never costs them their place or their score. State sync sends each player the
+// bodies as players see them, a full copy as they join and then only what changed each tick.
 // Only plain JavaScript plus type annotations, so Node can run it as-is.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
@@ -109,9 +110,30 @@ function steerBot(state: State, id: string, bot: Body): void {
   if (target && nearest < 90 && Math.random() < 0.04) startDash(bot);
 }
 
+/** A body as every player's game draws it: whole pixels, and nothing of the game server's own physics. */
+interface ShownBody {
+  name: string;
+  color: string;
+  x: number;
+  y: number;
+  score: number;
+  isDashing: boolean;
+  isOut: boolean;
+}
+
 const arena: GameServer<State> = {
   maximumPlayerCount: 8,
   ticksPerSec: 20,
+  stateSyncEnabled: true,
+
+  // Everyone sees every body, without inputs, velocities and timers: only what changed of this goes out each tick.
+  stateView(state) {
+    const bodies: Record<string, ShownBody> = {};
+    for (const [id, body] of Object.entries(state.bodies)) {
+      bodies[id] = { name: body.name, color: body.color, x: Math.round(body.x), y: Math.round(body.y), score: body.score, isDashing: body.dashLeftSec > 0, isOut: body.respawnInSec > 0 };
+    }
+    return { bodies };
+  },
 
   setup: () => ({ bodies: {}, colorIndex: 0, botCount: 0 }),
 
@@ -171,7 +193,7 @@ const arena: GameServer<State> = {
     if (sent.dash === true) startDash(body);
   },
 
-  // Back after a dropped connection: their body unfreezes by itself (onTick), and the next snapshot catches their game up.
+  // Back after a dropped connection: their body unfreezes by itself (onTick), and state sync sends their game a full copy.
   onBack(state, player) {
     console.log(`${player.name} is back`);
   },
@@ -247,13 +269,7 @@ const arena: GameServer<State> = {
       if (hitter) hitter.score++;
       room.broadcast({ knockedOutId: id, byId: body.lastHitById });
     }
-    // Everyone's place. Rooms count messages, not their size, so whole words cost nothing extra.
-    room.broadcast({
-      snapshot: ids.map((id) => {
-        const body = state.bodies[id]!;
-        return { id, x: Math.round(body.x), y: Math.round(body.y), score: body.score, isDashing: body.dashLeftSec > 0, isOut: body.respawnInSec > 0, name: body.name, color: body.color };
-      }),
-    });
+    // Everyone's place goes out by itself after this tick: state sync sends what changed of stateView.
   },
 };
 

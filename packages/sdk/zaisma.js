@@ -23,14 +23,25 @@
   // move.join joins the room the move names, on this room's server.
   var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl"; });
   var KICK_OPTIONS = ["keepOut"];
+  var SEND_OPTIONS = ["delivery", "latestKey"];
+  var DELIVERIES = ["reliable", "latest_only"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
-  var ROOM_EVENTS = ["message", "bytes", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
+  var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
   var SAVES_EVENTS = ["conflict", "developerChange"];
   var VERSIONS_EVENTS = ["update"];
   /** The room closes connections with this as its match switches to a version published "now". */
   var VERSION_UPDATE_CLOSE_CODE = 4004;
   /** A real-time room's ping from this on shows as a weak connection beside the game. */
   var WEAK_PING_MS = 150;
+  /** A latest-only send waits while the socket holds this much not yet sent, checked every LATEST_CHECK_MS. */
+  var BACKED_UP_SIZE_BYTES = 64 * 1024;
+  var LATEST_CHECK_MS = 50;
+  /** Latest-only sends waiting, one per latestKey (the room keeps the same many per player), and its latestKey's length. */
+  var MAXIMUM_LATEST_ONLY_SLOT_COUNT = 64;
+  var MAXIMUM_LATEST_KEY_CHARACTER_COUNT = 40;
+  /** room.smoothedState() draws this far behind the room's clock unless the game says, and keeps a second of views to draw from. */
+  var DEFAULT_SMOOTHING_DELAY_MS = 100;
+  var KEPT_VIEWS_DURATION_MS = 1000;
 
   /** An Error with a code, as the SDK's errors all have. */
   function codedError(code, message) {
@@ -377,6 +388,13 @@
     // How often a ticking room probes (from welcome), or null, and when this connection last heard from the room.
     this._probeIntervalSec = null;
     this._heardAtMs = 0;
+    // State sync (the game server's stateSyncEnabled): this player's view of the state, null until the
+    // first update, and the views of the last second with the room's time of each, for smoothedState().
+    this.state = null;
+    this._views = [];
+    // Latest-only sends waiting for the socket to drain, by "<kind>:<latestKey>", least recently replaced first.
+    this._slots = new Map();
+    this._slotTimer = null;
   }
   Room.prototype = Object.create(Emitter.prototype);
 
@@ -484,6 +502,8 @@
         room._mutedChanged();
       } else if (message.type === "message") {
         room._emit("message", message.data);
+      } else if (message.type === "state") {
+        room._takeState(message);
       } else if (message.type === "room") {
         var wasTakingFriendJoins = room.friendJoinsEnabled;
         room._settle(message.room);
@@ -613,21 +633,159 @@
     window.parent.postMessage({ type: "zaisma:connection", code: this.roomCode, connectionStatus: this.connectionStatus, pingDurationMs: this.pingDurationMs, isWeak: this._isWeak === true }, config.site);
   };
 
-  /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
-  Room.prototype.send = function (message) {
-    if (!this._away) this._say({ type: "message", data: message });
+  /**
+   * Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame.
+   * { delivery: "latest_only" } may drop it for a newer one with the same latestKey while the connection is backed up.
+   */
+  Room.prototype.send = function (message, sendOptions) {
+    var latestKey = readDelivery(sendOptions, "room.send", message && typeof message === "object" && typeof message.type === "string" ? message.type : "");
+    if (this._away) return;
+    if (latestKey === null) this._say({ type: "message", data: message });
+    else this._sendLatest("message:" + latestKey, JSON.stringify({ type: "message", data: message }));
   };
 
   /**
    * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed array,
-   * up to 16 KB, counted with messages (30 a second).
+   * up to 16 KB, counted with messages (30 a second). Takes the same sendOptions as room.send.
    */
-  Room.prototype.sendBytes = function (bytes) {
+  Room.prototype.sendBytes = function (bytes, sendOptions) {
     if (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes)) throw codedError("bad_bytes", "room.sendBytes takes bytes: a Uint8Array, another typed array or an ArrayBuffer. For JSON, use room.send.");
+    var latestKey = readDelivery(sendOptions, "room.sendBytes", "");
     if (this._away || !this._ws || this._ws.readyState !== 1) return;
+    if (latestKey !== null) {
+      // A copy: the game may reuse its buffer while this one waits.
+      this._sendLatest("bytes:" + latestKey, ArrayBuffer.isView(bytes) ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : bytes.slice(0));
+      return;
+    }
     this._ws.send(bytes);
     this._sentAtMs = Date.now();
   };
+
+  /** A send's latestKey when its delivery is "latest_only", or null for a reliable one. Mistakes throw, naming what to give. */
+  function readDelivery(sendOptions, call, defaultKey) {
+    var refused = unknownOption(sendOptions, SEND_OPTIONS, call);
+    if (refused) throw refused;
+    var given = sendOptions || {};
+    if (given.delivery !== undefined && DELIVERIES.indexOf(given.delivery) === -1) throw codedError("bad_send_option", call + "'s delivery is " + JSON.stringify(given.delivery) + '. Give "reliable" (the default) or "latest_only".');
+    if (given.latestKey !== undefined && (typeof given.latestKey !== "string" || given.latestKey.length > MAXIMUM_LATEST_KEY_CHARACTER_COUNT)) throw codedError("bad_send_option", call + "'s latestKey must be text up to " + MAXIMUM_LATEST_KEY_CHARACTER_COUNT + ' characters, like "positions".');
+    if (given.delivery !== "latest_only") return null;
+    return given.latestKey !== undefined ? given.latestKey : defaultKey;
+  }
+
+  /** A latest-only send: now, after anything still waiting, or into its slot while the socket is backed up. */
+  Room.prototype._sendLatest = function (slotKey, payload) {
+    if (this._ws && this._ws.readyState === 1 && !(this._ws.bufferedAmount >= BACKED_UP_SIZE_BYTES)) {
+      this._sendWaiting();
+      this._ws.send(payload);
+      this._sentAtMs = Date.now();
+      return;
+    }
+    this._slots.delete(slotKey);
+    this._slots.set(slotKey, payload);
+    if (this._slots.size > MAXIMUM_LATEST_ONLY_SLOT_COUNT) this._slots.delete(this._slots.keys().next().value);
+    if (this._slotTimer === null) {
+      var room = this;
+      this._slotTimer = setInterval(function () {
+        if (room._done || room._away) room._slots.clear();
+        else if (room._ws && room._ws.readyState === 1 && !(room._ws.bufferedAmount >= BACKED_UP_SIZE_BYTES)) room._sendWaiting();
+        if (!room._slots.size) { clearInterval(room._slotTimer); room._slotTimer = null; }
+      }, LATEST_CHECK_MS);
+    }
+  };
+  /** Latest-only sends that waited, least recently replaced first. */
+  Room.prototype._sendWaiting = function () {
+    if (!this._slots.size) return;
+    var ws = this._ws;
+    this._slots.forEach(function (payload) { ws.send(payload); });
+    this._slots.clear();
+    this._sentAtMs = Date.now();
+  };
+
+  /** A state update from the game server (stateSyncEnabled): a full copy of this player's view, or what changed. */
+  Room.prototype._takeState = function (message) {
+    var changes = null;
+    if (Object.prototype.hasOwnProperty.call(message, "full")) this.state = message.full;
+    else if (Array.isArray(message.changes) && this._views.length) {
+      try { this.state = applyStateChanges(this.state, message.changes); } catch (error) { return; }
+      changes = message.changes;
+    } else return;
+    var serverTimeMs = typeof message.serverTimeMs === "number" ? message.serverTimeMs : this.serverTimeMs();
+    this._views.push({ serverTimeMs: serverTimeMs, state: this.state });
+    while (this._views.length > 2 && this._views[1].serverTimeMs <= serverTimeMs - KEPT_VIEWS_DURATION_MS) this._views.shift();
+    this._emit("state", this.state, changes);
+  };
+
+  /**
+   * The state as it was delayMs (100 unless given) behind the room's clock, between the two updates around
+   * then: numbers in between, anything else as the older one had it, and what's in only one of them as it is.
+   * A copy, so the game can keep it; null until the first update.
+   */
+  Room.prototype.smoothedState = function (delayMs) {
+    if (delayMs === undefined) delayMs = DEFAULT_SMOOTHING_DELAY_MS;
+    if (typeof delayMs !== "number" || !(delayMs >= 0 && delayMs <= KEPT_VIEWS_DURATION_MS)) throw codedError("bad_delay", "room.smoothedState takes a delay in milliseconds from 0 to " + KEPT_VIEWS_DURATION_MS + ", like 100.");
+    var views = this._views;
+    if (!views.length) return null;
+    var atMs = this.serverTimeMs() - delayMs;
+    // The first view newer than then: the one to blend toward.
+    var newerIndex = 0;
+    while (newerIndex < views.length && views[newerIndex].serverTimeMs <= atMs) newerIndex++;
+    if (newerIndex === 0) return blendStates(views[0].state, views[0].state, 0);
+    if (newerIndex === views.length) return blendStates(views[newerIndex - 1].state, views[newerIndex - 1].state, 0);
+    var older = views[newerIndex - 1];
+    var spanMs = views[newerIndex].serverTimeMs - older.serverTimeMs;
+    return blendStates(older.state, views[newerIndex].state, spanMs > 0 ? (atMs - older.serverTimeMs) / spanMs : 1);
+  };
+
+  /** Two views blended: numbers fraction of the way from older to newer, anything else the older one's, and what's in only one as it is, copied. */
+  function blendStates(older, newer, fraction) {
+    if (typeof older === "number" && typeof newer === "number") return older + (newer - older) * fraction;
+    var isList = Array.isArray(older);
+    if (!older || typeof older !== "object" || !newer || typeof newer !== "object" || isList !== Array.isArray(newer)) {
+      return older && typeof older === "object" ? blendStates(older, older, 0) : older;
+    }
+    var blended = isList ? [] : {};
+    var keys = isList ? Array.from({ length: Math.max(older.length, newer.length) }, function (unused, i) { return i; }) : Object.keys(older).concat(Object.keys(newer).filter(function (key) { return !Object.prototype.hasOwnProperty.call(older, key); }));
+    keys.forEach(function (key) {
+      var isInOlder = Object.prototype.hasOwnProperty.call(older, key);
+      var isInNewer = Object.prototype.hasOwnProperty.call(newer, key);
+      var part = isInOlder && isInNewer ? blendStates(older[key], newer[key], fraction) : isInOlder ? blendStates(older[key], older[key], 0) : blendStates(newer[key], newer[key], 0);
+      Object.defineProperty(blended, key, { value: part, writable: true, enumerable: true, configurable: true });
+    });
+    return blended;
+  }
+
+  /**
+   * The state with a state update's changes applied, as a new state: what changed is copied along its path
+   * and the rest shared, so earlier views stay as they were. The game server's applyStateChanges
+   * (packages/game-server/src/state-sync.ts) does the same; test/node/state-sync.test.ts holds them equal.
+   */
+  function applyStateChanges(state, changes) {
+    var copied = new Set();
+    function copyOf(given) {
+      if (copied.has(given)) return given;
+      var copy = Array.isArray(given) ? given.slice() : {};
+      if (!Array.isArray(given)) Object.keys(given).forEach(function (key) { Object.defineProperty(copy, key, { value: given[key], writable: true, enumerable: true, configurable: true }); });
+      copied.add(copy);
+      return copy;
+    }
+    var root = state;
+    changes.forEach(function (change) {
+      var path = change[0];
+      if (!path.length) { root = change.length > 1 ? change[1] : null; return; }
+      root = copyOf(root);
+      var parent = root;
+      for (var i = 0; i < path.length - 1; i++) {
+        var child = copyOf(parent[path[i]]);
+        parent[path[i]] = child;
+        parent = child;
+      }
+      var key = path[path.length - 1];
+      // A key named __proto__ is plain data, as JSON.parse makes it, never the object's prototype.
+      if (change.length > 1) Object.defineProperty(parent, key, { value: change[1], writable: true, enumerable: true, configurable: true });
+      else delete parent[key];
+    });
+    return root;
+  }
 
   /** A binary frame from the room: one byte, the sender's player ID length, the ID (none for the game server), then the bytes. */
   Room.prototype._bytes = function (received) {
@@ -714,6 +872,10 @@
     this._joinData = null;
     this._tries = 0;
     this._moved = true;
+    // Another room's state comes with its first update.
+    this.state = null;
+    this._views = [];
+    this._slots.clear();
     if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: roomCode }, config.site);
     this._setConnectionStatus("connecting");
     this._emit("moved", roomCode);

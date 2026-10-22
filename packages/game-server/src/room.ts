@@ -12,6 +12,7 @@ import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind } from "./pass.ts";
 import type { Server } from "./requests.ts";
 import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
+import { newStateTracker, type StateChange, type StateFrame, type StateTracker } from "./state-sync.ts";
 import type { WebhookEvent } from "./webhooks.ts";
 
 export interface Player {
@@ -26,10 +27,13 @@ export interface Player {
 export interface Room {
   /** Players in the room right now, in join order. */
   readonly players: readonly Player[];
-  /** Send a message to every player, or everyone but one (exceptPlayerId). */
+  /**
+   * Send a message to every player, or everyone but one (exceptPlayerId). delivery "latest_only" lets a
+   * player whose connection is backed up skip it for a newer one (SendOptions).
+   */
   broadcast(message: unknown, broadcastOptions?: BroadcastOptions): void;
   /** Send a message to one player. */
-  send(playerId: string, message: unknown): void;
+  send(playerId: string, message: unknown, sendOptions?: SendOptions): void;
   /**
    * Send bytes to every player, or everyone but one (exceptPlayerId), like a compact snapshot of the
    * world. fromPlayerId says whose they are when you pass one player's bytes on; each player's game gets
@@ -37,7 +41,7 @@ export interface Room {
    */
   broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void;
   /** Send bytes to one player. */
-  sendBytes(playerId: string, bytes: Uint8Array): void;
+  sendBytes(playerId: string, bytes: Uint8Array, sendOptions?: SendOptions): void;
   /** End the match: everyone is told why (message) and disconnected, and the room closes. */
   end(message?: string): void;
   /**
@@ -148,7 +152,24 @@ export interface Room {
   applyVersionUpdate(): void;
 }
 
-export interface BroadcastOptions {
+/**
+ * How a message goes: "reliable" (the default) reaches every player in order. "latest_only" may be
+ * dropped: a player whose connection is backed up skips older ones and gets the newest once they catch
+ * up, like positions sent every tick. In Zaisma rooms it rides the WebSocket today, and moves to real
+ * datagrams the day Cloudflare carries them, with no change to your game.
+ */
+export type Delivery = "reliable" | "latest_only";
+
+export interface SendOptions {
+  delivery?: Delivery;
+  /**
+   * For "latest_only": which messages replace each other while a player is backed up, up to 40
+   * characters, like "positions". Defaults to the message's type field when it's a string, else "".
+   */
+  latestKey?: string;
+}
+
+export interface BroadcastOptions extends SendOptions {
   /** A player who doesn't get it, like the one whose move this is. */
   exceptPlayerId?: string;
 }
@@ -298,6 +319,13 @@ export interface GameServer<S = any> {
    */
   reconnectTimeoutSec?: number;
   /**
+   * Send each player the state, then only what changes: a full copy when they join (and after their
+   * connection was backed up), then the changes after each tick, or after each handler in a turn-based
+   * game. Their game reads it as room.state, or room.smoothedState() to move evenly between updates.
+   * Off by default. The state goes as JSON, so keep it plain; cut what each player sees with stateView.
+   */
+  stateSyncEnabled?: boolean;
+  /**
    * How often a real-time room saves its state, in seconds: 1 to 60, default 5. A restarted room comes
    * back with the last saved state (onRestored). Turn-based rooms save after every change and ignore it.
    */
@@ -402,6 +430,13 @@ export interface GameServer<S = any> {
    */
   onRestored?(state: S, restoreInfo: RestoreInfo, room: Room): HandlerResult<S>;
   /**
+   * With stateSyncEnabled: what this player sees of the state, like only what's near them in a big
+   * world, or without the other team's hidden cards. Leave it out and everyone sees all of it. Answer
+   * plain JSON, a new object or parts of the state; don't change the state here. Keep it cheap: it runs
+   * for every player on every tick. viewer is the player it's for.
+   */
+  stateView?(state: S, viewer: Player, room: Room): unknown;
+  /**
    * The developer published a version with match_update_mode "now", and this match moves to it. With
    * this handler the room waits for you: call room.applyVersionUpdate() at a good moment, like the end of
    * a round, or it switches at versionUpdate.forcedAt, 5 minutes on. Without it, it switches 10 seconds
@@ -469,6 +504,7 @@ export const GAME_SERVER_OPTIONS = [
   "idleTimeoutSec",
   "awayMode",
   "seatHoldDurationSec",
+  "stateSyncEnabled",
   "reconnectTimeoutSec",
   "stateSaveIntervalSec",
   "setup",
@@ -483,6 +519,7 @@ export const GAME_SERVER_OPTIONS = [
   "onTick",
   "onEnding",
   "onRestored",
+  "stateView",
   "onVersionUpdate",
   "onRequest",
   "schedules",
@@ -545,6 +582,19 @@ export const ROOM_LIMITS = {
   maximumUnansweredSentBytes: 2 * 1024 * 1024,
   /** Unanswered probes the room remembers per player; the oldest is forgotten past it. */
   maximumUnansweredProbeCount: 16,
+  /** A player's view of the state as JSON (stateSyncEnabled): bigger views aren't sent, and the game's errors say so once. */
+  maximumStateViewSizeBytes: 1024 * 1024,
+  /**
+   * A player is backed up with this much sent and not yet through: on your own server, the socket's
+   * bufferedAmount; in Zaisma rooms, sent since the last probe they answered, while a probe of theirs is
+   * backedUpDelayMs later than their ping. State sync skips them, and latest-only messages wait for them in slots.
+   */
+  backedUpSizeBytes: 64 * 1024,
+  backedUpDelayMs: 250,
+  /** A latest-only message's latestKey. */
+  maximumLatestKeyCharacterCount: 40,
+  /** Latest-only messages waiting for a backed-up player, one per latestKey; past it, the oldest is dropped. */
+  maximumLatestOnlySlotCount: 64,
 } as const;
 
 /** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
@@ -596,7 +646,7 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     );
   }
   for (const field of GAME_SERVER_OPTIONS) {
-    if (field.startsWith("on") || field === "canJoin" || field === "setup") {
+    if (field.startsWith("on") || field === "canJoin" || field === "setup" || field === "stateView") {
       if (server[field] !== undefined && typeof server[field] !== "function") throw bad(field, `${field} isn't a function.`, `Give ${field} as a function, or leave it out.`);
     }
   }
@@ -609,6 +659,8 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     throw bad("ticksPerSec", `ticksPerSec is ${JSON.stringify(ticksPerSec)}.`, `Give a number above 0 and up to ${ROOM_LIMITS.maximumTicksPerSec}, like 30, or leave it out for a turn-based game.`);
   }
   if (hostControlsEnabled !== undefined && typeof hostControlsEnabled !== "boolean") throw bad("hostControlsEnabled", "hostControlsEnabled isn't true or false.", "Give true or false.");
+  if (server.stateSyncEnabled !== undefined && typeof server.stateSyncEnabled !== "boolean") throw bad("stateSyncEnabled", "stateSyncEnabled isn't true or false.", "Give true to send each player the state and then only what changes, or leave it out.");
+  if (server.stateView !== undefined && !server.stateSyncEnabled) throw bad("stateView", "stateView only works with stateSyncEnabled.", "Add stateSyncEnabled: true, or leave stateView out.");
   if (idleCheck !== undefined && idleCheck !== "server" && idleCheck !== "client" && idleCheck !== "off") {
     throw bad("idleCheck", `idleCheck is ${JSON.stringify(idleCheck)}.`, 'Give "server" (the room checks, after idleTimeoutSec), "client" (each player\'s game decides) or "off".');
   }
@@ -677,6 +729,10 @@ export interface RoomSettings {
  * ROOM_LIMITS.maximumGameMessageSizeBytes and counted with its messages, for the game server's onBytes.
  * Every binary frame the room sends starts with one byte, the length in UTF-8 bytes of the player ID
  * they came from (0 for the game server), then that ID, then the bytes (bytesFrame).
+ *
+ * State sync (stateSyncEnabled): {type: "state", serverTimeMs, full} with the player's whole view, the
+ * first time and after their connection was backed up, then {type: "state", serverTimeMs, changes} with
+ * what changed since (StateChange, state-sync.ts). serverTimeMs is the room's clock as it was sent.
  */
 export type ServerMessage =
   | { type: "welcome"; me: Player; players: ListedPlayer[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
@@ -690,6 +746,8 @@ export type ServerMessage =
   | { type: "room"; room: RoomSettings }
   | { type: "move"; roomCode: string }
   | { type: "message"; data: unknown }
+  | { type: "state"; serverTimeMs: number; full: unknown }
+  | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
   | { type: "error"; code: RoomErrorCode; message: string }
   | { type: "ended"; message: string };
@@ -819,6 +877,8 @@ export interface Transport {
   secrets?: Readonly<Record<string, string>>;
   /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
   applyVersionUpdate?(): void;
+  /** Whether a player's connection holds ROOM_LIMITS.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
+  isBackedUp?(playerId: string): boolean;
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -893,11 +953,33 @@ export const QUEUES_INPUT = Symbol("queuesInput");
  */
 export const PAIR_CHANGE_COUNT = Symbol("pairChangeCount");
 
+/**
+ * Marks a game server that runs state sync itself, like Zaisma's sandboxed ones, whose state lives in the
+ * sandbox: its calls send their frames through the room's STATE_SYNC, and the room calls this, with the
+ * state and its API, when a round is due outside them (a player reconnecting, or catching up, in a turn-based room).
+ */
+export const SYNCS_STATE = Symbol("syncsState");
+
+/**
+ * On a room's API object, for a game server that runs state sync itself (SYNCS_STATE): viewers() says
+ * which players are backed up and which need a full copy (taken: each is said once), and send() sends a
+ * frame to some of them.
+ */
+export const STATE_SYNC = Symbol("stateSync");
+
+/** What STATE_SYNC hands a game server that runs state sync itself. */
+export interface StateSyncHooks {
+  viewers(): { backedUpPlayerIds: string[]; fullCopyPlayerIds: string[] };
+  send(playerIds: unknown, frame: unknown): void;
+}
+
 /** Messages a room's traffic counts by type: their data.type, like "move", or one of these. */
 export const NO_MESSAGE_TYPE = "(none)";
 export const BYTES_MESSAGE_TYPE = "(bytes)";
 export const ZAISMA_MESSAGE_TYPE = "(zaisma)";
 export const OTHER_MESSAGE_TYPE = "(other)";
+/** State sync's updates (stateSyncEnabled). */
+export const STATE_MESSAGE_TYPE = "(state)";
 /** Message types a room counts apart in each direction; any more count as OTHER_MESSAGE_TYPE. */
 const MAXIMUM_MESSAGE_TYPE_COUNT = 20;
 /** A game's message type: up to 40 letters, digits and _ - . : */
@@ -905,13 +987,17 @@ const MESSAGE_TYPE_PATTERN = /^[A-Za-z0-9_\-.:]{1,40}$/;
 
 export type TrafficDirection = "inbound" | "outbound";
 
-/** One message type's traffic in one direction: how many, their bytes and the largest. */
+/**
+ * One message type's traffic in one direction: how many, their bytes and the largest, and how many of
+ * those sent reliably went to a player whose connection was backed up (for the latest_only hint).
+ */
 export interface MessageTypeTraffic {
   messageType: string;
   direction: TrafficDirection;
   messageCount: number;
   sizeBytes: number;
   largestSizeBytes: number;
+  backedUpMessageCount: number;
 }
 
 /**
@@ -936,11 +1022,13 @@ export function addTraffic(first: RoomTraffic, second: RoomTraffic): RoomTraffic
   for (const type of second.messageTypes) {
     const key = `${type.direction} ${type.messageType}`;
     const kept = types.get(key);
-    if (!kept) types.set(key, { ...type });
+    if (!kept) types.set(key, { ...type, backedUpMessageCount: type.backedUpMessageCount ?? 0 });
     else {
       kept.messageCount += type.messageCount;
       kept.sizeBytes += type.sizeBytes;
       kept.largestSizeBytes = Math.max(kept.largestSizeBytes, type.largestSizeBytes);
+      // Traffic a room kept from before backed-up sends were counted has none.
+      kept.backedUpMessageCount = (kept.backedUpMessageCount ?? 0) + (type.backedUpMessageCount ?? 0);
     }
   }
   return {
@@ -1028,6 +1116,14 @@ export class RoomCore<S = any> {
   private buckets = new Map<string, { tokenCount: number; filledAtMs: number }>();
   /** Probes this room has sent, to every player: each probe's number. */
   private probeCount = 0;
+  /** What each player was last sent of the state (stateSyncEnabled), unless the game server runs state sync itself (SYNCS_STATE). */
+  private readonly stateTracker: StateTracker | null;
+  /** For a game server that runs state sync itself: players with a new connection, who need a full copy. */
+  private readonly fullCopyPlayerIds = new Set<string>();
+  /** A turn-based room's players state sync skipped as backed up, who get a full copy once they catch up. */
+  private readonly stateSkippedPlayerIds = new Set<string>();
+  /** Latest-only messages waiting for each backed-up player, by "<kind>:<latestKey>", least recently replaced first. */
+  private readonly latestSlots = new Map<string, Map<string, Outgoing>>();
   private readonly now: () => number;
   readonly maximumPlayerCount: number;
   private readonly api: Room;
@@ -1070,6 +1166,7 @@ export class RoomCore<S = any> {
     this.transport = transport;
     this.now = startOptions.now ?? Date.now;
     this.maximumPlayerCount = server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount;
+    this.stateTracker = server.stateSyncEnabled && !(server as { [SYNCS_STATE]?: unknown })[SYNCS_STATE] ? newStateTracker(ROOM_LIMITS.maximumStateViewSizeBytes) : null;
     for (const player of startOptions.players ?? []) {
       this.players.set(player.id, player);
       const was = startOptions.presence?.[player.id];
@@ -1141,13 +1238,24 @@ export class RoomCore<S = any> {
       get players() {
         return [...core.players.values()];
       },
-      broadcast: (message, broadcastOptions) => this.broadcast(message, broadcastOptions?.exceptPlayerId),
-      send: (playerId, message) => {
-        if (this.players.has(playerId)) this.sendText(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage), undefined, messageTypeOf(message));
+      broadcast: (message, broadcastOptions) => {
+        const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "delivery", "latestKey"], "room.broadcast");
+        const delivery = readDelivery(given, "room.broadcast", defaultLatestKey(message));
+        this.deliver(
+          [...this.players.keys()].filter((id) => id !== given.exceptPlayerId),
+          { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) },
+          delivery,
+        );
+      },
+      send: (playerId, message, sendOptions) => {
+        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.send"), "room.send", defaultLatestKey(message));
+        if (this.players.has(playerId)) this.deliver([playerId], { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) }, delivery);
       },
       broadcastBytes: (bytes, broadcastOptions) => this.broadcastBytes(bytes, broadcastOptions),
-      sendBytes: (playerId, bytes) => {
-        if (this.players.has(playerId)) this.sendFrame([playerId], bytesFrame(readBytes(bytes, "room.sendBytes"), null));
+      sendBytes: (playerId, bytes, sendOptions) => {
+        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.sendBytes"), "room.sendBytes", "");
+        const frame = bytesFrame(readBytes(bytes, "room.sendBytes"), null);
+        if (this.players.has(playerId)) this.deliver([playerId], { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
       },
       end: (message) => this.end(message ?? "The match is over."),
       get endsAt() {
@@ -1187,6 +1295,7 @@ export class RoomCore<S = any> {
       },
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
+    Object.defineProperty(this.api, STATE_SYNC, { value: { viewers: () => this.stateViewers(), send: (playerIds, frame) => this.sendStateFrom(playerIds, frame) } satisfies StateSyncHooks });
     if (restoreInfo) this.restored(restoreInfo, lostPlayers);
   }
 
@@ -1496,6 +1605,11 @@ export class RoomCore<S = any> {
     this.sendText(player.id, JSON.stringify({ type: "welcome", me: player, players: this.list(), room: this.settings(), hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage));
     // Every room gets a first ping and clock sample right away, ticking or not.
     this.probe(player.id);
+    // A new connection starts with nothing of the state: a full copy comes with the next round.
+    if (this.server.stateSyncEnabled) {
+      this.stateTracker?.forget(player.id);
+      this.fullCopyPlayerIds.add(player.id);
+    }
     // A new connection hears its blocks afresh, and everyone else before the game or the player list says they're here.
     this.toldBlocks.delete(player.id);
     this.tellBlocks();
@@ -1505,6 +1619,8 @@ export class RoomCore<S = any> {
       this.broadcastPlayers();
     } else if (isReconnect) this.cameBack(player);
     else if (this.kept.has(player.id)) this.back(player.id);
+    // A turn-based room has no tick to bring a returning connection its copy of the state.
+    if (isRejoin && !this.ticking) this.syncSoon();
     return { isAllowed: true, isRejoin };
   }
 
@@ -1548,6 +1664,9 @@ export class RoomCore<S = any> {
   /** Take a player out of the match, forgetting what the room knew about them while they were in. */
   private out(playerId: string): void {
     this.players.delete(playerId);
+    this.latestSlots.delete(playerId);
+    this.stateSkippedPlayerIds.delete(playerId);
+    this.fullCopyPlayerIds.delete(playerId);
     this.kept.delete(playerId);
     this.reconnectUntilMs.delete(playerId);
     this.presence.delete(playerId);
@@ -1781,8 +1900,8 @@ export class RoomCore<S = any> {
     }
   }
 
-  /** Count messages in or out for the room's traffic: how many, their bytes and the largest of them. */
-  private countTraffic(direction: TrafficDirection, messageType: string, messageCount: number, sizeBytes: number): void {
+  /** Count messages in or out for the room's traffic: how many, their bytes and the largest of them, and how many went to a backed-up player. */
+  private countTraffic(direction: TrafficDirection, messageType: string, messageCount: number, sizeBytes: number, backedUpMessageCount = 0): void {
     if (messageCount === 0) return;
     const traffic = this.traffic;
     if (direction === "inbound") traffic.inboundSizeBytes += sizeBytes;
@@ -1793,14 +1912,15 @@ export class RoomCore<S = any> {
     let kept = traffic.messageTypes.get(`${direction} ${messageType}`);
     if (!kept) {
       const typeCountKey = direction === "inbound" ? "inboundTypeCount" : "outboundTypeCount";
-      if (traffic[typeCountKey] >= MAXIMUM_MESSAGE_TYPE_COUNT && messageType !== OTHER_MESSAGE_TYPE) return this.countTraffic(direction, OTHER_MESSAGE_TYPE, messageCount, sizeBytes);
+      if (traffic[typeCountKey] >= MAXIMUM_MESSAGE_TYPE_COUNT && messageType !== OTHER_MESSAGE_TYPE) return this.countTraffic(direction, OTHER_MESSAGE_TYPE, messageCount, sizeBytes, backedUpMessageCount);
       if (messageType !== OTHER_MESSAGE_TYPE) traffic[typeCountKey]++;
-      kept = { messageType, direction, messageCount: 0, sizeBytes: 0, largestSizeBytes: 0 };
+      kept = { messageType, direction, messageCount: 0, sizeBytes: 0, largestSizeBytes: 0, backedUpMessageCount: 0 };
       traffic.messageTypes.set(`${direction} ${messageType}`, kept);
     }
     kept.messageCount += messageCount;
     kept.sizeBytes += sizeBytes * messageCount;
     kept.largestSizeBytes = Math.max(kept.largestSizeBytes, sizeBytes);
+    kept.backedUpMessageCount += backedUpMessageCount;
   }
 
   /** The room's traffic since the last time it was taken, and start counting afresh. */
@@ -1986,11 +2106,147 @@ export class RoomCore<S = any> {
     if (this.ended) return;
     this.expireReconnects();
     this.probeDue();
+    this.catchUp();
     // A room where everyone walked away stops running until someone's back.
-    if (!this.server.onTick || this.playingCount === 0) return;
+    if (this.playingCount === 0) return;
+    // State sync's round comes after onTick; without one, every tick.
+    if (!this.server.onTick) return this.syncState();
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
-    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
+    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api), true);
+  }
+
+  /**
+   * Players who caught up: their latest-only messages go now, and in a turn-based room, players state sync
+   * skipped get a full copy. Ticking rooms check each tick and at each probe answer; your own server's
+   * runner also every 50 ms while isCatchingUp.
+   */
+  catchUp(): void {
+    if (this.ended) return;
+    for (const id of [...this.latestSlots.keys()]) {
+      if (!this.players.has(id) || this.isLost(id)) this.latestSlots.delete(id);
+      else if (!this.isBackedUp(id)) this.sendLatest(id);
+    }
+    let hasCaughtUp = false;
+    for (const id of [...this.stateSkippedPlayerIds]) {
+      if (this.players.has(id) && !this.isLost(id) && this.isBackedUp(id)) continue;
+      this.stateSkippedPlayerIds.delete(id);
+      hasCaughtUp ||= this.players.has(id);
+    }
+    if (hasCaughtUp) this.syncSoon();
+  }
+
+  /** Whether anything waits for a player to catch up: latest-only messages, or a turn-based room's state. */
+  get isCatchingUp(): boolean {
+    return this.latestSlots.size > 0 || this.stateSkippedPlayerIds.size > 0;
+  }
+
+  /**
+   * Whether a player's connection is backed up: the transport says (the socket's bufferedAmount on your
+   * own server), or, in Zaisma rooms, a probe of theirs is ROOM_LIMITS.backedUpDelayMs later than their
+   * ping with ROOM_LIMITS.backedUpSizeBytes or more sent since the last probe they answered.
+   */
+  isBackedUp(playerId: string): boolean {
+    if (!this.players.has(playerId) || this.isLost(playerId)) return false;
+    if (this.transport.isBackedUp) return this.transport.isBackedUp(playerId);
+    const presence = this.presence.get(playerId);
+    const oldest = presence?.unansweredProbes.values().next().value;
+    if (!presence || !oldest) return false;
+    return this.now() - oldest.sentAtMs > (presence.pingDurationMs ?? 0) + ROOM_LIMITS.backedUpDelayMs && presence.sentByteCount - presence.answeredSentByteCount >= ROOM_LIMITS.backedUpSizeBytes;
+  }
+
+  /** The players who see the state: everyone in the match with a connection. */
+  private stateViewerIds(): string[] {
+    return [...this.players.keys()].filter((id) => !this.isLost(id));
+  }
+
+  /** Which viewers are backed up this round; a turn-based room remembers them, to send a full copy once they catch up. */
+  private backedUpViewers(viewerIds: string[]): Set<string> {
+    const backedUpPlayerIds = new Set(viewerIds.filter((id) => this.isBackedUp(id)));
+    if (!this.ticking) for (const id of backedUpPlayerIds) this.stateSkippedPlayerIds.add(id);
+    return backedUpPlayerIds;
+  }
+
+  /** A round of state sync (stateSyncEnabled): each player's view, in full or what changed since their last. */
+  private syncState(): void {
+    const tracker = this.stateTracker;
+    if (!tracker || this.ended) return;
+    const viewerIds = this.stateViewerIds();
+    const stateView = this.server.stateView;
+    const state = this.state;
+    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, this.players.get(viewerId)!, this.api) : null, this.backedUpViewers(viewerIds));
+    for (const problem of round.problems) console.error(`Game server error: ${problem}`);
+    for (const { playerIds, frame } of round.frames) this.sendState(playerIds, frame);
+  }
+
+  /** A round of state sync once the handler running now is done, for a room with no handler about to run. */
+  private syncSoon(): void {
+    if (!this.server.stateSyncEnabled || this.ended) return;
+    const syncs = (this.server as { [SYNCS_STATE]?: (state: S, room: Room) => HandlerResult<S> })[SYNCS_STATE];
+    if (syncs) return this.run(() => syncs(this.state, this.api));
+    if (this.queue) this.queue = this.queue.then(() => this.syncState());
+    else this.soon(() => this.syncState());
+  }
+
+  /** For a game server that runs state sync itself: who's backed up this round, and who needs a full copy (said once). */
+  private stateViewers(): { backedUpPlayerIds: string[]; fullCopyPlayerIds: string[] } {
+    const fullCopyPlayerIds = [...this.fullCopyPlayerIds].filter((id) => this.players.has(id));
+    this.fullCopyPlayerIds.clear();
+    return { backedUpPlayerIds: [...this.backedUpViewers(this.stateViewerIds())], fullCopyPlayerIds };
+  }
+
+  /** A frame from a game server that runs state sync itself, checked like anything a game hands the room. */
+  private sendStateFrom(playerIds: unknown, frame: unknown): void {
+    if (!Array.isArray(playerIds) || !frame || typeof frame !== "object") return;
+    const keys = Object.keys(frame);
+    if (keys.length !== 1 || (keys[0] !== "full" && !(keys[0] === "changes" && Array.isArray((frame as { changes?: unknown }).changes)))) return;
+    this.sendState(
+      playerIds.filter((id): id is string => typeof id === "string" && this.players.has(id)),
+      frame as StateFrame,
+    );
+  }
+
+  /** Send a state frame to players in the match, with the room's clock, counted as state sync's traffic. */
+  private sendState(playerIds: string[], frame: StateFrame): void {
+    if (!playerIds.length) return;
+    this.sendEach(playerIds, JSON.stringify({ type: "state", serverTimeMs: this.now(), ...frame } as ServerMessage), STATE_MESSAGE_TYPE);
+  }
+
+  /**
+   * A game's message or bytes for some players. Reliable ones go to all of them, counting those that went to
+   * a backed-up player; latest-only ones wait in a slot for each backed-up player, replacing an older one there.
+   */
+  private deliver(playerIds: string[], outgoing: Outgoing, delivery: ReadDelivery): void {
+    const ids = playerIds.filter((id) => !this.isLost(id));
+    if (!delivery.isLatestOnly) return this.sendOut(ids, outgoing, ids.filter((id) => this.isBackedUp(id)).length);
+    const ready: string[] = [];
+    for (const id of ids) {
+      if (!this.isBackedUp(id)) {
+        // Anything still waiting for them goes first, so the newest arrives last.
+        if (this.latestSlots.has(id)) this.sendLatest(id);
+        ready.push(id);
+        continue;
+      }
+      let slots = this.latestSlots.get(id);
+      if (!slots) this.latestSlots.set(id, (slots = new Map()));
+      const slotKey = `${"frame" in outgoing ? "bytes" : "message"}:${delivery.latestKey}`;
+      slots.delete(slotKey);
+      slots.set(slotKey, outgoing);
+      if (slots.size > ROOM_LIMITS.maximumLatestOnlySlotCount) slots.delete(slots.keys().next().value!);
+    }
+    this.sendOut(ready, outgoing, 0);
+  }
+
+  /** A player's waiting latest-only messages, least recently replaced first. */
+  private sendLatest(playerId: string): void {
+    const slots = this.latestSlots.get(playerId);
+    this.latestSlots.delete(playerId);
+    for (const outgoing of slots?.values() ?? []) this.sendOut([playerId], outgoing, 0);
+  }
+
+  private sendOut(playerIds: string[], outgoing: Outgoing, backedUpMessageCount: number): void {
+    if ("frame" in outgoing) this.sendFrame(playerIds, outgoing.frame, backedUpMessageCount);
+    else this.sendEach(playerIds, outgoing.text, outgoing.messageType, backedUpMessageCount);
   }
 
   /**
@@ -2037,6 +2293,8 @@ export class RoomCore<S = any> {
     this.kept.clear();
     this.reconnectUntilMs.clear();
     this.presence.clear();
+    this.latestSlots.clear();
+    this.stateSkippedPlayerIds.clear();
   }
 
   /** The players as every player's game lists them, with why each isn't playing. */
@@ -2044,24 +2302,20 @@ export class RoomCore<S = any> {
     return [...this.players.values()].map((player) => ({ ...player, awayReason: this.kept.get(player.id) ?? null }));
   }
 
-  private broadcast(message: unknown, exceptPlayerId?: string): void {
-    const text = JSON.stringify({ type: "message", data: message } satisfies ServerMessage);
-    this.sendEach([...this.players.keys()].filter((id) => id !== exceptPlayerId), text, messageTypeOf(message));
-  }
-
   /** room.broadcastBytes: one frame, built once, to every player but exceptPlayerId. */
   private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void {
-    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId"], "room.broadcastBytes");
+    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId", "delivery", "latestKey"], "room.broadcastBytes");
+    const delivery = readDelivery(given, "room.broadcastBytes", "");
     const fromPlayerId = typeof given.fromPlayerId === "string" ? given.fromPlayerId : null;
     const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), fromPlayerId);
-    this.sendFrame([...this.players.keys()].filter((id) => id !== given.exceptPlayerId), frame);
+    this.deliver([...this.players.keys()].filter((id) => id !== given.exceptPlayerId), { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
   }
 
   /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
-  private sendFrame(given: string[], frame: Uint8Array): void {
+  private sendFrame(given: string[], frame: Uint8Array, backedUpMessageCount = 0): void {
     if (!this.transport.sendBytes) throw new Error("Sending bytes isn't available here");
     const playerIds = given.filter((id) => !this.isLost(id));
-    this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length);
+    this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length, backedUpMessageCount);
     this.depth++;
     try {
       for (const id of playerIds) {
@@ -2082,10 +2336,10 @@ export class RoomCore<S = any> {
    * Send one text to several players, counting its bytes once. A player it drops for falling behind
    * leaves once everyone has it, so nobody hears of the leave before the rest of this text.
    */
-  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE): void {
+  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE, backedUpMessageCount = 0): void {
     const byteCount = utf8ByteCount(text);
     const ids = [...playerIds].filter((id) => !this.isLost(id));
-    this.countTraffic("outbound", messageType, ids.length, byteCount);
+    this.countTraffic("outbound", messageType, ids.length, byteCount, backedUpMessageCount);
     this.depth++;
     try {
       for (const id of ids) this.sendText(id, text, byteCount, null);
@@ -2162,6 +2416,8 @@ export class RoomCore<S = any> {
     for (const number of [...presence.unansweredProbes.keys()]) if (number <= (probeNumber as number)) presence.unansweredProbes.delete(number);
     // The first measurement: probe again at once, so the player's game hears its ping too, even in a room that doesn't tick.
     if (previousMs === null) this.probe(playerId);
+    // An answer is when a backed-up connection shows it caught up.
+    this.soon(() => this.catchUp());
     return true;
   }
 
@@ -2188,8 +2444,12 @@ export class RoomCore<S = any> {
     return true;
   }
 
-  /** Run a game server handler. A crash in game code is logged and never takes the room down. */
-  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>): void {
+  /**
+   * Run a game server handler. A crash in game code is logged and never takes the room down. State sync's
+   * round follows a turn-based room's handlers and a real-time room's tick (isTick).
+   */
+  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>, isTick = false): void {
+    const isSyncing = this.stateTracker !== null && (isTick || !this.ticking);
     if (!this.queue) {
       let next: HandlerResult<S> | Promise<HandlerResult<S>>;
       this.depth++;
@@ -2205,6 +2465,7 @@ export class RoomCore<S = any> {
       if (!isPromise(next)) {
         if (next !== undefined) this.state = next as S;
         this.dirty = true;
+        if (isSyncing) this.syncState();
         this.flush();
         return;
       }
@@ -2219,6 +2480,7 @@ export class RoomCore<S = any> {
         const next = await handler();
         if (next !== undefined) this.state = next as S;
         this.dirty = true;
+        if (isSyncing) this.syncState();
       } catch (error) {
         console.error("Game server error:", error);
       } finally {
@@ -2258,6 +2520,29 @@ interface Presence {
 /** A player's presence as they come in: nothing sent and nothing measured yet. A room waking from sleep starts its probes afresh. */
 function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
   return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null };
+}
+
+/** A game's message or bytes on their way out: the text or binary frame, and its type for the traffic counts. */
+type Outgoing = { text: string; messageType: string } | { frame: Uint8Array; messageType: string };
+
+/** A send's delivery as the room acts on it: latest-only, with its latestKey, or reliable. */
+type ReadDelivery = { isLatestOnly: false } | { isLatestOnly: true; latestKey: string };
+
+/** A latest-only message's latestKey when the game gives none: its type field when that's text, else "". */
+function defaultLatestKey(message: unknown): string {
+  const type = message && typeof message === "object" ? (message as { type?: unknown }).type : undefined;
+  return typeof type === "string" ? type : "";
+}
+
+/** A send's delivery and latestKey, checked: mistakes throw, naming what to give. defaultKey is the latestKey when it gives none. */
+function readDelivery(given: SendOptions, call: string, defaultKey: string): ReadDelivery {
+  const { delivery, latestKey } = given;
+  if (delivery !== undefined && delivery !== "reliable" && delivery !== "latest_only") throw new Error(`${call}'s delivery is ${JSON.stringify(delivery)}. Give "reliable" (the default) or "latest_only".`);
+  if (latestKey !== undefined && (typeof latestKey !== "string" || latestKey.length > ROOM_LIMITS.maximumLatestKeyCharacterCount)) {
+    throw new Error(`${call}'s latestKey must be text up to ${ROOM_LIMITS.maximumLatestKeyCharacterCount} characters, like "positions".`);
+  }
+  if (delivery !== "latest_only") return { isLatestOnly: false };
+  return { isLatestOnly: true, latestKey: latestKey ?? defaultKey };
 }
 
 /** Bytes a game handed the room, as a Uint8Array: anything else is a mistake in the game's call. */
