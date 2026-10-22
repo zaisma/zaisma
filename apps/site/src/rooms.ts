@@ -122,7 +122,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
     { label: "Players", isNumeric: true, widthPx: 88, isSortable: true },
-    { label: "Join", isLabelHidden: true, widthPx: hasNames ? 136 : 104 },
+    { label: "Join", isLabelHidden: true, widthPx: hasNames ? 120 : 80 },
   ];
   const rows = shown.map(({ room, name, labels }) => {
     const filled = `${room.playerCount} of ${room.maximumPlayerCount}`;

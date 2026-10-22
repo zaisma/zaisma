@@ -485,7 +485,8 @@ export interface TableOptions {
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
   /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
-   *  rows change (a list that refreshes, like a game's rooms). Words too long for a column end in an ellipsis. */
+   *  rows change (a list that refreshes, like a game's rooms). Words too long for a column end in an ellipsis. It scrolls sideways only
+   *  below its columns' widths together (112px for one without its own), and a pinned last column fits its buttons. */
   isEven?: boolean;
   /** Unique on the page. Defaults to a slug of its caption. */
   id?: string;
@@ -498,6 +499,9 @@ export interface TableOptions {
  * stays: a row never folds into a card, since players and developers compare rows. Its well is cut by the edge rule, so its corners follow
  * the pane's where it sits in one.
  */
+/** The least a column without its own width takes in a table of even columns: below the sum of them all, the table scrolls sideways. */
+const EVEN_COLUMN_MINIMUM_WIDTH_PX = 112;
+
 export function table(options: TableOptions): Raw {
   const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const lastIndex = options.columns.length - 1;
@@ -506,7 +510,7 @@ export function table(options: TableOptions): Raw {
     const classes = [options.columns[columnIndex]?.isNumeric ? "num" : "", options.headColumn === "last" && columnIndex === lastIndex ? "pin" : ""].filter(Boolean).join(" ");
     return classes ? html` class="${classes}"` : "";
   };
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.headColumn === "first" ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption">${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.headColumn === "first" ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption"${options.isEven ? html` style="--table-min-width:${options.columns.reduce((widthPx, column) => widthPx + (column.widthPx ?? EVEN_COLUMN_MINIMUM_WIDTH_PX), 0)}px"` : ""}>${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col"${cellClass(columnIndex)}${column.isSortable ? raw(' aria-sort="none"') : ""}>${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.isSortable ? html`<button type="button" class="table-sort">${column.label}${icon("chevron-down")}</button>` : column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
     (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row">${cell}</th>` : html`<td${cellClass(columnIndex)}>${cell}</td>`))}</tr>`,
@@ -544,8 +548,16 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     if (!box || !cells || !cells.length) return;
     var isFirst = table.classList.contains("has-row-heads"), head = isFirst ? cells[0] : cells[cells.length - 1];
     if (!isFirst && !head.classList.contains("pin")) return;
+    // A pinned column of buttons is as wide as its widest buttons, no wider, so a phone keeps its room for the rest.
+    var col = !isFirst && table.querySelector("colgroup > col:last-child");
+    function fit() {
+      if (!col) return;
+      var style = getComputedStyle(head), widest = 0;
+      Array.prototype.forEach.call(table.querySelectorAll("tbody td.pin > *"), function (inside) { widest = Math.max(widest, inside.getBoundingClientRect().width); });
+      if (widest) col.style.width = Math.ceil(widest + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)) + "px";
+    }
     function measure() { box.style.setProperty(isFirst ? "--table-row-head-w" : "--table-pin-w", head.offsetWidth + "px"); }
-    measure(); window.zaismaWatch.size(head, measure);
+    fit(); measure(); window.zaismaWatch.size(head, measure);
   });
   function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
   function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
@@ -618,10 +630,10 @@ component({
 .data-table th[aria-sort="ascending"] .table-sort > .ico { transform: rotate(180deg); }
 .table-sort:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Even columns: laid out from the columns alone, never their rows, so a refresh never moves them; long words end in an ellipsis. */
-.data-table.even { table-layout: fixed; min-width: var(--table-min-width, 640px); }
+.data-table.even { table-layout: fixed; min-width: var(--table-min-width); }
 .data-table.even td, .data-table.even tbody th { overflow: hidden; text-overflow: ellipsis; }
 /* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
-.data-table td > .control-row { flex-wrap: nowrap; }
+.data-table td > .control-row { display: inline-flex; flex-wrap: nowrap; vertical-align: middle; }
 [data-glass] .data-table td > .control-row > .shell { flex: none; }
 /* The row under the pointer, its head and pinned cells too: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since
    the browser's own hover keeps the row it lit until the pointer moves; without the script, the browser's hover does. */
@@ -631,17 +643,18 @@ component({
 .data-table.compact td { font: var(--type-facts); }
 /* A row scrolling under the header, or a column under the rows' heads or the pinned columns, is cut away exactly at their hairline, so
    they stay as clear as the well with nothing showing through them: each cell's own view of the box (inset by the header's height, the
-   heads' width or the pinned column's, --table-pin-w) cuts as much of it as has passed the line. Nothing moves by itself. */
+   heads' width or the pinned column's, --table-pin-w) cuts as much of it as has passed the line, over the cell's own size (the crossing
+   ranges), so a cell wider than the room beside a head column on a phone is cut just as exactly. Nothing moves by itself. */
 @property --cell-cut-top { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 @property --cell-cut-left { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 @property --cell-cut-right { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 @supports (animation-timeline: view()) {
-  .data-table tbody > tr > * { clip-path: inset(var(--cell-cut-top) var(--cell-cut-right) 0 var(--cell-cut-left)); animation: table-cut-top linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit; }
+  .data-table tbody > tr > * { clip-path: inset(var(--cell-cut-top) var(--cell-cut-right) 0 var(--cell-cut-left)); animation: table-cut-top linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit-crossing; }
   .data-table tbody > tr > td:not(.pin) { animation: table-cut-top linear both, table-cut-left linear both, table-cut-right linear both;
     animation-timeline: view(block var(--table-head-h) 0px), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px));
-    animation-range: exit, exit, entry; }
+    animation-range: exit-crossing, exit-crossing, entry-crossing; }
   .data-table.has-row-heads thead th:not(:first-child), .data-table:not(.has-row-heads) thead th:not(.pin) { clip-path: inset(0 var(--cell-cut-right) 0 var(--cell-cut-left));
-    animation: table-cut-left linear both, table-cut-right linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)); animation-range: exit, entry; }
+    animation: table-cut-left linear both, table-cut-right linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)), view(inline var(--table-row-head-w, 0px) var(--table-pin-w, 0px)); animation-range: exit-crossing, entry-crossing; }
 }
 /* A browser that can't cut them gives the header and the head column the well's color, solid, to hide what's under them. */
 @supports not (animation-timeline: view()) {
@@ -693,7 +706,7 @@ component({
         isCompact: true,
         headColumn: "last",
         isEven: true,
-        columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true }, { label: "Join", isLabelHidden: true, widthPx: 104 }],
+        columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true }, { label: "Join", isLabelHidden: true, widthPx: 80 }],
         rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany", isNameHidden: true }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden", isNameHidden: true }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France", isNameHidden: true }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland", isNameHidden: true }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain", isNameHidden: true }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
       }) })}</div>`,
     },
