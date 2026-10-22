@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHECK_PROBLEM_CODES, GAME_FILE_EXTENSIONS, MAXIMUM_PROBLEM_COUNT, UPLOAD_LIMITS, checkGameFiles, findOutsideReferences, type CheckedFile } from "../../packages/cli/check.mjs";
+import { CHECK_PROBLEM_CODES, GAME_FILE_EXTENSIONS, MAXIMUM_PROBLEM_COUNT, UPLOAD_LIMITS, buildHasThreads, checkGameFiles, findOutsideReferences, type CheckedFile } from "../../packages/cli/check.mjs";
 import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { CONTENT_TYPES } from "../../packages/core/src/mime.ts";
 import { FILE_LIMITS } from "../../packages/core/src/uploads.ts";
@@ -106,7 +106,21 @@ describe("the game check", () => {
     expect(codesOf({ "index.html": page("<script>const GODOT_THREADS_ENABLED = false;</script>") })).toEqual([]);
     const threads = checkGameFiles(gameOf({ "index.html": page("<script>const GODOT_THREADS_ENABLED = true;</script>") })).problems[0]!;
     expect(threads).toMatchObject({ problem_kind: "broken", is_fixed_by_upload_command: false, path: "index.html" });
-    expect(threads.fix).toContain("Thread Support off");
+    expect(threads.message).toBe("index.html is from a build that needs threads (SharedArrayBuffer), which only Chrome and Edge give games on Zaisma.");
+    expect(threads.fix).toMatch(/^Threads run in Chrome and Edge on computers and Android\. Firefox, Safari and every browser on iPhone and iPad can't start this build, and the game page tells their players it needs Chrome or Edge\. To reach every browser, export without threads: .*Thread Support off/);
+    expect(CHECK_PROBLEM_CODES.needs_threads.meaning).toBe("The build needs threads (SharedArrayBuffer), which games on Zaisma have only in Chrome and Edge.");
+    // A coi-serviceworker says why Zaisma doesn't need it, as a file the check reads or one it doesn't.
+    const serviceWorker = checkGameFiles(gameOf({ "index.html": page(""), "coi-serviceworker.min.js": "/*! coi-serviceworker v0.1.7 */" })).problems[0]!;
+    expect(serviceWorker.message).toBe("coi-serviceworker.min.js is there to turn on threads (SharedArrayBuffer). Zaisma doesn't need it: the game is already isolated in Chrome and Edge, and it can't turn threads on in other browsers.");
+  });
+
+  it("says whether a build has threads, as the check finds needs_threads", () => {
+    expect(buildHasThreads(gameOf({ "index.html": page("<script>const GODOT_THREADS_ENABLED = true;</script>") }))).toBe(true);
+    expect(buildHasThreads(gameOf({ "index.html": page(""), "index.js": "if (ENVIRONMENT_IS_PTHREAD) {}", "index.wasm": 10 }))).toBe(true);
+    expect(buildHasThreads(gameOf({ "index.html": page('<script src="coi-serviceworker.js"></script>'), "coi-serviceworker.js": "// isolate" }))).toBe(true);
+    expect(buildHasThreads(gameOf({ "index.html": page(""), "game.js": "__wbindgen_thread_destroy", "game_bg.wasm": 10 }))).toBe(true);
+    expect(buildHasThreads([{ path: "lib/coi-serviceworker.bin", contentText: null }])).toBe(true);
+    expect(buildHasThreads(gameOf({ "index.html": page("<script>const GODOT_THREADS_ENABLED = false;</script>"), "game.js": "", "game.wasm": 10 }))).toBe(false);
   });
 
   it("reads wasm-bindgen's and macroquad's glue as engine output, and finds threaded Rust builds", () => {

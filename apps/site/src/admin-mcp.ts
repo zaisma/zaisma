@@ -33,6 +33,7 @@ import {
   type ReviewPrecedent,
   type PrecedentDecision,
   type ScanReport,
+  hasThreads,
   type Triage,
   type Version,
 } from "@zaisma/core";
@@ -223,6 +224,7 @@ async function versionAnswer(env: Env, game: Game, version: Version) {
   return {
     id: version.id,
     scan_status: version.scan_status,
+    has_threads: hasThreads(scan),
     is_live: game.live_version_id === version.id,
     patch_notes: version.patch_notes,
     published_at: iso(version.published_at_ms),

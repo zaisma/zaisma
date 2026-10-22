@@ -23,6 +23,7 @@ import {
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
+import { icon } from "./components/foundations.ts";
 import { html, layout, message, metalButton, pageData, playerModes, raw, scriptTags, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { showcase, tile } from "./home.ts";
@@ -100,7 +101,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const accountNext = encodeURIComponent(`${here}${inRoom ? roomQuery : "?play"}`);
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
-  const [developer, pictures, updates, others, live, playingNow] = await Promise.all([
+  const playedVersionId = testerVersion?.id ?? game.live_version_id;
+  const [developer, pictures, updates, others, live, playingNow, playedVersion] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -112,6 +114,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // Not on tester links: their rooms are reached by code and invite link.
     game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
     playingNowCounts(env),
+    // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
+    playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
@@ -176,6 +180,9 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .side .live-now[hidden]{display:none}
 a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .side .note{margin:0;font-size:14px;background:none;box-shadow:none;padding:0;color:var(--warn)}
+.side .note .ico{display:none;width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.side .note.is-warning:not([hidden]){display:flex;align-items:center;gap:var(--gap-words-words)}
+.side .note.is-warning .ico{display:block}
 .side .account-note{margin:-4px 0 0;font-size:14px;color:var(--text-2)}
 /* A game for older players, opened by a younger account: a closed card in place of Play. */
 .side .closed{display:grid;gap:14px;padding:18px}
@@ -448,7 +455,7 @@ ${siteHeader(env, { viewer })}
     ${accountRequirement !== "none" && !isClosed
       ? html`<p class="account-note" id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. <a href="/join?next=${accountNext}">Make one free</a> or <a href="/signin?next=${accountNext}">sign in</a>${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
       : ""}
-    <p class="note" id="device-note" hidden></p>
+    <p class="note" id="device-note" hidden>${icon("warning")}<span></span></p>
     ${spec}
     ${developerLinks(pageLinks)}
     <div class="row"><button class="btn ghost" id="share-page" type="button" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
@@ -475,7 +482,7 @@ ${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 clas
 </main>
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
+  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 ${hasRoomCodes
       ? html`<dialog id="room-dialog" class="quick plate room-dialog" aria-label="Room">
   <section class="room-here" id="room-here" hidden>
@@ -540,6 +547,8 @@ ${pageData("game-page-data", {
       frame_query: roomQuery,
       devices,
       controls,
+      // A build that needs threads runs only where the game's frame can be isolated (Chrome and Edge): other browsers get a note.
+      has_threads: playedVersion?.has_threads === 1,
       // Streamer mode (an account setting) hides room codes until the player shows them.
       is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
       screen_orientation: game.screen_orientation || null,
@@ -1020,6 +1029,12 @@ const DEVICES = gamePage.devices;
 const coarse = matchMedia("(pointer: coarse)").matches;
 const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
 const deviceNotes = [];
+// Threads need the game's frame isolated (Document-Isolation-Policy): Chromium 137+, never on iPhone or iPad, whose Chrome is WebKit.
+// userAgentData is only in Chromium browsers, so Firefox and Safari get the note with no list to keep.
+const chromium = navigator.userAgentData?.brands?.find((b) => b.brand === "Chromium");
+const canIsolateFrame = Boolean(chromium && Number(chromium.version) >= 137 && !/iPhone|iPad/.test(navigator.userAgent));
+const needsOtherBrowser = gamePage.has_threads && !canIsolateFrame;
+if (needsOtherBrowser) deviceNotes.push("This game needs Chrome or Edge on a computer or Android.");
 if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
 // Controls and screen only come up when they don't fit this device.
 const CONTROLS = gamePage.controls;
@@ -1031,9 +1046,11 @@ const SCREEN = gamePage.screen_orientation;
 if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
 if (deviceNotes.length) {
   const note = document.getElementById("device-note");
-  note.textContent = deviceNotes.join(" ");
+  note.querySelector("span").textContent = deviceNotes.join(" ");
+  // The warning icon only when this browser can't start the game at all.
+  note.classList.toggle("is-warning", needsOtherBrowser);
   note.hidden = false;
-  if (DEVICES.length && !DEVICES.includes(mine)) document.querySelector("#play span").textContent = "Play anyway";
+  if (needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine))) document.querySelector("#play span").textContent = "Play anyway";
 }
 // The menu drops from the ⋯ button (from the side strip on landscape phones) and closes when the
 // player taps anywhere else, goes back to the game, or presses Escape.
