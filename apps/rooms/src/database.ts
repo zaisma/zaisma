@@ -1,6 +1,6 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server";
-import { GAME_DATABASE_FREE_LIMITS, NEARLY_USED_PCT, nextMonthStartDate, recordPlayerErased, usageMonth, type FreeUseAlertKind } from "@zaisma/core";
+import { GAME_DATABASE_FREE_LIMITS, NEARLY_USED_PCT, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth, type FreeUseAlertKind } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /** Rows read and written in a month, the way Cloudflare bills them, and the month's free-use alerts already noticed. */
@@ -58,6 +58,14 @@ class AnswerTooBig extends Error {}
 /** Usage is kept at most this long, or this many statements, before it's saved: not one extra write per query. */
 const USAGE_SAVE_MS = 60_000;
 const USAGE_SAVE_STATEMENT_COUNT = 500;
+/** The game's kept rooms' size, which shares the free storage, is read from D1 at most this often: not once per write. */
+const KEPT_ROOMS_READ_MS = 10 * 60_000;
+
+/** The game's kept rooms' saved size as last read, and when. */
+interface KeptRoomsSize {
+  sizeBytes: number;
+  readAtMs: number;
+}
 
 /**
  * One game's database: a SQLite-backed Durable Object of its own, named by the game's ID, used by
@@ -72,11 +80,34 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private savedAtMs = Date.now();
   /** A restore is set for the next start: nothing more runs on what's about to be replaced. */
   private isRestarting = false;
+  /** The game's kept rooms' size (kept_rooms), in memory only: storing it would add a table the developer sees. */
+  private keptRooms: KeptRoomsSize = { sizeBytes: 0, readAtMs: 0 };
+  private isReadingKeptRooms = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const usage = ctx.storage.kv.get<Usage>("usage") ?? { month: usageMonth(), readRowCount: 0, writtenRowCount: 0, noticedAlertKinds: [] };
     this.usage = { ...usage, noticedAlertKinds: usage.noticedAlertKinds ?? [] };
+  }
+
+  /**
+   * The game's kept rooms' size, which counts towards the free storage with the database: the last read,
+   * read again in the background once it's KEPT_ROOMS_READ_MS old, so a statement never waits for D1.
+   */
+  private keptRoomsSizeBytes(): number {
+    const gameId = this.ctx.id.name;
+    if (gameId && !this.isReadingKeptRooms && Date.now() - this.keptRooms.readAtMs >= KEPT_ROOMS_READ_MS) {
+      this.isReadingKeptRooms = true;
+      this.ctx.waitUntil(
+        keptRoomsSizeBytes(this.env.DB, gameId)
+          .then((sizeBytes) => {
+            this.keptRooms = { sizeBytes, readAtMs: Date.now() };
+          })
+          .catch((error) => console.error("Couldn't read the game's kept rooms' size:", error))
+          .finally(() => (this.isReadingKeptRooms = false)),
+      );
+    }
+    return this.keptRooms.sizeBytes;
   }
 
   query(sql: unknown, values: unknown): DatabaseAnswer<DatabaseRow[]> {
@@ -255,6 +286,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
       throw new DatabaseError("database_read_limit", `This game's database has read its free ${limits.readRowCountPerMonth.toLocaleString("en-US")} rows this month.`, `It works again on ${resetDate} (UTC). Read less: add indexes for your WHEREs, and keep results the game reads often in the room's state.`);
     }
     const canWrite = this.usage.writtenRowCount < limits.writtenRowCountPerMonth;
+    // Kept rooms' saved worlds share the free storage with the database.
+    const storageSizeBytes = limits.storageSizeBytes - this.keptRoomsSizeBytes();
     const sql = this.ctx.storage.sql;
     let readRowCount = 0;
     let writtenRowCount = 0;
@@ -289,8 +322,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
             throw new DatabaseError("database_write_limit", `This game's database has written its free ${limits.writtenRowCountPerMonth.toLocaleString("en-US")} rows this month, so this statement was undone.`, `Reads still work; writes start again on ${resetDate} (UTC). Write less often, like saving scores once at the end of a match.`);
           }
           // A database at its free storage can still change and delete rows, just not grow.
-          if (sql.databaseSize > limits.storageSizeBytes && sql.databaseSize > sizeBeforeBytes) {
-            throw new DatabaseError("database_storage_limit", `This game's database would be over its free ${limits.storageSizeBytes / 1024 / 1024} MB, so this statement was undone.`, "Reads, changes and deletes still work. Delete rows you no longer need (old matches, players who left long ago) to make room.");
+          if (sql.databaseSize > storageSizeBytes && sql.databaseSize > sizeBeforeBytes) {
+            throw new DatabaseError("database_storage_limit", `This game's storage (its database and kept rooms) would be over its free ${limits.storageSizeBytes / 1024 / 1024} MB, so this statement was undone.`, "Reads, changes and deletes still work. Delete rows you no longer need (old matches, players who left long ago), or kept rooms nobody plays (zaisma kept-rooms), to make room.");
           }
           return { rows, readRowCount: cursor.rowsRead, writtenRowCount: cursor.rowsWritten };
         }),
@@ -383,7 +416,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
    */
   private notice(): void {
     const limits = GAME_DATABASE_FREE_LIMITS;
-    const sizeBytes = this.ctx.storage.sql.databaseSize;
+    const sizeBytes = this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes();
     const reached: [FreeUseAlertKind, boolean][] = [
       ["database_nearly_paused", this.usage.readRowCount >= limits.readRowCountPerMonth * NEARLY_USED_PCT / 100],
       ["database_paused", this.usage.readRowCount >= limits.readRowCountPerMonth],
