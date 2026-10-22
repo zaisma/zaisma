@@ -145,7 +145,8 @@ describe("room browsing on the game page", () => {
     // Each room is a row of the gallery's Table: the country it runs in, how full it is, then Join, or Full.
     // The country is its flag alone; its name is for screen readers and under the pointer.
     expect(page).toMatch(/<td><span class="country" title="Germany"><span class="country-flag" aria-hidden="true"><img src="\/flags\/de.png"[^>]*><\/span><span class="sr">Germany<\/span><\/span><\/td><td class="num">3 of 8<\/td>/);
-    expect(page).toContain('<td class="num">8 of 8</td><td class="pin">Full</td>');
+    expect(page).toContain('<td class="num">8 of 8</td></tr>');
+    expect(page).toContain('<td>Full</td>');
     expect(page).toContain('<td><code>JKMN3P</code></td>');
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
     expect(page).not.toContain("QRSTVW");
@@ -211,7 +212,7 @@ describe("room browsing on the game page", () => {
     await named("DFGHJK", null, { Mode: "Classic" });
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     // A column for the name and one for each label, in the order rooms carry them.
-    expect(page).toMatch(/<thead><tr><th scope="col">Code<\/th><th scope="col">Room<\/th><th scope="col">Mode<\/th><th scope="col">Map<\/th><th scope="col" class="num" aria-sort="none"><button type="button" class="table-sort">Players/);
+    expect(page).toMatch(/<thead><tr><th><span aria-hidden="true">Code<\/span><\/th><th><span aria-hidden="true">Room<\/span><\/th><th><span aria-hidden="true">Mode<\/span><\/th><th><span aria-hidden="true">Map<\/span><\/th><th class="num" aria-sort="none"><button type="button" class="table-sort">Players/);
     expect(page).toContain('<td><code>BCDFGH</code></td><td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num">2 of 8</td>');
     expect(page).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.

@@ -493,79 +493,129 @@ export interface TableOptions {
 }
 
 /**
- * A table in a carved well, like the switch's: a header row that stays while its rows scroll under it, hairlines between rows, numbers
- * right-aligned in figures of one width, and at most one head column (headColumn) that stays put as it scrolls sideways: the first,
- * naming the rows, or the last, its buttons. On a phone it scrolls sideways inside its well, fading at its edges, under a caption that
- * stays: a row never folds into a card, since players and developers compare rows. Its well is cut by the edge rule, so its corners follow
- * the pane's where it sits in one.
+ * A table in a carved well, like the switch's: a header row over its rows, hairlines between rows, numbers right-aligned in figures of one
+ * width, and at most one head column (headColumn) that stays put as it scrolls sideways: the first, naming the rows, or the last, its
+ * buttons. On a phone it scrolls sideways inside its well, fading at its edges, under a caption that stays: a row never folds into a card,
+ * since players and developers compare rows. Its well is cut by the edge rule, so its corners follow the pane's where it sits in one.
+ *
+ * Nothing ever scrolls under anything: the header row, the rows and the head column are parts of their own, each clipped at its own edge.
+ * The rows scroll up and down in a box under the header (and the head column with them, beside it); the rest of each row scrolls sideways
+ * inside that, and the header's copy of those columns follows it on the browser's own scrolling (TABLE_SCRIPT, with a scroll timeline).
+ * The header's parts carry a hidden copy of the rows and the rows' parts a flat copy of the header, so each part's columns are as wide as
+ * the other's. Screen readers get one whole table: the rows' part, with its header and the rows' heads (headColumn "first") read out.
  */
 /** The least a column without its own width takes in a table of even columns: below the sum of them all, the table scrolls sideways. */
 const EVEN_COLUMN_MINIMUM_WIDTH_PX = 112;
 
 export function table(options: TableOptions): Raw {
   const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  const lastIndex = options.columns.length - 1;
+  const allIndexes = options.columns.map((_, columnIndex) => columnIndex);
+  const headIndex = options.headColumn === "first" ? 0 : options.headColumn === "last" ? options.columns.length - 1 : null;
+  // The columns that scroll sideways: all but a last head column; a first one stays in, said only to screen readers, so each row has its head.
+  const mainIndexes = allIndexes.filter((columnIndex) => !(options.headColumn === "last" && columnIndex === headIndex));
   const isRowHead = (columnIndex: number) => options.headColumn === "first" && columnIndex === 0;
-  const cellClass = (columnIndex: number) => {
-    const classes = [options.columns[columnIndex]?.isNumeric ? "num" : "", options.headColumn === "last" && columnIndex === lastIndex ? "pin" : ""].filter(Boolean).join(" ");
-    return classes ? html` class="${classes}"` : "";
+  const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
+  const compact = options.isCompact ? " compact" : "";
+  // A heading as the header shows it (a sort button, or words), and as the rows' part carries it: flat, its words for screen readers.
+  const heading = (columnIndex: number, part: "head" | "rows") => {
+    const column = options.columns[columnIndex]!;
+    const sort = column.isSortable ? raw(' aria-sort="none"') : "";
+    const shown = column.isLabelHidden || isRowHead(columnIndex) && part === "rows" ? "" : column.isSortable ? html`<button type="button" class="table-sort"${part === "rows" ? raw(' tabindex="-1"') : ""}>${column.label}${icon("chevron-down")}</button>` : column.label;
+    return part === "head"
+      ? html`<th${numeric(columnIndex)}${sort}>${column.isSortable ? shown : html`<span aria-hidden="true">${shown}</span>`}</th>`
+      : html`<th scope="col"${numeric(columnIndex)}${sort}><span class="table-label" aria-hidden="true">${shown}</span><span class="sr">${column.label}</span></th>`;
   };
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.headColumn === "first" ? " has-row-heads" : ""}${options.isEven ? " even" : ""}" aria-labelledby="${id}-caption"${options.isEven ? html` style="--table-min-width:${options.columns.reduce((widthPx, column) => widthPx + (column.widthPx ?? EVEN_COLUMN_MINIMUM_WIDTH_PX), 0)}px"` : ""}>${options.isEven ? html`<colgroup>${options.columns.map((column) => (column.widthPx ? html`<col style="width:${column.widthPx}px">` : raw("<col>")))}</colgroup>` : ""}<thead><tr>${options.columns.map(
-    (column, columnIndex) => html`<th scope="col"${cellClass(columnIndex)}${column.isSortable ? raw(' aria-sort="none"') : ""}>${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.isSortable ? html`<button type="button" class="table-sort">${column.label}${icon("chevron-down")}</button>` : column.label}</th>`,
-  )}</tr></thead><tbody>${options.rows.map(
-    (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row">${cell}</th>` : html`<td${cellClass(columnIndex)}>${cell}</td>`))}</tr>`,
-  )}</tbody></table></div></div></div>`;
+  const cell = (row: (Raw | string)[], columnIndex: number, part: "head" | "rows" | "side") =>
+    isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="row-head"><span class="sr">${row[columnIndex]}</span></th>` : html`<td${numeric(columnIndex)}>${row[columnIndex]}</td>`;
+  const body = (indexes: number[], part: "head" | "rows" | "side") =>
+    html`<tbody>${options.rows.map((row) => html`<tr>${indexes.map((columnIndex) => cell(row, columnIndex, part))}</tr>`)}</tbody>`;
+  const minimumWidth = options.isEven ? html` style="--table-min-width:${mainIndexes.reduce((widthPx, columnIndex) => widthPx + (isRowHead(columnIndex) ? 0 : options.columns[columnIndex]!.widthPx ?? EVEN_COLUMN_MINIMUM_WIDTH_PX), 0)}px"` : "";
+  const columnWidths = options.isEven
+    ? html`<colgroup>${mainIndexes.map((columnIndex) => (isRowHead(columnIndex) ? raw('<col style="width:0">') : options.columns[columnIndex]!.widthPx ? html`<col style="width:${options.columns[columnIndex]!.widthPx}px">` : raw("<col>")))}</colgroup>`
+    : "";
+  // The columns that scroll: in the header (role presentation, its rows hidden) and in the rows' part, the table screen readers read.
+  const main = (part: "head" | "rows") =>
+    html`<table class="data-table${compact}${options.isEven ? " even" : ""}"${part === "head" ? raw(' role="presentation"') : html` aria-labelledby="${id}-caption"`}${minimumWidth}>${columnWidths}<thead><tr>${mainIndexes.map((columnIndex) => heading(columnIndex, part))}</tr></thead>${body(mainIndexes, part)}</table>`;
+  // The head column: its heading in the header, its cells beside the rows. A first one's words are read in the rows' part already; a last
+  // one's buttons are read here.
+  const side = (part: "head" | "rows") =>
+    headIndex === null
+      ? ""
+      : html`<table class="data-table table-side ${options.headColumn}${compact}"${part === "rows" && options.headColumn === "first" ? raw(' aria-hidden="true"') : raw(' role="presentation"')}><thead><tr>${heading(headIndex, part === "head" ? "head" : "rows")}</tr></thead>${body([headIndex], "side")}</table>`;
+  const first = (part: "head" | "rows") => (options.headColumn === "first" ? side(part) : "");
+  const last = (part: "head" | "rows") => (options.headColumn === "last" ? side(part) : "");
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div></div></div></div>`;
 }
 
 /**
- * The row under the mouse, lit by the table itself: found where the pointer is on every move and on every scroll (the page's or the
- * table's), so the light stays under the pointer as rows scroll past it, instead of riding up with the row it was on.
+ * A table's parts kept in step: sorting by a heading sorts every part's rows alike, each row is as tall in every part, the header's
+ * columns follow the rows sideways where the browser can't do it by itself, and the row under the mouse lights in every part, found where
+ * the pointer is on every move and every scroll, so the light stays under the pointer as rows scroll past it.
  */
 export const TABLE_SCRIPT = `/* tables */(function () {
-  var lit = null, pointer = null, sorts = new Map();
-  // Sorting: by a column's first number, most or fewest first, ties and "none" in the table's own order. A table that's put in again
-  // (a refreshed list) keeps the sort it had, by its caption's id.
-  function sortRows(table, column, order) {
-    var body = table.tBodies[0]; if (!body) return;
-    var rows = Array.prototype.slice.call(body.rows);
-    rows.forEach(function (row, i) { if (row.dataset.place === undefined) row.dataset.place = i; });
+  var lit = null, pointer = null, sorts = new Map(), slice = function (list) { return Array.prototype.slice.call(list); };
+  function partsOf(frame) { return slice(frame.querySelectorAll(".table-rows .data-table")); }
+  function mainOf(frame) { return frame.querySelector(".table-x .data-table"); }
+  // Every row as tall as its tallest part (a Join button beside a row of words).
+  function evenRows(frame) {
+    var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
+    if (bodies.length < 2) return;
+    bodies.forEach(function (body) { slice(body.rows).forEach(function (row) { row.style.height = ""; }); });
+    slice(bodies[0].rows).forEach(function (row, i) {
+      var tallest = 0; bodies.forEach(function (body) { if (body.rows[i]) tallest = Math.max(tallest, body.rows[i].offsetHeight); });
+      bodies.forEach(function (body) { if (body.rows[i]) body.rows[i].style.height = tallest + "px"; });
+    });
+  }
+  // Sorting: by a column's first number, most or fewest first, ties and "none" in the table's own order, every part's rows alike. A table
+  // that's put in again (a refreshed list) keeps the sort it had, by its caption's id.
+  function sortRows(frame, column, order) {
+    var main = mainOf(frame), body = main && main.tBodies[0]; if (!body) return;
+    var bodies = partsOf(frame).map(function (part) { return part.tBodies[0]; }).filter(Boolean);
+    bodies.forEach(function (each) { slice(each.rows).forEach(function (row, i) { if (row.dataset.place === undefined) row.dataset.place = i; }); });
+    var rows = slice(body.rows);
     function numberOf(row) { var found = ((row.cells[column] || {}).textContent || "").match(/-?\\d+(\\.\\d+)?/); return found ? parseFloat(found[0]) : -Infinity; }
     rows.sort(function (a, b) { var place = a.dataset.place - b.dataset.place; return order === "none" ? place : (order === "ascending" ? numberOf(a) - numberOf(b) : numberOf(b) - numberOf(a)) || place; });
-    rows.forEach(function (row) { body.appendChild(row); });
-    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (head, i) { if (head.hasAttribute("aria-sort")) head.setAttribute("aria-sort", i === column ? order : "none"); });
+    var places = rows.map(function (row) { return row.dataset.place; });
+    bodies.forEach(function (each) {
+      var byPlace = {}; slice(each.rows).forEach(function (row) { byPlace[row.dataset.place] = row; });
+      places.forEach(function (place) { if (byPlace[place]) each.appendChild(byPlace[place]); });
+    });
+    slice(frame.querySelectorAll(".table-head-main th, .table-x thead th")).forEach(function (head) { if (head.hasAttribute("aria-sort")) head.setAttribute("aria-sort", head.cellIndex === column ? order : "none"); });
   }
   document.addEventListener("click", function (event) {
-    var button = event.target.closest && event.target.closest(".table-sort"); if (!button) return;
-    var head = button.closest("th"), table = button.closest("table"), now = head.getAttribute("aria-sort");
+    var button = event.target.closest && event.target.closest(".table-head .table-sort"); if (!button) return;
+    var head = button.closest("th"), frame = button.closest(".table-frame"), now = head.getAttribute("aria-sort");
     var order = now === "descending" ? "ascending" : now === "ascending" ? "none" : "descending";
-    sorts.set(table.getAttribute("aria-labelledby"), { column: head.cellIndex, order: order });
-    sortRows(table, head.cellIndex, order);
+    sorts.set(mainOf(frame).getAttribute("aria-labelledby"), { column: head.cellIndex, order: order });
+    sortRows(frame, head.cellIndex, order);
   });
-  window.zaismaWatch.each(".data-table", function (table) { var sort = sorts.get(table.getAttribute("aria-labelledby")); if (sort) sortRows(table, sort.column, sort.order); });
-  // How wide the head column is, at the left or the right, so the sideways fade and cut start past it.
-  window.zaismaWatch.each(".data-table", function (table) {
-    var box = table.closest(".table-scroll"), cells = table.tHead && table.tHead.rows[0] && table.tHead.rows[0].cells;
-    if (!box || !cells || !cells.length) return;
-    var isFirst = table.classList.contains("has-row-heads"), head = isFirst ? cells[0] : cells[cells.length - 1];
-    if (!isFirst && !head.classList.contains("pin")) return;
-    // A pinned column of buttons is as wide as its widest buttons, no wider, so a phone keeps its room for the rest.
-    var col = !isFirst && table.querySelector("colgroup > col:last-child");
-    function fit() {
-      if (!col) return;
-      var style = getComputedStyle(head), widest = 0;
-      Array.prototype.forEach.call(table.querySelectorAll("tbody td.pin > *"), function (inside) { widest = Math.max(widest, inside.getBoundingClientRect().width); });
-      if (widest) col.style.width = Math.ceil(widest + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)) + "px";
+  var follows = window.CSS && CSS.supports("animation-timeline: scroll()");
+  window.zaismaWatch.each(".table-frame", function (frame) {
+    var main = mainOf(frame), rows = frame.querySelector(".table-x"), head = frame.querySelector(".table-head-main > .data-table"), table = frame.closest(".table");
+    if (!main || !rows) return;
+    var sort = sorts.get(main.getAttribute("aria-labelledby")); if (sort) sortRows(frame, sort.column, sort.order);
+    // How far the rows scroll sideways, so the header's columns follow them all the way (its scroll timeline runs from 0 to this).
+    function reach() { table.style.setProperty("--table-x-max", Math.max(0, rows.scrollWidth - rows.clientWidth) + "px"); }
+    function fit() { evenRows(frame); reach(); }
+    fit(); window.zaismaWatch.size(main, fit); window.zaismaWatch.size(rows, reach);
+    partsOf(frame).forEach(function (part) { if (part !== main) window.zaismaWatch.size(part, function () { evenRows(frame); }); });
+    if (!follows && head) rows.addEventListener("scroll", function () { head.style.transform = "translateX(" + -rows.scrollLeft + "px)"; }, { passive: true });
+  });
+  function light(row) {
+    if (lit === row) return;
+    var frame = (lit || row) && (lit || row).closest(".table-frame");
+    function each(at, on) {
+      var place = at.sectionRowIndex, home = at.closest(".table-frame");
+      partsOf(home).forEach(function (part) { var match = part.tBodies[0] && part.tBodies[0].rows[place]; if (match) match.classList.toggle("is-lit", on); });
     }
-    function measure() { box.style.setProperty(isFirst ? "--table-row-head-w" : "--table-pin-w", head.offsetWidth + "px"); }
-    fit(); measure(); window.zaismaWatch.size(head, measure);
-  });
-  function light(row) { if (lit === row) return; if (lit) lit.classList.remove("is-lit"); lit = row; if (row) row.classList.add("is-lit"); }
-  function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".data-table tbody tr"); }
+    if (lit) each(lit, false); lit = row; if (row) each(row, true);
+  }
+  function rowAt(x, y) { var under = document.elementFromPoint(x, y); return under && under.closest(".table-rows tbody tr"); }
   document.addEventListener("pointermove", function (event) {
     if (event.pointerType !== "mouse") return;
     pointer = [event.clientX, event.clientY];
-    var row = event.target.closest && event.target.closest(".data-table tbody tr");
-    if (row) row.closest(".data-table").classList.add("is-tracked");
+    var row = event.target.closest && event.target.closest(".table-rows tbody tr");
+    if (row) row.closest(".table-frame").classList.add("is-tracked");
     light(row);
   }, { passive: true });
   document.documentElement.addEventListener("pointerleave", function () { pointer = null; light(null); });
@@ -586,9 +636,10 @@ component({
   group: "data",
   summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
   styles: `
-/* A table: its caption in a label's words over a carved well, like the switch's, that it scrolls inside. Nothing in it is glass: its
-   header row and the column that names the rows sit in the well itself, in the same words, with a hairline between them and the rows. */
-.table { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--gap-words-control); min-width: 0; --table-head-h: 38px; }
+/* A table: its caption in a label's words over a carved well, like the switch's. Nothing in it is glass: its header row and its head
+   column sit in the well itself, in the header's quieter words, with a hairline between them and the rows. Each part is clipped at its own
+   edge, so nothing scrolls under anything (see table()). */
+.table { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--gap-words-control); min-width: 0; --table-head-h: 38px; timeline-scope: --table-x; }
 .table:has(.data-table.compact) { --table-head-h: 34px; }
 .table > .table-caption { grid-row: 1; grid-column: 1; }
 .table > .table-well { grid-row: 2; grid-column: 1; }
@@ -597,28 +648,40 @@ component({
 .table > .rail.sideways { grid-row: 3; grid-column: 1; }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-well { position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.table-scroll { position: relative; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
-/* A long table scrolls inside its well, at most --table-height tall (a page sets it where the table shares the screen, like a game's rooms). */
-.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: var(--table-height, min(640px, 75dvh)); }
+.table-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
+/* The header: the head column's heading, and the scrolling columns' headings in a box that clips them, following the rows sideways. Its
+   copy of the rows only sizes its columns. */
+.table-head { display: flex; flex: none; box-shadow: inset 0 -1px 0 var(--line); }
+.table-head-main { flex: 1; min-width: 0; overflow: hidden; }
+.table-head .data-table > tbody { visibility: collapse; }
+@supports (animation-timeline: scroll()) {
+  .table-head-main > .data-table { animation: table-follow linear both; animation-timeline: --table-x; }
+}
+@keyframes table-follow { from { transform: none; } to { transform: translateX(calc(-1 * var(--table-x-max, 0px))); } }
+/* The rows: up and down in a box under the header, at most --table-height tall with the header (a page sets it where the table shares the
+   screen, like a game's rooms); the head column beside them, and the rest of each row sideways inside. Their copy of the header is flat. */
+.table-scroll { position: relative; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; max-height: calc(var(--table-height, min(640px, 75dvh)) - var(--table-head-h)); }
+.table-scroll::-webkit-scrollbar { display: none; }
+.table-rows { display: flex; align-items: flex-start; min-width: 0; }
+.table-x { flex: 1; min-width: 0; scroll-timeline: --table-x inline; }
+.table-rows .data-table thead th { height: 0; padding-top: 0; padding-bottom: 0; }
+.table-label { display: block; height: 0; overflow: hidden; }
 .data-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.data-table.table-side { flex: none; width: auto; min-width: 0; }
 .data-table th, .data-table td { white-space: nowrap; text-align: left; }
 /* A column whose label is said only to screen readers (its buttons say it). */
 .data-table th > .sr { position: absolute; }
-/* The header row and the head column: one look, the well's own, in the header's quieter words. The header stays at the top and the head
-   column at the left (the rows' heads) or the right (a pinned column of buttons); a hairline marks where the rows slide under them. */
-.data-table thead th, .data-table tbody th { font: var(--type-facts); color: var(--muted); }
-.data-table thead th { position: sticky; top: 0; z-index: 2; box-sizing: border-box; height: var(--table-head-h); padding: 10px 16px; box-shadow: inset 0 -1px 0 var(--line); }
+/* The header row and the head column: one look, the well's own, in the header's quieter words; a hairline marks where they meet the rows
+   once the rows scroll sideways. */
+.data-table thead th, .table-side.first td { font: var(--type-facts); color: var(--muted); }
+.table-head .data-table thead th { box-sizing: border-box; height: var(--table-head-h); padding: 10px 16px; }
+.table:has(.table-x.is-scrollable-sideways) .table-side.first { box-shadow: inset -1px 0 0 var(--line); }
+.table:has(.table-x.is-scrollable-sideways) .table-side.last { box-shadow: inset 1px 0 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
 .data-table tbody tr:first-child > * { border-top: 0; }
-.data-table tbody th { position: sticky; left: 0; z-index: 1; }
-.data-table.has-row-heads thead th:first-child { left: 0; z-index: 3; }
-.data-table .pin { position: sticky; right: 0; z-index: 1; }
-.data-table thead .pin { z-index: 3; }
-.table-scroll.is-scrollable-sideways .data-table tbody th { box-shadow: inset -1px 0 0 var(--line); }
-.table-scroll.is-scrollable-sideways .data-table.has-row-heads thead th:first-child { box-shadow: inset 0 -1px 0 var(--line), inset -1px 0 0 var(--line); }
-.table-scroll.is-scrollable-sideways .data-table tbody .pin { box-shadow: inset 1px 0 0 var(--line); }
-.table-scroll.is-scrollable-sideways .data-table thead .pin { box-shadow: inset 0 -1px 0 var(--line), inset 1px 0 0 var(--line); }
-.data-table td:first-child { color: var(--ink); }
+/* A first head column's words, in the rows' part, are for screen readers: the column takes no room there. */
+.data-table .row-head { width: 0; padding: 0; }
+.table-x .data-table td:first-child, .table-x .data-table .row-head + td { color: var(--ink); }
 .data-table code { font: var(--type-code); }
 .data-table .num { text-align: right; }
 /* A heading that sorts: its words and a small chevron, quiet until it sorts, then in full ink with the chevron pointing the way it runs. */
@@ -631,50 +694,31 @@ component({
 .table-sort:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Even columns: laid out from the columns alone, never their rows, so a refresh never moves them; long words end in an ellipsis. */
 .data-table.even { table-layout: fixed; min-width: var(--table-min-width); }
-.data-table.even td, .data-table.even tbody th { overflow: hidden; text-overflow: ellipsis; }
+.data-table.even td { overflow: hidden; text-overflow: ellipsis; }
 /* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
 .data-table td > .control-row { display: inline-flex; flex-wrap: nowrap; vertical-align: middle; }
 [data-glass] .data-table td > .control-row > .shell { flex: none; }
-/* The row under the pointer, its head and pinned cells too: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since
-   the browser's own hover keeps the row it lit until the pointer moves; without the script, the browser's hover does. */
-.data-table:not(.is-tracked) tbody tr:hover > *, .data-table tbody tr.is-lit > * { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
-.data-table.compact thead th { padding: 8px 12px; }
+/* The row under the pointer, in every part: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since the browser's own
+   hover keeps the row it lit until the pointer moves; without the script, the browser's hover does. */
+.table-frame:not(.is-tracked) tbody tr:hover > *, .data-table tbody tr.is-lit > * { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
 .data-table.compact td, .data-table.compact tbody th { padding: 8px 12px; }
+.table-head .data-table.compact thead th { padding: 8px 12px; }
 .data-table.compact td { font: var(--type-facts); }
-/* What scrolls fades into the well before it reaches the header or the head column, and is gone by the time anything in it would pass
-   under: the edge fades below fade it on its way to their hairline, and a row (or a column) that starts to pass under turns clear over
-   its cell's own padding, empty room, so its words and buttons never show through. Only opacity moves, on the browser's own scrolling,
-   so it keeps up with the quickest scroll. Each one's view of the box is inset by the header's height (--table-head-h), or the heads' or
-   the pinned column's width (--table-row-head-w, --table-pin-w); the crossing ranges keep to the cell's own size. */
-.data-table { --cell-room-y: 14px; --cell-room-x: 16px; }
-.data-table.compact { --cell-room-y: 8px; --cell-room-x: 12px; }
-@supports (animation-timeline: view()) {
-  .data-table tbody tr { animation: table-gone linear both; animation-timeline: view(block var(--table-head-h) 0px); animation-range: exit-crossing 0px exit-crossing var(--cell-room-y); }
-  .data-table.has-row-heads :is(thead th:not(:first-child), tbody td) { animation: table-gone linear both; animation-timeline: view(inline var(--table-row-head-w, 0px) 0px); animation-range: exit-crossing 0px exit-crossing var(--cell-room-x); }
-  .data-table:has(.pin) :is(thead th, tbody td):not(.pin) { animation: table-back linear both; animation-timeline: view(inline 0px var(--table-pin-w, 0px)); animation-range: entry-crossing calc(100% - var(--cell-room-x)) entry-crossing 100%; }
-}
-/* A browser that can't fade them gives the header and the head column the well's color, solid, to hide what's under them. */
-@supports not (animation-timeline: view()) {
-  .data-table thead th, .data-table tbody th, .data-table .pin { background-color: var(--table-row-head); }
-}
-@keyframes table-gone { from { opacity: 1; } to { opacity: 0; } }
-@keyframes table-back { from { opacity: 0; } to { opacity: 1; } }
-/* With more above, below or to a side, what scrolls fades into the well just past the header, the heads and the pinned column and at its
-   other edges. Each fade is all there or not at all, set by whether there's more that way (more-up and more-down from SCROLL_FADE_SCRIPT,
-   more-left and more-right from the sideways fade), so it sits still while the rows scroll through it. The header, the head column and
-   the well itself never fade. */
+/* With more above or below, the rows fade at that edge, the head column with them; sideways, the scrolling columns fade at a side with more
+   (data-fades-sideways), and the header's copy of them alike. Each fade is all there or not at all, set by whether there's more that way,
+   so it sits still while the rows scroll through it. The header, the head column and the well itself never fade. */
 @property --table-fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --table-fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .table-scroll.more-up { --table-fade-top: 28px; }
 .table-scroll.more-down { --table-fade-bottom: 28px; }
-.table-scroll.is-fading { --fade-rows: linear-gradient(to bottom, #000 var(--table-head-h), transparent var(--table-head-h), #000 calc(var(--table-head-h) + var(--table-fade-top)), #000 calc(100% - var(--table-fade-bottom)), transparent);
-  -webkit-mask-image: var(--fade-rows); mask-image: var(--fade-rows); transition: --table-fade-top 0.2s, --table-fade-bottom 0.2s, --fade-left 0.25s, --fade-right 0.25s; }
-.table-scroll { --fade-columns: linear-gradient(90deg, #000 var(--table-row-head-w, 0px), transparent var(--table-row-head-w, 0px), #000 calc(var(--table-row-head-w, 0px) + var(--fade-left)),
-  #000 calc(100% - var(--table-pin-w, 0px) - var(--fade-right)), transparent calc(100% - var(--table-pin-w, 0px)), #000 calc(100% - var(--table-pin-w, 0px))); }
-.table-scroll:is(.more-left, .more-right) { -webkit-mask-image: var(--fade-columns); mask-image: var(--fade-columns); }
-.table-scroll.is-fading:is(.more-left, .more-right) {
-  -webkit-mask-image: var(--fade-rows), var(--fade-columns); -webkit-mask-composite: source-in;
-  mask-image: var(--fade-rows), var(--fade-columns); mask-composite: intersect; }
+.table-scroll.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--table-fade-top), #000 calc(100% - var(--table-fade-bottom)), transparent); transition: --table-fade-top 0.2s, --table-fade-bottom 0.2s; }
+.table-head-main { transition: --fade-left 0.25s, --fade-right 0.25s; }
+.table:has(.table-x.more-left) .table-head-main { --fade-left: var(--fade-sideways-px, 28px); }
+.table:has(.table-x.more-right) .table-head-main { --fade-right: var(--fade-sideways-px, 28px); }
+.table:has(.table-x:is(.more-left, .more-right)) .table-head-main {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
 `,
   render: table,
   examples: [
@@ -707,7 +751,7 @@ component({
         isCompact: true,
         headColumn: "last",
         isEven: true,
-        columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true }, { label: "Join", isLabelHidden: true, widthPx: 80 }],
+        columns: [{ label: "Room", widthPx: 160 }, { label: "Mode" }, { label: "Where", widthPx: 64 }, { label: "Players", isNumeric: true, widthPx: 88, isSortable: true }, { label: "Join", isLabelHidden: true }],
         rows: [["Friday night", "Survival", country({ countryCode: "DE", countryName: "Germany", isNameHidden: true }), "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", country({ countryCode: "SE", countryName: "Sweden", isNameHidden: true }), "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", country({ countryCode: "FR", countryName: "France", isNameHidden: true }), "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", country({ countryCode: "PL", countryName: "Poland", isNameHidden: true }), "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", country({ countryCode: "ES", countryName: "Spain", isNameHidden: true }), "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
       }) })}</div>`,
     },
