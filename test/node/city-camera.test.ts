@@ -14,4 +14,8 @@ describe("the city's camera", () => {
     expect(source).not.toMatch(/addEventListener\("(scroll|orientationchange|touchmove|wheel)"/);
     expect(source).not.toContain("visualViewport");
   });
+  it("sizes its stage to the largest window height so a browser bar crops it instead of rescaling it", () => {
+    expect(source).toMatch(/\.city-stage \{ position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh;/);
+    expect(source).toContain(".city-stage.is-framed { position: absolute; inset: 0; height: auto;");
+  });
 });

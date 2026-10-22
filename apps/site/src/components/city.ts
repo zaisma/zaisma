@@ -1458,8 +1458,10 @@ const CITY_STYLES = `
    smoothly, sharpening out of the placeholder from that same first frame (a focus pull: it fades in as it settles from a touch larger),
    then the camera sets off. Where it can't run (reduced motion, no WebGL, a device that can't keep up) the full still takes the
    placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
-.city-stage { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
-.city-stage.is-framed { position: absolute; z-index: 0; }
+/* Its height is the largest the window gets (lvh), not the visible one: a phone's address bar showing or hiding crops the stage's bottom
+   instead of resizing it, so the city never scales with the bar. */
+.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
+.city-stage.is-framed { position: absolute; inset: 0; height: auto; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The placeholder and the still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is
    (CITY_SCRIPT sets --still-x and --still-y; until then, half the pane's width to the left). Its box reaches past the screen, so moving
