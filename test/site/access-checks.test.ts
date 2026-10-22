@@ -150,6 +150,16 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "PUT /games/:slug/secrets/:secret_name": () => ({ body: { secret_value: "sk_test_hop" } }),
   "DELETE /games/:slug/secrets/:secret_name": () => ({}),
   "GET /games/:slug/kept-rooms": () => ({}),
+  "GET /games/:slug/items": () => ({}),
+  "PUT /games/:slug/items/:item_name": () => ({ body: { title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [] } }),
+  // An item nobody owns: one players own stays (item_has_owners).
+  "DELETE /games/:slug/items/:item_name": () => ({ pathValues: { item_name: "spare_cape" } }),
+  "PATCH /games/:slug/purchase-settings": () => ({ body: { refund_policy: "within_14_days" } }),
+  "GET /games/:slug/purchases": () => ({ query: { purchase_source: "grant" } }),
+  "POST /games/:slug/purchases": (world) => ({ body: { player_id: world.values.player_id, item_name: "revive", item_count: 2 } }),
+  "GET /games/:slug/purchases/:purchase_id": () => ({}),
+  "POST /games/:slug/purchases/:purchase_id/refund": () => ({}),
+  "GET /games/:slug/players/:player_id/items": () => ({}),
   "DELETE /games/:slug/kept-rooms/:room_code": () => ({}),
   "GET /games/:slug/saves": () => ({}),
   "GET /games/:slug/saves/:player_id": () => ({ query: { keys: "coins" } }),
@@ -217,13 +227,14 @@ const isLogged = (apiRoute: ApiRoute) => (apiRoute.method !== "GET" && !(nameOf(
  * Path parts that name something inside the path's game or topic by its ID: from inside the stranger's own
  * game or topic, the developer's must be answered like nothing there.
  */
-const IDS_INSIDE = ["image_id", "shader_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id"];
+const IDS_INSIDE = ["image_id", "shader_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id", "purchase_id"];
 /** Path parts inside a game that aren't IDs of the developer's things, and why a stranger may use them in their own game. */
 const NAMES_INSIDE: Record<string, string> = {
   secret_name: "A name the developer picks: any game can have a secret of that name.",
   screen: "wide or phone: every game has a background for both.",
   room_code: "A room's code is only unique inside its game: any game can have a room with that code.",
-  player_id: "A player's save in this game: a game's developer reads and changes its own players' saves, and a player has one in each game they play.",
+  player_id: "A player's save or items in this game: a game's developer reads and changes its own players' saves and items, and a player has them in each game they play.",
+  item_name: "A name the developer picks: any game can have an item of that name.",
 };
 
 /**
@@ -297,6 +308,15 @@ async function makeWorld(): Promise<World> {
   // A room its game server kept.
   await env.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) VALUES (?, 'K7Q2MX', 'Frostbound', 2048, ?, ?, ?)").bind(game.id, nowMs, nowMs, nowMs).run();
 
+  // Items: one the player was granted (with the refund policy a price needs), and one nobody owns.
+  await env.DB.prepare("UPDATE games SET refund_policy = 'unused_within_14_days' WHERE id = ?").bind(game.id).run();
+  const purchaseId = newId("purchase");
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO game_items (game_id, item_name, title, item_kind, item_category, price_minor_units, currency_code, created_at_ms, updated_at_ms) VALUES (?, 'revive', 'Revive', 'consumable', 'gameplay', 199, 'usd', ?, ?)").bind(game.id, nowMs, nowMs),
+    env.DB.prepare("INSERT INTO game_items (game_id, item_name, title, item_kind, item_category, created_at_ms, updated_at_ms) VALUES (?, 'spare_cape', 'Spare Cape', 'permanent', 'cosmetic', ?, ?)").bind(game.id, nowMs, nowMs),
+    env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', 3, ?, 'grant', 'completed', ?, ?)").bind(purchaseId, game.id, player!.player_id, nowMs, nowMs),
+  ]);
+
   // A player's save in the game, with an earlier copy.
   const saveText = canonicalSave({ coins: "5" });
   await bumpSave(env.DB, { accountId: player!.id, gameId: game.id, baseVersionNumber: 0, sha256: await saveHash(saveText), sizeBytes: saveText.length, changedByKind: "player" });
@@ -366,6 +386,8 @@ async function makeWorld(): Promise<World> {
       player_id: player!.player_id,
       save_copy_id: saveCopyId,
       database_restore_id: databaseRestoreId,
+      item_name: "revive",
+      purchase_id: purchaseId,
       topic_id: topicId,
       post_id: postId,
       media_id: mediaId,
@@ -374,7 +396,7 @@ async function makeWorld(): Promise<World> {
       sha256: storedFile.sha256,
       part_number: "1",
     },
-    strangerValues: { slug: strangerGame.slug, topic_id: strangerTopicId, webhook_id: strangerWebhook.id, sign_in_app_id: strangerApp.id, player_id: player!.player_id, secret_name: "API_TOKEN", screen: "wide" },
+    strangerValues: { slug: strangerGame.slug, topic_id: strangerTopicId, webhook_id: strangerWebhook.id, sign_in_app_id: strangerApp.id, player_id: player!.player_id, secret_name: "API_TOKEN", screen: "wide", item_name: "revive" },
     otherSlug: otherGame.slug,
     publicTopicId,
     publicPostId,
@@ -390,12 +412,12 @@ async function makeWorld(): Promise<World> {
 /** The developer's things a stranger must never see in an answer: their account, games and IDs. */
 function privateValues(world: World): string[] {
   const { values } = world;
-  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.shader_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
+  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.shader_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.purchase_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
 }
 
 /** The same request with each of the developer's things swapped for one that doesn't exist, and how to swap them back in an answer. */
 function withNothingThere(world: World, sample: Required<Pick<Sample, "pathValues">> & Sample): { sample: typeof sample; swapBack: (answerText: string) => string } {
-  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", shader_id: "shader", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
+  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", shader_id: "shader", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", purchase_id: "purchase", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
   const swaps: [string, string][] = [
     [world.values.slug!, `gone-${world.n}`],
     [world.otherSlug, `gone-other-${world.n}`],
@@ -465,7 +487,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM kept_rooms; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM kept_rooms; DELETE FROM purchases; DELETE FROM game_items; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 
@@ -484,7 +506,7 @@ describe("the declarations", () => {
           : parts.includes("forum_topic")
             ? ["forum_topic"]
             : parts.includes("game")
-              ? [apiRoute.pathParts.player_id ? "player_save" : "game"]
+              ? [apiRoute.pathParts.player_id && apiRoute.path.includes("/saves/") ? "player_save" : "game"]
               : ["account", "nothing_private"];
       expect(expected, nameOf(apiRoute)).toContain(apiRoute.reaches);
     }

@@ -635,6 +635,11 @@ async function seed() {
       { link_name: "prize", destination_url: "https://scam-prizes.example/claim", is_on_game_page: false },
     ],
   });
+  // Tiny Farm's items, kept beside its folder as a developer keeps them in git (zaisma items set), with the refund policy a price needs.
+  await api("PATCH", "/games/tiny-farm/purchase-settings", { refund_policy: "unused_within_14_days" });
+  for (const { item_name: itemName, ...fields } of JSON.parse(readFileSync(join(ROOT, "scripts/preview/tiny-farm-items.json"), "utf8"))) {
+    await api("PUT", `/games/tiny-farm/items/${itemName}`, fields);
+  }
   // Shard Dodge's links on its game page, each in its site's look (Discord and the website only for
   // signed-in adults), and a share picture of its own that shared links show instead of the cover.
   await api("PATCH", "/games/shard-dodge", {

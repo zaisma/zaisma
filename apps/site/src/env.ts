@@ -5,6 +5,7 @@ import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
 import type { GameStorageService } from "../../rooms/src/game-storage.ts";
 import type { GameRoomsService } from "../../rooms/src/room-updates.ts";
+import type { ReceiptSigningService } from "../../rooms/src/receipts.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
@@ -32,6 +33,8 @@ export interface Env {
   GAME_STORAGE?: Service<GameStorageService>;
   /** Every game's live rooms, in the rooms Worker, told when a version goes live with match_update_mode "now" (match-updates.ts). */
   GAME_ROOMS?: Service<GameRoomsService>;
+  /** Signs purchases' receipts with the pass key, in the rooms Worker (items-api.ts). */
+  RECEIPTS?: Service<ReceiptSigningService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */

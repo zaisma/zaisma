@@ -312,6 +312,58 @@ declare namespace Zaisma {
   }
 
   /**
+   * The game's items: what the player owns (from their player pass, so it matches what the game's server
+   * sees) and what the game sells, priced in the player's currency. Developers set items with set_item;
+   * buying comes with Zaisma's buy sheet.
+   */
+  const items: Items;
+
+  /** The game's items ({@link items}). */
+  interface Items {
+    /**
+     * Whether the player owns a permanent item (bought or granted, not refunded), by its item_name, as their
+     * player pass says: a new pass (at most a day old) brings new items. false for guests, who own nothing.
+     * Fails with error.code bad_item_name, not_on_zaisma, unchecked, account_needed and request_failed, as
+     * Zaisma.player() does.
+     *
+     * @example
+     * if (await Zaisma.items.owns("skin_red-dragon")) unlockSkin("red-dragon");
+     */
+    owns(itemName: string): Promise<boolean>;
+    /** Every permanent item the player owns, by item_name; [] for guests. Fails as {@link Items.owns} does. */
+    owned(): Promise<string[]>;
+    /**
+     * The items the game sells, at the price this player pays: in their currency when the game set a price
+     * for it (picked by the player's country), else the main price. Show priceText beside anything sold for
+     * coins or gems too: real prices are always shown. Fails with error.code not_on_zaisma, bad_origin,
+     * game_unavailable and request_failed.
+     *
+     * @example
+     * for (const item of await Zaisma.items.list()) addShopRow(item.title, item.priceText, item.isOwned);
+     */
+    list(): Promise<ItemForSale[]>;
+  }
+
+  /** One item the game sells, for this player ({@link Items.list}). */
+  interface ItemForSale {
+    itemName: string;
+    title: string;
+    /** "" for none. */
+    description: string;
+    /** permanent: owned for good, on every device. consumable: delivered once, then the game keeps count. */
+    itemKind: "permanent" | "consumable";
+    itemCategory: "cosmetic" | "gameplay" | "content" | "currency";
+    /** The price this player pays, in the currency's smallest unit (cents; yen are whole), tax included. */
+    priceMinorUnits: number;
+    /** Lowercase ISO 4217, like "usd" or "brl". */
+    currencyCode: string;
+    /** The price as the player reads it, like "$1.99" or "R$ 59,90". */
+    priceText: string;
+    /** The player owns it (a permanent item), by their pass. */
+    isOwned: boolean;
+  }
+
+  /**
    * The player's cloud saves, for games that draw their own save screens. With cloud saves on, Zaisma
    * copies the game's own browser saves (localStorage and IndexedDB) to a signed-in player's account
    * with no code, and keeps 5 earlier versions. When two devices played on, the progress played most
@@ -1219,6 +1271,7 @@ declare namespace Zaisma {
     | "unlisted_server"
     | "unknown_link"
     | "bad_link_path"
+    | "bad_item_name"
     | "bad_link_query"
     | "bad_own_site_url"
     | "needs_player_tap"

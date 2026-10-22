@@ -143,6 +143,8 @@ const STATE_COPY_INTERVAL_MS = 5000;
  */
 const STATE_CHUNK_CHARACTER_COUNT = 512 * 1024;
 const stateChunkKey = (index: number) => `stateChunk:${index}`;
+/** Where each player's owned items wait out hibernation: ownedItemNames:<player id>. */
+const OWNED_ITEM_NAMES_KEY_PREFIX = "ownedItemNames:";
 
 
 /**
@@ -193,6 +195,12 @@ export class Room extends DurableObject<Env> {
   private socketIndex: { byPlayerId: Map<string, WebSocket[]>; accountPlayerIds: string[]; spectatorIds: Set<string> } | null = null;
   private saved: unknown = undefined;
   private savedRoom: SavedRoom | undefined = undefined;
+  /**
+   * The items each player in the room owns, from the pass they joined with (Player.ownedItemNames), kept in
+   * storage under ownedItemNamesKey so players rebuilt after hibernation keep them: a socket's attachment is
+   * too small for up to 1,000 names.
+   */
+  private ownedItemNamesByPlayerId = new Map<string, string[]>();
   private lastCheckAtMs = 0;
   private lastTesterCheckAtMs = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -270,6 +278,7 @@ export class Room extends DurableObject<Env> {
       this.freeTierCheckedAtMs = (got.get("freeTierCheckedAtMs") as number | undefined) ?? 0;
       this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
       this.alarmAtMs = await ctx.storage.getAlarm();
+      for (const [key, names] of await ctx.storage.list<string[]>({ prefix: OWNED_ITEM_NAMES_KEY_PREFIX })) this.ownedItemNamesByPlayerId.set(key.slice(OWNED_ITEM_NAMES_KEY_PREFIX.length), names);
     });
   }
 
@@ -559,7 +568,7 @@ export class Room extends DurableObject<Env> {
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.env.DB, claims.sub) : claims.name;
       if (!name) return this.refuse(socket, "bad_pass");
-      player = { id: claims.sub, name, kind: claims.kind };
+      player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
     } catch (error) {
       if (!(error instanceof PassError)) throw error;
       return this.refuse(socket, "bad_pass");
@@ -612,6 +621,7 @@ export class Room extends DurableObject<Env> {
       this.retire(other);
       other.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
     }
+    await this.keepOwnedItemNames(player);
     const nowMs = Date.now();
     socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {}, ...(isSpectator ? { isSpectator: true as const } : {}) } satisfies Attachment);
     this.socketIndex = null;
@@ -626,6 +636,23 @@ export class Room extends DurableObject<Env> {
     if (core.players.size === 1) await this.ctx.storage.delete("emptiedAtMs");
     await this.settle(core);
     await this.wake(Date.now() + SWEEP_MS);
+  }
+
+  /** Keeps what a joining player owns for when the room wakes from hibernation; a pass with nothing owned clears it. */
+  private async keepOwnedItemNames(player: Player): Promise<void> {
+    const key = `${OWNED_ITEM_NAMES_KEY_PREFIX}${player.id}`;
+    if (player.ownedItemNames?.length) {
+      this.ownedItemNamesByPlayerId.set(player.id, player.ownedItemNames);
+      await this.ctx.storage.put(key, player.ownedItemNames);
+    } else if (this.ownedItemNamesByPlayerId.delete(player.id)) {
+      await this.ctx.storage.delete(key);
+    }
+  }
+
+  /** A player as the room rebuilds them from a socket's attachment, with what they own. */
+  private playerOf(attachment: { id: string; name: string; kind?: Player["kind"] }): Player {
+    const ownedItemNames = this.ownedItemNamesByPlayerId.get(attachment.id);
+    return { id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest", ...(ownedItemNames ? { ownedItemNames } : {}) };
   }
 
   /** A player's connection closed: they left, or it was lost (the room then holds their seat a while). */
@@ -1118,12 +1145,12 @@ export class Room extends DurableObject<Env> {
     const players = this.sockets().flatMap((socket) => {
       const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
       if (attachment.isSpectator) {
-        spectators.push({ id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest" });
+        spectators.push(this.playerOf(attachment));
         return [];
       }
       if (Object.hasOwn(held, attachment.id)) return [];
       presence[attachment.id] = { seenAtMs: attachment.seenAtMs ?? attachment.joinedAtMs, clientIdle: attachment.clientIdle };
-      return [{ id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest" }];
+      return [this.playerOf(attachment)];
     });
     const transport = {
       ...(this.meta?.roomCode ? { roomCode: this.meta.roomCode } : {}),

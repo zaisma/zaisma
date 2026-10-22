@@ -190,6 +190,40 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: leftoverKey })).status).toBe(403);
   });
 
+  it("puts the permanent items an account owns in its passes, which the game server sees and other players' games never do", async () => {
+    const arena = await addGame("arena");
+    const account = await createAccount(e.DB, { id: "supabase-user-owner", username: "Gold_Owl", ageBand: "18+" });
+    const nowMs = Date.now();
+    const purchase = (id: string, itemName: string, itemKind: string, purchaseStatus: string) =>
+      e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, ?, ?, ?, 'grant', ?, ?, ?)").bind(id, arena, itemName, itemKind, account.player_id, purchaseStatus, nowMs, nowMs);
+    await e.DB.batch([
+      e.DB.prepare("DELETE FROM purchases WHERE game_id = ?").bind(arena),
+      purchase("purchase_ownedcrown01", "gold_crown", "permanent", "completed"),
+      // Consumables are delivered, not owned; a refunded item is no longer owned.
+      purchase("purchase_ownedrevive1", "revive", "consumable", "completed"),
+      purchase("purchase_refundedcape", "spare_cape", "permanent", "refunded"),
+    ]);
+    const response = await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) });
+    const { pass } = await response.json<{ pass: string }>();
+    const claims = await verifyPass(pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: R });
+    expect(claims.owned_item_names).toEqual(["gold_crown"]);
+    // A guest's pass owns nothing.
+    const guestClaims = JSON.parse(atob((await getPass("arena")).pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
+    expect(guestClaims).not.toHaveProperty("owned_item_names");
+
+    // Players' games never hear what anyone owns; the room keeps it for its game server through a sleep.
+    const c = await connect("arena", "CRWNS2");
+    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    const welcome = await c.next();
+    expect(welcome.me).toEqual({ id: account.player_id, name: "Gold_Owl", kind: "account" });
+    expect(welcome.players).toEqual([{ id: account.player_id, name: "Gold_Owl", kind: "account", awayReason: null }]);
+    await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:CRWNS2")), async (_room: Room, state) => {
+      expect(await state.storage.get(`ownedItemNames:${account.player_id}`)).toEqual(["gold_crown"]);
+    });
+    c.ws.close(1000);
+    await e.DB.prepare("DELETE FROM purchases WHERE game_id = ?").bind(arena).run();
+  });
+
   it("keeps which accounts are in a room, never guests, for friends' Join", async () => {
     const arena = await addGame("arena");
     const account = await createAccount(e.DB, { id: "supabase-user-seated", username: "Seated_Owl", ageBand: "18+" });

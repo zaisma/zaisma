@@ -102,6 +102,7 @@ export function apiKeyTokensIn(text: string): string[] {
  *   stats_access        stats, player reports and history
  *   database_access     read: tables, indexes, use and export. write: run SQL and import
  *   save_access         players' cloud saves: read them and their copies. write: change, reset and restore them
+ *   purchase_access     items and purchases: read the items, settings, purchases and receipts. write: set and remove items, grant, refund
  *   forum_access        read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name
  *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
  *   webhook_access      webhooks (the whole account's)
@@ -112,6 +113,7 @@ export const AREA_ACCESS_CHOICES = {
   stats_access: ["none", "read"],
   database_access: ["none", "read", "write"],
   save_access: ["none", "read", "write"],
+  purchase_access: ["none", "read", "write"],
   forum_access: ["none", "read", "write"],
   sign_in_app_access: ["none", "read", "write"],
   webhook_access: ["none", "read", "write"],
@@ -128,10 +130,10 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
 /** What each fixed level gives. Read and upload keys read the forum but don't post in the developer's name. */
 export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
-  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
-  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
+  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
+  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", purchase_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
 };
 
 /** What a caller may do: a key's access, or everything for the developer on our own pages. */

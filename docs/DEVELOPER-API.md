@@ -226,6 +226,29 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_maximum_line_count` | 400 | maximum_line_count isn't a whole number from 1 to 500. |
 | `two_log_cursors` | 400 | get_logs got both cursor and new_lines_cursor. |
 
+**Items and purchases**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_item` | 404 | The game has no item by that name. |
+| `too_many_items` | 400 | The game has 1,000 items, the most it can have. |
+| `bad_item` | 400 | An item's name, title, description, kind, category, price or local prices isn't one set_item takes; field says which. |
+| `unsupported_currency` | 400 | Zaisma doesn't price in that currency. |
+| `price_too_low` | 400 | The price is under the least Stripe charges in its currency. |
+| `refund_policy_needed` | 409 | A game that sells anything states its refund policy first. |
+| `bad_refund_policy` | 400 | refund_policy isn't no_refunds, unused_within_14_days, within_14_days, own_words or null. |
+| `bad_refund_policy_text` | 400 | refund_policy_text isn't up to 600 characters of plain words, or doesn't go with refund_policy own_words. |
+| `bad_own_payment_categories` | 400 | own_payment_categories isn't a list of cosmetic, gameplay, content and currency. |
+| `item_has_owners` | 409 | Players bought or were granted the item, so it can't be removed; take its price off to stop selling it. |
+| `bad_item_count` | 400 | item_count isn't a whole number from 1 to 1,000, or isn't 1 for a permanent item. |
+| `bad_game_account_id` | 400 | game_account_id isn't text of up to 200 characters, or null. |
+| `bad_purchase_source` | 400 | purchase_source isn't sale or grant. |
+| `bad_purchase_status` | 400 | purchase_status isn't pending, completed, failed, refunded or charged_back. |
+| `no_purchase` | 404 | The game has no purchase with that ID. |
+| `already_refunded` | 409 | The purchase was refunded or charged back already. |
+| `stripe_not_connected` | 409 | Refunding a sale goes through Stripe, which the game's developer hasn't connected. |
+| `receipts_unavailable` | 503 | Zaisma couldn't sign the purchase's receipt just now. |
+
 **Cloud saves**
 
 | Code | HTTP | Meaning |
@@ -372,6 +395,8 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `ai_protection_dodged` | `malware` | The AI review found code that tries to get around one of Zaisma's protections: the page outside the game's frame, the relay between players, registered links or the list of servers. |
 | `ai_lifelike_gore` | none | The AI review found lifelike gore (photo-real or lifelike injury shown up close), which plays only in games for 16 and up. |
 | `ai_real_money_gambling` | `illegal` | The AI review found real-money gambling. |
+| `ai_paid_random_rewards` | `purchases` | The AI review found paid random rewards (loot boxes): something bought with money, or with coins bought with money, that gives a random item. |
+| `ai_coin_price_without_real_price` | `purchases` | The AI review found prices in coins or gems with no real price beside them, for coins or gems bought with money. |
 | `ai_free_text_chat` | `chat` | The AI review found free-text chat between players. |
 | `ai_disallowed_crypto` | `crypto` | The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access. |
 | `ai_other` | none | The AI review found something else for a person at Zaisma to look at. |
@@ -422,6 +447,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |
 | `chat` | Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes. |
 | `crypto` | Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet. |
+| `purchases` | Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems without the real price beside them. |
 | `faked_plays` | Faking plays or players, with bots, scripts or click farms. |
 
 Allowed, even where other platforms ban it (`ALLOWED_CONTENT`): the AI review passes it and report triage dismisses reports about it.
@@ -461,7 +487,7 @@ A key can be limited, for CI and collaborators, to some of your games and to wha
 | `full` | Everything. Keys made before levels existed are full keys for every game. |
 | `publish` | Upload and publish versions, change games, their secrets and tester links, and post on the forum. Reads everything else; can't run SQL, change saves, or change sign-in apps and webhooks. |
 | `upload` | Send files and make versions (drafts), and read everything. Can't publish, change games or post on the forum. |
-| `read` | Read games, versions, stats, the database, saves and the forum. Changes nothing. |
+| `read` | Read games, versions, stats, the database, saves, items and purchases, and the forum. Changes nothing. |
 | `custom` | A choice per area, below. |
 
 | Area, in `area_access` | Choices | What it covers |
@@ -471,6 +497,7 @@ A key can be limited, for CI and collaborators, to some of your games and to wha
 | `stats_access` | `none`, `read` | Stats, player reports and history. |
 | `database_access` | `none`, `read`, `write` | read: tables, indexes, use and `export`. write: run SQL (`query`, `batch`), `import` and restore to a time. |
 | `save_access` | `none`, `read`, `write` | Players' cloud saves. read: read them and their copies. write: change, reset and restore them. |
+| `purchase_access` | `none`, `read`, `write` | Items and purchases. read: the items, purchase settings, purchases and receipts. write: set and remove items, change purchase settings, grant items and refund. `read`, `upload` and `publish` keys read them; only `full` writes. |
 | `forum_access` | `none`, `read`, `write` | write: post, reply, vote, follow and message Zaisma, in your name. |
 | `sign_in_app_access` | `none`, `read`, `write` | Sign-in apps. |
 | `webhook_access` | `none`, `read`, `write` | Webhooks. |
@@ -769,6 +796,33 @@ Tokens and keys a game's own game server needs, like a Discord webhook URL, a Gi
 - **Who can use them:** they're kept away from players, the dashboard, the API and Zaisma's own database listings, but the game server's code reads them, so anyone who can publish the game's code can use them (a `publish` key too). Never put one in the game's own files: players can read those.
 - **On your own server** the Node runner's `server.secrets` is its environment variables, so set the same names there.
 - A key reads the names with `game_access` `read` and sets and deletes with `write`.
+
+## Items and purchases
+
+What a game sells or grants, kept by Zaisma under names the game picks, and every purchase and grant of them with a signed receipt. Zaisma takes no cut: the price a game shows is what the player pays, tax included, and buying comes with Zaisma's buy sheet. Until then, grants work end to end, so a game can try owned items, receipts and passes before anything else is connected.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/items` | The game's `items` by `item_name`, its `refund_policy`, `refund_policy_text` and `own_payment_categories`, and the `purchase_label` they make. |
+| `PUT /games/:slug/items/:item_name` | Make or replace one item, whole: `{"title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"}`, every key every time. Answers the `item` (201 when it's new) and `next_steps`. |
+| `DELETE /games/:slug/items/:item_name` | Remove one nobody bought or was granted. Answers `removed_item_name` and `next_steps`. |
+| `PATCH /games/:slug/purchase-settings` | `refund_policy`, `refund_policy_text` and `own_payment_categories`; leave out what stays. Answers them with the `purchase_label` and `next_steps`. |
+| `POST /games/:slug/purchases` | Grant an item: `{"player_id", "item_name", "item_count", "game_account_id"}`. Answers the `purchase` with its `receipt`, `is_already_owned` and `next_steps`. |
+| `GET /games/:slug/purchases` | Purchases and grants, newest first, 100 at a time (`next_cursor`), each with its `receipt`; filter with `player_id`, `item_name`, `purchase_source` and `purchase_status`. |
+| `GET /games/:slug/purchases/:purchase_id` | One `purchase`, with its `receipt`. |
+| `POST /games/:slug/purchases/:purchase_id/refund` | Take a grant back (`purchase_status` `refunded`). A sale refunds through Stripe, with the buy sheet: until then `stripe_not_connected`. |
+| `GET /games/:slug/players/:player_id/items` | The permanent items a player owns in the game: `{"player_id", "owned_item_names"}`, as their next pass lists them. |
+
+- **An item** is `permanent` (owned for good, on every device: a skin, an expansion) or `consumable` (delivered once, then the game keeps count: a revive, coins), and says what it is with `item_category`: `cosmetic` (only how things look), `gameplay` (helps you play), `content` (more of the game) or `currency` (in-game money). Its `item_name` is 1 to 40 lowercase letters, digits, underscores and hyphens; `title` up to 60 characters and `description` up to 300. Up to 1,000 a game.
+- **Prices** are in the currency's smallest unit (`price_minor_units`: 199 for $1.99, 300 for ¥300), in a `currency_code` written lowercase as Stripe writes it (`usd`, `eur`, `brl`), at least Stripe's minimum for that currency (50 cents; `price_too_low` under it). `local_prices` sets the price in up to 40 other currencies, as `[{"currency_code", "price_minor_units"}]`: a player pays in their country's currency when the game set one, else the main price. Prices pick by country, never by browser language. Under 2 dollars, euros, pounds or Canadian or Australian dollars, `card_fee_note` says about how much reaches you after card fees. `price_minor_units` and `currency_code` `null`: an item that's only granted, or no longer sold.
+- **The refund policy** comes first: a game states one before anything goes on sale (`refund_policy_needed`). `no_refunds`, `unused_within_14_days`, `within_14_days`, or `own_words` with the policy in `refund_policy_text` (up to 600 characters, no links or contact details).
+- **The label** (`purchase_label`, on the game too) is what the game page says the game sells: the categories of its items with a price, plus what it sells through its own payments (`own_payment_categories`, with `has_own_payments`). It comes from the items, so it can't drift; a grant-only item isn't in it.
+- **A purchase** is `{"id", "item_name", "item_kind", "item_count", "purchase_source", "purchase_status", "player_id", "game_account_id", "price_minor_units", "currency_code", "refunded_minor_units", "purchased_at", "refunded_at", "receipt"}`. `purchase_source` is `sale` or `grant`; `purchase_status` `pending`, `completed`, `failed`, `refunded` or `charged_back`. `game_account_id` is your game's own ID for the player's account in your system, given back as you sent it.
+- **Grants** go to accounts (guests' player IDs last only for their pass: `no_player`). A permanent item a player already owns answers the purchase that owns it with `is_already_owned: true`; a consumable is granted as many times as asked, `item_count` up to 1,000 each.
+- **Receipts** are JWTs signed with the player pass key, so any server checks one with the same public keys: `verifyReceipt(receipt, keys, { game, issuer })` from `@zaisma/game-server`, which refuses a pass (`wrong_kind`), as `verifyPass` refuses a receipt. Its claims: `sub` (the player), `aud` (the game), `jti` (the purchase's ID: deliver a consumable once per ID), `item_name`, `item_kind`, `item_count`, `purchase_source`, `price_minor_units`, `currency_code`, `game_account_id` and `iat`. A receipt never expires; a refund shows in the purchase and in the player's next pass.
+- **Owned items in the pass:** an account's pass lists the permanent items it owns in the game as `owned_item_names` (absent for guests and when it owns none), so a game server sees them on connect without calling Zaisma: `player.ownedItemNames`, the same in Zaisma rooms and on your own server. Players' games never see what other players own. In the game, `Zaisma.items.owns(item_name)`, `Zaisma.items.owned()` and `Zaisma.items.list()` (the items for sale at the price this player pays, with `priceText`).
+- **Nothing sold is random,** and real prices show beside coin prices: the review holds a version that sells paid random rewards (`ai_paid_random_rewards`) or prices bought coins with no real price beside them (`ai_coin_price_without_real_price`), under the content rule `purchases`.
+- A key reads items and purchases with `purchase_access` `read` (read, upload and publish keys) and changes them with `write` (full keys).
 
 ## Kept rooms
 
@@ -1160,6 +1214,9 @@ The files a version needed before its first frame in its run in Chrome are prelo
 | `zaisma secrets <slug>` | The game's secrets' names and when each was set | `GET /games/:slug/secrets` |
 | `zaisma secrets set <slug> <secret_name>` | Set a secret: the value piped in, or typed without showing in a terminal | `PUT /games/:slug/secrets/:secret_name` |
 | `zaisma secrets delete <slug> <secret_name>` | Delete a secret | `DELETE /games/:slug/secrets/:secret_name` |
+| `zaisma items <slug>` | The game's items, each one's kind, category and price, and its refund policy | `GET /games/:slug/items` |
+| `zaisma items set <slug> [file]` | Make the game's items match a JSON file of the whole list (or piped in), kept beside the game: one set per added or changed item, one remove per item gone, refused for an item players own | `PUT` and `DELETE /games/:slug/items/:item_name` |
+| `zaisma items remove <slug> <item_name>` | Remove an item nobody owns | `DELETE /games/:slug/items/:item_name` |
 | `zaisma kept-rooms <slug>` | The game's kept rooms, each one's size and when it was last played, and the game's storage | `GET /games/:slug/kept-rooms` |
 | `zaisma kept-rooms delete <slug> <room_code>` | Delete a kept room's world for good | `DELETE /games/:slug/kept-rooms/:room_code` |
 | `zaisma logs <slug> [--follow] [--room-code <code>] [--minimum-level debug\|info\|warn\|error] [--source-kind room\|request\|schedule\|webhook] [--search-text "…"] [--maximum-line-count <count>] [--cursor <next_cursor>]` | What the game server printed, oldest first; `--follow` keeps printing new lines every 2 seconds (with `--json`, one answer per line) | `GET /games/:slug/logs` |

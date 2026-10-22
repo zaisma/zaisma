@@ -210,6 +210,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(Object.keys(Zaisma.rooms).sort()).toEqual(fieldsOf("Rooms"));
     expect(Object.keys(Zaisma.server).sort()).toEqual(fieldsOf("Server"));
     expect(Object.keys(Zaisma.links).sort()).toEqual(fieldsOf("Links"));
+    expect(Object.keys(Zaisma.items).sort()).toEqual(fieldsOf("Items"));
     expect(Object.keys(Zaisma.friends).sort()).toEqual(fieldsOf("Friends"));
     expect(Object.keys(Zaisma.saves).sort()).toEqual(fieldsOf("Saves"));
     const player = membersOf(TYPES).find((member) => member.name === "player")!;
@@ -881,7 +882,8 @@ describe("the SDK's types say what the SDK does", () => {
   });
 
   it("what rooms send, as the game server and the rooms Worker declare it", () => {
-    expect(fieldsOf("Player")).toEqual(fieldsOf("Player", GAME_SERVER));
+    // What a player owns is the game server's alone, from their pass: rooms never send it to players' games.
+    expect(fieldsOf("Player")).toEqual(fieldsOf("Player", GAME_SERVER).filter((name) => name !== "ownedItemNames"));
     expect(fieldsOf("ListedPlayer")).toEqual(fieldsOf("ListedPlayer", GAME_SERVER));
     const awayReasons = (file: string) => {
       const type = checker.getTypeOfSymbol(declaredType(file, "ListedPlayer").getProperty("awayReason")!);

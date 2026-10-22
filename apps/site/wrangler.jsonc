@@ -62,6 +62,8 @@
     { "binding": "GAME_SERVER_WEBHOOKS", "service": "zaisma-rooms", "entrypoint": "GameServerWebhookService" },
     { "binding": "GAME_STORAGE", "service": "zaisma-rooms", "entrypoint": "GameStorageService" },
     { "binding": "GAME_ROOMS", "service": "zaisma-rooms", "entrypoint": "GameRoomsService" },
+    // Purchases' receipts, signed with the pass key, which stays in rooms (apps/rooms/src/receipts.ts).
+    { "binding": "RECEIPTS", "service": "zaisma-rooms", "entrypoint": "ReceiptSigningService" },
     { "binding": "PHOTODNA", "service": "zaisma-photodna", "entrypoint": "PhotoDnaService" }
   ],
   "queues": {

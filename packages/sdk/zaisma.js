@@ -1449,6 +1449,43 @@
   var links = { open: openLink };
 
   /*
+   * Items (zaisma.d.ts: Zaisma.items): what the player owns comes from their pass (owned_item_names), so it
+   * needs no call of its own and matches what the game's server sees; what's for sale comes from Zaisma rooms,
+   * priced in the player's currency by their country.
+   */
+  function passClaimsOf(pass) {
+    try {
+      var body = pass.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      var bytes = Uint8Array.from(atob(body), function (character) { return character.charCodeAt(0); });
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (error) {
+      return {};
+    }
+  }
+  function ownedItems() {
+    return player().then(function (mine) {
+      var names = passClaimsOf(mine.pass).owned_item_names;
+      return Array.isArray(names) ? names.slice() : [];
+    });
+  }
+  function ownsItem(itemName) {
+    if (typeof itemName !== "string" || !itemName) return Promise.reject(codedError("bad_item_name", "itemName isn't an item's name, like \"revive\": list_items names the game's items."));
+    return ownedItems().then(function (names) { return names.indexOf(itemName) !== -1; });
+  }
+  function listItems() {
+    if (!config.rooms) return Promise.reject(notOnZaisma("Items for sale come from Zaisma, so they list only in games played on Zaisma."));
+    var listed = fetch(config.rooms + "/v1/items/" + config.game + (config.tester ? "?tester=" + config.tester : "")).then(answered, requestFailed);
+    // Whether the player owns each comes from their pass; without one (not checked yet), none are owned.
+    var owned = ownedItems().catch(function () { return []; });
+    return Promise.all([listed, owned]).then(function (both) {
+      return both[0].items.map(function (forSale) {
+        return { itemName: forSale.itemName, title: forSale.title, description: forSale.description, itemKind: forSale.itemKind, itemCategory: forSale.itemCategory, priceMinorUnits: forSale.priceMinorUnits, currencyCode: forSale.currencyCode, priceText: forSale.priceText, isOwned: both[1].indexOf(forSale.itemName) !== -1 };
+      });
+    });
+  }
+  var items = { owns: ownsItem, owned: ownedItems, list: listItems };
+
+  /*
    * A version the developer published "now", for a game that isn't in a match (single-player, or a menu):
    * the page beside it notices, and a game listening switches when it says (update.apply()); otherwise the
    * page offers Update beside the game. Never forced. Matches hear it from their room ("versionUpdate").
@@ -1884,5 +1921,5 @@
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null, isLinkedAsSpectator: watchFromPage() };
   var friends = { list: listFriends, setRoom: setOwnRoom };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, friends: friends, saves: saves, versions: versions };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, items: items, friends: friends, saves: saves, versions: versions };
 })();

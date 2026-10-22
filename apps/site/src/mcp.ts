@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, GAME_ITEM, ITEMS, KEPT_ROOMS, KEPT_ROOM_DELETED, PURCHASE, PURCHASE_SETTINGS, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -1119,6 +1119,159 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/secrets/${pathPart(toolArguments.secret_name)}`),
   },
   {
+    name: "list_items",
+    title: "List a game's items",
+    description:
+      "What a game sells or grants: each item with its name, title, kind (permanent: owned for good on every device; consumable: delivered once, then the game keeps count), category (cosmetic, gameplay, content, currency), its main price and prices in other currencies; the game's refund policy, what it sells through its own payments, and the label the game page shows from them (purchase_label).",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: ITEMS,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/items`),
+  },
+  {
+    name: "set_item",
+    title: "Set an item",
+    description:
+      "Make or replace one item a game sells or grants, whole: send every field. Prices are in the currency's smallest unit (cents, pence; yen are whole), the price players pay, tax included; Zaisma takes no cut. A price needs the game's refund policy first (set_purchase_settings). price_minor_units and currency_code null: an item that's only granted (grant_item), or no longer sold. local_prices sets what players in other currencies pay (picked by their country); without one they see the main price. Nothing sold is random: sell the item itself, by name. The game checks what a player owns with Zaisma.items.owns(item_name), and its server with player.ownedItemNames or a receipt. Live at once.\n\n" +
+      'Not: { "price_minor_units": 1.99 } (minor units: 199 for $1.99)\n' +
+      'Not: { "item_name": "Revive Potion" } (lowercase letters, digits, _ and -: "revive_potion"; the title is what players see)\n' +
+      'Not: { "currency_code": "USD" } (lowercase, as Stripe writes it: "usd")',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          item_name: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "The name the game knows it by: 1 to 40 lowercase letters, digits, underscores and hyphens" },
+          title: { type: "string", minLength: 1, maxLength: 60, description: "What players see it called" },
+          description: { type: "string", maxLength: 300, description: 'What players see about it; "" for none' },
+          item_kind: { enum: ["permanent", "consumable"], description: "permanent: owned for good, on every device (a skin, an expansion). consumable: delivered once, then the game keeps count (a revive, coins)" },
+          item_category: { enum: ["cosmetic", "gameplay", "content", "currency"], description: "cosmetic: only how things look. gameplay: helps you play. content: more of the game. currency: in-game money. The game page's label shows it" },
+          price_minor_units: { type: ["integer", "null"], minimum: 0, description: "The price in the currency's smallest unit, like 199 for $1.99, at least Stripe's minimum (50 cents); null for an item that's only granted" },
+          currency_code: { type: ["string", "null"], pattern: "^[a-z]{3}$", description: "The main price's currency, lowercase ISO 4217: usd, eur, gbp, brl; null with no price" },
+          local_prices: {
+            type: "array",
+            maxItems: 40,
+            items: { type: "object", properties: { currency_code: { type: "string", pattern: "^[a-z]{3}$" }, price_minor_units: { type: "integer", minimum: 0 } }, required: ["currency_code", "price_minor_units"], additionalProperties: false },
+            description: "Prices in other currencies, which players in those countries pay; [] for none",
+          },
+        },
+        ["slug", "item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"],
+      ),
+      examples: [
+        { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "Back in the fight where you fell.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] },
+        { slug: "frostbound", item_name: "expansion_north", title: "The Northern Reaches", description: "A new region, twelve hours of story.", item_kind: "permanent", item_category: "content", price_minor_units: 1999, currency_code: "usd", local_prices: [{ currency_code: "brl", price_minor_units: 5990 }] },
+        { slug: "frostbound", item_name: "supporter_cape", title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] },
+      ],
+    },
+    outputSchema: answer({ item: GAME_ITEM, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PUT", `/games/${pathPart(toolArguments.slug)}/items/${pathPart(toolArguments.item_name)}`, pick(toolArguments, ["title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"])),
+  },
+  {
+    name: "remove_item",
+    title: "Remove an item",
+    description: "Remove an item nobody bought or was granted. One a player owns stays, since players keep what they bought: to stop selling it, set_item with price_minor_units and currency_code null.",
+    inputSchema: object({ slug, item_name: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "An item's name from list_items" } }, ["slug", "item_name"]),
+    outputSchema: answer({ removed_item_name: text("The item removed."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/items/${pathPart(toolArguments.item_name)}`),
+  },
+  {
+    name: "set_purchase_settings",
+    title: "Set a game's refund policy",
+    description:
+      "Set what a game says about what it sells: its refund policy, which a game states before anything goes on sale, and what it sells through its own payments outside Zaisma's buy sheet (own_payment_categories), which the game page's label shows too. Leave out what stays the same.\n\n" +
+      'Not: { "refund_policy": "own_words" } alone (own_words needs the policy in refund_policy_text)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          refund_policy: { enum: ["no_refunds", "unused_within_14_days", "within_14_days", "own_words", null], description: "no_refunds; unused_within_14_days (items not used yet, within 14 days); within_14_days; or own_words, with refund_policy_text. null only for a game that sells nothing" },
+          refund_policy_text: { type: ["string", "null"], maxLength: 600, description: "The policy in your own words, with own_words only; no links or contact details" },
+          own_payment_categories: { type: "array", items: { enum: ["cosmetic", "gameplay", "content", "currency"] }, description: "What the game sells through its own payments (its own site, a registered link); [] for nothing" },
+        },
+        ["slug"],
+      ),
+      examples: [{ slug: "sky-hopper", refund_policy: "unused_within_14_days" }, { slug: "frostbound", refund_policy: "own_words", refund_policy_text: "Expansions are refunded within 30 days if you played less than two hours of them." }],
+    },
+    outputSchema: answer({ ...(PURCHASE_SETTINGS.properties as Record<string, Record<string, unknown>>), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", `/games/${pathPart(toolArguments.slug)}/purchase-settings`, pick(toolArguments, ["refund_policy", "refund_policy_text", "own_payment_categories"])),
+  },
+  {
+    name: "grant_item",
+    title: "Grant an item",
+    description:
+      "Give a player an item, with no money: a supporter's reward, a prize, an apology. It's a purchase with purchase_source grant, completed at once, with a signed receipt any server checks with verifyReceipt. A permanent item shows in the player's next pass (Zaisma.items.owns, player.ownedItemNames); granting one they own answers that purchase with is_already_owned. A consumable is delivered with its receipt: your server counts it once per purchase ID. Only accounts own items, not guests.",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          player_id: idInput("player", "The player's ID: a room's player, or the sub of a pass your server checked"),
+          item_name: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "An item's name from list_items" },
+          item_count: { type: "integer", minimum: 1, maximum: 1000, description: "How many of a consumable; 1 when left out, and always 1 for a permanent item" },
+          game_account_id: { type: ["string", "null"], maxLength: 200, description: "Your game's own ID for the player's account in your system, given back as is in the purchase and its receipt" },
+        },
+        ["slug", "player_id", "item_name"],
+      ),
+      examples: [{ slug: "frostbound", player_id: "player_8f3k2m9q1x7c4v6b0n5z", item_name: "supporter_cape" }, { slug: "sky-hopper", player_id: "player_8f3k2m9q1x7c4v6b0n5z", item_name: "revive", item_count: 5 }],
+    },
+    outputSchema: answer({ purchase: PURCHASE, is_already_owned: yes("The player owned this permanent item already: purchase is the one that owns it, and nothing new was made."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases`, pick(toolArguments, ["player_id", "item_name", "item_count", "game_account_id"])),
+  },
+  {
+    name: "list_purchases",
+    title: "List a game's purchases",
+    description: "A game's purchases and grants, newest first, 100 at a time (next_cursor for more), each with its signed receipt; filter by player, item, purchase_source (sale or grant) or purchase_status.",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          player_id: idInput("player", "Only this player's"),
+          item_name: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "Only this item's" },
+          purchase_source: { enum: ["sale", "grant"], description: "Only sales, or only grants" },
+          purchase_status: { enum: ["pending", "completed", "failed", "refunded", "charged_back"], description: "Only these" },
+          cursor: { type: "string", description: "next_cursor from the last answer, for the next 100" },
+        },
+        ["slug"],
+      ),
+      examples: [{ slug: "frostbound" }, { slug: "frostbound", player_id: "player_8f3k2m9q1x7c4v6b0n5z" }, { slug: "sky-hopper", purchase_source: "grant", purchase_status: "completed" }],
+    },
+    outputSchema: answer({ purchases: list(PURCHASE, "Newest first."), next_cursor: nullable(text("For the next 100; null when these are the last.")) }),
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams(pick(toolArguments, ["player_id", "item_name", "purchase_source", "purchase_status", "cursor"]) as Record<string, string>).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/purchases${query ? `?${query}` : ""}`);
+    },
+  },
+  {
+    name: "get_purchase",
+    title: "Get a purchase",
+    description: "One purchase or grant, with its signed receipt.",
+    inputSchema: object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases or grant_item") }, ["slug", "purchase_id"]),
+    outputSchema: answer({ purchase: PURCHASE }),
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}`),
+  },
+  {
+    name: "refund_purchase",
+    title: "Refund a purchase",
+    description: "Take back a grant: the player no longer owns it from their next pass. Ask the developer first. Sales are refunded through Stripe, which comes with Zaisma's buy sheet.",
+    inputSchema: object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases") }, ["slug", "purchase_id"]),
+    outputSchema: answer({ purchase: PURCHASE, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}/refund`),
+  },
+  {
+    name: "get_player_items",
+    title: "Get a player's items",
+    description: "The permanent items a player owns in a game (bought or granted, not refunded), as their next pass lists them in owned_item_names.",
+    inputSchema: object({ slug, player_id: idInput("player", "The player's ID") }, ["slug", "player_id"]),
+    outputSchema: answer({ player_id: idOf("player"), owned_item_names: list(text(), "By item_name; [] for none.") }),
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/players/${pathPart(toolArguments.player_id)}/items`),
+  },
+  {
     name: "list_kept_rooms",
     title: "List a game's kept rooms",
     description:
@@ -1515,6 +1668,12 @@ const MEANT: Record<string, string> = {
   images: "images_base64",
   image: "image_base64",
   game: "slug",
+  price: "price_minor_units",
+  currency: "currency_code",
+  sku: "item_name",
+  product_id: "item_name",
+  quantity: "item_count",
+  give_item: "grant_item",
   // Tools of their own, for names an AI might try on update_game.
   background_video: "add_shader",
   set_background_image: "set_background",

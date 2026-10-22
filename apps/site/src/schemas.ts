@@ -1,4 +1,4 @@
-import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
@@ -106,6 +106,27 @@ const COUNTRY_BLOCK = object({
   blocked_at: isoTime(),
 });
 
+/** What each item category means, the words the game page's label uses. */
+export const ITEM_CATEGORY_CHOICE = choice(
+  { cosmetic: "changes only how things look", gameplay: "helps you play, like a revive or a boost", content: "more of the game, like levels or an expansion", currency: "in-game money" } satisfies Record<(typeof ITEM_CATEGORIES)[number], string>,
+  "What kind of thing it is, which the game page's label shows.",
+);
+const CURRENCY_CODE = describe({ type: "string", enum: Object.keys(CURRENCY_MINIMUM_PRICES) }, "The currency, lowercase ISO 4217 as Stripe writes it: usd, eur, brl.");
+const PRICE_MINOR_UNITS = describe({ type: "integer", minimum: 0 }, "The price in the currency's smallest unit (cents, pence; yen are whole): 199 for $1.99. The price a game shows is what the player pays, tax included.");
+export const REFUND_POLICY_CHOICE = choice(
+  { no_refunds: "no refunds", unused_within_14_days: "refunds for items not used yet, within 14 days", within_14_days: "refunds within 14 days", own_words: "the policy in refund_policy_text" } satisfies Record<(typeof REFUND_POLICIES)[number], string>,
+  "The game's refund policy, which it states before anything goes on sale.",
+);
+
+/** What a game page says the game sells, from its items. */
+export const PURCHASE_LABEL = object(
+  {
+    categories: list(ITEM_CATEGORY_CHOICE, "The categories of what it sells (items with a price, and what it sells through its own payments), in the order cosmetic, gameplay, content, currency; [] for no in-game purchases."),
+    has_own_payments: yes("It sells some things through its own payments (own_payment_categories), outside Zaisma's buy sheet."),
+  },
+  "What the game page says the game sells. It comes from the items, so it can't drift.",
+);
+
 export const GAME = object({
   slug: text("The game's link name, as in zaisma.com/g/<slug>"),
   page_url: url(),
@@ -134,6 +155,9 @@ export const GAME = object({
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for the listing check (about a minute) or a person before players see it.")),
   title_listing_reason: nullable(reviewReason("Why the title keeps the game off Zaisma's lists (a famous name, a tag) or held it (a fake reward); null when nothing does. The game still plays by its link.")),
   glass_tint_color: nullable(describe({ type: "string", pattern: "^#[0-9a-f]{6}$" }, "The color Zaisma tints its glass with over the game's background, like #6b3fa0; Zaisma still decides how thick the glass is. null: no tint.")),
+  purchase_label: PURCHASE_LABEL,
+  refund_policy: nullable(REFUND_POLICY_CHOICE),
+  refund_policy_text: nullable(text("The refund policy in the developer's own words, with refund_policy own_words; null otherwise.")),
   updated_at: isoTime(),
 });
 
@@ -361,6 +385,7 @@ export const ACCESS = object({
       stats_access: choice(AREA_ACCESS_CHOICES.stats_access, "Stats, player reports and history."),
       database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes, use and export. write: run SQL and import."),
       save_access: choice(AREA_ACCESS_CHOICES.save_access, "Players' cloud saves. read: read them and their copies. write: change, reset and restore them."),
+      purchase_access: choice(AREA_ACCESS_CHOICES.purchase_access, "Items and purchases. read: the items, purchase settings, purchases and receipts. write: set and remove items, change purchase settings, grant items and refund."),
       forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
@@ -748,6 +773,52 @@ export const WEBHOOK = object({
   failed_delivery_count: countOf("Events that failed every try in the last 30 days: list_webhook_deliveries says why."),
   created_at: isoTime(),
   updated_at: isoTime(),
+});
+
+/** Something a game sells or grants. */
+export const GAME_ITEM = object({
+  item_name: text("The name the game knows it by, like revive: Zaisma.items.owns(item_name)."),
+  title: text("What players see it called."),
+  description: text("What players see about it; \"\" for none."),
+  item_kind: choice({ permanent: "owned for good, on every device", consumable: "delivered once, then the game keeps count" } satisfies Record<(typeof ITEM_KINDS)[number], string>),
+  item_category: ITEM_CATEGORY_CHOICE,
+  price_minor_units: nullable(PRICE_MINOR_UNITS),
+  currency_code: nullable(CURRENCY_CODE),
+  local_prices: list(object({ currency_code: CURRENCY_CODE, price_minor_units: PRICE_MINOR_UNITS }), "Prices in other currencies, which players in those countries see and pay; [] for none."),
+  card_fee_note: nullable(text("Under 2 units of a currency, about what reaches the developer after card fees; null otherwise.")),
+  created_at: isoTime(),
+  updated_at: isoTime(),
+});
+
+/** What a game says about what it sells, and the label it makes with the items. */
+export const PURCHASE_SETTINGS = object({
+  refund_policy: nullable(REFUND_POLICY_CHOICE),
+  refund_policy_text: nullable(text("The refund policy in the developer's own words, with own_words.")),
+  own_payment_categories: list(ITEM_CATEGORY_CHOICE, "What the game sells through its own payments, outside the buy sheet; [] for nothing."),
+  purchase_label: PURCHASE_LABEL,
+});
+
+/** A game's items, its purchase settings and the label they make. */
+export const ITEMS = object({ items: list(GAME_ITEM, "By item_name."), ...(PURCHASE_SETTINGS.properties as Record<string, Schema>) });
+
+/** A player's purchase or grant of an item, with its receipt. */
+export const PURCHASE = object({
+  id: idOf("purchase"),
+  item_name: text(),
+  item_kind: choice([...ITEM_KINDS]),
+  item_count: countOf("How many of the item: 1 for a permanent one."),
+  purchase_source: choice({ sale: "bought through Zaisma's buy sheet", grant: "given by the developer, with no money" } satisfies Record<(typeof PURCHASE_SOURCES)[number], string>),
+  purchase_status: choice(
+    { pending: "paying", completed: "bought or granted", failed: "the payment didn't go through", refunded: "refunded or taken back", charged_back: "the card's bank took the money back" } satisfies Record<(typeof PURCHASE_STATUSES)[number], string>,
+  ),
+  player_id: idOf("player"),
+  game_account_id: nullable(text("The game's own ID for the player's account in its own system, as the game gave it.")),
+  price_minor_units: nullable(describe({ type: "integer", minimum: 0 }, "What was paid, in the currency's smallest unit; null for a grant.")),
+  currency_code: nullable(text("The currency paid in; null for a grant.")),
+  refunded_minor_units: countOf("How much was given back, in the same currency's smallest unit; 0 for a grant."),
+  purchased_at: nullable(isoTime("When it was bought or granted; null while paying, or when it failed.")),
+  refunded_at: nullable(isoTime()),
+  receipt: nullable(text("The signed receipt (a JWT like a player pass): any server checks it with verifyReceipt from @zaisma/game-server. null while paying, or when it failed.")),
 });
 
 /** A game's secret as the API shows it: never its value. */

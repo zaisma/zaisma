@@ -236,7 +236,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     });
     // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
-    return name ? { player: { id: claims.sub, name, kind: claims.kind }, claims } : null;
+    // What the account owns here rides in its pass, as on Zaisma rooms (player.ownedItemNames).
+    const owned = claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {};
+    return name ? { player: { id: claims.sub, name, kind: claims.kind, ...owned }, claims } : null;
   }
 
   // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },

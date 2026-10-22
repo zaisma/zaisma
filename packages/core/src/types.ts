@@ -85,6 +85,12 @@ export interface Game {
   listing_checked_at_ms: number | null;
   /** The color Zaisma tints its glass with over the game's background, as #RRGGBB; NULL for none. */
   glass_tint_color: string | null;
+  /** Its refund policy (items.ts, REFUND_POLICIES); NULL until the developer states one, which a game that sells anything has. */
+  refund_policy: string | null;
+  /** The refund policy in the developer's own words, with refund_policy own_words only. */
+  refund_policy_text: string | null;
+  /** What it sells through its own payments, a JSON list of item categories; '[]' for nothing. */
+  own_payment_categories: string;
   /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */
