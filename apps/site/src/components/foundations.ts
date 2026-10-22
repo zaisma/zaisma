@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DRIFT_SHADER, STARWARD_SHADER } from "./shaders.ts";
@@ -254,12 +254,10 @@ export interface PageSettings {
   };
 }
 
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
-
 /** The settings as attributes for <html>. Only a #rrggbb color is taken as a hue, so a game's color can't carry anything else into the page. */
 export function pageSettingsAttributes(settings: PageSettings): Raw {
-  const hueColor = settings.glass?.hueColor;
-  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor && HEX_COLOR.test(hueColor) ? html` style="--glass-hue:${hueColor}"` : ""}`;
+  const hueColor = shownColor(settings.glass?.hueColor);
+  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor ? html` style="--glass-hue:${hueColor}"` : ""}`;
 }
 
 /** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */

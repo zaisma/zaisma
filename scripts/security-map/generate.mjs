@@ -48,6 +48,7 @@ export function orderedDoor(door) {
     gives: door.gives ?? [],
     trusts: door.trusts ?? [],
     covered_by_door_id: door.covered_by_door_id ?? null,
+    stored_value: door.stored_value ?? null,
     door_removed_at: door.door_removed_at ?? null,
     cases: door.cases.map(orderedCase),
   };

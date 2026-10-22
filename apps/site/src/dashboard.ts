@@ -3,6 +3,7 @@ import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { shownColor } from "./markup.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -1168,8 +1169,9 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 <div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
 </div>`;
   };
+  const glassTintColor = shownColor(game.glass_tint_color);
   return html`<div class="bg-panel" data-game-address="${gameAddress}">
-<div class="bg-preview not-steel" aria-label="Live preview"${game.glass_tint_color ? raw(` style="--glass-hue:${game.glass_tint_color}"`) : ""}>
+<div class="bg-preview not-steel" aria-label="Live preview"${glassTintColor ? html` style="--glass-hue:${glassTintColor}"` : ""}>
 <iframe class="backdrop is-framed" data-backdrop="frame" data-adapts-glass src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
 <img class="bg-picture" alt="" hidden>
 <div class="glass bg-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
@@ -1177,7 +1179,7 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 </div>
 <p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>
 ${backgrounds.map(screenPanel)}
-<form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${game.glass_tint_color ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${game.glass_tint_color ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
+<form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${glassTintColor ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${glassTintColor ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
 <p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is a <code>.glsl</code> file with Shadertoy's <code>mainImage</code>, reading <code>iResolution</code> and <code>iTime</code>, up to 16 KB: it's drawn and checked before it can show, and players' browsers draw it at about half resolution, 30 frames a second. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
 </div>${scriptTags(BACKGROUND_PREVIEW_SCRIPT)}`;
 }

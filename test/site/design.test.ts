@@ -339,7 +339,7 @@ describe("the gallery", () => {
 
 describe("components", () => {
   it("put a page's settings on it, taking only a #rrggbb color as the glass's hue", () => {
-    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
+    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2e9e6b"');
     expect(pageSettingsAttributes({}).html).toBe("");
     for (const hueColor of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColor } }).html).toBe("");
   });

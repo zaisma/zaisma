@@ -62,6 +62,11 @@ export const SEED_RULES = [
     caseIds: ["replayed-after-expiry"],
   },
   {
+    evidence: { kind: "test", ref: "test/site/stored-values.test.ts", note: "Every door the value's entry lists is sent a value outside its shape and keeps none; the value planted hostile in the database shows only as text on every page, and exactly where its entry says." },
+    appliesTo: (door) => door.door_kind === "stored_value",
+    caseIds: ["format-skipped", "shown-in-wrong-context"],
+  },
+  {
     evidence: { kind: "test", ref: "test/site/api-mcp-parity.test.ts", note: "Every call a tool makes is a real API call, and every API call has its tool." },
     appliesTo: (door) => door.door_kind === "mcp_tool",
     caseIds: ["tool-maps-to-declared-route"],
