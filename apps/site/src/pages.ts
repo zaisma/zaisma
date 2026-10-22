@@ -229,7 +229,7 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
-.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) 250px auto minmax(104px,auto) 36px;align-items:center;gap:8px 20px;padding:10px 6px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) 250px auto 104px 36px;align-items:center;gap:8px 20px;padding:10px 6px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
 .room .main{min-width:0}
 /* A named room leads with its name and labels; they're words players may have typed, shown only past the filter. */
 .room .title{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -237,9 +237,11 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .room .labels{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .room .small-count{font-size:13px;color:var(--text-2);white-space:nowrap}
 .room .watching{font-size:13px;color:var(--text-2);white-space:nowrap}
-/* Join (or Full), and Watch beside it for games that take spectators. */
-.room .doors{display:flex;justify-content:flex-end;gap:8px}
-.room .doors>*{min-width:104px}
+/* Join (or Full), and Watch beside it: once any room can be watched, every row makes room for both, so they line up. */
+.room .doors{display:flex;gap:8px}
+.room .doors>*{flex:1;min-width:0}
+.rooms.watchable .room{grid-template-columns:minmax(0,1fr) 250px auto 216px 36px}
+.rooms.watchable .room .doors>*{flex:0 0 104px}
 .room .act{display:flex;justify-content:center}
 .report-room{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;background:none;color:var(--muted);cursor:pointer}
 .report-room:hover,.report-room:focus-visible{color:var(--text)}
@@ -279,8 +281,13 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
   .room{grid-template-columns:minmax(0,1fr) auto auto;gap:8px 12px;padding:12px 10px 12px 16px}
   .room .main{grid-column:1;grid-row:1}
   .room .where{grid-column:2;grid-row:1}
+  .room,.rooms.watchable .room{grid-template-columns:minmax(0,1fr) auto auto}
   .room .doors{grid-column:3;grid-row:1}
-  .room .doors>*{min-width:76px}
+  .room .doors>*,.rooms.watchable .room .doors>*{flex:0 0 76px}
+  /* Join and Watch together go under the flag, beside how full the room is, so the room's name keeps its line. */
+  .rooms.watchable .room .doors{grid-column:2/4;grid-row:2;justify-content:flex-end}
+  .rooms.watchable .room .fill{grid-column:1;flex-wrap:wrap}
+  .rooms.watchable .room .act{grid-column:3;grid-row:1}
   .room .fill{grid-column:1/3;grid-row:2}
   .room .act{grid-column:3;grid-row:2;justify-content:flex-end}
   .room .count,.room .name{font-size:16px}

@@ -83,7 +83,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-shown="${shownKey(list.region, picked)}">
 ${head}
 ${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
-${open.length ? html`<ol class="rooms">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
+${open.length ? html`<ol class="rooms${open.some(hasWatchSpace) ? " watchable" : ""}">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
 ${hiddenRoomCount > 0 ? html`<button class="btn ghost rooms-all" type="button">Show ${plural(hiddenRoomCount, "more room", "more rooms")}</button>` : ""}
 ${list.moreOpenRoomCount > 0 ? html`<p class="muted rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="muted rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
