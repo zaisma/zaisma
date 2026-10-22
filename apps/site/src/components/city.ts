@@ -1112,7 +1112,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       return view;
     }
     // It starts where the still is framed, so the live city takes over from it with nothing moving.
-    function shiftTarget() { return shiftFor(); }
+    // The framing is measured once and then held: page scroll, the browser's bars and resizes never move the camera's picture.
+    var shiftHeld = shiftFor();
+    function shiftTarget() { return shiftHeld; }
     var shift = shiftTarget();
 
     var clock = 40, camTime = 0, last = performance.now(), isShown = false, warmFrameCount = 0, shownAt = 0;
