@@ -2755,7 +2755,7 @@ describe("recently played", () => {
   it("shows games on the home page and patch notes on the game page", async () => {
     await liveGame("hop", "Hop");
     const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect(pageDataOf(home, "home-data").games.map((game: { slug: string }) => game.slug)).toContain("hop");
+    expect((pageDataOf(home, "home-data") as { games: { slug: string }[] }).games.map((game) => game.slug)).toContain("hop");
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
     expect(page).toContain('id="tab-updates"');
