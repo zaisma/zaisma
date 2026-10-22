@@ -259,8 +259,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
   // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
-  // phones too, whose own sideways scrollbars hide.
-  document.querySelectorAll("[data-side-rail]").forEach(function (box) {
+  // phones too, whose own sideways scrollbars hide. A table's are its own, under its well (below).
+  document.querySelectorAll("[data-side-rail]:not(.table-scroll)").forEach(function (box) {
     if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
     box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
