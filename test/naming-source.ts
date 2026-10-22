@@ -43,6 +43,7 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   R2RangeFields: ["offset", "length", "suffix"],
   CloudflareDnsAnswer: ["Answer", "data"],
   TurnAnalyticsAnswer: ["data"],
+  StripeEvent: ["data"],
 };
 /** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
 const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };

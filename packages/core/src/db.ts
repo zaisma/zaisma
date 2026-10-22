@@ -50,7 +50,7 @@ export async function createGame(
 ): Promise<Game> {
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
-    id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, own_server_urls: "[]", owner_id: ownerId ?? null, cloud_saves_enabled: 1, account_offer_enabled: 1, deleted_account_erase_enabled: 1, friend_joins_enabled: 1, performance_measuring_enabled: 1, quick_joined_at_ms: null, game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null,
+    id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, own_server_urls: "[]", owner_id: ownerId ?? null, cloud_saves_enabled: 1, account_offer_enabled: 1, deleted_account_erase_enabled: 1, friend_joins_enabled: 1, performance_measuring_enabled: 1, monthly_budget_cents: null, quick_joined_at_ms: null, game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null,
     visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: randomKey(32), is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null, listing_checked_at_ms: null, glass_tint_color: null, live_version_match_update_mode: "next_match", live_version_published_at_ms: null, has_live_version_game_file_changes: 1, created_at_ms: now(), updated_at_ms: now(),
   };
   game.listing_check_requested_at_ms = game.created_at_ms;

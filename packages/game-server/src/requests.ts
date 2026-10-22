@@ -46,7 +46,7 @@ export type RequestErrorCode =
   | "game_unavailable"
   | "no_request_handler"
   | "game_server_error"
-  | "request_limit"
+  | "hosting_paused"
   | "slow_down"
   | "bad_origin"
   | "busy";
@@ -60,7 +60,7 @@ export const REQUEST_ERROR_TEXT: Record<RequestErrorCode, string> = {
   game_unavailable: "This game isn't available right now.",
   no_request_handler: "This game's server doesn't take requests.",
   game_server_error: "The game's server couldn't answer this request.",
-  request_limit: "This game has used this month's requests. They work again next month.",
+  hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
   slow_down: "Too many requests. Try again in a minute.",
   bad_origin: "Not allowed from here.",
   busy: "Zaisma is busy. Try again soon.",
@@ -76,7 +76,7 @@ export const REQUEST_ERROR_HTTP_STATUS: Record<RequestErrorCode, number> = {
   game_unavailable: 404,
   no_request_handler: 404,
   game_server_error: 500,
-  request_limit: 429,
+  hosting_paused: 429,
   slow_down: 429,
   bad_origin: 403,
   busy: 503,

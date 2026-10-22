@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import { syncRelayUse } from "../../apps/rooms/src/relay.ts";
-import { createAccount, issueRoomKey, pastFreeTier, roomUseThisMonth } from "@zaisma/core";
+import { createAccount, isHostingPaused, issueRoomKey, monthStartDateOf, roomUseThisMonth } from "@zaisma/core";
 
 // Players never connect straight to each other: relay credentials for the relay script (packages/sdk/relay.js).
 const R = "https://rooms.zaisma.test";
@@ -23,7 +23,7 @@ const relay = (gameSlug: string, roomKey: unknown, origin = ORIGIN) =>
 
 describe("relay credentials", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM room_keys; DELETE FROM accounts WHERE id = 'supabase-user-relayed'; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_keys; DELETE FROM accounts WHERE id = 'supabase-user-relayed'; DELETE FROM games;");
   });
 
   it("gives a checked browser of the game relay servers only, tagged with the game, and counts them", async () => {
@@ -39,7 +39,7 @@ describe("relay credentials", () => {
     expect(usage).toEqual({ relay_credential_count: 1 });
   });
 
-  it("gives none to another site, without the check's key, to guests of a game that needs accounts, or past the free tier", async () => {
+  it("gives none to another site, without the check's key, to guests of a game that needs accounts, or while the game's hosting is paused", async () => {
     const id = await addGame("duel");
     expect((await relay("duel", await issueRoomKey(e.DB, id), "https://evil.example")).status).toBe(403);
     expect(await (await relay("duel", "room_key_madeup")).json()).toMatchObject({ error: { code: "unchecked" } });
@@ -55,17 +55,20 @@ describe("relay credentials", () => {
     expect(await (await relay("members", await issueRoomKey(e.DB, membersId, teen.id))).json()).toMatchObject({ error: { code: "game_not_open_to_player" } });
     expect((await relay("members", await issueRoomKey(e.DB, membersId, account.id))).status).toBe(200);
 
-    // 900 hours in rooms and 2 GB through the relay (100 hours) make the month's 1,000.
-    const month = `${new Date().toISOString().slice(0, 7)}-01`;
-    await e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec, relayed_size_bytes) VALUES (?, ?, ?, ?)").bind(id, month, 900 * 3600, 1_999_000_000).run();
-    expect(await pastFreeTier(e.DB, id)).toBe(false);
+    // The site's hosting job paused the game's hosting: no new relayed connections, whatever the month's use says.
+    const month = monthStartDateOf();
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms) VALUES (?, ?, 499, NULL)").bind(id, month).run();
+    expect((await isHostingPaused(e.DB, id)).isPaused).toBe(false);
     expect((await relay("duel", await issueRoomKey(e.DB, id))).status).toBe(200);
-    await e.DB.prepare("UPDATE room_usage SET relayed_size_bytes = 2_000_000_000 WHERE game_id = ? AND date = ?").bind(id, month).run();
-    expect(await pastFreeTier(e.DB, id)).toBe(true);
-    expect(await (await relay("duel", await issueRoomKey(e.DB, id))).json()).toMatchObject({ error: { code: "month_limit" } });
+    await e.DB.prepare("UPDATE game_hosting_months SET paused_at_ms = ?, paused_reason = 'free_used' WHERE game_id = ? AND month_start_date = ?").bind(Date.now(), id, month).run();
+    expect((await isHostingPaused(e.DB, id)).isPaused).toBe(true);
+    expect(await (await relay("duel", await issueRoomKey(e.DB, id))).json()).toMatchObject({ error: { code: "hosting_paused" } });
+    // Last month's pause is over.
+    await e.DB.prepare("UPDATE game_hosting_months SET month_start_date = '2020-01-01' WHERE game_id = ?").bind(id).run();
+    expect((await relay("duel", await issueRoomKey(e.DB, id))).status).toBe(200);
   });
 
-  it("reads each game's relayed data back from Cloudflare, for the free tier", async () => {
+  it("reads each game's relayed data back from Cloudflare, for the hosting meter", async () => {
     const id = await addGame("duel");
     const quietId = await addGame("quiet");
     const nowMs = Date.now();
@@ -85,6 +88,6 @@ describe("relay credentials", () => {
     await syncRelayUse(e, e.DB, nowMs);
     const use = await roomUseThisMonth(e.DB, id, nowMs);
     const thisMonthBytes = (yesterday.slice(0, 7) === today.slice(0, 7) ? 10_000_000 : 0) + 30_000_000;
-    expect(use).toEqual({ roomPlayDurationSec: 0, relayedSizeBytes: thisMonthBytes, gameServerCpuDurationMs: 0, countedPlayDurationSec: (thisMonthBytes / 20_000_000) * 3600 });
+    expect(use).toEqual({ roomPlayDurationSec: 0, relayedSizeBytes: thisMonthBytes, gameServerCpuDurationMs: 0 });
   });
 });

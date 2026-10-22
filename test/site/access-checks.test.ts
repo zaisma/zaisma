@@ -5,6 +5,7 @@ import {
   AREA_ACCESS_BY_LEVEL,
   AREA_ACCESS_CHOICES,
   accountById,
+  addCreditEntry,
   addDatabaseRestore,
   addImage,
   addTesterLink,
@@ -186,6 +187,10 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /sign-in-apps": () => ({ body: { name: "Hop Online", kind: "public", redirect_urls: ["https://hop.example.test/back"] } }),
   "PATCH /sign-in-apps/:sign_in_app_id": () => ({ body: { name: "Hop Online 2" } }),
   "DELETE /sign-in-apps/:sign_in_app_id": () => ({}),
+  "GET /credit": () => ({}),
+  "POST /credit/top-ups": () => ({ body: { amount_cents: 2000 } }),
+  "POST /credit/refunds": (world) => ({ body: { top_up_id: world.values.top_up_id } }),
+  "PATCH /credit/automatic-top-up": () => ({ body: { is_enabled: false } }),
   "GET /webhooks": () => ({}),
   "POST /webhooks": (world) => ({ body: { endpoint_url: `https://${HOOKS_HOST}/two`, event_kinds: ["bug_reported"], game_slugs: [world.values.slug] } }),
   "PATCH /webhooks/:webhook_id": (world) => ({ body: { game_slugs: [world.values.slug] } }),
@@ -233,6 +238,7 @@ const NAMES_INSIDE: Record<string, string> = {
  */
 const INPUTS_THAT_NEED_MORE: Record<string, [AccessArea, string]> = {
   "POST /games/:slug/versions publish_when_approved": ["version_access", "publish"],
+  "PATCH /games/:slug monthly_budget_cents": ["credit_access", "write"],
 };
 
 /** What a stranger names in an input that names something: the developer's own. */
@@ -252,6 +258,12 @@ const allInputs = (apiRoute: ApiRoute) => ({ ...apiRoute.query, ...bodyInputs(ap
 
 let worldCount = 0;
 const realFetch = globalThis.fetch;
+/** What a stand-in for Stripe answers each call that reaches it. */
+const STRIPE_ANSWERS: Record<string, Record<string, unknown>> = {
+  "/v1/customers": { id: "cus_test" },
+  "/v1/checkout/sessions": { id: "cs_test", url: "https://checkout.stripe.com/c/pay/cs_test", expires_at: 1_900_000_000 },
+  "/v1/refunds": { id: "re_test" },
+};
 
 async function makeWorld(): Promise<World> {
   const n = ++worldCount;
@@ -266,6 +278,8 @@ async function makeWorld(): Promise<World> {
   const strangerGame = await createGame(env.DB, { slug: `moon-${n}`, title: "Moon", description: "", ownerId: strangerOwner.id, visibility: "draft" });
   await env.DB.prepare("UPDATE games SET cloud_saves_enabled = 1 WHERE id IN (?, ?)").bind(game.id, strangerGame.id).run();
   const nowMs = Date.now();
+  // A top-up of the developer's, still refundable, paid on Stripe (a stand-in here).
+  const topUpId = (await addCreditEntry(env.DB, { ownerId: victimOwner.id, entryKind: "top_up", amountCents: 2000, stripeObjectId: `pi_test_${n}`, refundableUntilMs: nowMs + 86_400_000 }))!;
 
   // Files: one shared, one kept for the developer alone, one nobody sent, and a big one half sent.
   const storedBytes = text(`<!doctype html><p>hop ${n}</p>`);
@@ -355,6 +369,7 @@ async function makeWorld(): Promise<World> {
     victimOwnerId: victimOwner.id,
     strangerAccountId: accountIdOf("stranger"),
     values: {
+      top_up_id: topUpId,
       slug: game.slug,
       image_id: image.id,
       shader_id: shader.id,
@@ -458,6 +473,7 @@ beforeAll(async () => {
   // Webhook tests reach the developer's server: a stand-in that says yes.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === "api.stripe.com") return Response.json(STRIPE_ANSWERS[url.pathname] ?? {});
     return url.hostname === HOOKS_HOST ? new Response("ok") : realFetch(input, init);
   }) as typeof fetch;
 });
@@ -465,7 +481,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM kept_rooms; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM kept_rooms; DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM credit_entries; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 

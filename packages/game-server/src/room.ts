@@ -56,9 +56,9 @@ export interface Room {
   /** End the match: everyone is told why (message) and disconnected, and the room closes. */
   end(message?: string): void;
   /**
-   * When Zaisma will end this match, an ISO time, or null. Set once the game has used this month's free
-   * multiplayer time on Zaisma rooms, an hour ahead, so your game can save and tell its players
-   * (onEnding runs then); never set on your own server.
+   * When Zaisma will end this match, an ISO time, or null. Set once the game's hosting on Zaisma rooms
+   * pauses for the month (its free allowance, or its developer's budget or credit, is used), an hour after
+   * the pause, so your game can save and tell its players (onEnding runs then); never set on your own server.
    */
   readonly endsAt: string | null;
   /** Shown in room lists (the game page and Zaisma.rooms.list). A hidden room still works by code and link. */
@@ -454,8 +454,8 @@ export interface GameServer<S = any> {
   /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec (more when a tick was skipped). */
   onTick?(state: S, tickDurationSec: number, room: Room): HandlerResult<S>;
   /**
-   * Zaisma will end this match at room.endsAt, because the game used this month's free multiplayer
-   * time: save what should outlive it and tell your players. Runs once; each player's game also gets
+   * Zaisma will end this match at room.endsAt, because the game's hosting paused for the month: save
+   * what should outlive it and tell your players. Runs once; each player's game also gets
    * the "ending" event. Never runs on your own server.
    */
   onEnding?(state: S, room: Room): HandlerResult<S>;
@@ -835,7 +835,7 @@ export type RoomErrorCode =
   | "kept_out"
   | "refused"
   | "no_room"
-  | "month_limit"
+  | "hosting_paused"
   | "account_needed"
   | "game_not_open_to_player"
   | "blocked_player_here"
@@ -858,7 +858,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   kept_out: "You were removed from this room.",
   refused: "The game didn't let you into this room.",
   no_room: "That room isn't running.",
-  month_limit: "This game has used this month's multiplayer time. New rooms open again next month.",
+  hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
   account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
   game_not_open_to_player: "This game isn't open to this account.",
   blocked_player_here: "Someone you blocked is in this room.",
@@ -868,7 +868,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
 };
 
 /** What players are told when Zaisma ends a match at room.endsAt. */
-export const MONTH_LIMIT_END_MESSAGE = "This game has used this month's multiplayer time, so this match has ended. New rooms open again next month.";
+export const HOSTING_PAUSED_END_MESSAGE = "This game's hosting is paused, so this match has ended. New rooms open again when the month resets or its developer adds credit.";
 
 /**
  * isListed, isOpen, the players who have been in the room, the players kept out of it and a reserved
@@ -2522,7 +2522,7 @@ export class RoomCore<S = any> {
 
   /**
    * Zaisma will end this match at endsAt (an ISO time): every player hears it and onEnding runs, once.
-   * Only Zaisma rooms call it, when the game has used the month's free tier.
+   * Only Zaisma rooms call it, when the game's hosting pauses.
    */
   startEnding(endsAt: string): void {
     if (this.ended || this.endsAt !== null) return;

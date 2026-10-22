@@ -44,6 +44,8 @@ export interface Game {
   friend_joins_enabled: number;
   /** 1 when Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals. */
   performance_measuring_enabled: number;
+  /** What the game may draw from its developer's credit in a month, in cents; NULL: no paid hosting, so it stops at its free allowance. */
+  monthly_budget_cents: number | null;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */

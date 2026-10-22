@@ -34,6 +34,9 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   connected_app_removed: "Removed a connected app",
   where_used_from_turned_off: "Turned off Keep where my account is used from",
   where_used_from_turned_on: "Turned on Keep where my account is used from",
+  credit_top_up_started: "Started a credit top-up",
+  credit_refunded: "Refunded hosting credit",
+  automatic_top_up_changed: "Changed automatic top-up",
   account_data_downloaded: "Downloaded your data",
   // A game's, in the words its history has always used.
   game_created: "Made the game",
@@ -60,6 +63,7 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   secret_set: "Set a secret",
   secret_deleted: "Deleted a secret",
   kept_room_deleted: "Deleted a kept room",
+  hosting_budget_changed: "Changed the game's hosting budget",
   database_written: "Changed the database with SQL",
   database_imported: "Imported into the database",
   database_exported: "Exported the database",
@@ -101,6 +105,9 @@ export const ACCOUNT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "where_used_from_turned_off",
   "where_used_from_turned_on",
   "account_data_downloaded",
+  "credit_top_up_started",
+  "credit_refunded",
+  "automatic_top_up_changed",
 ];
 
 /** Belong to the whole account, so they show in every game's history for a key that isn't limited to some games. */
@@ -142,6 +149,7 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "secret_set",
   "secret_deleted",
   "kept_room_deleted",
+  "hosting_budget_changed",
   "database_written",
   "database_imported",
   "database_restored",
@@ -151,6 +159,10 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "game_exported",
   // It takes everything about the account out, the same way.
   "account_data_downloaded",
+  // Money: who started or changed spending, and from where.
+  "credit_top_up_started",
+  "credit_refunded",
+  "automatic_top_up_changed",
   "webhook_created",
   "webhook_changed",
   "webhook_deleted",
