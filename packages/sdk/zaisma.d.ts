@@ -652,6 +652,28 @@ declare namespace Zaisma {
     request(request: unknown, requestOptions?: RequestOptions): Promise<unknown>;
   }
 
+  /** How {@link Room.send} and {@link Room.sendBytes} send. */
+  interface SendOptions {
+    /**
+     * "reliable" (the default) reaches the game server in order. "latest_only" may be dropped: while
+     * this player's connection is backed up, a newer send with the same latestKey replaces it, and the
+     * newest goes once it catches up. For input sent every frame, like where the player aims. Anything
+     * else throws error.code "bad_send_option".
+     */
+    delivery?: "reliable" | "latest_only";
+    /**
+     * For "latest_only": which sends replace each other, up to 40 characters, like "aim". Defaults to
+     * the message's type field when it's text, else "" (bytes too).
+     */
+    latestKey?: string;
+  }
+
+  /**
+   * One change in a state update: [path, value] sets what's at path to value, [path] removes it, and an
+   * empty path replaces the whole state. path is keys of objects and indexes of arrays, from the top.
+   */
+  type StateChange = [path: (string | number)[]] | [path: (string | number)[], value: unknown];
+
   /** Options for {@link Server.request}. */
   interface RequestOptions {
     /** Your own game server's address, like "https://play.example.com", instead of Zaisma's. The Node runner answers requests on the same port as its rooms. */
@@ -700,6 +722,34 @@ declare namespace Zaisma {
      * pingText.textContent = room.pingDurationMs === null ? "" : room.pingDurationMs + " ms";
      */
     readonly pingDurationMs: number | null;
+    /**
+     * This player's view of the game server's state, when it has stateSyncEnabled: the game server's
+     * state, or what its stateView answers for this player. null until the first update, which comes as
+     * the player joins; after that it changes with each update (the "state" event). Read it, don't change it.
+     *
+     * @example
+     * function draw() {
+     *   const world = room.state;
+     *   if (world) for (const [id, body] of Object.entries(world.bodies)) drawBody(id, body);
+     *   requestAnimationFrame(draw);
+     * }
+     */
+    readonly state: unknown | null;
+    /**
+     * The state as it was delayMs behind the room's clock (100 unless you say, up to 1000), between the
+     * two updates around then: numbers in between, anything else as the older update had it, and what's in
+     * only one of them as it is. So positions and angles move evenly however the updates arrive, a moment
+     * behind. A copy, yours to keep; null until the first update. Anything else for delayMs throws
+     * error.code "bad_delay". Predicting this player's own moves stays your game's.
+     *
+     * @example
+     * function draw() {
+     *   const world = room.smoothedState();
+     *   if (world) for (const body of Object.values(world.bodies)) drawBody(body.x, body.y);
+     *   requestAnimationFrame(draw);
+     * }
+     */
+    smoothedState(delayMs?: number): unknown | null;
 
     /**
      * The room's clock now, in epoch milliseconds, estimated from the room's probes (Date.now() until the
@@ -715,15 +765,20 @@ declare namespace Zaisma {
     serverTimeMs(): number;
     /**
      * Send a message to the game server: plain JSON, up to 16 KB, about 30 a second at most. Send input
-     * when it changes, not every frame. Nothing is sent while the player is away.
+     * when it changes, not every frame. Nothing is sent while the player is away. With
+     * { delivery: "latest_only" }, a message may be dropped for a newer one (SendOptions).
+     *
+     * @example
+     * // Where the player aims, as it changes: only the newest matters.
+     * room.send({ type: "aim", angle }, { delivery: "latest_only" });
      */
-    send(message: unknown): void;
+    send(message: unknown, sendOptions?: SendOptions): void;
     /**
      * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed
      * array, up to 16 KB, counted with messages (about 30 a second at most). Anything else throws
-     * error.code "bad_bytes". Nothing is sent while the player is away.
+     * error.code "bad_bytes". Nothing is sent while the player is away. Takes the same sendOptions as room.send.
      */
-    sendBytes(bytes: ArrayBuffer | ArrayBufferView): void;
+    sendBytes(bytes: ArrayBuffer | ArrayBufferView, sendOptions?: SendOptions): void;
     /** Leave the room for good. */
     leave(): void;
     /**
@@ -803,6 +858,14 @@ declare namespace Zaisma {
      * they came from when the game server passed one player's bytes on (the relay always does), or null.
      */
     bytes: (bytes: Uint8Array, fromPlayerId: string | null) => void;
+    /**
+     * A state update, when the game server has stateSyncEnabled: state is room.state now, and changes
+     * what changed since the last update, or null after a full copy (as the player joins, and after their
+     * connection was backed up). Most games read room.state or room.smoothedState() as they draw instead.
+     * @example
+     * room.on("state", (state, changes) => { scoreText.textContent = String(state.scores[room.me.id]); });
+     */
+    state: (state: any, changes: StateChange[] | null) => void;
     /**
      * Players joined, left, walked away or came back, or their connection dropped or came back; the same
      * list as room.players.
@@ -1123,6 +1186,8 @@ declare namespace Zaisma {
     | "bad_player_id"
     | "bad_room_code"
     | "bad_bytes"
+    | "bad_send_option"
+    | "bad_delay"
     | "bad_server_url"
     | "unlisted_server"
     | "unknown_link"

@@ -1574,7 +1574,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .first<RoomTrafficRow>(),
     env.DB
       .prepare(
-        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
+        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes, SUM(backed_up_message_count) AS backed_up_message_count FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
       )
       .bind(game.id, monthStartDate, ROOM_TRAFFIC_MESSAGE_TYPE_COUNT)
       .all<MessageTypeRow>(),
@@ -1632,6 +1632,8 @@ interface MessageTypeRow {
   message_count: number;
   size_bytes: number;
   largest_size_bytes: number;
+  /** Sends that went reliably to a player whose connection was backed up. */
+  backed_up_message_count: number;
 }
 
 /** The month's biggest message types get_stats lists. */
@@ -1641,6 +1643,9 @@ const LARGE_JSON_AVERAGE_SIZE_BYTES = 512;
 const FREQUENT_MESSAGES_PER_PLAYER_SEC = 5;
 const HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC = 32 * 1024;
 const NEAR_LIMIT_SIZE_BYTES = 12 * 1024;
+/** Where the latest_only hint starts: a type sent reliably this often a player-second, with this share of its sends to backed-up players. */
+const LATEST_ONLY_MESSAGES_PER_PLAYER_SEC = 10;
+const LATEST_ONLY_BACKED_UP_PCT = 10;
 
 /** Messages and bytes per player a second, each way, rounded to one decimal; 0 with no player time. */
 function perPlayerTraffic(traffic: RoomTrafficRow) {
@@ -1663,13 +1668,19 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
   const named = (messageType: string) => (messageType === "(none)" ? "Messages without a type" : `"${messageType}" messages`);
   for (const type of types) {
     const averageSizeBytes = type.message_count ? type.size_bytes / type.message_count : 0;
-    const isJson = !["(bytes)", "(zaisma)", "(other)"].includes(type.message_type);
+    const isJson = !["(bytes)", "(zaisma)", "(state)", "(other)"].includes(type.message_type);
     if (isJson && averageSizeBytes >= LARGE_JSON_AVERAGE_SIZE_BYTES && type.message_count / totals.room_play_duration_sec >= FREQUENT_MESSAGES_PER_PLAYER_SEC) {
       hints.push({ code: "json_messages_large", message: `${named(type.message_type)} average ${Math.round(averageSizeBytes)} bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.` });
     }
+    const messagesPerPlayerSec = type.message_count / totals.room_play_duration_sec;
+    const isGameMessage = type.direction === "outbound" && !["(zaisma)", "(state)", "(other)"].includes(type.message_type);
+    if (isGameMessage && messagesPerPlayerSec >= LATEST_ONLY_MESSAGES_PER_PLAYER_SEC && (type.backed_up_message_count ?? 0) * 100 >= type.message_count * LATEST_ONLY_BACKED_UP_PCT) {
+      const which = type.message_type === "(bytes)" ? "Bytes" : named(type.message_type);
+      hints.push({ code: "latest_only_available", message: `${which} go out ${Math.round(messagesPerPlayerSec)} a second to each player, and ${Math.round(((type.backed_up_message_count ?? 0) / type.message_count) * 100)}% of them went to a player whose connection was backed up. Send them with delivery: "latest_only" so a slow player gets only the newest.` });
+    }
   }
   if (perPlayer.outbound_size_bytes_per_player_sec >= HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC) {
-    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see.` });
+    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see: the game server's stateSyncEnabled does the first, and its stateView the second.` });
   }
   const largestInbound = types.filter((type) => type.direction === "inbound").sort((first, second) => second.largest_size_bytes - first.largest_size_bytes)[0];
   if (largestInbound && largestInbound.largest_size_bytes >= NEAR_LIMIT_SIZE_BYTES) {
@@ -1691,7 +1702,7 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
 }
 
 /** What room traffic hints say to change (ROOM_TRAFFIC_HINT in schemas.ts says what each means). */
-type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit";
+type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit" | "latest_only_available";
 
 /** A game server error as it's stored. */
 export interface GameServerErrorRow {

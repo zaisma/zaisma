@@ -996,16 +996,17 @@ async function seedHolds(api, upload, go, form) {
     // And Cave Crew: 120 hours in rooms and 860 MB through Zaisma's relay this month (43 more hours), for the stats line that counts both.
     // And Four in a Row: 850 of its 1,000 free hours this month, for the 80% heads-up on its card and Overview.
     // And Arena, whose own game server runs on Zaisma: 40 hours in rooms with 2,500 CPU-seconds (1,500 past the 1,000
-    // they include, 30 more hours), and its room traffic: big JSON "move" snapshots 12 times a player-second, for the hint.
+    // they include, 30 more hours), and its room traffic: big JSON "move" snapshots 12 times a player-second, 15% of them
+    // to players whose connection was backed up, for the hints.
     const arenaTraffic = [
       "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count) SELECT id, date('now'), 30, 144000, 4322000, 207520000, 1892000, 1586880000, 2500000, 8640000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, message_count = excluded.message_count, inbound_size_bytes = excluded.inbound_size_bytes, outbound_message_count = excluded.outbound_message_count, outbound_size_bytes = excluded.outbound_size_bytes, game_server_cpu_duration_ms = excluded.game_server_cpu_duration_ms",
       ...[
-        ["move", "outbound", 1728000, 1555200000, 1400],
-        ["input", "inbound", 4320000, 207360000, 64],
-        ["(zaisma)", "outbound", 150000, 30000000, 2100],
-        ["chat", "outbound", 14000, 1680000, 360],
-        ["chat", "inbound", 2000, 160000, 300],
-      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes`),
+        ["move", "outbound", 1728000, 1555200000, 1400, 259200],
+        ["input", "inbound", 4320000, 207360000, 64, 0],
+        ["(zaisma)", "outbound", 150000, 30000000, 2100, 0],
+        ["chat", "outbound", 14000, 1680000, 360, 0],
+        ["chat", "inbound", 2000, 160000, 300, 0],
+      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes, backedUpMessageCount]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes}, ${backedUpMessageCount} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes, backed_up_message_count = excluded.backed_up_message_count`),
     ].join("; ");
     const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     if (inserted.status === 0) break;
