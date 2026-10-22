@@ -366,8 +366,16 @@ textarea:focus{border-color:var(--accent)}
     if (state.mode === "writing") parts.push(writingCard());
     if (state.mode === "panel" && !isInFrame) parts.push(state.threadId ? threadPanel() : listPanel());
     if (state.notice) parts.push(`<div class="box notice">${esc(state.notice)}</div>`);
+    // A redraw (the phone's keyboard resizing the page, a reply arriving) keeps what's typed and where the cursor is.
+    const typed = [...ui.querySelectorAll("textarea[data-field]")].map((field) => ({ name: field.dataset.field, value: field.value, isFocused: root.activeElement === field, start: field.selectionStart, end: field.selectionEnd }));
     ui.innerHTML = parts.join("");
     wire();
+    for (const { name, value, isFocused, start, end } of typed) {
+      const field = ui.querySelector(`[data-field=${name}]`);
+      if (!field) continue;
+      field.value = value;
+      if (isFocused) field.focus(), field.setSelectionRange(start, end);
+    }
   }
 
   function renderPins() {
@@ -462,10 +470,12 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
       };
     }
     for (const button of ui.querySelectorAll("[data-action]")) button.onclick = () => act(button.dataset.action, button);
-    const text = ui.querySelector("[data-field=text]");
-    if (text) text.onkeydown = (event) => (event.metaKey || event.ctrlKey) && event.key === "Enter" && act("save");
-    const reply = ui.querySelector("[data-field=reply]");
-    if (reply) reply.onkeydown = (event) => (event.metaKey || event.ctrlKey) && event.key === "Enter" && act("reply");
+    // Cmd or Ctrl + Enter saves. A listener, not onkeydown: a handler property that returns false cancels the key, and typing with it.
+    const onSaveKey = (field, action) => ui.querySelector(`[data-field=${field}]`)?.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") act(action);
+    });
+    onSaveKey("text", "save");
+    onSaveKey("reply", "reply");
   }
 
   async function act(action, button) {
