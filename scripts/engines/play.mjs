@@ -135,7 +135,9 @@ async function play(chrome, sample) {
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
     }
-    for (const problem of new Set(problems)) fail(`${sample.engine}: ${problem}`);
+    // Emscripten's pthreads warn on every threaded build that waits on the main thread (Godot's does): a warning, not a failure.
+    const isThreadsWarning = (problem) => sample.engine.endsWith("-threads") && problem.startsWith("console.error: Blocking on the main thread is very dangerous");
+    for (const problem of new Set(problems)) if (!isThreadsWarning(problem)) fail(`${sample.engine}: ${problem}`);
   } finally {
     for (const off of offs) off();
     await chrome.send("Target.closeTarget", { targetId }).catch(() => {});
