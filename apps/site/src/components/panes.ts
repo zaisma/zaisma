@@ -103,8 +103,11 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menu.classList.toggle("shut", !open); menu.setAttribute("aria-hidden", String(!open));
     if (open) { place(menu); if (focusFirst && items(menu)[0]) items(menu)[0].focus({ preventScroll: true }); }
   }
-  var menus = Array.prototype.slice.call(document.querySelectorAll('.dropdown[role="menu"]'));
-  menus.forEach(function (menu) {
+  // Every menu on the page, and any swapped in later (the layout playground's): one gone from the page is let go.
+  var menus = [];
+  function shown() { menus = menus.filter(function (menu) { return menu.isConnected; }); return menus; }
+  window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
+    menus.push(menu);
     if (!menu.classList.contains("shut")) requestAnimationFrame(function () { place(menu); });
     menu.addEventListener("keydown", function (event) {
       var list = items(menu), at = list.indexOf(document.activeElement);
@@ -121,9 +124,9 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     toggle(menu, button.getAttribute("aria-expanded") !== "true", event.detail === 0);
   });
   document.addEventListener("pointerdown", function (event) {
-    menus.forEach(function (menu) { var button = buttonOf(menu); if (!menu.classList.contains("shut") && !menu.contains(event.target) && !(button && button.contains(event.target))) toggle(menu, false); });
+    shown().forEach(function (menu) { var button = buttonOf(menu); if (!menu.classList.contains("shut") && !menu.contains(event.target) && !(button && button.contains(event.target))) toggle(menu, false); });
   });
-  function placeAll() { menus.forEach(place); }
+  function placeAll() { shown().forEach(place); }
   window.zaismaWatch.resize(placeAll);
   window.zaismaWatch.scroll(placeAll);
 })();
@@ -188,6 +191,8 @@ const COVER_STYLES = `
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: rgba(20,30,50,0.12); clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-art:focus-visible { outline: none; }
+/* No cover yet: Zaisma's mark, whole, in the well (the home's script marks it). */
+.cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */

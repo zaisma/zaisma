@@ -3,16 +3,15 @@ import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } fro
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
-import { textButton, textLink } from "./components/actions.ts";
+import { textButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { rowArrows } from "./components/navigation.ts";
+import { row, stack, type LayoutItem } from "./components/layout.ts";
+import { shelf } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
-import { tabSwitch } from "./components/switch.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
-import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
+import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { HOME_SCRIPT } from "./home-script.ts";
-import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
 
@@ -181,12 +180,9 @@ const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_n
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
 const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
 
-/** A row of the shelf: its heading (a link to Browse with this sort, when it has one), its arrows and its covers. */
-function row(id: string, title: string, sortName: string | null, list: ShowGame[]): Raw {
-  return html`<section class="home-row" aria-labelledby="${id}-title">
-<div class="home-row-head"><h2 id="${id}-title">${sortName ? textLink(title, `/games?sort=${sortName}`, { isQuiet: true }) : title}</h2>${rowArrows({ rowName: title, trackId: `track-${id}` })}</div>
-<div class="home-track" id="track-${id}" data-fades-sideways>${list.map(coverOf)}</div>
-</section>`;
+/** One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. */
+function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]): LayoutItem {
+  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game) })) }) };
 }
 
 /** What of each game the home's script needs: Continue playing's covers and the background behind the cover pointed at. */
@@ -204,26 +200,37 @@ export async function home(env: Env, request: Request): Promise<Response> {
   const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
   // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
   const newsLink = news ? shownAddress(news.link_url) : null;
-  const newsBanner = news
-    ? html`<div class="home-news" id="home-news" data-announcement-id="${news.id}" hidden>${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>`
-    : "";
+  const newsBanner: LayoutItem[] = news
+    ? [{ kind: "block", id: "home-news", isHidden: true, markup: html`<div data-announcement-id="${news.id}">${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>` }]
+    : [];
+  const guestBanner: LayoutItem[] = env.SUPABASE_URL
+    ? [{ kind: "block", id: "home-guest", isHidden: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } }) }]
+    : [];
+  // Shown by the home's script once this device (or the account) has played something.
+  const continuePlaying = shelf({
+    id: "continue",
+    trackId: "track-continue",
+    title: "Continue playing",
+    sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
+    items: [],
+  });
   const body = games.length
-    ? html`<div class="home" id="home-games">${glassPane({
+    ? html`<div id="home-games">${glassPane({
         paneSize: "full",
         label: "Games",
-        body: html`<h1 class="sr">Games on Zaisma</h1>${newsBanner}${env.SUPABASE_URL
-          ? html`<div id="home-guest" hidden>${banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } })}</div>`
-          : ""}
-<section class="home-row" id="home-continue" aria-labelledby="continue-title" hidden>
-<div class="home-row-head"><h2 id="continue-title">Continue playing</h2>${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}${rowArrows({ rowName: "Continue playing", trackId: "track-continue" })}</div>
-<div class="home-track" id="track-continue" data-fades-sideways></div>
-</section>
-${popular.length ? row("popular", "Popular", "popular", popular) : ""}
-${trending.length ? row("trending", "Trending", "trending", trending) : ""}
-${fresh.length ? row("new", "New", "new", fresh) : ""}
-<div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
+        body: html`<h1 class="sr">Games on Zaisma</h1>${stack({
+          items: [
+            ...newsBanner,
+            ...guestBanner,
+            { kind: "block", id: "home-continue", isHidden: true, markup: continuePlaying },
+            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular)] : []),
+            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending)] : []),
+            ...(fresh.length ? [homeShelf("new", "New", "new", fresh)] : []),
+            { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: textButton("All games", { href: "/games" }) }] }) },
+          ],
+        })}`,
       })}</div>`
-    : html`<div class="home">${glassPane({ paneSize: "medium", body: html`<h1>Every kind of game. One link away.</h1><p>The first games are on their way.</p>` })}</div>`;
+    : glassPane({ paneSize: "medium", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
     // Filtered for a signed-in viewer's age, so no shared cache keeps it.
@@ -231,7 +238,6 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
     nav: "home",
     viewer,
     isRebuilt: true,
-    head: styleTags(HOME_STYLE),
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
@@ -298,36 +304,3 @@ export async function handlePlayed(request: Request, env: Env, path: string): Pr
 export function playable(game: Game): boolean {
   return game.review_status === "live" && Boolean(game.live_version_id) && (game.visibility === "listed" || game.visibility === "unlisted");
 }
-
-/**
- * The home's own placing: one sheet of glass with every row on it, there from the first frame, with nothing to wait for. Zaisma's own
- * background is behind it until a cover is pointed at, when that game's background fades in (home-script.ts).
- */
-const HOME_STYLE = pageStyle("home", () => `
-.home { margin-bottom: var(--gap-block-block); }
-.home > .glass-pane { width: 100%; }
-.home-news[hidden], #home-guest[hidden] { display: none; }
-/* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
-.home-row-head { display: flex; align-items: center; gap: var(--gap-block-block); margin-bottom: var(--gap-words-words); }
-.home-row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; }
-/* The row's controls sit at its right end, the sort switch before the arrows. */
-.home-row-head > .steps, .home-row-head > .tab-switch { margin-left: auto; }
-.home-row-head > .tab-switch + .steps { margin-left: 0; }
-/* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
-.home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
-.home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
-.home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
-.home-all { display: flex; justify-content: center; }
-/* A game's background: a layer over Zaisma's own, fading in when it is ready. */
-.home-world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
-.home-world.is-shown { opacity: 1; }
-@media (max-width: 760px) {
-  .home-row-head > .steps { display: none; }
-  /* Continue playing's sort switch takes its own line under the heading, at its own width, instead of running past the pane. */
-  .home-row-head { flex-wrap: wrap; row-gap: var(--gap-words-control); }
-  .home-row-head > h2 { flex: 1 0 100%; }
-  .home-row-head > .tab-switch { margin-left: 0; max-width: 100%; }
-  .home-track > .cover { flex-basis: 64vw; }
-}
-@media (prefers-reduced-motion: reduce) { .home-world { transition: none !important; } }
-`);

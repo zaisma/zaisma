@@ -10,6 +10,7 @@ import { footer, header, rail, type HeaderTab } from "./components/navigation.ts
 import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
+import { stack } from "./components/layout.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 
@@ -422,7 +423,7 @@ const SHELL_STYLES = `
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
-body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
+body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; padding-bottom: var(--gap-block-block); }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }
 main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
@@ -581,10 +582,12 @@ export interface LayoutOptions {
   isRebuilt?: boolean;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
+  /** Light or dark, fixed, over the viewer's own (the layout playground's frame). */
+  theme?: "light" | "dark";
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
-  const colorTheme = options.viewer?.account?.color_theme ?? "system";
+  const colorTheme = options.theme ?? options.viewer?.account?.color_theme ?? "system";
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#EEF2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#0D1015" : "#EEF2F7"}">`;
   const page = html`<!doctype html>
@@ -645,7 +648,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const body = glassPane({ paneSize: "medium", body: html`<h1>${title}</h1><p>${text}</p>${runButton("Back to games", { href: "/", isFullWidth: true })}` });
+  const body = glassPane({ paneSize: "medium", body: stack({ items: [{ kind: "words", markup: html`<h1>${title}</h1>` }, { kind: "block", markup: html`<p>${text}</p>` }, { kind: "control", markup: runButton("Back to games", { href: "/", isFullWidth: true }) }] }) });
   const response = layout(env, { title, body, isRebuilt: true });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

@@ -731,8 +731,6 @@ export interface ShelfOptions {
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
   items: LayoutItem[];
-  /** Not shown for now: a page script shows it (the home's Continue playing, once this device has played something). */
-  isHidden?: boolean;
 }
 
 /**
@@ -742,7 +740,7 @@ export interface ShelfOptions {
 export function shelf(options: ShelfOptions): Raw {
   const titleId = `${options.id}-title`;
   const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref, { isQuiet: true }) : options.title}</h2>`;
-  return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}"${options.isHidden ? raw(" hidden") : ""}>${stack({
+  return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       {
         kind: "block",
@@ -777,7 +775,7 @@ component({
   styles: `
 /* A shelf: its heading, then its sort and its arrows together, in a row, the heading filling and never wrapping (so the sort and arrows go
    under it where they don't fit), then its track of covers. */
-.shelf-title { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
+.shelf .shelf-title { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
 `,
   render: shelf,
   examples: [

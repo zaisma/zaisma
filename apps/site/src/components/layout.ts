@@ -116,7 +116,7 @@ export function row(options: RowOptions): Raw {
     const endGap = after ? (isAfterPointerOnly ? "" : rowGap(item, after)) : "control-row-boxes";
     const gaps = [endGap ? `gap-end-${endGap}` : "", before && isPointerOnly ? `gap-start-${rowGap(before, item)}` : ""].filter(Boolean).join(" ");
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
-    return html`<div class="row-cell is-${placedKind(item)}${item.kind === "control" ? " holds-control" : ""}${isFilling ? " fills" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(item)}>${item.markup}</div>`;
+    return html`<div class="row-cell is-${placedKind(item)}${isFilling ? " fills" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(item)}>${item.markup}</div>`;
   });
   return html`<div class="layout-row alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
 }
@@ -197,8 +197,8 @@ const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-co
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
 const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".run-wrap > .run", ".cut-field > .field", ".find", ".tab-switch", ".steps"];
 
-/** What shows of a holder's children: not hidden, and not a script, a template or a form's hidden field. */
-const SHOWN = ':not([hidden], script, template, input[type="hidden"])';
+/** What shows of a holder's children: not hidden, not a cell whose only thing is hidden, and not a script, a template or a form's hidden field. */
+const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, input[type="hidden"])';
 
 /**
  * Components whose own words sit at their top (a field's label, a table's caption) or their foot (a field's hint), as [the component,
@@ -244,7 +244,9 @@ export const STACK_STYLES = `
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }
 .stack-cell { display: flex; flex-direction: column; min-width: 0; }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
-.layout-stack > .stack-cell:nth-child(1 of :not([hidden])) { margin-top: 0; }
+.layout-stack > .stack-cell:nth-child(1 of :not([hidden], :has(> [hidden]:only-child))) { margin-top: 0; }
+/* A cell whose only thing is hidden (a page script shows it: a step, an error) takes no room. */
+.stack-cell:has(> [hidden]:only-child) { display: none; }
 /* Words keep the pane's margin: in from the frame gap by --pad-words (a pane sets it), at its sides, and at its top and bottom edges. */
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */

@@ -17,6 +17,7 @@ import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { glassMessage, html, layout, scriptTags } from "./html.ts";
 import { glassPane } from "./components/foundations.ts";
+import { row, stack } from "./components/layout.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { authorizeMcp, handleMcpSignIn, isMcpClientId, tokenMcp } from "./mcp-sign-in.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -357,15 +358,22 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
     body: glassPane({
       paneSize: "medium",
       label: `Sign in to ${app.name}`,
-      body: html`<h1>Sign in to ${app.name}</h1>
-<p>with your Zaisma account, ${account.username}.</p>
-<p>${app.name} gets your player ID${sharesName ? " and your username" : ""}, the same as games on Zaisma see. Never your email, your age or anything else on your account.</p>
-<p>${app.name} is run by ${developer ? `${developer.name}, a developer on Zaisma` : "a developer on Zaisma"}, not by Zaisma. After this you go back to <strong>${backTo.host}</strong>.</p>
-<form method="post" action="/oauth/authorize">
+      body: stack({
+        items: [
+          { kind: "words", markup: html`<h1>Sign in to ${app.name}</h1>` },
+          { kind: "words", markup: html`<p>with your Zaisma account, ${account.username}.</p>` },
+          { kind: "block", markup: html`<p>${app.name} gets your player ID${sharesName ? " and your username" : ""}, the same as games on Zaisma see. Never your email, your age or anything else on your account.</p>` },
+          { kind: "block", markup: html`<p>${app.name} is run by ${developer ? `${developer.name}, a developer on Zaisma` : "a developer on Zaisma"}, not by Zaisma. After this you go back to <strong>${backTo.host}</strong>.</p>` },
+          {
+            kind: "block",
+            markup: html`<form method="post" action="/oauth/authorize">
 ${AUTHORIZE_FIELDS.filter((name) => checked.parameters[name]).map((name) => html`<input type="hidden" name="${name}" value="${checked.parameters[name]!}">`)}
-<div class="control-row">${runButton("Continue", { name: "decision", buttonValue: "allow", isAutofocused: true })}${cutButton("Cancel", { name: "decision", buttonValue: "cancel" })}</div>
-</form>
-<p>You can remove ${app.name} any time from ${textLink("your account", "/account#sign-ins")}.</p>`,
+${row({ widths: "equal", items: [{ kind: "control", markup: runButton("Continue", { name: "decision", buttonValue: "allow", isAutofocused: true }) }, { kind: "control", markup: cutButton("Cancel", { name: "decision", buttonValue: "cancel" }) }] })}
+</form>`,
+          },
+          { kind: "words", markup: html`<p>You can remove ${app.name} any time from ${textLink("your account", "/account#sign-ins")}.</p>` },
+        ],
+      }),
     }),
   });
   return response;
@@ -381,10 +389,13 @@ function continuePage(env: Env, app: SignInApp, back: string): Response {
     isRebuilt: true,
     body: glassPane({
       paneSize: "medium",
-      body: html`<h1>Back to ${app.name}</h1>
-<p>You're signed in. Taking you back now.</p>
-<div id="back">${runButton(`Back to ${app.name}`, { href: back, isFullWidth: true })}</div>
-${scriptTags(BACK_TO_APP_SCRIPT)}`,
+      body: html`${stack({
+        items: [
+          { kind: "words", markup: html`<h1>Back to ${app.name}</h1>` },
+          { kind: "words", markup: html`<p>You're signed in. Taking you back now.</p>` },
+          { kind: "control", id: "back", markup: runButton(`Back to ${app.name}`, { href: back, isFullWidth: true }) },
+        ],
+      })}${scriptTags(BACK_TO_APP_SCRIPT)}`,
     }),
   });
   return response;

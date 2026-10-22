@@ -46,7 +46,7 @@ function backgroundOf(game) {
   return own ? (isPhone() ? own.phone : own.wide) : { source: "zaisma" };
 }
 function layerFor(background) {
-  const layer = background.source === "image" ? make("img", "backdrop home-world") : make("iframe", "backdrop home-world");
+  const layer = background.source === "image" ? make("img", "backdrop world") : make("iframe", "backdrop world");
   layer.setAttribute("aria-hidden", "true");
   layer.setAttribute("data-adapts-glass", "");
   // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
@@ -128,7 +128,7 @@ matchMedia("(max-width: 760px)").addEventListener("change", () => { if (focusSlu
 function setFocus(slug) {
   if (!bySlug[slug] || slug === focusSlug) return;
   focusSlug = slug;
-  document.querySelectorAll(".home .cover").forEach((cover) => { if (cover.dataset.slug === slug) cover.setAttribute("aria-current", "true"); else cover.removeAttribute("aria-current"); });
+  document.querySelectorAll("#home-games .cover").forEach((cover) => { if (cover.dataset.slug === slug) cover.setAttribute("aria-current", "true"); else cover.removeAttribute("aria-current"); });
   queueWorld(slug);
 }
 
@@ -171,12 +171,12 @@ function fillContinue() {
 }
 document.querySelectorAll("#home-continue .tab-switch button").forEach((button) => button.addEventListener("click", () => { sort = button.value; fillContinue(); }));
 // Server-rendered covers carry their game in the address; the focus follows the pointer and the keys from here.
-document.querySelectorAll(".home .cover").forEach((cover) => { const art = cover.querySelector(".cover-art"); if (art) cover.dataset.slug = art.getAttribute("href").slice(3); });
+document.querySelectorAll("#home-games .cover").forEach((cover) => { const art = cover.querySelector(".cover-art"); if (art) cover.dataset.slug = art.getAttribute("href").slice(3); });
 
 /* Pointing rests for a moment before the background follows, so sweeping across a row doesn't flash through games. */
 let restTimer = 0, lastScrollMs = 0, isPending = false;
 document.addEventListener("scroll", () => { lastScrollMs = performance.now(); }, { passive: true, capture: true });
-const shelf = document.querySelector(".home");
+const shelf = document.getElementById("home-games");
 shelf.addEventListener("pointermove", (event) => {
   const cover = event.target.closest && event.target.closest(".cover");
   if (!cover || event.pointerType === "touch" || cover.dataset.slug === focusSlug || isPending) return;
@@ -192,7 +192,7 @@ shelf.addEventListener("focusin", (event) => { const cover = event.target.closes
 document.addEventListener("keydown", (event) => {
   const from = document.activeElement;
   if (!from || !from.classList.contains("cover-art") || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-  const covers = Array.prototype.filter.call(document.querySelectorAll(".home .cover-art"), (each) => each.offsetParent);
+  const covers = Array.prototype.filter.call(document.querySelectorAll("#home-games .cover-art"), (each) => each.offsetParent);
   const origin = from.getBoundingClientRect(), originX = origin.left + origin.width / 2;
   let best = null, bestScore = Infinity;
   covers.forEach((each) => {
@@ -215,7 +215,7 @@ fillContinue();
 // Zaisma's news shows until this device closes it; closing remembers it, so it never comes back here.
 const news = $("home-news");
 if (news) {
-  const id = news.dataset.announcementId;
+  const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
   let closed = [];
   try { closed = JSON.parse(localStorage.getItem(NEWS_KEY) || "[]"); } catch {}
   if (!closed.includes(id)) news.hidden = false;

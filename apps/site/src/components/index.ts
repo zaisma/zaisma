@@ -10,6 +10,7 @@ import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, SHEET_SCRIPT, STEP_FLOW_SCRIPT } from "
 import { CHART_SCRIPT } from "./data.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
 import "./layout-gallery.ts";
+import "./playground.ts";
 // The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it.
 import "./city.ts";
 

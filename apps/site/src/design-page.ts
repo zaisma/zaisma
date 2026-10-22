@@ -1,9 +1,12 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { headScriptTags, html, layout, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
-import { pageScript } from "./page-scripts.ts";
+import { pageScript, type PageScript } from "./page-scripts.ts";
+import { PLAYGROUND_PATH, PLAYGROUND_SCRIPT_SOURCE, playground, playgroundBuilt, readPlaygroundState, writePlaygroundState, type PlaygroundState } from "./components/playground.ts";
+import { MEASURE_LAYOUT_SOURCE } from "./components/layout-measure.ts";
+import { CLOUDS_SHADER, NEON_DRIFT_SHADER } from "./components/shaders.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
@@ -46,11 +49,15 @@ function section(each: Component, theme: GalleryTheme): Raw {
 
 /** The sun and the moon, from the sign-in draft's theme control. */
 
-/** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. */
-const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
-  cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}`, icon: "light-dark", isLabelHidden: true });
+/** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. path is where it is, its query (but the theme) kept. */
+const themeButton = (path: string, theme: GalleryTheme) => {
+  const other = new URL(path, "https://zaisma.com");
+  if (theme === "dark") other.searchParams.delete("theme");
+  else other.searchParams.set("theme", "dark");
+  return cutButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true });
+};
 
-function head(title: string, group: ComponentGroup): Raw {
+function head(title: string, group: ComponentGroup, scripts: PageScript[] = []): Raw {
   return html`<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
@@ -59,7 +66,7 @@ function head(title: string, group: ComponentGroup): Raw {
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -77,28 +84,38 @@ function olderVersionsPage(env: Env, url: URL): Response {
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   if (url.pathname === "/design/example") return examplePage(env);
+  if (url.pathname === PLAYGROUND_PATH) return playgroundPage(env, url);
+  if (url.pathname === `${PLAYGROUND_PATH}/frame`) return playgroundFramePage(env, url);
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
   const theme = themeOf(url);
   const components = COMPONENTS();
+  const main = html`<h1 class="group-name">${COMPONENT_GROUPS.find((each) => each.group === group)!.name}</h1>
+${components.filter((each) => each.group === group).map((each) => section(each, theme))}`;
+  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main });
+}
+
+/** A page of the gallery: its bar with light or dark and the groups, the groups down its side, and what it shows. */
+function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean }): Response {
+  const { group, theme } = options;
+  const components = COMPONENTS();
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
-  const groupName = groups.find((each) => each.group === group)!.name;
   const groupTabs = groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${themeQuery(theme)}`, isCurrent: each === group }));
   const page = html`<!doctype html>
 <html lang="en">
 <head>
-${head(`${groupName} · Design · Zaisma`, group)}
+${head(`${options.title} · Design · Zaisma`, group, options.scripts)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
-${themeButton(group, theme)}
+${cutButton("Groups", { type: "button", isSmall: true, controls: "gallery-index", isExpanded: !options.isIndexHidden })}
+${themeButton(options.path, theme)}
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></header>
-<div class="gallery-layout">
-<nav class="gallery-index glass" aria-label="Groups" data-glass data-glass-corners="pane">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
+<div class="gallery-layout${options.isIndexHidden ? " is-index-hidden" : ""}">
+<nav class="gallery-index glass" id="gallery-index" aria-label="Groups" data-glass data-glass-corners="pane">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
 <main class="gallery-main">
-<h1 class="group-name">${groupName}</h1>
-${components.filter((each) => each.group === group).map((each) => section(each, theme))}
+${options.main}
 </main>
 </div>
 ${railMarkup("page")}
@@ -106,7 +123,33 @@ ${railMarkup("page")}
 ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
 </body>
 </html>`;
-  return new Response(page.html, { headers: securityHeaders(env) });
+  return new Response(page.html, { headers: securityHeaders(env, {}, false, options.frames ?? []) });
+}
+
+const PLAYGROUND_SCRIPT = pageScript("playground", PLAYGROUND_SCRIPT_SOURCE);
+/** The measuring check, in a page for the playground to run on what's built (scripts/layout-check.mjs runs the same on every page). */
+const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaismaMeasureLayout = ${MEASURE_LAYOUT_SOURCE};`);
+
+/** GET /design/layout/playground?layout=…: the workbench, its state the address. */
+function playgroundPage(env: Env, url: URL): Response {
+  const theme = themeOf(url);
+  const state = readPlaygroundState(url.searchParams.get("layout"));
+  const frameHref = `${PLAYGROUND_PATH}/frame?layout=${writePlaygroundState(state)}${theme === "dark" ? "&theme=dark" : ""}`;
+  const main = html`<h1 class="group-name">Layout playground</h1>${playground({ state, theme, frameHref })}`;
+  // The groups start folded away here, so the controls and the preview have the room to sit side by side.
+  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Layout playground", main, scripts: [PLAYGROUND_SCRIPT], frames: ["'self'"], isIndexHidden: true });
+}
+
+const PLAYGROUND_BACKDROPS: Record<PlaygroundState["backdrop"], Raw> = {
+  zaisma: backdrop(),
+  "dark-game": backdrop({ fragmentShader: NEON_DRIFT_SHADER, isGlassAdaptive: true }),
+  "bright-game": backdrop({ fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true }),
+};
+
+/** GET /design/layout/playground/frame?layout=…: what's built, alone in a page's own shell, for the workbench's frame. */
+function playgroundFramePage(env: Env, url: URL): Response {
+  const state = readPlaygroundState(url.searchParams.get("layout"));
+  return layout(env, { title: "What's built · Layout playground · Design · Zaisma", body: playgroundBuilt(state), isRebuilt: true, isFramedBySelf: true, theme: themeOf(url), stage: PLAYGROUND_BACKDROPS[state.backdrop], head: scriptTags(LAYOUT_MEASURE_SCRIPT) });
 }
 
 export const GALLERY_STYLES = `
@@ -122,7 +165,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   --glass-tint: var(--glass-top); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
-.gallery-bar > .cut-btn { margin-left: auto; }
+.gallery-bar > a.cut-btn { margin-left: auto; }
+/* The groups fold away, so a page that wants the room (the layout playground) has the whole width. */
+.gallery-layout.is-index-hidden { grid-template-columns: minmax(0, 1fr); }
+.gallery-layout.is-index-hidden > .gallery-index { display: none; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .gallery-index { position: sticky; top: var(--under-gallery-bar); align-self: start; padding: var(--pad-inner-pane); }
 .gallery-groups { display: none; }
@@ -170,6 +216,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   html { scroll-padding-top: 130px; }
   .gallery-layout { grid-template-columns: minmax(0, 1fr); }
   .gallery-index { display: none; }
+  /* On a phone the groups are the tabs in the bar, so there's nothing to fold away. */
+  .gallery-bar > [aria-controls="gallery-index"] { display: none; }
   /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
   /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
      before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
@@ -214,7 +262,17 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another group's page keeps it.
-  var button = document.querySelector(".gallery-bar > .cut-btn");
+  var button = document.querySelector(".gallery-bar > a.cut-btn");
+  // The groups down the side fold away and back (Groups, in the bar), and this browser remembers which.
+  var layout = document.querySelector(".gallery-layout"), groupsButton = document.querySelector('.gallery-bar > [aria-controls="gallery-index"]');
+  function showGroups(isShown) { layout.classList.toggle("is-index-hidden", !isShown); groupsButton.setAttribute("aria-expanded", String(isShown)); }
+  // Remembered apart for the playground, which starts with them folded, and the groups' own pages.
+  var groupsKey = "zaisma-gallery-groups:" + (location.pathname === "/design/layout/playground" ? "playground" : "pages");
+  try { var kept = localStorage.getItem(groupsKey); if (groupsButton && (kept === "shown" || kept === "hidden")) showGroups(kept === "shown"); } catch (error) {}
+  if (groupsButton) groupsButton.addEventListener("click", function () {
+    var isShown = layout.classList.contains("is-index-hidden"); showGroups(isShown);
+    try { localStorage.setItem(groupsKey, isShown ? "shown" : "hidden"); } catch (error) {}
+  });
   // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
   function pickTheme(theme) {
     document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
@@ -222,24 +280,29 @@ export const GALLERY_SCRIPT = pageScript(
       if (tab && tab.getAttribute("aria-pressed") !== "true" && sw.pickTab) sw.pickTab(tab);
     });
   }
+  // An address with this theme, its other parts kept (the playground's layout).
+  function themed(href, theme) {
+    var url = new URL(href, location.href);
+    if (theme === "dark") url.searchParams.set("theme", "dark"); else url.searchParams.delete("theme");
+    return url.pathname + url.search + url.hash;
+  }
   function apply(theme) {
     window.zaismaSettings.set({ theme: theme }, stage);
     pickTheme(theme);
-    if (button) { button.href = location.pathname + query(theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
-    document.querySelectorAll("[data-gallery-page], .gallery-groups a").forEach(function (link) {
-      var url = new URL(link.href); link.href = url.pathname + query(theme) + url.hash;
-    });
-    history.replaceState(null, "", location.pathname + query(theme) + location.hash);
+    if (button) { button.href = themed(location.href, theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
+    document.querySelectorAll('[data-gallery-page], .gallery-groups a, a[href^="/design/layout/playground"]').forEach(function (link) { link.href = themed(link.href, theme); });
+    history.replaceState(null, "", themed(location.href, theme));
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-bar > .cut-btn");
+    var link = event.target.closest && event.target.closest(".gallery-bar > a.cut-btn");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
   });
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
-    if (link) event.preventDefault();
+    // A link to the layout playground goes there: it's the one place the examples send you.
+    if (link && link.pathname !== "/design/layout/playground") event.preventDefault();
   });
   // A form in an example sends nothing; one in a sheet closes it, as if it had gone. Closing a sheet (Cancel, its close button) works as on a page.
   document.addEventListener("submit", function (event) {

@@ -18,6 +18,7 @@ import { pageDataOf, pageScriptNames, pageScriptText, strictScriptProblems } fro
 import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
+import { pageProblems } from "./page-rules.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -3424,6 +3425,8 @@ describe("Sign in with Zaisma", () => {
     expect(consentPage).toContain("Sign in to Sky Hopper Online");
     expect(consentPage).toContain("Never your email");
     expect(consentPage).toContain("skyhopper.test");
+    // Only gallery components, laid out by them: no style, class or sheet of its own.
+    expect(pageProblems(consentPage)).toEqual([]);
     expect(consent.headers.get("content-security-policy")).toContain("form-action 'self' https://skyhopper.test");
 
     const code = await allow(player, appId);

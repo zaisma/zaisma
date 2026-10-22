@@ -24,6 +24,7 @@ import {
 } from "@zaisma/core";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, keyMakingState, keyScopeFromForm, passkeyTapFromForm, type PasskeyState } from "./account.ts";
 import { glassPane } from "./components/foundations.ts";
+import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { checkField, choiceCards, selectField } from "./components/inputs.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
@@ -376,21 +377,29 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
     body: glassPane({
       paneSize: "medium",
       label: `Connect ${name}`,
-      body: html`<h1>Connect ${name} to your games</h1>
-<p>as ${account.username}</p>
-<form method="post" action="/oauth/authorize" id="connect-form" data-passkey-state="${passkeyState}" data-again="${authorizePath(checked.parameters)}">
+      body: html`${stack({
+        items: [
+          { kind: "words", markup: html`<h1>Connect ${name} to your games</h1>` },
+          { kind: "words", markup: html`<p>as ${account.username}</p>` },
+          {
+            kind: "block",
+            markup: html`<form method="post" action="/oauth/authorize" id="connect-form" data-passkey-state="${passkeyState}" data-again="${authorizePath(checked.parameters)}">
 ${AUTHORIZE_FIELDS.filter((field) => checked.parameters[field]).map((field) => html`<input type="hidden" name="${field}" value="${checked.parameters[field]!}">`)}
 ${PASSKEY_TAP_FIELDS}
-<p><strong id="connect-summary">Full, all my games, never ends</strong> · <span id="connect-change">${textLink("Change", "#connect-choices")}</span></p>
-<div id="connect-choices" class="pane-stack" hidden>
-${accessChoiceCards(games)}
-</div>
-<p>It can't make API keys. After this you go back to <strong>${backTo.host}</strong>.</p>
-${connectButtons(passkeyState, approvesFromAtMs)}
-<p class="field-error" id="connect-error" role="alert"${error ? "" : raw(" hidden")}>${error ?? ""}</p>
-</form>
-<p>You can remove it any time from ${textLink("your account", "/account#developer")}, with your API keys.</p>
-${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`,
+${stack({
+  items: [
+    { kind: "words", markup: html`<p><strong id="connect-summary">Full, all my games, never ends</strong> · <span id="connect-change">${textLink("Change", "#connect-choices")}</span></p>` },
+    { kind: "block", id: "connect-choices", isHidden: true, markup: accessChoiceCards(games) },
+    { kind: "block", markup: html`<p>It can't make API keys. After this you go back to <strong>${backTo.host}</strong>.</p>` },
+    ...connectButtons(passkeyState, approvesFromAtMs),
+    { kind: "words", markup: html`<p class="field-error" id="connect-error" role="alert"${error ? "" : raw(" hidden")}>${error ?? ""}</p>` },
+  ],
+})}
+</form>`,
+          },
+          { kind: "words", markup: html`<p>You can remove it any time from ${textLink("your account", "/account#developer")}, with your API keys.</p>` },
+        ],
+      })}${scriptTags(PASSKEY_SCRIPT, ACCESS_CHOICES_SCRIPT, CONNECT_APP_SCRIPT)}`,
     }),
   });
 }
@@ -436,15 +445,17 @@ ${ACCESS_AREAS.map((area) =>
 </section>`;
 }
 
-function connectButtons(passkeyState: PasskeyState, approvesFromAtMs: number | null) {
+/** Connect and Cancel, and the step that adds a first passkey before connecting, as the connect form's stack holds them. */
+function connectButtons(passkeyState: PasskeyState, approvesFromAtMs: number | null): LayoutItem[] {
   const cancel = cutButton("Cancel", { type: "submit", name: "decision", buttonValue: "cancel" });
-  if (passkeyState === "waiting" && approvesFromAtMs !== null) return html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p><div class="control-row">${cancel}</div>`;
-  const firstPasskey =
+  if (passkeyState === "waiting" && approvesFromAtMs !== null) {
+    return [{ kind: "block", markup: html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` }, { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: cancel }] }) }];
+  }
+  const firstPasskey: LayoutItem[] =
     passkeyState === "ready"
-      ? ""
-      : html`<section class="pane-stack" data-step="passkey" hidden><h2>First, add a passkey</h2><p>Connecting an app needs your passkey, so someone who learns your password can't connect one.</p>${passkeyState === "waiting" && approvesFromAtMs !== null ? html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` : html`<div id="passkey-first">${cutButton("Add a passkey", { type: "button", isFullWidth: true })}</div>`}</section>`;
-  return html`${firstPasskey}
-<div class="control-row">${runButton("Connect", { type: "button", name: "connect_step", buttonValue: "connect" })}${cancel}</div>`;
+      ? []
+      : [{ kind: "block", markup: html`<section class="pane-stack" data-step="passkey" hidden><h2>First, add a passkey</h2><p>Connecting an app needs your passkey, so someone who learns your password can't connect one.</p>${passkeyState === "waiting" && approvesFromAtMs !== null ? html`<p>Your new passkey can connect apps from ${waitEndsText(approvesFromAtMs)}.</p>` : html`<div id="passkey-first">${cutButton("Add a passkey", { type: "button", isFullWidth: true })}</div>`}</section>` }];
+  return [...firstPasskey, { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Connect", { type: "button", name: "connect_step", buttonValue: "connect" }) }, { kind: "control", markup: cancel }] }) }];
 }
 
 // The summary follows the choices; Continue adds a passkey first when there's none, then taps it for this connection.

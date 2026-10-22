@@ -3,6 +3,7 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
 import { runButton } from "./actions.ts";
+import { rail } from "./navigation.ts";
 
 /*
  * The city: Zaisma's own live 3D scene, from the sign-in draft. One city on land in an endless sea, seen on one slow cinematic loop,
@@ -36,6 +37,25 @@ export interface CityStageOptions {
  */
 export function cityStage(options: CityStageOptions = {}): Raw {
   return html`<div class="city-stage${options.isFramed ? " is-framed" : ""}" aria-hidden="true">${still("day")}${still("night")}<canvas class="city"></canvas></div>`;
+}
+
+export interface CityPaneOptions {
+  /** The header over the city (Header, on sign-in: the logo alone). */
+  header: Raw;
+  /** What the pane is, for a screen reader: the step's title. */
+  label: string;
+  body: Raw;
+  /** What goes after the pane on the page, like its scripts. */
+  after?: Raw;
+}
+
+/**
+ * The page over the city's stage (cityStage goes in the page's stage): the header, the one pane in front of the city, placed as the city
+ * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
+ */
+export function cityPane(options: CityPaneOptions): Raw {
+  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: options.label, body: options.body })}</div>${rail("page")}
+${options.after ?? ""}</div>`;
 }
 
 /*

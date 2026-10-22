@@ -8,6 +8,7 @@ import { letPublish } from "../helpers.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageScriptNames, strictScriptProblems } from "../strict-scripts.ts";
 import { defaultScrollbarProblems } from "../own-scrollbars.ts";
+import { pageProblems } from "./page-rules.ts";
 
 /** AI apps connect to the MCP by signing in (docs/DECISIONS.md, "AI apps connect to the MCP by signing in."). */
 
@@ -325,6 +326,7 @@ describe("the connect page", () => {
     expect(text).toContain('name="connect_step" value="connect"');
     // Plain glass in Zaisma's look: a pane, the runner, and a key's choices as the gallery's choice cards, Full picked.
     expect(text).toContain('<section class="glass glass-pane medium"');
+    expect(pageProblems(text)).toEqual([]);
     expect(text).not.toContain('class="steel"');
     expect(text).toMatch(/<input class="choice-input" type="radio" name="access_level" id="connect-level-full" value="full" checked>/);
     expect(text).toContain('<input type="hidden" name="ends_after_days" value="">');

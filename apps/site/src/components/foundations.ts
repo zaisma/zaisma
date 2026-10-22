@@ -358,6 +358,10 @@ component({
   background: radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%),
     radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base); }
 .backdrop.is-framed { position: absolute; }
+/* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
+.backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
+.backdrop.world.is-shown { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: ${cutPolygon("pane")}; }
