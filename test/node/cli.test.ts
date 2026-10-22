@@ -203,7 +203,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -542,6 +542,57 @@ describe("game server reach and secrets", () => {
     expect((await zaisma(["secrets", "sky-hopper"])).stdout).toContain("API_TOKEN");
     answers["DELETE /games/sky-hopper/secrets/API_TOKEN"] = { status: 200, body: { deleted_secret_name: "API_TOKEN", next_steps: [] } };
     expect((await zaisma(["secrets", "delete", "sky-hopper", "API_TOKEN"])).stdout).toContain("Deleted API_TOKEN");
+  });
+});
+
+describe("kept rooms", () => {
+  const keptRooms = {
+    kept_rooms: [
+      { room_code: "H4RB9T", name: "Creative Build", saved_size_bytes: 12_500_000, saved_at: "2026-10-20T18:00:00.000Z", last_played_at: "2026-10-20T18:00:00.000Z", created_at: "2026-10-13T18:00:00.000Z" },
+      { room_code: "Z2W8PD", name: null, saved_size_bytes: 0, saved_at: null, last_played_at: null, created_at: "2026-10-20T17:59:00.000Z" },
+    ],
+    kept_rooms_size_bytes: 12_500_000,
+    storage_size_bytes: 12_600_000,
+    free_storage_size_bytes: 500 * 1024 * 1024,
+  };
+
+  it("lists a game's kept rooms with their sizes and the game's storage, or the answer as-is with --json", async () => {
+    answers["GET /games/sky-hopper/kept-rooms"] = { status: 200, body: keptRooms };
+    const result = await zaisma(["kept-rooms", "sky-hopper"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "GET", path: "/games/sky-hopper/kept-rooms", body: null }]);
+    expect(result.stdout).toContain("H4RB9T");
+    expect(result.stdout).toContain("Creative Build");
+    expect(result.stdout).toContain("11.9 MB");
+    expect(result.stdout).toContain("Z2W8PD");
+    expect(result.stdout).toContain("played never");
+    expect(result.stdout).toContain("Storage: 12.0 MB of 500.0 MB");
+    expect(json((await zaisma(["kept-rooms", "sky-hopper", "--json"])).stdout)).toEqual(keptRooms);
+  });
+
+  it("says how a game keeps a room when it has none", async () => {
+    answers["GET /games/sky-hopper/kept-rooms"] = { status: 200, body: { ...keptRooms, kept_rooms: [], kept_rooms_size_bytes: 0, storage_size_bytes: 0 } };
+    expect((await zaisma(["kept-rooms", "sky-hopper"])).stdout).toContain("room.setKept(true)");
+  });
+
+  it("deletes one by its code, and passes on the API's refusal", async () => {
+    answers["DELETE /games/sky-hopper/kept-rooms/K7Q2MX"] = { status: 200, body: { is_deleted: true, next_steps: [] } };
+    const result = await zaisma(["kept-rooms", "delete", "sky-hopper", "K7Q2MX"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "DELETE", path: "/games/sky-hopper/kept-rooms/K7Q2MX", body: null }]);
+    expect(result.stdout).toContain("Deleted kept room K7Q2MX from sky-hopper");
+    expect(json((await zaisma(["kept-rooms", "delete", "sky-hopper", "K7Q2MX", "--json"])).stdout)).toEqual({ is_deleted: true, next_steps: [] });
+    const noRoom = { error: { code: "no_kept_room", message: "sky-hopper has no kept room H4RB9T.", field: "room_code", fix: "list_kept_rooms gives this game's kept rooms.", retry_after_sec: null } };
+    answers["DELETE /games/sky-hopper/kept-rooms/H4RB9T"] = { status: 404, body: noRoom };
+    const refused = await zaisma(["kept-rooms", "delete", "sky-hopper", "H4RB9T", "--json"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(json(refused.stdout).error).toMatchObject({ code: "no_kept_room", field: "room_code" });
+  });
+
+  it("is in help", async () => {
+    const help = await zaisma(["help"]);
+    expect(help.stdout).toContain("kept-rooms");
+    expect(help.stdout).toContain("kept-rooms delete");
   });
 });
 

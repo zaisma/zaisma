@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { QUICK_JOIN_KEPT_MS, auditLog, gameById, noteQuickJoin } from "@zaisma/core";
 import { lit } from "../../apps/site/src/rooms.ts";
+import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
@@ -175,6 +176,27 @@ describe("room browsing on the game page", () => {
     expect(na.match(/class="room plate/g)).toHaveLength(1);
     const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
     expect(none).toContain("No open rooms in that region right now.");
+  });
+
+  it("shows a kept room waiting with nobody in it after rooms with players, and the daily cleanup keeps it", async () => {
+    const id = await addGame("arena", "relay");
+    await room(id, "BCDFGH", 3);
+    // Asleep for days, so it hasn't checked in since: kept rooms with nobody in them never go stale.
+    const longAgo = Date.now() - 3 * 24 * 3600_000;
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, is_kept, country, continent, created_at_ms, updated_at_ms) VALUES (?, 'NRTHWC', 0, 8, 1, 'Northwatch', 1, 'DE', 'EU', ?, ?)")
+      .bind(id, longAgo, longAgo)
+      .run();
+    await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    // Its name, an empty seat meter and Join, with no other mark, below the room with players.
+    expect(page).toMatch(/\?room=BCDFGH[\s\S]*<strong class="name">Northwatch<\/strong>[\s\S]*<span class="seats" aria-hidden="true">(<i><\/i>){8}<\/span>[\s\S]*<a class="btn" href="\/g\/arena\?room=NRTHWC" aria-label="Join “Northwatch” with 0 of 8 players in Germany">Join<\/a>/);
+    expect(page).toContain('id="rooms-count">2</span>');
+    // Nobody's playing in it: 3 playing now, in 1 room.
+    expect(page).toContain('<span class="badge">3 playing now</span><span class="muted">in 1 room</span>');
+
+    await dailyCleanup(env);
+    const left = await env.DB.prepare("SELECT room_code FROM live_rooms WHERE game_id = ? ORDER BY room_code").bind(id).all<{ room_code: string }>();
+    expect(left.results.map((row) => row.room_code)).toEqual(["BCDFGH", "NRTHWC"]);
   });
 
   it("lights a seat for anyone in a big room, and every seat only when it's full", () => {

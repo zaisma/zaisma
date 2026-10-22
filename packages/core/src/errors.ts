@@ -157,6 +157,7 @@ export const ERROR_CODES = {
   no_secret: { httpStatus: 404, meaning: "The game has no secret by that name." },
   too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have." },
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
+  no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
 
   // A game server's logs

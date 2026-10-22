@@ -1281,6 +1281,8 @@ declare namespace Zaisma {
     name: string | null;
     /** The room's labels. */
     labels: Record<string, string>;
+    /** Kept by the game server (room.setKept): a world that stays listed with nobody in it, like a server waiting for players. */
+    isKept: boolean;
     /** The room's link on Zaisma, to join it or pass it on. */
     inviteUrl: string;
   }
