@@ -92,7 +92,7 @@ describe("game server", () => {
 
   it("refuses players in a country the game is blocked in, and only there, except on its preview link", async () => {
     const id = await addGame("blocked-here", "live");
-    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under United Kingdom's law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
+    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under GB law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
     await env.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
     const from = (countryCode: string, path = "/blocked-here/", headers: Record<string, string> = {}) => SELF.fetch(`${G}${path}`, { headers, cf: { country: countryCode } } as RequestInit);
     const there = await from("GB");

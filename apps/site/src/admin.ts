@@ -155,7 +155,7 @@ function countryBlockSection(game: Game): Raw {
   <form method="post" action="/admin/games/${game.id}/country-block-lift" class="row"><input type="hidden" name="country_code" value="${block.country_code}"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Lift</button></form></li>`)}</ul>`
     : html`<p class="note">Not blocked in any country.</p>`}
 <form method="post" action="/admin/games/${game.id}/country-block" class="row">
-  <input name="country_code" placeholder="Country, like GB" maxlength="2" size="8" pattern="[A-Za-z]{2}" aria-label="The country, as its two-letter code" required>
+  <input name="country_code" placeholder="Country, like GB" maxlength="2" size="16" pattern="[A-Za-z]{2}" aria-label="The country, as its two-letter code" required>
   <input name="reason" placeholder="Which law and what it names (required; the developer reads it)" maxlength="500" size="40" required>
   <button class="btn danger" type="submit">Block in that country</button>
 </form>`;
@@ -425,7 +425,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!game) return new Response("Not found", { status: 404 });
     const countryCode = String(form.get("country_code") ?? "").trim().toUpperCase();
     if (!isKnownCountryCode(countryCode) || !reason) return gameDetail(env, game.id, "Give the country's two-letter code (GB, DE…) and which law and what the notice names. The developer reads it, and it goes in the audit log too.");
-    const blockReason = decidedReason("country_law_notice", null, `A notice under ${countryName(countryCode)}'s law names this: ${reason}`);
+    const blockReason = decidedReason("country_law_notice", null, `A notice under ${countryCode} law names this: ${reason}`);
     await blockInCountry(env.DB, game, countryCode, blockReason);
     await audit(env.DB, game.id, "country-blocked", `${countryCode}: ${reason}`, actor, blockReason);
     await tellWebhooks(env, "country_blocks_changed", game.id, {});

@@ -70,7 +70,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   if (game.review_status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
   // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
   const countryCode = requestCountryCode(request);
-  if (isBlockedInCountry(game, countryCode)) return message(env, `This game isn't available in ${countryName(countryCode!)}`, "A legal notice under your country's law blocks it here. It's still available everywhere else.", 451);
+  if (isBlockedInCountry(game, countryCode)) return message(env, "This game isn't available in your country", `A legal notice under your country's law (${countryName(countryCode!)}) blocks it here. It's still available everywhere else.`, 451);
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
   if (tester && !testerVersion) return message(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.", 404);
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;

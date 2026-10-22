@@ -124,7 +124,7 @@ describe("rooms", () => {
 
   it("refuses players in a country the game is blocked in, and only there", async () => {
     const id = await addGame("blocked-here");
-    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under United Kingdom's law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
+    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under GB law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
     await e.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
     const there = await connect("blocked-here", "ABCDEF", ORIGIN, { country: "GB", continent: "EU" });
     expect(there.res.status).toBe(404);

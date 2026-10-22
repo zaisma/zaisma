@@ -352,12 +352,12 @@ describe("admin MCP", () => {
     expect(await refusal("decide_country_block", { slug: "nothere", decision: "block", country_code: "GB", why: "x" })).toMatchObject({ code: "no_game", field: "slug" });
 
     const blocked = await data("decide_country_block", { slug: "test-game", decision: "block", country_code: "GB", why: "Ofcom says the poster in level 3 stirs up racial hatred under the Public Order Act 1986." });
-    expect(blocked).toMatchObject({ decision: "block", game: { review_status: "live", review_reason: null, country_blocks: [{ country_code: "GB", country_name: "United Kingdom", review_reason: { code: "country_law_notice", content_rule: null, message: "A notice under United Kingdom's law names this: Ofcom says the poster in level 3 stirs up racial hatred under the Public Order Act 1986." } }] } });
+    expect(blocked).toMatchObject({ decision: "block", game: { review_status: "live", review_reason: null, country_blocks: [{ country_code: "GB", country_name: "United Kingdom", review_reason: { code: "country_law_notice", content_rule: null, message: "A notice under GB law names this: Ofcom says the poster in level 3 stirs up racial hatred under the Public Order Act 1986." } }] } });
 
     // Players there get 451 and lists leave it out; everyone else, and an unknown country, plays it as before.
     const there = await from("GB");
     expect(there.status).toBe(451);
-    expect(await there.text()).toContain("available in United Kingdom");
+    expect(await there.text()).toContain("(United Kingdom) blocks it here");
     expect((await from("DE")).status).toBe(200);
     expect((await from("T1")).status).toBe(200);
     expect((await from(null)).status).toBe(200);
@@ -373,7 +373,7 @@ describe("admin MCP", () => {
     const game = (await (await SELF.fetch("https://zaisma.test/api/dev/games/test-game", { headers: { authorization: `Bearer ${token}` } })).json()) as { game: { country_blocks: unknown[] }; alerts: { kind: string; message: string }[] };
     expect(schemaProblems(GAME, game.game)).toEqual([]);
     expect(game.game.country_blocks).toMatchObject([{ country_code: "GB", review_reason: { code: "country_law_notice" } }]);
-    expect(game.alerts.find((alert) => alert.kind === "game_blocked_in_country")?.message).toContain("Players in United Kingdom can't open this game");
+    expect(game.alerts.find((alert) => alert.kind === "game_blocked_in_country")?.message).toContain("Players in GB (United Kingdom) can't open this game");
     const history = (await (await SELF.fetch("https://zaisma.test/api/dev/games/test-game/history", { headers: { authorization: `Bearer ${token}` } })).json()) as { events: { description: string; review_reason: { code: string } | null }[] };
     expect(history.events[0]).toMatchObject({ review_reason: { code: "country_law_notice" } });
 

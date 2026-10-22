@@ -2451,7 +2451,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.");
     if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.");
     for (const block of countryBlocksAnswer(game)) {
-      add("game_blocked_in_country", `Players in ${block.country_name} can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
+      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
     }
     const gameVersions = versions.filter((version) => version.game_id === game.id);
     const rejected = gameVersions.find((version) => version.scan_status === "rejected" && version.is_newest);
