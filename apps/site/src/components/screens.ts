@@ -4,9 +4,12 @@ import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
-import { paneParts, row, stack } from "./layout.ts";
+import { grid, paneParts, row, stack } from "./layout.ts";
 import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
-import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES } from "./checked-pages.ts";
+import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage } from "./checked-pages.ts";
+
+/** Zaisma's branches, in the order Screens shows them. */
+const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Gallery"];
 
 /*
  * Screens: one page on Julius's phone and on a desktop, light and dark, side by side, each measured by the layout check. It's where a
@@ -45,7 +48,7 @@ export function screens(options: ScreensOptions): Raw {
   })}</div></div>`;
 }
 
-/** The Screens page's first pane: what it is, a page to show, and the pages the check measures. */
+/** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show. */
 export function screensPicker(path: string): Raw {
   const ownPages = CHECKED_PAGES.filter((page) => !page.isOnSignInSite && !page.path.startsWith(SCREENS_PATH));
   return glassPane({
@@ -54,11 +57,28 @@ export function screensPicker(path: string): Raw {
     body: stack({
       items: [
         { kind: "words", markup: html`<p>A page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, each measured by the layout check. Point at anything in a screen to see what it is and what placed it.</p>` },
+        // The pages the check measures, in Zaisma's branches: each branch's name over its pages.
+        {
+          kind: "block",
+          markup: grid({
+            itemSize: "card",
+            label: "Pages the check measures",
+            items: AREAS.filter((area) => ownPages.some((page) => page.area === area)).map((area) => ({
+              kind: "block" as const,
+              markup: stack({
+                label: area,
+                items: [
+                  { kind: "words", markup: html`<p><strong>${area}</strong></p>` },
+                  { kind: "words", markup: row({ widths: "fit", items: ownPages.filter((page) => page.area === area).map((page) => ({ kind: "words" as const, markup: textLink(page.name.replace(/^Gallery: (.)/, (_, first: string) => first.toUpperCase()), screensHref([page.path])) })) }) },
+                ],
+              }),
+            })),
+          }),
+        },
         {
           kind: "block",
           markup: html`<form method="get" action="${SCREENS_PATH}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: runButton("Show", { type: "submit" }) }] })}</form>`,
         },
-        { kind: "words", markup: row({ widths: "fit", label: "Pages the check measures", items: ownPages.map((page) => ({ kind: "words" as const, markup: textLink(page.name, screensHref([page.path])) })) }) },
       ],
     }),
   });
