@@ -5,9 +5,9 @@ import type { Env } from "./index.ts";
 const TOLD_AT_ONCE_COUNT = 50;
 
 /**
- * A version published with match_update_mode "now", for the site (apps/site/src/match-updates.ts) through a
- * service binding: only Zaisma's own Workers reach it. Every live room of the game (live_rooms) hears it
- * and starts moving to it. A room that doesn't hear it (asleep, or a failed call) finds the new version
+ * Every game's rooms, for the site through a service binding: only Zaisma's own Workers reach it. A version
+ * published with match_update_mode "now" (apps/site/src/match-updates.ts): every live room of the game
+ * (live_rooms) hears it and starts moving to it, and a kept room asleep switches at once. A room that doesn't hear it (asleep, or a failed call) finds the new version
  * itself the next time it checks the game, so a failure here only makes a room switch a minute later.
  */
 export class GameRoomsService extends WorkerEntrypoint<Env> {
@@ -29,5 +29,20 @@ export class GameRoomsService extends WorkerEntrypoint<Env> {
       for (const outcome of told) if (outcome.status === "rejected") console.error("Couldn't tell a room about the new version:", outcome.reason);
     }
     return { toldRoomCount };
+  }
+
+  /**
+   * The developer deletes a kept room (DELETE /games/:slug/kept-rooms/:room_code): the room sends its players
+   * out and deletes everything it keeps. False when the room didn't answer, so the site says to try again.
+   */
+  async deleteKeptRoom(keptRoom: { gameId: string; slug: string; roomCode: string }): Promise<{ isDeleted: boolean }> {
+    try {
+      const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${keptRoom.slug}:${keptRoom.roomCode}`)).fetch("https://room/delete", { method: "POST", headers: { "x-game-id": keptRoom.gameId } });
+      // 404: the room keeps nothing (it never started, or it was deleted already), so its row is all there is.
+      return { isDeleted: response.ok || response.status === 404 };
+    } catch (error) {
+      console.error("Couldn't delete a kept room:", error);
+      return { isDeleted: false };
+    }
   }
 }

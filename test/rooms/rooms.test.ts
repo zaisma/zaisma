@@ -1167,6 +1167,7 @@ describe("room browsing", () => {
       isNear: true,
       name: null,
       labels: {},
+      isKept: false,
       inviteUrl: "https://zaisma.test/g/lister?room=GGGGGG",
     });
     expect(body.rooms.find((r) => r.roomCode === "HHHHHH").location).toBeNull();

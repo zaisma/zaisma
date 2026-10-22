@@ -110,8 +110,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
     await env.GAMES.delete(pictures.map((picture) => reportPictureKey(picture.id)));
     await env.DB.batch(pictures.map((picture) => env.DB.prepare("UPDATE reports SET has_picture = 0 WHERE id = ?").bind(picture.id)));
   }
-  // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind.
-  await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at_ms < ?").bind(nowMs - ROOM_STALE_MS).run();
+  // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind. A kept room waiting with nobody in it never checks in, and stays.
+  await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at_ms < ? AND NOT (is_kept = 1 AND player_count = 0)").bind(nowMs - ROOM_STALE_MS).run();
   await deleteStalePresences(env.DB, nowMs);
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();

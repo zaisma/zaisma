@@ -27,6 +27,7 @@ export * from "./uploads.ts";
 export * from "./compression.ts";
 export * from "./rooms.ts";
 export * from "./game-database.ts";
+export * from "./game-storage.ts";
 export * from "./text-filter.ts";
 export * from "./chat-filter.ts";
 export * from "./forum.ts";

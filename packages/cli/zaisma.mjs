@@ -136,6 +136,8 @@ const COMMANDS = {
   secrets: { about: "A game's secrets, which its game server reads as server.secrets and room.secrets: their names and when each was set, never the values", arguments: [{ name: "slug" }], flags: {} },
   "secrets set": { about: "Set a secret for a game's server, replacing one of the same name: the value piped in, or typed without showing; it's never shown again", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
   "secrets delete": { about: "Delete one of a game's secrets", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
+  "kept-rooms": { about: "A game's kept rooms (room.setKept), worlds that sleep with nobody in them: each one's code, name, size and when it was last played, and the game's storage", arguments: [{ name: "slug" }], flags: {} },
+  "kept-rooms delete": { about: "Delete a kept room's world for good; players in it are sent out", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
   logs: {
     about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
     arguments: [{ name: "slug" }],
@@ -237,7 +239,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"] };
+const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], "kept-rooms": ["delete"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -1455,6 +1457,21 @@ async function secrets(command, values) {
   if (answer.next_steps.some((step) => step.tool === "update_game")) console.log(`It calls no other servers yet: list the hosts it uses this with, like zaisma allowed-hosts ${values.slug} discord.com`);
 }
 
+/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms and delete_kept_room. */
+async function keptRooms(command, values) {
+  if (command === "kept-rooms") {
+    const answer = await api("GET", `/games/${values.slug}/kept-rooms`);
+    if (isJson) return printJson(answer);
+    if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
+    for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
+    console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of ${sizeText(answer.free_storage_size_bytes)} free (database and kept rooms).`);
+    return;
+  }
+  const answer = await api("DELETE", `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`);
+  if (isJson) return printJson(answer);
+  console.log(`Deleted kept room ${values.room_code.toUpperCase()} from ${values.slug}, and its world with it.`);
+}
+
 /** A game server's logs (GET …/games/<slug>/logs), as the MCP's get_logs; --follow asks for new lines every 2 seconds. */
 async function logs(values, flags) {
   if (flags.follow && flags.cursor) refuse("conflicting_flags", { message: "--follow prints new lines, and --cursor older ones.", field: "cursor", fix: `Use one: zaisma logs ${values.slug} --follow, or zaisma logs ${values.slug} --cursor <next_cursor>.` });
@@ -1673,6 +1690,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "own-servers") await ownServers(values, flags);
   else if (command === "links" || command.startsWith("links ")) await links(command, values, flags);
   else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
+  else if (command === "kept-rooms" || command.startsWith("kept-rooms ")) await keptRooms(command, values);
   else if (command === "logs") await logs(values, flags);
   else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
