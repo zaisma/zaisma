@@ -300,6 +300,12 @@ export const REVIEW_CODES = {
     fix: `Take out what the notice names and publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} If the claim is true or isn't about a private person, send a counter-notice to safety@zaisma.com instead; zaisma.com/legal/defamation says what to put in it.`,
     hasOwnMessage: true,
   },
+  country_law_notice: {
+    meaning: "A notice says the game breaks a law of one country that US law allows, so players in that country can't open it, and everyone else still can; the message says which law and what it names.",
+    contentRule: null,
+    fix: "Take out what the notice names and publish a fixed version (upload_files, then publish_version): a person at Zaisma checks it's gone and lifts the block, usually within a day. If the notice is wrong, write to safety@zaisma.com with the game_slug and why.",
+    hasOwnMessage: true,
+  },
   developer_account_deleted: {
     meaning: "The game's developer deleted their Zaisma account, which takes their games down with it.",
     contentRule: null,

@@ -52,13 +52,19 @@ import {
   CONTENT_RULES,
   NOTICE_CODES,
   NOTICE_KINDS,
+  blockInCountry,
+  countryName,
   decidedReason,
+  isKnownCountryCode,
+  liftCountryBlock,
+  readCountryBlocks,
   isContentRule,
   isNoticeKind,
   isNoticeReason,
   readReviewReason,
   reviewModelOf,
   type ContentRule,
+  type Game,
   type GameImage,
   type ReviewStatus,
   type PrecedentDecision,
@@ -134,6 +140,24 @@ function noticeSection(gameId: string, reviewStatus: ReviewStatus, reason: Retur
   </select>
   <input name="reason" placeholder="What it names (required; the developer reads it)" maxlength="500" size="36" required>
   <button class="btn danger" type="submit">Hold on this notice</button>
+</form>`;
+}
+
+/**
+ * A notice from a court, regulator or police in one country, under a law US law doesn't share, blocks the
+ * game for players there only, on their word (country-blocks.ts). Lift it once the live version no longer has
+ * what it names (publishing one emails Zaisma).
+ */
+function countryBlockSection(game: Game): Raw {
+  const blocks = readCountryBlocks(game);
+  return html`${blocks.length
+    ? html`<ul>${blocks.map((block) => html`<li>${countryName(block.country_code)} (${block.country_code}): ${block.review_reason.message} <span class="muted">${new Date(block.blocked_at_ms).toISOString().slice(0, 10)}</span>
+  <form method="post" action="/admin/games/${game.id}/country-block-lift" class="row"><input type="hidden" name="country_code" value="${block.country_code}"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Lift</button></form></li>`)}</ul>`
+    : html`<p class="note">Not blocked in any country.</p>`}
+<form method="post" action="/admin/games/${game.id}/country-block" class="row">
+  <input name="country_code" placeholder="Country, like GB" maxlength="2" size="8" pattern="[A-Za-z]{2}" aria-label="The country, as its two-letter code" required>
+  <input name="reason" placeholder="Which law and what it names (required; the developer reads it)" maxlength="500" size="40" required>
+  <button class="btn danger" type="submit">Block in that country</button>
 </form>`;
 }
 
@@ -394,6 +418,31 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return back(`/admin/games/${game.id}`);
   }
 
+  // A notice under one country's law: blocked for players there only, without Zaisma judging it.
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/country-block$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const countryCode = String(form.get("country_code") ?? "").trim().toUpperCase();
+    if (!isKnownCountryCode(countryCode) || !reason) return gameDetail(env, game.id, "Give the country's two-letter code (GB, DE…) and which law and what the notice names. The developer reads it, and it goes in the audit log too.");
+    const blockReason = decidedReason("country_law_notice", null, `A notice under ${countryName(countryCode)}'s law names this: ${reason}`);
+    await blockInCountry(env.DB, game, countryCode, blockReason);
+    await audit(env.DB, game.id, "country-blocked", `${countryCode}: ${reason}`, actor, blockReason);
+    await tellWebhooks(env, "country_blocks_changed", game.id, {});
+    return back(`/admin/games/${game.id}`);
+  }
+
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/country-block-lift$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const countryCode = String(form.get("country_code") ?? "").trim().toUpperCase();
+    if (!(await liftCountryBlock(env.DB, game, countryCode))) return gameDetail(env, game.id, `It isn't blocked in ${countryCode || "that country"}.`);
+    await audit(env.DB, game.id, "country-block-lifted", `${countryCode}${reason ? `: ${reason}` : ""}`, actor);
+    await tellWebhooks(env, "country_blocks_changed", game.id, {});
+    return back(`/admin/games/${game.id}`);
+  }
+
   // A game an account left behind (kept for a child-safety hold, or ownerless from before), deleted for good.
   match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/delete$/);
   if (match) {
@@ -643,6 +692,9 @@ ${toldDeveloper(game.review_reason)}
 
 <h2>Notice</h2>
 ${noticeSection(game.id, game.review_status, readReviewReason(game.review_reason))}
+
+<h2>Country blocks</h2>
+${countryBlockSection(game)}
 
 <h2>Details</h2>
 ${listingNote(game.title_listing_reason, html`<form method="post" action="/admin/games/${game.id}/title-listing/clear"><button class="btn ghost" type="submit">Clear the title: it's fine</button></form>`)}

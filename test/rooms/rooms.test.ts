@@ -122,6 +122,19 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "held-one")).status).toBe(404);
   });
 
+  it("refuses players in a country the game is blocked in, and only there", async () => {
+    const id = await addGame("blocked-here");
+    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under United Kingdom's law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
+    await e.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
+    const there = await connect("blocked-here", "ABCDEF", ORIGIN, { country: "GB", continent: "EU" });
+    expect(there.res.status).toBe(404);
+    const passThere = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: "blocked-here", roomKey: await keyFor("blocked-here") }), cf: { country: "GB" } } as RequestInit);
+    expect(passThere.status).toBe(404);
+    const elsewhere = await connect("blocked-here", "ABCDEF", ORIGIN, { country: "DE", continent: "EU" });
+    expect(elsewhere.res.status).toBe(101);
+    elsewhere.ws.close();
+  });
+
   it("gives passes only for a browser the check on Play let in, a few per key", async () => {
     await addGame("arena");
     await addGame("other");

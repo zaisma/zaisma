@@ -14,6 +14,7 @@ import {
   profileView,
   readProfileText,
   reportProfile,
+  requestCountryCode,
   saveProfileText,
   type Account,
   type ProfileReportReason,
@@ -70,7 +71,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
     if (!post) return done(redirect(`${profilePath(owner.username)}?edit`));
     const form = await request.formData();
     const read = readProfileText({ display_name: form.get("display_name"), bio: form.get("bio"), link_urls: form.getAll("link_url").map(String) }, owner);
-    if ("error" in read) return done(await profilePage(env, owner, visitor, { kind: "owner" }, query, { error: read.error, given: form }));
+    if ("error" in read) return done(await profilePage(env, owner, visitor, { kind: "owner" }, query, requestCountryCode(request), { error: read.error, given: form }));
     if (await saveProfileText(env.DB, owner.id, read.profileText)) await checkProfile(env, owner.id);
     return done(redirect(`${profilePath(owner.username)}?saved`));
   }
@@ -100,7 +101,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
     : !visitor ? { kind: "anyone" }
     : (await areFriends(env.DB, visitor.id, owner.id)) ? { kind: "friend", accountId: visitor.id }
     : { kind: "signed_in", accountId: visitor.id };
-  return done(await profilePage(env, owner, visitor, viewer, query));
+  return done(await profilePage(env, owner, visitor, viewer, query, requestCountryCode(request)));
 }
 
 /** Covers for the games on a profile, by slug. */
@@ -122,10 +123,11 @@ interface EditState {
   given: FormData;
 }
 
-async function profilePage(env: Env, owner: Account, visitor: Account | null, viewer: ProfileViewer, query: URLSearchParams, editState?: EditState): Promise<Response> {
+async function profilePage(env: Env, owner: Account, visitor: Account | null, viewer: ProfileViewer, query: URLSearchParams, countryCode: string | null, editState?: EditState): Promise<Response> {
   // Games for players older than the one looking stay off the page (18 signed out: every listed game).
   const viewerAgeFloorYears = visitor ? AGE_BAND_FLOOR_YEARS[visitor.age_band] : 18;
-  const view = await profileView(env.DB, owner, viewer, viewerAgeFloorYears);
+  // Games blocked in the viewer's country stay off it too.
+  const view = await profileView(env.DB, owner, viewer, viewerAgeFloorYears, undefined, countryCode);
   // Only the blocker's own menu says they blocked this player.
   const hasVisitorBlocked = visitor !== null && visitor.id !== owner.id && (await hasBlocked(env.DB, visitor.id, owner.id));
   // Playing now goes through the same rules as /friends (friends-now.ts); the owner previewing as a friend sees it as a friend would.

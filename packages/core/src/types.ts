@@ -74,6 +74,8 @@ export interface Game {
   details_waiting_for_review: string | null;
   /** Why the title keeps the game off lists ("No slop"), as JSON (a ReviewReason); NULL when none. */
   title_listing_reason: string | null;
+  /** The countries it's blocked in on a notice under their law, a JSON list of CountryBlock (country-blocks.ts); '[]' for none. */
+  country_blocks: string;
   /** The title a person cleared: the listing check leaves the title alone while it's this. */
   cleared_title: string | null;
   /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */

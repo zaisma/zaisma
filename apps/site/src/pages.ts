@@ -3,15 +3,18 @@ import {
   canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
+  countryName,
   createAccessGrant,
   gameAddress,
   gameBySlug,
+  isBlockedInCountry,
   isOldEnoughFor,
   isOwnServerUrl,
   isTesterLinkOn,
   linksOf,
   ownServerUrlsOf,
   readPlayModes,
+  requestCountryCode,
   SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
   testerLinkOpened,
@@ -65,6 +68,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   if (!game || (!tester && (game.review_status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.review_status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.review_status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
+  // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
+  const countryCode = requestCountryCode(request);
+  if (isBlockedInCountry(game, countryCode)) return message(env, `This game isn't available in ${countryName(countryCode!)}`, "A legal notice under your country's law blocks it here. It's still available everywhere else.", 451);
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
   if (tester && !testerVersion) return message(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.", 404);
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
@@ -110,7 +116,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
-    showcase(env, viewer.ageFloorYears, 60),
+    showcase(env, viewer.ageFloorYears, 60, countryCode),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
     // Not on tester links: their rooms are reached by code and invite link.
     game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
@@ -696,6 +702,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <h2>If a game breaks a rule</h2>
 <p>That version is held, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back.</p>
 <p>Copyright and defamation are different: we don't judge them ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what the notice names. If the notice is wrong, you can send a counter-notice. See <a href="/legal/dmca">Copyright and DMCA notices</a> and <a href="/legal/defamation">Defamation notices</a>.</p>
+<p>These rules follow US law. When a country's own law forbids a game that's fine here (the UK's hatred offences, say), a notice from a court, regulator or police there blocks it for players in that country only, and everyone else still plays it. Publish a version without what the notice names and we lift the block. Authorities can send notices to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>.</p>
 <p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
 <h2>Reports and takedowns</h2>
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
