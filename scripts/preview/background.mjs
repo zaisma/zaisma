@@ -28,7 +28,7 @@ const READY_LINE = "Zaisma preview is running.";
 const READY_TIMEOUT_MS = 9 * 60_000;
 const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
-const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
+const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
 const siteFor = (offset) => `http://localhost:${8800 + offset}`;
 const show = (path) => relative(process.cwd(), path) || ".";
 
