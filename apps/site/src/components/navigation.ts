@@ -368,7 +368,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     line.addEventListener("pointerdown", function (event) { start(event, true); });
-    bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (along(event) - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
+    // A drag ends wherever the button comes up, on the rail or off it, even when the rail lost hold of the pointer (a refreshed list, a
+    // window that lost focus): a move with no button down ends it too.
+    bar.addEventListener("pointermove", function (event) { if (drag && event.buttons === 0) { end(); return; } if (drag) to(drag.from + (along(event) - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
+    window.addEventListener("pointermove", function (event) { if (drag && event.buttons === 0) end(); }, { passive: true });
     function end() { drag = null; bar.classList.remove("dragging"); }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
     function near(event) {
@@ -391,7 +394,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       marks.forEach(function (m) { if (m.mark.hidden) return; var away = Math.abs(parseFloat(m.mark.style[isSide ? "left" : "top"]) - middle); if (away <= gap) { gap = away; nearest = m; } });
       if (nearest) nearest.mark.click();
     }
-    bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end);
+    bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end); bar.addEventListener("lostpointercapture", function () { if (drag) end(); });
+    window.addEventListener("pointerup", function (event) { if (drag) release(event); }); window.addEventListener("pointercancel", function () { if (drag) end(); }); window.addEventListener("blur", function () { if (drag) end(); });
     layout(); wake();
   }
   document.querySelectorAll("[data-rail]").forEach(function (bar) { setUp(bar); });
