@@ -64,7 +64,7 @@ const drawStep = (label, point) => `(() => {
 const clearStep = `document.getElementById("zaisma-feedback-step")?.remove(); true`;
 
 // Gaps between actions replay as they happened, up to these, so animations and timing show without a long wait.
-const MAXIMUM_REPLAY_GAP_MS = 2000;
+const MAXIMUM_REPLAY_GAP_MS = 1000;
 const MAXIMUM_KEY_GAP_MS = 120;
 const MAXIMUM_REPLAY_PICTURE_COUNT = 12;
 /** Pictures after the last action, for what moves or appears a moment later. */
@@ -92,8 +92,11 @@ export async function openPictureTaker({ siteOrigin, directory }) {
   const chrome = await openChrome(chromePath, "zaisma-feedback-");
   let queue = Promise.resolve();
 
-  /** The page at the comment's size, theme and sign-in, loaded and settled: run(send) gets the tab. */
-  async function onPage(comment, url, run) {
+  /**
+   * The page at the comment's size, theme and sign-in, loaded and settled: run(send) gets the tab. The replay's many pictures are
+   * at the screen's own size (scale 1): Chrome draws the city in software, and twice the pixels took minutes.
+   */
+  async function onPage(comment, url, run, scale = 2) {
     const { browserContextId } = await chrome.send("Target.createBrowserContext");
     try {
       const cookies = cookiesFromHeader(comment.sign_in_cookie_header, siteOrigin);
@@ -103,7 +106,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
       const send = (method, params = {}) => chrome.send(method, params, sessionId);
       const isPhone = comment.viewport_width_px < PHONE_WIDTH_PX;
       await send("Page.enable");
-      await send("Emulation.setDeviceMetricsOverride", { width: comment.viewport_width_px, height: comment.viewport_height_px, deviceScaleFactor: 2, mobile: isPhone });
+      await send("Emulation.setDeviceMetricsOverride", { width: comment.viewport_width_px, height: comment.viewport_height_px, deviceScaleFactor: scale, mobile: isPhone });
       await send("Emulation.setTouchEmulationEnabled", isPhone ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
       await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: comment.theme }] });
       const fired = (event) => new Promise((done) => {
@@ -122,7 +125,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
     }
   }
 
-  const shot = async (send) => Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64");
+  const shot = async (send, format = "png") => Buffer.from((await send("Page.captureScreenshot", format === "jpeg" ? { format, quality: 82 } : { format })).data, "base64");
 
   async function take(comment, url) {
     return onPage(comment, url, async (send) => {
@@ -140,7 +143,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
       const steps = [];
       const picture = async (label, point) => {
         await send("Runtime.evaluate", { expression: drawStep(label, point), returnByValue: true });
-        steps.push({ label, picture: await shot(send) });
+        steps.push({ label, picture: await shot(send, "jpeg") });
         await send("Runtime.evaluate", { expression: clearStep, returnByValue: true });
       };
       await picture("The page as it loads");
@@ -191,7 +194,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
       }
       // The first picture and the latest ones, when there are more than fit.
       return steps.length > MAXIMUM_REPLAY_PICTURE_COUNT ? [steps[0], ...steps.slice(-(MAXIMUM_REPLAY_PICTURE_COUNT - 1))] : steps;
-    });
+    }, 1);
   }
 
   const queued = (work) => {

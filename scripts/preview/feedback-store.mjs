@@ -3,7 +3,7 @@
 // runs when Julius says he left feedback (scripts/feedback.mjs). One file a comment, written whole through a rename, so
 // the two never write over each other. Pictures sit beside each comment: <comment_id>.seen.png (drawn from the page as
 // he saw it), <comment_id>.live.png (the page loaded again) and, when he'd done something on the page first, the replay of it:
-// <comment_id>.replay-<step>.png, listed in <comment_id>.replay.json.
+// <comment_id>.replay-<step>.jpg, listed in <comment_id>.replay.json.
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -29,7 +29,7 @@ const commentFile = (directory, commentId) => join(directory, `${commentId}.json
 export const pictureFile = (directory, commentId, kind) => join(directory, `${commentId}.${kind}.png`);
 export const snapshotFile = (directory, commentId) => join(directory, `${commentId}.html`);
 export const replayFile = (directory, commentId) => join(directory, `${commentId}.replay.json`);
-export const replayPictureFile = (directory, commentId, stepNumber) => join(directory, `${commentId}.replay-${String(stepNumber).padStart(2, "0")}.png`);
+export const replayPictureFile = (directory, commentId, stepNumber) => join(directory, `${commentId}.replay-${String(stepNumber).padStart(2, "0")}.jpg`);
 
 function writeWhole(path, contents) {
   mkdirSync(dirname(path), { recursive: true });
