@@ -52,6 +52,12 @@ export const ICONS = {
   "signal-weak": stroke("0 0 20 20", '<path d="M4.5 16.5v-3"/><path d="M10 16.5v-7" opacity="0.35"/><path d="M15.5 16.5v-11" opacity="0.35"/>', ' stroke-width="2.4"'),
   "signal-lost": stroke("0 0 20 20", '<path d="M4.5 16.5v-3M10 16.5v-7M15.5 16.5v-11" opacity="0.35"/><path d="M3 3l14 14"/>', ' stroke-width="2.2"'),
   reconnecting: stroke("0 0 20 20", '<path d="M16.5 10a6.5 6.5 0 0 1-11.4 4.3M3.5 10a6.5 6.5 0 0 1 11.4-4.3"/><path d="M15 2.8v3.4h-3.4M5 17.2v-3.4h3.4"/>'),
+  // Playing together at one screen.
+  gamepad: stroke("0 0 20 20", '<path d="M6.2 6h7.6a3.6 3.6 0 0 1 3.5 2.8l.8 3.8a2 2 0 0 1-3.5 1.6L13 12.5H7l-1.6 1.7a2 2 0 0 1-3.5-1.6l.8-3.8A3.6 3.6 0 0 1 6.2 6z"/><path d="M6.4 8.4v2.4M5.2 9.6h2.4M13.4 9h.1M15 10.6h.1"/>'),
+  // Devices a game works on.
+  phone: stroke("0 0 20 20", '<path d="M6.5 2.5h7v15h-7z"/><path d="M9.2 15h1.6"/>'),
+  tablet: stroke("0 0 20 20", '<path d="M3.5 3.5h13v13h-13z"/><path d="M9.2 14.2h1.6"/>'),
+  computer: stroke("0 0 20 20", '<path d="M2.8 4h14.4v9.5H2.8z"/><path d="M7 17h6M10 13.5V17"/>'),
   refresh: stroke("0 0 20 20", '<path d="M16.3 10a6.3 6.3 0 1 1-1.9-4.5"/><path d="M15.4 2.6v3.6h-3.6"/>'),
   download: stroke("0 0 20 20", '<path d="M10 3.5v9M6.2 8.8 10 12.6l3.8-3.8"/><path d="M4 16.5h12"/>'),
   "out-of-page": stroke("0 0 20 20", '<path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5"/><path d="M14.5 12v4.5h-11v-11H8"/>'),

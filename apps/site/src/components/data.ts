@@ -1,7 +1,7 @@
 import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
-import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type TagTone } from "./foundations.ts";
+import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -198,13 +198,14 @@ component({
 export interface Fact {
   /** What the fact is about, in a few words: Players, Works on. */
   label: string;
-  /** The fact itself, in words: Single-player, Online co-op. */
-  text: string;
+  /** The fact itself, in words: Linux. Or its entries, each with the icon that says it at a glance (Single-player, Online co-op). */
+  text?: string;
+  items?: { text: string; icon: IconName }[];
 }
 
 /** Facts: what something is, a few short facts side by side, each a quiet label over its words (a game's players and devices). */
 export function facts(options: { facts: Fact[]; label?: string }): Raw {
-  return html`<dl class="facts"${options.label ? html` aria-label="${options.label}"` : ""}>${options.facts.map((fact) => html`<div class="fact"><dt>${fact.label}</dt><dd>${fact.text}</dd></div>`)}</dl>`;
+  return html`<dl class="facts"${options.label ? html` aria-label="${options.label}"` : ""}>${options.facts.map((fact) => html`<div class="fact"><dt>${fact.label}</dt><dd>${fact.items ? fact.items.map((item) => html`<span class="fact-item">${icon(item.icon)}<span>${item.text}</span></span>`) : fact.text ?? ""}</dd></div>`)}</dl>`;
 }
 
 component({
@@ -217,11 +218,14 @@ component({
 .facts { display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); margin: 0; }
 .fact { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .fact dt { font: var(--type-facts); color: var(--muted); }
-.fact dd { margin: 0; font: var(--type-words); color: var(--ink); }
+.fact dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); font: var(--type-words); color: var(--ink); }
+/* An entry: its line icon, quiet, then its words. */
+.fact-item { display: inline-flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; }
+.fact-item > .ico { color: var(--muted); }
 `,
   render: facts,
   examples: [
-    { label: "A game's players and devices", markup: glassPane({ paneSize: "small", body: facts({ label: "About this game", facts: [{ label: "Players", text: "Single-player, online co-op" }, { label: "Works on", text: "Computer, tablet" }] }) }) },
+    { label: "A game's players and devices", markup: glassPane({ paneSize: "small", body: facts({ label: "About this game", facts: [{ label: "Players", items: [{ text: "Single-player", icon: "person" }, { text: "Online co-op", icon: "globe" }] }, { label: "Works on", items: [{ text: "Computer", icon: "computer" }, { text: "Tablet", icon: "tablet" }] }] }) }) },
   ],
 });
 

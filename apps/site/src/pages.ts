@@ -11,7 +11,9 @@ import {
   isTesterLinkOn,
   linksOf,
   ownServerUrlsOf,
+  describePlayModes,
   readPlayModes,
+  type PlayMode,
   SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
   testerLinkOpened,
@@ -26,12 +28,12 @@ import { backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { glassPane, logo, tag } from "./components/foundations.ts";
+import { glassPane, logo, tag, type IconName } from "./components/foundations.ts";
 import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { GAME_BACKGROUND_SCRIPT, GAME_OPENING_SCRIPT } from "./game-background-script.ts";
 import { GAME_PAGE_STYLE } from "./game-page-style.ts";
-import { html, layout, message, openingScriptTags, pageData, playerLine, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
+import { html, layout, message, openingScriptTags, pageData, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { showcase, showcaseCover } from "./home.ts";
 import { viewerOf } from "./viewer.ts";
@@ -132,11 +134,16 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const moreTitle = developer && more.length && more.every((otherGame) => otherGame.owner_id === game.owner_id) ? `More from ${developer.name}` : "More games";
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
-  const modes = playerLine(readPlayModes(game.play_modes), game.multiplayer_mode !== "none");
+  // Each way to play and each device, with the icon that says it at a glance.
+  const playModes = readPlayModes(game.play_modes);
+  const playItems = playModes
+    ? describePlayModes(playModes).map((playMode) => ({ text: playMode.label, icon: PLAY_MODE_ICONS[playMode.mode] }))
+    : game.multiplayer_mode !== "none" ? [{ text: "Online multiplayer", icon: "globe" as const }] : [];
   const gameFacts: Fact[] = [
-    ...(modes ? [{ label: "Players", text: modes }] : []),
-    ...(devices.length ? [{ label: "Works on", text: devices.map((device) => DEVICE_LABELS[device] ?? device).join(", ") }] : []),
+    ...(playItems.length ? [{ label: "Players", items: playItems }] : []),
+    ...(devices.length ? [{ label: "Works on", items: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICONS[device] ?? "computer" })) }] : []),
   ];
+
   const isSignedInAdult = viewer.account?.age_band === "18+";
   const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
   const isPlayingNowShown = playingNowPlayerCount >= MINIMUM_PLAYING_NOW_PLAYER_COUNT;
@@ -325,6 +332,9 @@ const openingOf = (background: ShownBackground) => (background.source === "zaism
 const gameCard = (id: string, titleId: string, body: Raw) => html`<aside class="game-card" id="${id}" aria-labelledby="${titleId}" hidden>${glassPane({ paneSize: "small", body })}</aside>`;
 
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
+const DEVICE_ICONS: Record<string, IconName> = { phone: "phone", tablet: "tablet", computer: "computer" };
+/** One person for single-player, a gamepad for people at one screen, the globe for online. */
+const PLAY_MODE_ICONS: Record<PlayMode["mode"], IconName> = { single: "person", local: "gamepad", online: "globe" };
 
 /** A tester link that can't open its game: what's wrong, on Zaisma's own glass. */
 function linkProblem(env: Env, title: string, text: string): Response {
