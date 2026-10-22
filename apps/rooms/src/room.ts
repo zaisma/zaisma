@@ -871,8 +871,8 @@ export class Room extends DurableObject<Env> {
       ).bind(this.meta.gameId, date, ended ? 1 : 0, usage.roomPlayDurationSec, usage.messageCount, traffic.inboundSizeBytes, traffic.outboundMessageCount, traffic.outboundSizeBytes, cpuDurationMs, health.callCount, health.crashCount, health.stoppedCount, health.endedMatchCount),
       ...biggest.map((type) =>
         this.env.DB.prepare(
-          "INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date, message_type, direction) DO UPDATE SET message_count = message_count + excluded.message_count, size_bytes = size_bytes + excluded.size_bytes, largest_size_bytes = MAX(largest_size_bytes, excluded.largest_size_bytes)",
-        ).bind(this.meta!.gameId, date, type.messageType, type.direction, type.messageCount, type.sizeBytes, type.largestSizeBytes),
+          "INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date, message_type, direction) DO UPDATE SET message_count = message_count + excluded.message_count, size_bytes = size_bytes + excluded.size_bytes, largest_size_bytes = MAX(largest_size_bytes, excluded.largest_size_bytes), backed_up_message_count = backed_up_message_count + excluded.backed_up_message_count",
+        ).bind(this.meta!.gameId, date, type.messageType, type.direction, type.messageCount, type.sizeBytes, type.largestSizeBytes, type.backedUpMessageCount ?? 0),
       ),
       ...errors.map((error) =>
         this.env.DB.prepare(

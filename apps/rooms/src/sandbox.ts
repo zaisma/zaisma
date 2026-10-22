@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type VersionUpdate } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, stateSyncModuleSource } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -17,7 +17,9 @@ import type { Env } from "./index.ts";
  * turn-based room's state goes in and out with each call, since the room saves it after every change;
  * a real-time room's stays in the sandbox, which the room copies every few seconds
  * (STATE_COPY_INTERVAL_MS) to start a fresh session from, and its players' messages wait in the room
- * for the next tick, which runs them and onTick in one call.
+ * for the next tick, which runs them and onTick in one call. State sync (stateSyncEnabled) runs in the
+ * sandbox too, where the state is: after each tick, or each call of a turn-based room, the session hands
+ * back each player's frame as a "state" effect, and the room tells it who's backed up and who needs a full copy.
  * Requests (onRequest), schedules (onSchedule) and webhooks (onWebhook) go through the game's own object outside any room
  * (game-server.ts), with the same sandbox and the same database. A room or that object opens one session with the sandbox
  * when it wakes and makes every call through it, so a room is billed one request per wake rather
@@ -65,10 +67,11 @@ const FAILURE_COUNT = 2;
 
 /** What the game asked the room to do during one handler, in order. */
 type Effect =
-  | { do: "broadcast"; message: unknown; exceptPlayerId?: string; audience?: unknown }
-  | { do: "send"; playerId: string; message: unknown }
-  | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string; audience?: unknown }
-  | { do: "send_bytes"; playerId: string; bytes: unknown }
+  | { do: "broadcast"; message: unknown; exceptPlayerId?: string; audience?: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "send"; playerId: string; message: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string; audience?: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "send_bytes"; playerId: string; bytes: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "state"; playerIds: unknown; frame: unknown }
   | { do: "end"; message?: string }
   | { do: "listed"; isListed: boolean }
   | { do: "open"; isOpen: boolean }
@@ -101,10 +104,12 @@ interface Snapshot {
   awayReasons: Record<string, AwayReason>;
   /** The room's clock when the call was made, for room.serverTimeMs. */
   serverTimeMs: number;
+  /** Players whose connection is backed up, whom state sync skips. */
+  backedUpPlayerIds: string[];
 }
 
-/** What changed in the room since the last call; serverTimeMs comes every time. */
-type RoomChanges = Partial<Snapshot> & { serverTimeMs: number };
+/** What changed in the room since the last call; serverTimeMs comes every time, and fullCopyPlayerIds when there are any: new connections, which state sync sends a full copy. */
+type RoomChanges = Partial<Snapshot> & { serverTimeMs: number; fullCopyPlayerIds?: string[] };
 
 /** A player's message or bytes waiting in the room for a real-time game server's next call. */
 interface Queued {
@@ -143,6 +148,7 @@ interface Settings {
   seatHoldDurationSec?: unknown;
   reconnectTimeoutSec?: unknown;
   stateSaveIntervalSec?: unknown;
+  stateSyncEnabled?: unknown;
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
@@ -186,6 +192,7 @@ const harness = (entry: string) => `
 import "./outside-calls.js";
 import { withLogs, timedWait } from "./logs.js";
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
+import stateSync from "./state-sync.js";
 import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -193,7 +200,9 @@ const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), 
 const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
-const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", ...HOOKS];
+const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
+const MAXIMUM_STATE_VIEW_SIZE_BYTES = ${ROOM_LIMITS.maximumStateViewSizeBytes};
+const MAXIMUM_LATEST_KEY_CHARACTER_COUNT = ${ROOM_LIMITS.maximumLatestKeyCharacterCount};
 
 // room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
 class DatabaseError extends Error {
@@ -217,6 +226,14 @@ function gameDatabase(binding) {
   };
 }
 
+// A send's delivery and latestKey, checked here so a mistake throws in the game's own handler, where its developer sees it.
+function delivered(given, call) {
+  const options = given && typeof given === "object" ? given : {};
+  if (options.delivery !== undefined && options.delivery !== "reliable" && options.delivery !== "latest_only") throw new Error(call + "'s delivery is " + JSON.stringify(options.delivery) + '. Give "reliable" (the default) or "latest_only".');
+  if (options.latestKey !== undefined && (typeof options.latestKey !== "string" || options.latestKey.length > MAXIMUM_LATEST_KEY_CHARACTER_COUNT)) throw new Error(call + "'s latestKey must be text up to " + MAXIMUM_LATEST_KEY_CHARACTER_COUNT + ' characters, like "positions".');
+  return { delivery: options.delivery, latestKey: options.latestKey };
+}
+
 function recorder(snapshot, effects, database, secrets) {
   const clockOffsetMs = (snapshot.serverTimeMs ?? Date.now()) - Date.now();
   return {
@@ -224,10 +241,10 @@ function recorder(snapshot, effects, database, secrets) {
     secrets,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     get spectators() { return snapshot.spectators.map((spectator) => ({ ...spectator })); },
-    broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience }); },
-    send(playerId, message) { effects.push({ do: "send", playerId, message }); },
-    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId, audience: broadcastOptions && broadcastOptions.audience }); },
-    sendBytes(playerId, bytes) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes") }); },
+    broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcast") }); },
+    send(playerId, message, sendOptions) { effects.push({ do: "send", playerId, message, ...delivered(sendOptions, "room.send") }); },
+    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcastBytes") }); },
+    sendBytes(playerId, bytes, sendOptions) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes"), ...delivered(sendOptions, "room.sendBytes") }); },
     end(message) { effects.push({ do: "end", message }); },
     get isListed() { return snapshot.isListed; },
     setListed(isListed) { snapshot.isListed = Boolean(isListed); effects.push({ do: "listed", isListed: snapshot.isListed }); },
@@ -281,7 +298,9 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now() };
+  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
+  // What each player was last sent of the state, with stateSyncEnabled; a fresh session sends everyone a full copy.
+  #stateTracker = server.stateSyncEnabled === true ? stateSync.newStateTracker(MAXIMUM_STATE_VIEW_SIZE_BYTES) : null;
   constructor(database, secrets) {
     super();
     this.#database = database;
@@ -303,6 +322,7 @@ class Session extends RpcTarget {
       seatHoldDurationSec: server.seatHoldDurationSec,
       reconnectTimeoutSec: server.reconnectTimeoutSec,
       stateSaveIntervalSec: server.stateSaveIntervalSec,
+      stateSyncEnabled: server.stateSyncEnabled,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
     }));
@@ -322,7 +342,9 @@ class Session extends RpcTarget {
   }
   // This call's room: the kept one with what changed, copied, so what a handler sets (room.setListed) lasts only this call.
   #take(roomChanges) {
-    Object.assign(this.#room, roomChanges && typeof roomChanges === "object" ? roomChanges : {});
+    const { fullCopyPlayerIds, ...changes } = roomChanges && typeof roomChanges === "object" ? roomChanges : {};
+    Object.assign(this.#room, changes);
+    if (this.#stateTracker && Array.isArray(fullCopyPlayerIds)) for (const playerId of fullCopyPlayerIds) this.#stateTracker.forget(playerId);
     return { ...this.#room };
   }
   call(hook, handlerArguments, roomChanges, given, queued) {
@@ -334,7 +356,8 @@ class Session extends RpcTarget {
     const effects = [];
     const errors = await this.#input(queued, room, effects);
     const error = HOOKS.includes(hook) && typeof server[hook] === "function" ? await this.#run(hook, handlerArguments, room, effects) : null;
-    // A turn-based room's state goes back only when its handler finished, as it was before otherwise.
+    // A turn-based room's state sync follows each call (hook "sync" runs only that); a real-time room's, each tick.
+    if (given) this.#syncState(room, effects, errors);
     return { effects, ...(given && !error ? { state: this.#state } : {}), ...(error ? { error } : {}), ...listed(errors) };
   }
   tick(queued, tickDurationSec, roomChanges) {
@@ -348,7 +371,22 @@ class Session extends RpcTarget {
       const error = await this.#run("onTick", [tickDurationSec], room, effects);
       if (error) errors.push(error);
     }
+    this.#syncState(room, effects, errors);
     return { effects, ...listed(errors) };
+  }
+  // A round of state sync: each connected player's view (stateView) as a "state" effect, a full copy or what changed.
+  #syncState(snapshot, effects, errors) {
+    if (!this.#stateTracker) return;
+    const awayReasons = snapshot.awayReasons || {};
+    // Players in the match with a connection, and the spectators, who watch it.
+    const viewers = new Map([...snapshot.players.filter((player) => awayReasons[player.id] !== "lost"), ...(snapshot.spectators || [])].map((player) => [player.id, player]));
+    const state = this.#state;
+    // stateView only answers; anything it asks the room to do is dropped.
+    const viewRoom = typeof server.stateView === "function" ? recorder(snapshot, [], this.#database, this.#secrets) : null;
+    const viewOf = viewRoom ? (playerId) => server.stateView(state, { ...viewers.get(playerId) }, viewRoom) : null;
+    const round = this.#stateTracker.round(state, [...viewers.keys()], viewOf, new Set(snapshot.backedUpPlayerIds || []));
+    for (const frame of round.frames) effects.push({ do: "state", playerIds: frame.playerIds, frame: frame.frame });
+    errors.push(...round.problems);
   }
   // Players' messages and bytes that waited for this call, in the order they came. One that throws doesn't stop the rest.
   async #input(queued, room, effects) {
@@ -606,7 +644,7 @@ export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameI
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
     // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
-    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs },
+    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs, "state-sync.js": stateSyncModuleSource() },
     // AsyncLocalStorage, so each call's lines stay with it (logs.js).
     compatibilityFlags: ["nodejs_als"],
     // Its internet is our gateway, which takes only https to the hosts the game lists; and one binding,
@@ -658,6 +696,7 @@ interface SentRoom {
   awayReasonsKey: string;
   pairsKey: string;
   pairChangeCount: number | undefined;
+  backedUpKey: string;
 }
 
 /**
@@ -701,6 +740,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
 
   // A real-time game server keeps its state in the sandbox, and its players' input waits in the room for the next call.
   const isTicking = settings.ticksPerSec !== undefined;
+  const isSyncingState = settings.stateSyncEnabled === true;
   const queued: Queued[] = [];
   /** The room as the session last heard it; null when a fresh session needs all of it. */
   let sent: SentRoom | null = null;
@@ -776,6 +816,11 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const awayReasonsKey = JSON.stringify(awayReasons);
     const pairChangeCount = (room as unknown as { [PAIR_CHANGE_COUNT]?: number })[PAIR_CHANGE_COUNT];
     const changes: RoomChanges = { serverTimeMs: room.serverTimeMs() };
+    // State sync's viewers: who's backed up, and the new connections that get a full copy.
+    const viewers = isSyncingState ? (room as unknown as { [STATE_SYNC]?: StateSyncHooks })[STATE_SYNC]?.viewers() : undefined;
+    const backedUpKey = viewers ? viewers.backedUpPlayerIds.join(" ") : "";
+    if (viewers && (!was || was.backedUpKey !== backedUpKey)) changes.backedUpPlayerIds = viewers.backedUpPlayerIds;
+    if (viewers?.fullCopyPlayerIds.length) changes.fullCopyPlayerIds = viewers.fullCopyPlayerIds;
     if (!was || was.playersKey !== playersKey) changes.players = players;
     if (!was || was.spectatorsKey !== spectatorsKey) changes.spectators = spectators;
     if (!was || was.settingsKey !== settingsKey) Object.assign(changes, settings);
@@ -788,7 +833,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       pairsKey = JSON.stringify([blockPairs, friendPairs]);
       if (!was || was.pairsKey !== pairsKey) Object.assign(changes, { blockPairs, friendPairs });
     }
-    sent = { playersKey, spectatorsKey, settingsKey, pingsKey, awayReasonsKey, pairsKey, pairChangeCount };
+    sent = { playersKey, spectatorsKey, settingsKey, pingsKey, awayReasonsKey, pairsKey, pairChangeCount, backedUpKey };
     return changes;
   };
   /** A turn-based room's state goes with each call; a real-time room's is in the sandbox. */
@@ -817,6 +862,9 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     ...(settings.seatHoldDurationSec !== undefined ? { seatHoldDurationSec: settings.seatHoldDurationSec as number } : {}),
     ...(settings.reconnectTimeoutSec !== undefined ? { reconnectTimeoutSec: settings.reconnectTimeoutSec as number } : {}),
     ...(settings.stateSaveIntervalSec !== undefined ? { stateSaveIntervalSec: settings.stateSaveIntervalSec as number } : {}),
+    ...(settings.stateSyncEnabled !== undefined ? { stateSyncEnabled: settings.stateSyncEnabled as boolean } : {}),
+    // The sandbox runs the game's stateView itself; this stands in for it, so its options are checked like any game server's.
+    ...(handlerNames.has("stateView") ? { stateView: () => null } : {}),
     setup: async (setupData: unknown) => {
       const state = await ask(() => session.setup(setupData), null);
       if (isTicking) lastCopy = state;
@@ -827,8 +875,8 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     onMessage: (state: unknown, player: Player, message: unknown, room: Room) => (isTicking ? queue("onMessage", player, message) : call("onMessage", state, [player, message], room)),
     onTick: (state: unknown, tickDurationSec: number, room: Room) => {
       if (!isTicking) return call("onTick", state, [tickDurationSec], room);
-      // Nothing to run: no call.
-      if (!queued.length && !handlerNames.has("onTick")) return undefined;
+      // Nothing to run: no call. With state sync, every tick has its round.
+      if (!queued.length && !handlerNames.has("onTick") && !isSyncingState) return undefined;
       const input = queued.splice(0);
       const changes = roomChanges(room);
       return ask(() => session.tick(input, tickDurationSec, changes), room);
@@ -863,6 +911,11 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       : {}),
   } satisfies GameServer;
   defineGameServer(server);
+  /** A round of state sync outside the game server's own calls, like a turn-based room's player reconnecting. */
+  const syncState = async (state: unknown, room: Room): Promise<undefined> => {
+    await call("sync", state, [], room);
+    return undefined;
+  };
   const setSecrets = async (secrets: Record<string, string>) => {
     currentSecrets = secrets;
     try {
@@ -886,7 +939,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     lastCopy = state;
     needsRestore = isTicking;
   };
-  return { ...server, ...(isTicking ? { [QUEUES_INPUT]: true } : {}), stats, setSecrets, stateCopy, restore };
+  return { ...server, ...(isTicking ? { [QUEUES_INPUT]: true } : {}), ...(isSyncingState ? { [SYNCS_STATE]: syncState } : {}), stats, setSecrets, stateCopy, restore };
 }
 
 export interface SandboxStats {
@@ -916,6 +969,16 @@ export function errorLine(text: string): string {
   return (where ? `${message} (${where})` : message).slice(0, 600);
 }
 
+/** A broadcast effect's audience, as the room API takes it (it checks it). */
+function audienceOf(effect: { audience?: unknown }): { audience?: Audience } {
+  return effect.audience !== undefined && effect.audience !== null ? { audience: effect.audience as Audience } : {};
+}
+
+/** A send effect's delivery and latestKey, as the room API takes them (it checks them). */
+function sendOptionsOf(effect: { delivery?: unknown; latestKey?: unknown }): SendOptions {
+  return { ...(effect.delivery !== undefined ? { delivery: effect.delivery as SendOptions["delivery"] } : {}), ...(effect.latestKey !== undefined ? { latestKey: effect.latestKey as string } : {}) };
+}
+
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
 function apply(effects: unknown, room: Room): void {
   if (!Array.isArray(effects)) return;
@@ -924,22 +987,26 @@ function apply(effects: unknown, room: Room): void {
     try {
       switch (effect?.do) {
         case "broadcast":
-          room.broadcast(effect.message, { ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}), ...(effect.audience !== undefined && effect.audience !== null ? { audience: effect.audience as Audience } : {}) });
+          room.broadcast(effect.message, { ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}), ...audienceOf(effect), ...sendOptionsOf(effect) });
           break;
         case "send":
-          if (typeof effect.playerId === "string") room.send(effect.playerId, effect.message);
+          if (typeof effect.playerId === "string") room.send(effect.playerId, effect.message, sendOptionsOf(effect));
           break;
         case "broadcast_bytes":
           if (effect.bytes instanceof Uint8Array) {
             room.broadcastBytes(effect.bytes, {
               ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}),
               ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}),
-              ...(effect.audience !== undefined && effect.audience !== null ? { audience: effect.audience as Audience } : {}),
+              ...audienceOf(effect),
+              ...sendOptionsOf(effect),
             });
           }
           break;
         case "send_bytes":
-          if (typeof effect.playerId === "string" && effect.bytes instanceof Uint8Array) room.sendBytes(effect.playerId, effect.bytes);
+          if (typeof effect.playerId === "string" && effect.bytes instanceof Uint8Array) room.sendBytes(effect.playerId, effect.bytes, sendOptionsOf(effect));
+          break;
+        case "state":
+          (room as unknown as { [STATE_SYNC]?: StateSyncHooks })[STATE_SYNC]?.send(effect.playerIds, effect.frame);
           break;
         case "end":
           room.end(typeof effect.message === "string" ? effect.message.slice(0, 200) : undefined);

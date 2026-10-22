@@ -1,4 +1,5 @@
 export * from "./room.ts";
+export * from "./state-sync.ts";
 export * from "./database.ts";
 export * from "./dump.ts";
 export * from "./requests.ts";

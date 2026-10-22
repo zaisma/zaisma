@@ -40,6 +40,10 @@ const SEAT_MS = 60 * 1000;
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often saved states of rooms that emptied over a day ago are deleted. */
 const ROOM_STATE_SWEEP_MS = 3600 * 1000;
+/** A player whose socket holds this much not yet sent is backed up: state sync skips them, and latest-only messages wait. */
+const BACKED_UP_SIZE_BYTES = ROOM_LIMITS.backedUpSizeBytes;
+/** How often rooms with something waiting for a backed-up player check whether they caught up. */
+const CATCH_UP_MS = 50;
 
 /** Fetch Zaisma's published pass keys, caching them for an hour. */
 export function keysFrom(jwksUrl) {
@@ -346,6 +350,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),
         sendBytes: (id, frame) => sockets.get(id)?.send(frame, { binary: true }),
+        isBackedUp: (id) => (sockets.get(id)?.bufferedAmount ?? 0) >= BACKED_UP_SIZE_BYTES,
         close: (id, code, reason) => {
           const ws = sockets.get(id);
           ws?.close(code, reason);
@@ -509,6 +514,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }, SWEEP_MS);
   sweeper.unref?.();
 
+  // Players who were backed up get what waited for them once their socket drains (ws has no event for it).
+  const catcher = setInterval(() => {
+    for (const room of rooms.values()) if (room.core.isCatchingUp) room.core.catchUp();
+  }, CATCH_UP_MS);
+  catcher.unref?.();
+
   wss.on("connection", (ws, request) => {
     const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
     const refuse = (code, message) => {
@@ -611,6 +622,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const close = () =>
     new Promise((done) => {
       clearInterval(sweeper);
+      clearInterval(catcher);
       schedules.stop();
       for (const [code, room] of rooms) {
         if (room.timer) clearInterval(room.timer);

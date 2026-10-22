@@ -343,7 +343,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -1700,5 +1700,271 @@ describe("spectators", () => {
     expect(sent.w!.at(-1)).toEqual({ type: "ended", message: "Game over" });
     expect(closed).toContain("w");
     expect(room.spectatorCount).toBe(0);
+  });
+});
+
+describe("state sync", () => {
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  /** A transport whose players are backed up when the test says, as bufferedAmount says on your own server. */
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const backedUp = new Set<string>();
+    const t: Transport = {
+      send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)),
+      sendBytes: (id, frame) => (sent[id] ??= []).push({ type: "bytes", bytes: [...frame.subarray(1)] }),
+      close: () => {},
+      isBackedUp: (id) => backedUp.has(id),
+    };
+    return { t, sent, backedUp, states: (id: string) => (sent[id] ?? []).filter((message) => message.type === "state").map(({ serverTimeMs, ...frame }) => frame) };
+  };
+  /** A turn-based card game: each player sees their own hand and how many cards the others hold. */
+  const cards = defineGameServer({
+    stateSyncEnabled: true,
+    setup: () => ({ turn: 0, hands: {} as Record<string, string[]> }),
+    onJoin: (s, p) => void (s.hands[p.id] = ["A", "K"]),
+    onMessage(s, p, message) {
+      if (message === "draw") s.hands[p.id]!.push("Q");
+      if (message === "pass") s.turn++;
+    },
+    stateView: (s, viewer) => ({ turn: s.turn, myHand: s.hands[viewer.id] ?? [], cardCounts: Object.fromEntries(Object.entries(s.hands).map(([id, hand]) => [id, hand.length])) }),
+  });
+
+  it("sends a joining player a full copy, then only what changed, each their own view", () => {
+    const { t, states } = recording();
+    const room = new RoomCore(cards, t);
+    room.join(player("ana"));
+    expect(states("ana")).toEqual([{ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2 } } }]);
+    room.join(player("bo"));
+    expect(states("bo")).toEqual([{ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2, bo: 2 } } }]);
+    expect(states("ana").at(-1)).toEqual({ type: "state", changes: [[["cardCounts", "bo"], 2]] });
+    room.receive("bo", msg("draw"));
+    // Ana never sees Bo's cards, only how many he has.
+    expect(states("ana").at(-1)).toEqual({ type: "state", changes: [[["cardCounts", "bo"], 3]] });
+    expect(states("bo").at(-1)).toEqual({ type: "state", changes: [[["myHand"], ["A", "K", "Q"]], [["cardCounts", "bo"], 3]] });
+    // A handler that changes nothing anyone sees sends nothing.
+    const sentCount = states("ana").length;
+    room.receive("ana", msg("nothing"));
+    expect(states("ana")).toHaveLength(sentCount);
+  });
+
+  it("sends a spectator the state too: a full copy as they come to watch, their own view, then what changed", () => {
+    const { t, states } = recording();
+    const room = new RoomCore(defineGameServer({ ...cards, maximumSpectatorCount: 5 }), t);
+    room.join(player("ana"));
+    room.join(player("wes"), { isSpectator: true });
+    // A spectator holds no hand, so their view has none.
+    expect(states("wes")).toEqual([{ type: "state", full: { turn: 0, myHand: [], cardCounts: { ana: 2 } } }]);
+    room.receive("ana", msg("pass"));
+    expect(states("wes").at(-1)).toEqual({ type: "state", changes: [[["turn"], 1]] });
+  });
+
+  it("sends a ticking room's changes after each tick, with the room's clock, and a reconnecting player a full copy", () => {
+    let now = 1_000_000;
+    const { t, sent, states } = recording();
+    const racing = defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 0 }), onTick: (s) => void s.x++ });
+    const room = new RoomCore(racing, t, { now: () => now });
+    room.join(player("ana"));
+    expect(states("ana")).toEqual([]);
+    room.tick(0.05);
+    expect(sent.ana!.filter((message) => message.type === "state")).toEqual([{ type: "state", serverTimeMs: now, full: { x: 1 } }]);
+    now += 50;
+    room.tick(0.05);
+    expect(sent.ana!.at(-1)).toEqual({ type: "state", serverTimeMs: now, changes: [[["x"], 2]] });
+    room.leave("ana", "lost");
+    room.tick(0.05);
+    expect(states("ana")).toHaveLength(2);
+    room.join(player("ana"));
+    room.tick(0.05);
+    // Nobody played meanwhile, so the room didn't tick: her new connection gets the next state in full.
+    expect(states("ana").at(-1)).toEqual({ type: "state", full: { x: 3 } });
+    // Without onTick, every tick still has its round.
+    const still = recording();
+    const quiet = new RoomCore(defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 7 }) }), still.t);
+    quiet.join(player("ana"));
+    quiet.tick(0.05);
+    expect(still.states("ana")).toEqual([{ type: "state", full: { x: 7 } }]);
+  });
+
+  it("skips a backed-up player, then sends them a full copy once they catch up", () => {
+    const { t, states, backedUp } = recording();
+    const racing = defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 0 }), onTick: (s) => void s.x++ });
+    const room = new RoomCore(racing, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    room.tick(0.05);
+    backedUp.add("ana");
+    room.tick(0.05);
+    room.tick(0.05);
+    expect(states("ana")).toEqual([{ type: "state", full: { x: 1 } }]);
+    expect(states("bo").at(-1)).toEqual({ type: "state", changes: [[["x"], 3]] });
+    backedUp.delete("ana");
+    room.tick(0.05);
+    expect(states("ana").at(-1)).toEqual({ type: "state", full: { x: 4 } });
+
+    // A turn-based room has no tick: the copy goes as soon as they've caught up.
+    const turns = recording();
+    const cardRoom = new RoomCore(cards, turns.t);
+    cardRoom.join(player("ana"));
+    turns.backedUp.add("ana");
+    cardRoom.join(player("bo"));
+    expect(turns.states("ana")).toHaveLength(1);
+    expect(cardRoom.isCatchingUp).toBe(true);
+    cardRoom.catchUp();
+    expect(turns.states("ana")).toHaveLength(1);
+    turns.backedUp.delete("ana");
+    cardRoom.catchUp();
+    expect(turns.states("ana").at(-1)).toEqual({ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2, bo: 2 } } });
+    expect(cardRoom.isCatchingUp).toBe(false);
+  });
+
+  it("in Zaisma rooms, counts a player backed up when a probe is late past their ping with 64 KB sent since their last answer", () => {
+    let now = 1_000_000;
+    const big = "x".repeat(40 * 1024);
+    const pushing = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, room) => room.broadcast(message === "big" ? big : message) });
+    const sent: Record<string, any[]> = {};
+    const room = new RoomCore(pushing, { send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: () => {} }, { now: () => now });
+    room.join(player("ana"));
+    room.join(player("bo"));
+    const answerAll = (id: string) => {
+      for (const probe of sent[id]!.filter((message) => message.type === "probe" && !message.isAnswered)) {
+        probe.isAnswered = true;
+        room.receive(id, JSON.stringify({ type: "probe_answer", probeNumber: probe.probeNumber }));
+      }
+    };
+    now += 40;
+    answerAll("ana");
+    answerAll("ana");
+    expect(room.isBackedUp("ana")).toBe(false);
+    // A probe goes out, then 80 KB: late, but not yet past her 40 ms ping and 250 ms.
+    room.receive("bo", msg("big"));
+    room.receive("bo", msg("big"));
+    (room as any).probe("ana");
+    now += 200;
+    expect(room.isBackedUp("ana")).toBe(false);
+    now += 100;
+    expect(room.isBackedUp("ana")).toBe(true);
+    answerAll("ana");
+    expect(room.isBackedUp("ana")).toBe(false);
+    // Late with little sent: a slow answer on a quiet connection isn't a backlog.
+    const quiet = new RoomCore(pushing, { send: () => {}, close: () => {} }, { now: () => now });
+    quiet.join(player("cy"));
+    now += 2000;
+    expect(quiet.isBackedUp("cy")).toBe(false);
+  });
+
+  it("doesn't send a view over maximumStateViewSizeBytes, and tells the game's errors once", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { t, states } = recording();
+      const huge = defineGameServer({ stateSyncEnabled: true, setup: () => ({ map: "x".repeat(ROOM_LIMITS.maximumStateViewSizeBytes) }), onMessage: () => {} });
+      const room = new RoomCore(huge, t);
+      room.join(player("ana"));
+      room.receive("ana", msg("again"));
+      expect(states("ana")).toEqual([]);
+      expect(errors.mock.calls.filter(([line]) => String(line).includes("over the 1024 KB a player can be sent"))).toHaveLength(1);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("checks the options", () => {
+    expect(() => defineGameServer({ stateSyncEnabled: "yes" as never, setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateSyncEnabled" }));
+    expect(() => defineGameServer({ stateView: () => ({}), setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateView" }));
+    expect(() => defineGameServer({ stateSyncEnabled: true, stateView: {} as never, setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateView" }));
+  });
+});
+
+describe("latest-only messages", () => {
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const backedUp = new Set<string>();
+    const t: Transport = {
+      send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)),
+      sendBytes: (id, frame) => (sent[id] ??= []).push({ type: "bytes", bytes: [...frame.subarray(1)] }),
+      close: () => {},
+      isBackedUp: (id) => backedUp.has(id),
+    };
+    return { t, sent, backedUp, game: (id: string) => (sent[id] ?? []).filter((message) => message.type === "message" || message.type === "bytes").map((message) => message.data ?? message.bytes) };
+  };
+  /** Whatever a player's message says to send, the game server sends: { send, options }. */
+  const echo = defineGameServer({
+    setup: () => ({}),
+    onMessage(_s, _p, message: any, room) {
+      if (message.bytes) room.broadcastBytes(new Uint8Array(message.bytes), message.options);
+      else if (message.to) room.send(message.to, message.send, message.options);
+      else room.broadcast(message.send, message.options);
+    },
+  });
+
+  it("skips older latest-only messages for a backed-up player, keeps reliable ones, and sends the newest once they catch up", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    backedUp.add("ana");
+    for (const x of [1, 2, 3]) room.receive("bo", msg({ send: { type: "position", x }, options: { delivery: "latest_only" } }));
+    room.receive("bo", msg({ send: { type: "chat", text: "hi" } }));
+    room.receive("bo", msg({ send: { type: "aim", angle: 9 }, options: { delivery: "latest_only", latestKey: "aim" } }));
+    room.receive("bo", msg({ bytes: [7], options: { delivery: "latest_only" } }));
+    room.receive("bo", msg({ bytes: [8], options: { delivery: "latest_only" } }));
+    // The reliable one went at once; the latest-only ones wait.
+    expect(game("ana")).toEqual([{ type: "chat", text: "hi" }]);
+    // Bo isn't backed up: he gets every one.
+    expect(game("bo").filter((data: any) => data.type === "position")).toHaveLength(3);
+    room.catchUp();
+    expect(game("ana")).toHaveLength(1);
+    backedUp.delete("ana");
+    room.catchUp();
+    expect(game("ana")).toEqual([{ type: "chat", text: "hi" }, { type: "position", x: 3 }, { type: "aim", angle: 9 }, [8]]);
+    expect(room.isCatchingUp).toBe(false);
+  });
+
+  it("sends what waited before a newer latest-only message once a player is no longer backed up", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    backedUp.add("ana");
+    room.receive("ana", msg({ to: "ana", send: { type: "position", x: 1 }, options: { delivery: "latest_only" } }));
+    room.receive("ana", msg({ to: "ana", send: { type: "score", points: 5 }, options: { delivery: "latest_only" } }));
+    backedUp.delete("ana");
+    room.receive("ana", msg({ to: "ana", send: { type: "position", x: 2 }, options: { delivery: "latest_only" } }));
+    expect(game("ana")).toEqual([{ type: "position", x: 1 }, { type: "score", points: 5 }, { type: "position", x: 2 }]);
+  });
+
+  it("keeps up to 64 slots a player: the 65th key replaces the least recently replaced", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    backedUp.add("ana");
+    const api = (room as any).api;
+    for (let i = 0; i <= ROOM_LIMITS.maximumLatestOnlySlotCount; i++) api.send("ana", { key: i }, { delivery: "latest_only", latestKey: `k${i}` });
+    backedUp.delete("ana");
+    room.catchUp();
+    const got = game("ana");
+    expect(got).toHaveLength(ROOM_LIMITS.maximumLatestOnlySlotCount);
+    expect(got[0]).toEqual({ key: 1 });
+    expect(got.at(-1)).toEqual({ key: ROOM_LIMITS.maximumLatestOnlySlotCount });
+  });
+
+  it("refuses a delivery or latestKey it doesn't take, saying what to give", () => {
+    const room = new RoomCore(echo, recording().t);
+    room.join(player("ana"));
+    const api = (room as any).api;
+    expect(() => api.broadcast({}, { delivery: "lossy" })).toThrow('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
+    expect(() => api.send("ana", {}, { latestKey: "x".repeat(41) })).toThrow("room.send's latestKey must be text up to 40 characters");
+    expect(() => api.send("ana", {}, { priority: 1 })).toThrow("room.send doesn't take priority. It takes: delivery, latestKey.");
+    expect(() => api.sendBytes("ana", new Uint8Array([1]), { delivery: 1 })).toThrow("room.sendBytes's delivery is 1.");
+  });
+
+  it("counts reliable messages that went to a backed-up player, for get_stats' hint", () => {
+    const { t, backedUp } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    backedUp.add("ana");
+    room.receive("bo", msg({ send: { type: "position", x: 1 } }));
+    room.receive("bo", msg({ send: { type: "position", x: 2 }, options: { delivery: "latest_only" } }));
+    expect(room.takeTraffic().messageTypes.find((type) => type.direction === "outbound" && type.messageType === "position")).toMatchObject({ messageCount: 3, backedUpMessageCount: 1 });
   });
 });

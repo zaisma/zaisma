@@ -334,6 +334,40 @@ describe("Node runner", () => {
     await own.close();
   });
 
+  it("sends state sync, and holds latest-only messages while a socket is backed up, as Zaisma rooms do", async () => {
+    const game = defineGameServer({
+      stateSyncEnabled: true,
+      setup: () => ({ moveCount: 0 }),
+      onMessage(state, _player, message, room) {
+        if (message === "move") state.moveCount++;
+        else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only" });
+      },
+      stateView: (state, viewer) => ({ moveCount: state.moveCount, me: viewer.id }),
+    });
+    const { own, at } = await serve(game);
+    const a = connect(ORIGIN, "/v1/rooms/arena/STATEA", at);
+    await a.open;
+    a.say({ type: "hello", pass: await pass("a") });
+    const { serverTimeMs, ...full } = await until(a, "state");
+    expect(full).toEqual({ type: "state", full: { moveCount: 0, me: "a" } });
+    expect(serverTimeMs).toBeGreaterThan(0);
+    a.say({ type: "message", data: "move" });
+    expect(await until(a, "state")).toMatchObject({ changes: [[["moveCount"], 1]] });
+    // Its socket holds 100 KB not yet sent: the game's latest-only messages wait, and state sync skips it.
+    const socket = own.rooms.get("STATEA").sockets.get("a");
+    let bufferedSizeBytes = 100 * 1024;
+    Object.defineProperty(socket, "bufferedAmount", { get: () => bufferedSizeBytes, configurable: true });
+    for (const angle of [10, 20, 30]) a.say({ type: "message", data: angle });
+    a.say({ type: "message", data: "move" });
+    await new Promise((r) => setTimeout(r, 120));
+    bufferedSizeBytes = 0;
+    // Drained: the newest aim, then a full copy of the state.
+    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 30 } });
+    expect(await a.next()).toMatchObject({ type: "state", full: { moveCount: 2, me: "a" } });
+    a.ws.close();
+    own.close();
+  });
+
   it("won't start a game server with an option it doesn't take", () => {
     expect(() => startServer({ server: { tickRate: 20, setup: () => ({}) }, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [], roomStateFile: null })).toThrow(
       "tickRate isn't a game server option",
