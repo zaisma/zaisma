@@ -1,7 +1,7 @@
 // The preview's feedback overlay, on every page of the local preview only (scripts/preview/workers/site.mjs adds it; zaisma.com
 // never has it). Julius presses Feedback, clicks a thing or drags a box over an area, and writes a comment; it's saved with the
 // page, the screen size, light or dark, the scroll, the spot, the component and rule under it (the layout inspector's
-// window.zaismaInspect, else the element's class) and a snapshot of the page as he saw it, for the pictures
+// window.zaismaInspect, which the preview's site entry loads first when the site has it, else the element's class) and a snapshot of the page as he saw it, for the pictures
 // (feedback-pictures.mjs). Open comments show as pins; a session's replies show in the list, where he answers back or closes one.
 // In a frame (the gallery's Screens page) it has no button of its own: the top page hands it the clicks and boxes over it, and a
 // comment there keeps the frame's own page and size. It never starts in headless Chrome, so the measuring check and the pictures never
@@ -61,7 +61,7 @@ button,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none;padding:0}
 .catcher{position:fixed;inset:0;pointer-events:auto;cursor:crosshair;touch-action:none;display:none}
 .picking .catcher{display:block}
-.mark{position:fixed;pointer-events:none;border:2px solid var(--accent);border-radius:4px;background:color-mix(in srgb,var(--accent) 10%,transparent);display:none}
+.mark{position:fixed;pointer-events:none;margin:-4px 0 0 -4px;padding:4px;box-sizing:content-box;border:2px solid var(--accent);border-radius:6px;box-shadow:0 0 0 2px var(--surface),inset 0 0 0 1px var(--surface);background:color-mix(in srgb,var(--accent) 8%,transparent);display:none}
 .mark.drag{border-style:dashed}
 .chip{position:fixed;pointer-events:none;background:var(--accent);color:var(--on-accent);font-size:12px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;display:none;max-width:70vw;overflow:hidden;text-overflow:ellipsis}
 .pin{position:fixed;pointer-events:auto;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50% 50% 50% 4px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:12px;display:grid;place-items:center;box-shadow:0 2px 8px var(--shade),0 0 0 2px var(--surface)}
@@ -135,10 +135,12 @@ textarea:focus{border-color:var(--accent)}
     while (classed && classed !== document.body && !(typeof classed.className === "string" && classed.className.trim())) classed = classed.parentElement;
     const elementClass = classed && typeof classed.className === "string" ? classed.className.trim() : "";
     return {
+      // The inspector's element is the component's own, to outline on a click.
+      componentElement: inspected?.element instanceof Element ? inspected.element : null,
       component: inspected?.component ?? null,
-      layout_rule: inspected?.layout_rule ?? null,
+      layout_rule: inspected?.layoutRule ?? null,
       element_class: elementClass,
-      element_text: (element.innerText || element.getAttribute?.("aria-label") || element.getAttribute?.("alt") || "").trim().replace(/\s+/g, " ").slice(0, 80),
+      element_text: (inspected?.label || element.innerText || element.getAttribute?.("aria-label") || element.getAttribute?.("alt") || "").trim().replace(/\s+/g, " ").slice(0, 80),
       tag: element.tagName.toLowerCase(),
     };
   }
@@ -226,11 +228,11 @@ textarea:focus{border-color:var(--accent)}
     chip.style.display = "none";
   }
   function showMark(rect, isDrag, label) {
-    Object.assign(mark.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${Math.max(rect.width, 2)}px`, height: `${Math.max(rect.height, 2)}px` });
+    Object.assign(mark.style, { display: "block", left: `${rect.left - 2}px`, top: `${rect.top - 2}px`, width: `${Math.max(rect.width, 2)}px`, height: `${Math.max(rect.height, 2)}px` });
     mark.classList.toggle("drag", isDrag);
     if (!label) return (chip.style.display = "none");
     chip.textContent = label;
-    Object.assign(chip.style, { display: "block", left: `${Math.max(4, rect.left)}px`, top: `${rect.top > 26 ? rect.top - 24 : rect.top + rect.height + 4}px` });
+    Object.assign(chip.style, { display: "block", left: `${Math.max(4, rect.left)}px`, top: `${rect.top > 32 ? rect.top - 30 : rect.top + rect.height + 10}px` });
   }
 
   // ---- Picking: click a thing, or drag a box ----
@@ -279,7 +281,8 @@ textarea:focus{border-color:var(--accent)}
     hoveredFrame = inFrame?.overlay ?? null;
     if (inFrame) return hideMarks(), inFrame.overlay.hoverAt(x - inFrame.left, y - inFrame.top);
     const element = elementAt(x, y);
-    showMark(element.getBoundingClientRect(), false, chipText(describe(element)));
+    const described = describe(element);
+    showMark((described.componentElement ?? element).getBoundingClientRect(), false, chipText(described));
   }
   /** A click at x, y, or a dragged box (rect, null for a click). */
   function pick(rect, x, y) {
@@ -292,7 +295,7 @@ textarea:focus{border-color:var(--accent)}
       return inFrame.overlay.pick(rect && { left: rect.left - inFrame.left, top: rect.top - inFrame.top, width: rect.width, height: rect.height }, x - inFrame.left, y - inFrame.top);
     }
     const element = elementAt(atX, atY);
-    startWriting(rect ?? element.getBoundingClientRect(), element);
+    startWriting(rect ?? (describe(element).componentElement ?? element).getBoundingClientRect(), element);
   }
   overlayApi.hoverAt = hoverAt;
   overlayApi.clearHover = hideMarks;

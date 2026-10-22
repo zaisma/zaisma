@@ -23,11 +23,15 @@ function unlimitedDeveloperCalls(environment) {
 
 // The feedback layer (scripts/preview/feedback-server.mjs): /__preview/feedback/* goes to the feedback server, with the page's
 // cookies so its pictures are taken as the same test account, and every page the site answers gets the overlay's script, from
-// its own origin so the site's script policy stays as it is.
+// its own origin so the site's script policy stays as it is. When the site serves the layout inspector (window.zaismaInspect,
+// any /js/layout-inspect.<16 hex>.js address answers the current one), it comes first, so each comment names the component
+// and the rule under it.
 const FEEDBACK_PATH = "/__preview/feedback/";
 const OVERLAY_TAG = `<script src="${FEEDBACK_PATH}overlay.js" defer></script>`;
+const INSPECTOR_PATH = "/js/layout-inspect.0000000000000000.js";
+let hasInspector = null;
 
-async function withFeedback(request, environment, answerPage) {
+async function withFeedback(request, environment, answerPage, answer) {
   const feedbackOrigin = environment.PREVIEW_FEEDBACK_ORIGIN;
   if (!feedbackOrigin) return answerPage();
   const url = new URL(request.url);
@@ -39,10 +43,15 @@ async function withFeedback(request, environment, answerPage) {
   }
   const response = await answerPage();
   if (!(response.headers.get("content-type") ?? "").startsWith("text/html")) return response;
-  return new HTMLRewriter().on("head", { element: (head) => head.append(OVERLAY_TAG, { html: true }) }).transform(response);
+  hasInspector ??= await answer(new Request(new URL(INSPECTOR_PATH, url))).then((found) => found.ok, () => false);
+  const tags = `${hasInspector ? `<script src="${INSPECTOR_PATH}" defer></script>` : ""}${OVERLAY_TAG}`;
+  return new HTMLRewriter().on("head", { element: (head) => head.append(tags, { html: true }) }).transform(response);
 }
 
 export default workerRetryingWhenLocked({
   ...site,
-  fetch: (request, environment, context) => withFeedback(request, environment, () => site.fetch(request, unlimitedDeveloperCalls(environment), context)),
+  fetch: (request, environment, context) => {
+    const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environment), context);
+    return withFeedback(request, environment, () => answer(request), answer);
+  },
 });
