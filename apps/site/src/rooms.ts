@@ -11,7 +11,7 @@ import { playingNowCounts } from "./plays.ts";
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
  * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows each
- * room's name and labels, the country it runs in (its flag and name) and how full it is, never who's in it. Join is an
+ * room's name, code and labels, the country it runs in (its flag) and how full it is, never who's in it. Join is an
  * ordinary room link, so the game decides what happens next, as with invites.
  */
 
@@ -108,7 +108,7 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
 /**
  * The open rooms as a Table: a Room column when any room has a name, a column for each label they carry (Mode, Map),
  * the country each runs in (a Country's flag), how full it is, then Join (or Full) with, for a named room, a flat Report beside it. The columns are
- * even, so they stay put as the list refreshes. Never who's in it, and never its code.
+ * even, so they stay put as the list refreshes. Never who's in it. Its code shows, for telling a friend which room.
  */
 function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null): Raw {
   const shown = rooms.map((room) => ({ room, ...shownText(room) }));
@@ -117,6 +117,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
   const hasPlaces = rooms.some((room) => room.location);
   const columns: TableColumn[] = [
     ...(hasNames ? [{ label: "Room" }] : []),
+    { label: "Code", widthPx: 88 },
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 96 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
     { label: "Players", isNumeric: true, widthPx: 96, isSortable: true },
@@ -132,6 +133,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : "";
     return [
       ...(hasNames ? [name ?? ""] : []),
+      html`<code>${room.roomCode}</code>`,
       ...labelNames.map((labelName) => labelOf.get(labelName) ?? ""),
       ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName, isNameHidden: true }) : ""] : []),
       filled,
