@@ -756,6 +756,34 @@ describe("the SDK's types say what the SDK does", () => {
     expect(plain.sockets.at(-1)!.url).toBe("wss://play.example.com/v1/rooms/test-game/K7Q2MX");
   });
 
+  it("watches a room as a spectator: says so in the hello, sends nothing, and follows a Watch link", async () => {
+    const sdk = loadSdk(ON_ZAISMA, undefined, "guest", "?room=K7Q2MX&watch=1");
+    expect(sdk.Zaisma.rooms.isLinkedAsSpectator).toBe(true);
+    expect(loadSdk(ON_ZAISMA, undefined, "guest", "?room=K7Q2MX").Zaisma.rooms.isLinkedAsSpectator).toBe(false);
+    expect(loadSdk(ON_ZAISMA, undefined, "guest", "?watch=1").Zaisma.rooms.isLinkedAsSpectator).toBe(false);
+    const joining = sdk.Zaisma.joinRoom({ isSpectator: sdk.Zaisma.rooms.isLinkedAsSpectator });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const socket = sdk.sockets.at(-1)!;
+    expect(socket.url).toContain("/K7Q2MX");
+    socket.onopen!();
+    expect(JSON.parse(socket.sent[0]!)).toMatchObject({ type: "hello", isSpectator: true });
+    say(socket, { type: "welcome", me, isSpectator: true, players: [{ id: "player_bo", name: "Bo", kind: "account", awayReason: null }], room: settings, spectatorCount: 3, hostPlayerId: null, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null } });
+    const room = await joining;
+    expect(room.isSpectator).toBe(true);
+    expect(room.spectatorCount).toBe(3);
+    const sentCount = socket.sent.length;
+    expect(await failureCode(() => room.send({ type: "move" }))).toBe("spectator_cannot_send");
+    expect(await failureCode(() => room.sendBytes(new Uint8Array([1])))).toBe("spectator_cannot_send");
+    expect(socket.sent.length).toBe(sentCount);
+    // The count follows the room; the Players plate hears it, and that this player watches.
+    expect(heard(room, "room", () => say(socket, { type: "room", room: settings, spectatorCount: 4 }))).toEqual(settings);
+    expect(room.spectatorCount).toBe(4);
+    expect(sdk.page.posted.filter((message: any) => message?.type === "zaisma:players").at(-1)).toMatchObject({ isSpectator: true, spectatorCount: 4 });
+    // A player joins to play, and quickJoin and move.join take no isSpectator.
+    expect((await joinedRoom(loadSdk())).room.isSpectator).toBe(false);
+    expect(listed(await refusal(() => sdk.Zaisma.rooms.quickJoin({ isSpectator: true })))).not.toContain("isSpectator");
+  });
+
   it("the example games that use the SDK type-check against them", () => {
     const problems: string[] = [];
     let checkedCount = 0;

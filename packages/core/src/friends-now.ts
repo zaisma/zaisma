@@ -1,4 +1,5 @@
 import type { Account } from "./accounts.ts";
+import { hasWatchSpace } from "./rooms.ts";
 import { socialSettingsOf } from "./social-settings.ts";
 import { ROOM_STALE_MS } from "./types.ts";
 
@@ -23,10 +24,11 @@ export const OWN_SERVER_ROOM_CHECK_IN_MS = 2 * 60_000;
 export const OWN_SERVER_ROOM_FRESH_MS = 5 * 60_000;
 
 /**
- * Why Join won't work, for the grayed button's reason: the game turned Join off, none of the friends in
- * the room takes this player, the game turned Join off for the room, the room is closed, or it's full.
+ * Why Join (or Watch) won't work, for the grayed button's reason: the game turned Join off, none of the
+ * friends in the room takes this player, the game turned Join off for the room, the room is closed, or
+ * it's full; for Watch, the room has no space for another spectator.
  */
-export type JoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "match_in_progress" | "room_full";
+export type JoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "match_in_progress" | "room_full" | "watching_full";
 
 export interface FriendNow {
   player_id: string;
@@ -52,6 +54,12 @@ export interface FriendsInGame {
    * game's own server the room is on, null for Zaisma rooms.
    */
   join: { room_code: string; server_url: string | null; refusal: JoinRefusal | null; refusing_friend_names: string[] } | null;
+  /**
+   * The room Watch takes the player to, to watch without playing: one of the friends' rooms whose game
+   * server takes spectators, Join's room when it can. Null when none does (watching is off, or the rooms
+   * are on the game's own servers, which don't say), and Watch doesn't show.
+   */
+  watch: { room_code: string; server_url: string | null; refusal: JoinRefusal | null; refusing_friend_names: string[] } | null;
 }
 
 export interface FriendsNow {
@@ -101,6 +109,9 @@ interface RoomRow {
   is_open: number | null;
   /** The room's Join switch: live_rooms' for a Zaisma room, room_players' for one on the game's own servers. */
   friend_joins_enabled: number | null;
+  /** Spectators watching a Zaisma room and how many it takes; null without a live row, and for a room on the game's own servers. */
+  spectator_count: number | null;
+  maximum_spectator_count: number | null;
 }
 
 interface GameRow {
@@ -139,7 +150,7 @@ function playingMember(row: FriendRow, room: RoomRow | null, isFriend: boolean, 
 }
 
 const ROOM_COLUMNS = `room_players.player_id, room_players.game_id, room_players.room_code, room_players.server_url, room_players.joined_at_ms,
-  live_rooms.player_count, live_rooms.held_seat_count, live_rooms.maximum_player_count, live_rooms.is_open,
+  live_rooms.player_count, live_rooms.held_seat_count, live_rooms.maximum_player_count, live_rooms.is_open, live_rooms.spectator_count, live_rooms.maximum_spectator_count,
   CASE WHEN room_players.server_url IS NULL THEN live_rooms.friend_joins_enabled ELSE room_players.friend_joins_enabled END AS friend_joins_enabled`;
 // ?2 is when a Zaisma room's rows go stale, ?3 when an own server's do.
 const LIVE_ROOM_JOIN = "LEFT JOIN live_rooms ON room_players.server_url IS NULL AND live_rooms.game_id = room_players.game_id AND live_rooms.room_code = room_players.room_code AND live_rooms.updated_at_ms > ?2";
@@ -240,11 +251,13 @@ async function gamesOf(database: D1Database, allMembers: PlayingMember[], viewer
   }
   const playing: FriendsInGame[] = [...groups].map(([gameId, inGame]) => {
     const game = gameId ? gameById.get(gameId)! : null;
+    const join = game ? joinFor(inGame, game.friend_joins_enabled === 1) : null;
     return {
       game: game ? { slug: game.slug, title: game.title, cover_image_id: game.cover_image_id, square_image_id: game.square_image_id } : null,
       game_id: game ? game.id : null,
       friends: inGame.map((member) => member.friend),
-      join: game ? joinFor(inGame, game.friend_joins_enabled === 1) : null,
+      join,
+      watch: game ? watchFor(inGame, game.friend_joins_enabled === 1, join) : null,
     };
   });
   // Most friends first; games that aren't out yet last.
@@ -266,27 +279,56 @@ function refusalOf(room: RoomRow, inRoom: PlayingMember[], isGameTakingJoins: bo
   return !room.is_open ? "match_in_progress" : room.player_count! + room.held_seat_count! >= room.maximum_player_count! ? "room_full" : null;
 }
 
+/**
+ * Whether a room lets the player watch through these friends: Join's own reasons first (the game's Join
+ * switch, the friends' own setting, the room's Join switch), then room for another spectator. A closed
+ * or full room can still be watched: watching a match under way is the point.
+ */
+function watchRefusalOf(room: RoomRow, inRoom: PlayingMember[], isGameTakingJoins: boolean): JoinRefusal | null {
+  if (!isGameTakingJoins) return "game_not_taking_joins";
+  if (inRoom.every((member) => !member.isTakingJoins)) return "friend_not_taking_joins";
+  if (room.friend_joins_enabled === 0) return "private_room";
+  return hasWatchSpace({ spectatorCount: room.spectator_count ?? 0, maximumSpectatorCount: room.maximum_spectator_count ?? 0 }) ? null : "watching_full";
+}
+
 /** Whether Join can say anything of a room: a Zaisma room without a live row can't say whether it has space. */
 const isJoinable = (room: RoomRow | null): room is RoomRow => Boolean(room && (room.server_url !== null || room.maximum_player_count !== null));
 
-/** Join for one game: the friends' rooms, most friends first, and the first that would let the player in; else the busiest one's reason. */
-function joinFor(members: PlayingMember[], isGameTakingJoins: boolean): FriendsInGame["join"] {
+/** Whether a room can be watched at all: a Zaisma room whose game server takes spectators. A room on the game's own servers doesn't say. */
+const isWatchable = (room: RoomRow | null): room is RoomRow => Boolean(room && room.server_url === null && (room.maximum_spectator_count ?? 0) > 0);
+
+/** The friends' rooms that pass a check, each with the friends in it, most friends first. */
+function roomsOf(members: PlayingMember[], isWanted: (room: RoomRow | null) => room is RoomRow): { room: RoomRow; members: PlayingMember[] }[] {
   const rooms = new Map<string, { room: RoomRow; members: PlayingMember[] }>();
   for (const member of members) {
-    if (!isJoinable(member.room)) continue;
+    if (!isWanted(member.room)) continue;
     const key = `${member.room.server_url ?? ""} ${member.room.room_code}`;
     const entry = rooms.get(key) ?? { room: member.room, members: [] };
     entry.members.push(member);
     rooms.set(key, entry);
   }
-  const joins = [...rooms.values()]
-    .sort((first, second) => second.members.length - first.members.length)
-    .map(({ room, members: inRoom }) => {
-      const refusal = refusalOf(room, inRoom, isGameTakingJoins);
-      const refusingFriendNames = refusal === "friend_not_taking_joins" ? inRoom.map((member) => member.friend.name) : [];
-      return { room_code: room.room_code, server_url: room.server_url, refusal, refusing_friend_names: refusingFriendNames };
-    });
+  return [...rooms.values()].sort((first, second) => second.members.length - first.members.length);
+}
+
+/** A Join or Watch for one room: where it goes, and why it won't work, naming the friends when it's their setting. */
+function doorOf(room: RoomRow, inRoom: PlayingMember[], refusal: JoinRefusal | null): NonNullable<FriendsInGame["join"]> {
+  const refusingFriendNames = refusal === "friend_not_taking_joins" ? inRoom.map((member) => member.friend.name) : [];
+  return { room_code: room.room_code, server_url: room.server_url, refusal, refusing_friend_names: refusingFriendNames };
+}
+
+/** Join for one game: the friends' rooms, most friends first, and the first that would let the player in; else the busiest one's reason. */
+function joinFor(members: PlayingMember[], isGameTakingJoins: boolean): FriendsInGame["join"] {
+  const joins = roomsOf(members, isJoinable).map(({ room, members: inRoom }) => doorOf(room, inRoom, refusalOf(room, inRoom, isGameTakingJoins)));
   return joins.find((join) => !join.refusal) ?? joins[0] ?? null;
+}
+
+/**
+ * Watch for one game: the friends' rooms that take spectators, Join's room first when it can be watched,
+ * then the first with room to watch; else the busiest one's reason. Null when none takes spectators.
+ */
+function watchFor(members: PlayingMember[], isGameTakingJoins: boolean, join: FriendsInGame["join"]): FriendsInGame["watch"] {
+  const watches = roomsOf(members, isWatchable).map(({ room, members: inRoom }) => doorOf(room, inRoom, watchRefusalOf(room, inRoom, isGameTakingJoins)));
+  return watches.find((watch) => !watch.refusal && watch.room_code === join?.room_code) ?? watches.find((watch) => !watch.refusal) ?? watches[0] ?? null;
 }
 
 /** Why a game's own list can't take the player to a friend: Join's reasons, or no room the game told Zaisma of. */
@@ -301,6 +343,11 @@ export interface FriendInGame {
   /** The game's own server that room is on; null for a Zaisma room, or with no room. */
   server_url: string | null;
   join_refusal: FriendJoinRefusal | null;
+  /**
+   * Watching their room, for zaisma.com's Players plate: null when it can't be watched at all (watching
+   * is off, or a room on the game's own servers); room_code is null when it's refused.
+   */
+  watch: { room_code: string | null; refusal: JoinRefusal | null } | null;
 }
 
 /**
@@ -341,7 +388,16 @@ export async function friendsInGameOf(database: D1Database, accountId: string, g
     // Each friend's own room, as Join would say it with them alone in it.
     const refusal: FriendJoinRefusal | null = room ? refusalOf(room, [member], isGameTakingJoins) : "no_room";
     const isJoinOpen = room !== null && refusal === null;
-    return { player_id: member.friend.player_id, username: member.friend.name, room_code: isJoinOpen ? room.room_code : null, server_url: isJoinOpen ? room.server_url : null, join_refusal: refusal };
+    const watchRoom = isWatchable(member.room) ? member.room : null;
+    const watchRefusal = watchRoom ? watchRefusalOf(watchRoom, [member], isGameTakingJoins) : null;
+    return {
+      player_id: member.friend.player_id,
+      username: member.friend.name,
+      room_code: isJoinOpen ? room.room_code : null,
+      server_url: isJoinOpen ? room.server_url : null,
+      join_refusal: refusal,
+      watch: watchRoom ? { room_code: watchRefusal ? null : watchRoom.room_code, refusal: watchRefusal } : null,
+    };
   });
 }
 
@@ -380,6 +436,7 @@ export function joinRefusalText(join: NonNullable<FriendsInGame["join"]>): strin
   if (join.refusal === "private_room") return "Private room";
   if (join.refusal === "room_full") return "Room full";
   if (join.refusal === "match_in_progress") return "Match in progress";
+  if (join.refusal === "watching_full") return "Watching full";
   const names = join.refusing_friend_names;
   return names.length === 1 ? `${names[0]} isn't taking joins` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} aren't taking joins`;
 }

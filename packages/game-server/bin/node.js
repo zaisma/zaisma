@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -462,6 +462,18 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     room.waitTimer.unref?.();
   }
 
+  // A room with only spectators left has no match to watch: they're told it ended and go, so it empties.
+  function dismissSpectatorsIfAlone(room) {
+    if ([...room.sockets.keys()].some((id) => !room.core.spectators.has(id))) return;
+    const text = JSON.stringify({ type: "ended", message: "The match ended." });
+    for (const [id, ws] of [...room.sockets]) {
+      room.sockets.delete(id);
+      room.core.leave(id);
+      ws.send(text);
+      ws.close(ENDED_CLOSE_CODE, "Match ended");
+    }
+  }
+
   // A room with nobody connected stays while players whose connection dropped have time to come back, and while it holds seats.
   // One that empties keeps its saved state for a day; one that ended keeps none.
   function closeIfEmpty(code, room) {
@@ -526,10 +538,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       let pass;
       let made = {};
+      // Come to watch, not to play (joinRoom({ isSpectator: true })).
+      let isSpectator = false;
       try {
         const hello = JSON.parse(text ?? "");
         if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
         pass = hello.pass;
+        isSpectator = hello.isSpectator === true;
         if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === false ? { isListed: false } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
         made.clientIdle = clientIdle(hello);
         const checked = checkRoomData(hello.joinData);
@@ -548,9 +563,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!checked) return refuse("bad_pass");
       const { player, claims } = checked;
       clearTimeout(helloTimer);
+      // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
+      if (isSpectator && !(rooms.get(code)?.core.players.size > 0)) return refuse("no_room");
       const room = roomFor(code);
       // The room's rules and the game's canJoin, before anyone hears about this player.
-      const admitted = await room.core.admit(player, made.joinData);
+      const admitted = await room.core.admit(player, made.joinData, { isSpectator });
       if (!admitted.isAllowed) {
         closeIfEmpty(code, room);
         return refuse(admitted.code, admitted.message);
@@ -558,12 +575,15 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       room.sockets.get(player.id)?.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
       room.sockets.set(player.id, ws);
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
-      room.passes.set(player.id, claims);
-      for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
-      room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
-      room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+      // Spectators send nothing, so nothing of theirs reaches a player to block.
+      if (!isSpectator) {
+        room.passes.set(player.id, claims);
+        for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
+        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
+        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+      }
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
-      const joined = room.core.join(player, made);
+      const joined = room.core.join(player, { ...made, isSpectator });
       if (!joined.isAllowed) {
         room.sockets.delete(player.id);
         closeIfEmpty(code, room);
@@ -581,6 +601,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!room || !playerId || room.sockets.get(playerId) !== ws) return;
       room.sockets.delete(playerId);
       room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "lost");
+      dismissSpectatorsIfAlone(room);
       pace(code, room);
       closeIfEmpty(code, room);
     });

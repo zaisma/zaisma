@@ -251,6 +251,9 @@ export interface LiveRoom {
   /** Seats held for players out of the match for now, or on their way (migrations/0025_held_seats.sql). */
   held_seat_count: number;
   maximum_player_count: number;
+  /** Spectators watching, and how many the room takes: 0 when its game server turns watching off (migrations/0122_spectators.sql). */
+  spectator_count: number;
+  maximum_spectator_count: number;
   is_listed: number;
   is_open: number;
   /** 1 when Zaisma's Join offers the room; 0 grays it as "Private room" (room.setFriendJoinsEnabled). */

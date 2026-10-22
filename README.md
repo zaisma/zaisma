@@ -52,7 +52,7 @@ export default {
   ticksPerSec: 20,         // up to 60; leave out for turn-based games so the room sleeps between moves
   setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
   onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
-                                                       // joinInfo: { fromRoomCode, isReturning } (isReturning: back to a held seat)
+                                                       // joinInfo: { fromRoomCode, isReturning, isSpectator } (isReturning: back to a held seat)
   canJoin(state, player, room, joinData, joinInfo) {}, // true (or nothing) lets them in; false or { refusalMessage } turns them away
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
   onMessage(state, player, message, room) {},
@@ -173,6 +173,33 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 The new room runs the same game server, and its `setup(setupData)` gets your setup data, so it can start the match already set up (players can read it but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `isListed: true` (with a `name` and `labels` if you like). To send players to a room that's already running instead, like the next area of an open world, use `room.moveTo(roomCode, { playerIds, joinData })`: the other room's `canJoin` decides, and `onMoved(state, moveResult, room)` hears `{ roomCode, movedPlayers, refusals }`. A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
 Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Each player-hour includes 25 CPU-seconds of your game server; past that, every 50 CPU-seconds counts one more player-hour, over the game's whole month. Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `error.code === "month_limit"`, while matches already running carry on.
+
+#### Spectators
+
+A game server that turns watching on lets people watch a match without playing, like a tournament's crowd or friends waiting for the next round:
+
+```ts
+export default {
+  maximumSpectatorCount: 20,   // up to 100; leave it out, or 0, and nobody can watch
+  onSpectatorJoin(state, spectator, room) { room.send(spectator.id, { type: "snapshot", state }); },  // catch them up
+  onSpectatorLeave(state, spectator, room) {},
+  onTick(state, tickDurationSec, room) {
+    room.broadcast({ type: "positions", positions: state.positions });                       // players and spectators
+    room.broadcast({ type: "hands", hands: state.hands }, { audience: "players" });          // never the spectators
+    room.broadcast({ type: "commentary", text: state.commentary }, { audience: "spectators" });
+  },
+};
+```
+
+```js
+const room = await Zaisma.joinRoom({ isSpectator: Zaisma.rooms.isLinkedAsSpectator });  // in the game
+room.isSpectator;    // watching: room.send and room.sendBytes throw error.code "spectator_cannot_send"
+room.spectatorCount; // how many watch; the "room" event says when it changes
+```
+
+A spectator gets everything the room sends everyone (`audience` picks who: `"everyone"`, the default, `"players"` or `"spectators"`, for `room.broadcast` and `room.broadcastBytes`), and `room.send(spectator.id, ...)` reaches one. They send nothing, so they can't bother players or dodge the room's limits; they're never in `room.players`, don't count toward `maximumPlayerCount` or "playing now", are never idle or away, and are free: watching isn't player time. `room.spectators` lists them, `joinInfo.isSpectator` tells `canJoin` a watcher is asking, and `room.kick` works on them too. A closed or full room can still be watched (watching a match under way is the point); a room with nobody playing can't (`no_room`), and one whose audience is full answers `watching_full`. When the last player leaves, the spectators are told the match ended.
+
+On zaisma.com, Watch shows beside Join (friends playing, the Players plate, the Rooms tab) for games that take spectators, with the same rules as Join, and opens the game with `Zaisma.rooms.isLinkedAsSpectator` true. The Rooms tab and the Players plate say how many are watching, never who.
 
 #### Players who walk away
 

@@ -35,9 +35,9 @@ function sendInput() {
   }
   const input = [Math.round(inputX * 10) / 10, Math.round(inputY * 10) / 10];
   const key = input.join(",");
-  if (key !== lastSentInput && room) { lastSentInput = key; room.send({ input }); }
+  if (key !== lastSentInput && room && !room.isSpectator) { lastSentInput = key; room.send({ input }); }
 }
-function dash() { if (room) room.send({ dash: true }); }
+function dash() { if (room && !room.isSpectator) room.send({ dash: true }); }
 addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (key === " " || key === "shift") { if (!event.repeat) dash(); event.preventDefault(); return; }
@@ -149,7 +149,7 @@ colorButton.onclick = () => {
   color = COLORS[(COLORS.indexOf(color) + 1) % COLORS.length];
   try { localStorage.setItem("arena:color", color); } catch { /* fine */ }
   showColor();
-  if (room) room.send({ color });
+  if (room && !room.isSpectator) room.send({ color });
 };
 const inviteButton = document.getElementById("invite");
 inviteButton.onclick = async () => {
@@ -187,14 +187,19 @@ document.getElementById("friends").onclick = () => room && Zaisma.openSafetyPane
 async function start(roomCode) {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
-    room = roomCode ? await Zaisma.joinRoom({ roomCode, joinData: color ? { color } : null }) : await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
+    // A friend's Watch on Zaisma points to their arena to watch it, without playing.
+    room = roomCode
+      ? await Zaisma.joinRoom({ roomCode, joinData: color ? { color } : null })
+      : Zaisma.rooms.isLinkedAsSpectator
+        ? await Zaisma.joinRoom({ isSpectator: true })
+        : await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
   } catch (error) {
     // The developer made multiplayer need a Zaisma account: ask the guest to sign in without leaving the game, then join as the account.
     if (error.code === "account_needed") return askToSignIn();
     statusElement.textContent = error.message;
     return;
   }
-  statusElement.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
+  statusElement.textContent = room.isSpectator ? "Watching. Reload without the watch link to play." : room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
   setTimeout(() => { if (statusElement.textContent.startsWith("Practice")) statusElement.textContent = ""; }, 4000);
   room.on("message", (message) => {
     if (message.snapshot) onSnapshot(message.snapshot);

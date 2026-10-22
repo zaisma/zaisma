@@ -1100,7 +1100,7 @@ describe("room browsing", () => {
     b.ws.send(JSON.stringify({ type: "room", isOpen: false }));
     expect(await next(b, "error")).toMatchObject({ code: "not_allowed" });
     a.ws.send(JSON.stringify({ type: "room", isOpen: false }));
-    expect(await next(a, "room")).toEqual({ type: "room", room: { isListed: true, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} } });
+    expect(await next(a, "room")).toEqual({ type: "room", room: { isListed: true, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} }, spectatorCount: 0 });
     expect((await rows(id, (r) => r[0]?.is_open === 0))[0]).toMatchObject({ player_count: 2, is_open: 0 });
 
     const { pass } = await getPass("party");
@@ -1162,6 +1162,8 @@ describe("room browsing", () => {
       playerCount: 1,
       heldSeatCount: 0,
       maximumPlayerCount: 8,
+      spectatorCount: 0,
+      maximumSpectatorCount: 0,
       isOpen: true,
       location: { countryCode: "DE", countryName: "Germany", region: "EU" },
       isNear: true,

@@ -71,11 +71,23 @@ export function joinButton(slug: string, join: NonNullable<FriendsInGame["join"]
     : html`<a class="btn" href="${joinPath(slug, join)}">Join</a>`;
 }
 
+/** Watch, beside Join for games that take spectators: the room link with &watch=1, or grayed with why, like Join. */
+export function watchButton(slug: string, watch: NonNullable<FriendsInGame["watch"]>): Raw {
+  return watch.refusal
+    ? html`<span class="join-off" tabindex="0" role="button" aria-disabled="true" aria-label="Watch: ${joinRefusalText(watch)}" data-reason="${joinRefusalText(watch)}"><span class="btn ghost">Watch</span></span>`
+    : html`<a class="btn ghost" href="${joinPath(slug, watch)}&watch=1">Watch</a>`;
+}
+
+/** Join, and Watch beside it when the friends' game takes spectators. */
+export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "watch">): Raw {
+  return html`${doors.join ? joinButton(slug, doors.join) : ""}${doors.watch ? watchButton(slug, doors.watch) : ""}`;
+}
+
 /** Under a game page's title: the friends playing it, "Alex and Mia are playing", and Join. */
 function friendsHere(slug: string, here: FriendsInGame): Raw {
   const names = here.friends.map((friend) => friend.name);
   const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
-  return html`<span class="faces">${here.friends.slice(0, 5).map((friend) => face(friend, "sm"))}</span><span class="said">${said}</span>${here.join ? joinButton(slug, here.join) : ""}`;
+  return html`<span class="faces">${here.friends.slice(0, 5).map((friend) => face(friend, "sm"))}</span><span class="said">${said}</span>${joinAndWatch(slug, here)}`;
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */
@@ -98,7 +110,7 @@ ${now.playing.length
         (playing) => html`<li>${playing.game
           ? tile({ slug: playing.game.slug, title: playing.game.title, cover: playing.game.cover_image_id ? `/img/${playing.game.cover_image_id}` : null, square: playing.game.square_image_id ? `/img/${playing.game.square_image_id}` : null })
           : html`<div class="hit block"><span class="tile"><span class="pic"><span class="named"><span>A game that isn't out yet</span></span></span></span></div>`}
-<div class="who"><span class="faces">${playing.friends.map((friend) => face(friend, "sm"))}</span>${playing.game && playing.join ? joinButton(playing.game.slug, playing.join) : ""}</div></li>`,
+<div class="who"><span class="faces">${playing.friends.map((friend) => face(friend, "sm"))}</span>${playing.game ? html`<span class="doors">${joinAndWatch(playing.game.slug, playing)}</span>` : ""}</div></li>`,
       )}</ul>`
     : ""}
 <style>${raw(NOW_STYLES)}</style>`;
@@ -120,5 +132,6 @@ export const NOW_STYLES = `.now{display:flex;flex-direction:column;gap:14px;marg
 .playing{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px}
 .playing .who{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;min-height:44px}
 .faces{display:flex;flex-wrap:wrap;gap:6px}
+.doors{display:flex;gap:8px;flex:none}
 ${JOIN_OFF_STYLES}`;
 

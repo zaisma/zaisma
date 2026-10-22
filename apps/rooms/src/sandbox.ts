@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type VersionUpdate } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type VersionUpdate } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -65,9 +65,9 @@ const FAILURE_COUNT = 2;
 
 /** What the game asked the room to do during one handler, in order. */
 type Effect =
-  | { do: "broadcast"; message: unknown; exceptPlayerId?: string }
+  | { do: "broadcast"; message: unknown; exceptPlayerId?: string; audience?: unknown }
   | { do: "send"; playerId: string; message: unknown }
-  | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string }
+  | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string; audience?: unknown }
   | { do: "send_bytes"; playerId: string; bytes: unknown }
   | { do: "end"; message?: string }
   | { do: "listed"; isListed: boolean }
@@ -82,6 +82,8 @@ type Effect =
 /** The room as the sandbox sees it. The session keeps it, and each call sends only what changed (RoomChanges). */
 interface Snapshot {
   players: Player[];
+  /** The spectators watching, for room.spectators. */
+  spectators: Player[];
   isListed: boolean;
   isOpen: boolean;
   friendJoinsEnabled: boolean;
@@ -132,6 +134,7 @@ type Printed = { logLines?: unknown; ioWaitDurationMs?: unknown };
 interface Settings {
   optionNames: unknown;
   maximumPlayerCount?: unknown;
+  maximumSpectatorCount?: unknown;
   ticksPerSec?: unknown;
   hostControlsEnabled?: unknown;
   idleCheck?: unknown;
@@ -187,7 +190,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate"];
+const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMessage", "onBytes", "onTick", "onMoved", "onAway", "onBack", "onEnding", "onRestored", "onVersionUpdate"];
 // A call hands back up to this many of the errors its handlers threw (errorCount says how many there were).
 const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", ...HOOKS];
@@ -220,9 +223,10 @@ function recorder(snapshot, effects, database, secrets) {
     database,
     secrets,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
-    broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId }); },
+    get spectators() { return snapshot.spectators.map((spectator) => ({ ...spectator })); },
+    broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience }); },
     send(playerId, message) { effects.push({ do: "send", playerId, message }); },
-    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId }); },
+    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId, audience: broadcastOptions && broadcastOptions.audience }); },
     sendBytes(playerId, bytes) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes") }); },
     end(message) { effects.push({ do: "end", message }); },
     get isListed() { return snapshot.isListed; },
@@ -277,7 +281,7 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now() };
+  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now() };
   constructor(database, secrets) {
     super();
     this.#database = database;
@@ -290,6 +294,7 @@ class Session extends RpcTarget {
     return withLogs(() => ({
       optionNames: Object.keys(server),
       maximumPlayerCount: server.maximumPlayerCount,
+      maximumSpectatorCount: server.maximumSpectatorCount,
       ticksPerSec: server.ticksPerSec,
       hostControlsEnabled: server.hostControlsEnabled,
       idleCheck: server.idleCheck,
@@ -359,6 +364,7 @@ class Session extends RpcTarget {
   async #run(hook, handlerArguments, snapshot, effects) {
     const room = recorder(snapshot, effects, this.#database, this.#secrets);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
+    // onSpectatorJoin(state, spectator, room), onSpectatorLeave(state, spectator, room),
     // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
     // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room), onRestored(state, restoreInfo, room),
     // onVersionUpdate(state, versionUpdate, room)
@@ -646,6 +652,7 @@ export type SandboxServer = GameServer & {
 /** What the room last sent the session, to send only what changed; pairChangeCount undefined means always look again. */
 interface SentRoom {
   playersKey: string;
+  spectatorsKey: string;
   settingsKey: string;
   pingsKey: string;
   awayReasonsKey: string;
@@ -759,6 +766,8 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const was = sent;
     const players = [...room.players];
     const playersKey = players.map((player) => `${player.id}\t${player.kind}\t${player.name}`).join("\n");
+    const spectators = [...room.spectators];
+    const spectatorsKey = spectators.map((spectator) => `${spectator.id}\t${spectator.kind}\t${spectator.name}`).join("\n");
     const settings = { isListed: room.isListed, isOpen: room.isOpen, friendJoinsEnabled: room.friendJoinsEnabled, name: room.name, labels: room.labels, endsAt: room.endsAt };
     const settingsKey = JSON.stringify(settings);
     const pingDurationsMs = pingsOf(room);
@@ -768,6 +777,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     const pairChangeCount = (room as unknown as { [PAIR_CHANGE_COUNT]?: number })[PAIR_CHANGE_COUNT];
     const changes: RoomChanges = { serverTimeMs: room.serverTimeMs() };
     if (!was || was.playersKey !== playersKey) changes.players = players;
+    if (!was || was.spectatorsKey !== spectatorsKey) changes.spectators = spectators;
     if (!was || was.settingsKey !== settingsKey) Object.assign(changes, settings);
     if (!was || was.pingsKey !== pingsKey) changes.pingDurationsMs = pingDurationsMs;
     if (!was || was.awayReasonsKey !== awayReasonsKey) changes.awayReasons = awayReasons;
@@ -778,7 +788,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       pairsKey = JSON.stringify([blockPairs, friendPairs]);
       if (!was || was.pairsKey !== pairsKey) Object.assign(changes, { blockPairs, friendPairs });
     }
-    sent = { playersKey, settingsKey, pingsKey, awayReasonsKey, pairsKey, pairChangeCount };
+    sent = { playersKey, spectatorsKey, settingsKey, pingsKey, awayReasonsKey, pairsKey, pairChangeCount };
     return changes;
   };
   /** A turn-based room's state goes with each call; a real-time room's is in the sandbox. */
@@ -798,6 +808,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   // The options pass through as the game gave them, so defineGameServer checks them like any game server's.
   const server = {
     ...(settings.maximumPlayerCount !== undefined ? { maximumPlayerCount: settings.maximumPlayerCount as number } : {}),
+    ...(settings.maximumSpectatorCount !== undefined ? { maximumSpectatorCount: settings.maximumSpectatorCount as number } : {}),
     ...(settings.ticksPerSec !== undefined ? { ticksPerSec: settings.ticksPerSec as number } : {}),
     ...(settings.hostControlsEnabled !== undefined ? { hostControlsEnabled: settings.hostControlsEnabled as boolean } : {}),
     ...(settings.idleCheck !== undefined ? { idleCheck: settings.idleCheck as GameServer["idleCheck"] } : {}),
@@ -825,6 +836,8 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     onMoved: (state: unknown, moveResult: unknown, room: Room) => call("onMoved", state, [moveResult], room),
     // Only for game servers that have them: with onAway, players who walk away stay in the room; without onBytes, bytes are refused.
     ...(handlerNames.has("onBytes") ? { onBytes: (state: unknown, player: Player, bytes: Uint8Array, room: Room) => (isTicking ? queue("onBytes", player, bytes) : call("onBytes", state, [player, bytes], room)) } : {}),
+    ...(handlerNames.has("onSpectatorJoin") ? { onSpectatorJoin: (state: unknown, spectator: Player, room: Room) => call("onSpectatorJoin", state, [spectator], room) } : {}),
+    ...(handlerNames.has("onSpectatorLeave") ? { onSpectatorLeave: (state: unknown, spectator: Player, room: Room) => call("onSpectatorLeave", state, [spectator], room) } : {}),
     ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, reason: AwayReason) => call("onAway", state, [player, reason], room) } : {}),
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
@@ -894,13 +907,13 @@ const MAXIMUM_ERROR_COUNT = 5;
 
 /**
  * An error as its developer should see it: the message and where in zaisma-server.js it happened,
- * without our harness's lines. Up to 400 characters, so an unknown option's error keeps the whole list of options.
+ * without our harness's lines. Up to 600 characters, so an unknown option's error keeps the whole list of options.
  */
 export function errorLine(text: string): string {
   const lines = text.split("\n").map((line) => line.trim());
   const where = lines.find((line) => /zaisma-server[^\s:()]*\.js:\d+:\d+/.test(line))?.match(/zaisma-server[^\s:()]*\.js:\d+:\d+/)?.[0];
   const message = lines[0]!.replace(/^Error: /, "");
-  return (where ? `${message} (${where})` : message).slice(0, 400);
+  return (where ? `${message} (${where})` : message).slice(0, 600);
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
@@ -911,13 +924,19 @@ function apply(effects: unknown, room: Room): void {
     try {
       switch (effect?.do) {
         case "broadcast":
-          room.broadcast(effect.message, typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : undefined);
+          room.broadcast(effect.message, { ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}), ...(effect.audience !== undefined && effect.audience !== null ? { audience: effect.audience as Audience } : {}) });
           break;
         case "send":
           if (typeof effect.playerId === "string") room.send(effect.playerId, effect.message);
           break;
         case "broadcast_bytes":
-          if (effect.bytes instanceof Uint8Array) room.broadcastBytes(effect.bytes, { ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}), ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}) });
+          if (effect.bytes instanceof Uint8Array) {
+            room.broadcastBytes(effect.bytes, {
+              ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}),
+              ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}),
+              ...(effect.audience !== undefined && effect.audience !== null ? { audience: effect.audience as Audience } : {}),
+            });
+          }
           break;
         case "send_bytes":
           if (typeof effect.playerId === "string" && effect.bytes instanceof Uint8Array) room.sendBytes(effect.playerId, effect.bytes);

@@ -17,11 +17,11 @@
   var OWN_SERVER_URL = /^(wss|https):\/\/[^/]/;
 
   // What each call takes. Anything else is refused, so a misspelled or old option never goes quietly unused.
-  var JOIN_OPTIONS = ["roomCode", "serverUrl", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled"];
+  var JOIN_OPTIONS = ["roomCode", "serverUrl", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "isSpectator"];
   var QUICK_JOIN_OPTIONS = ["serverUrl", "isListed", "friendJoinsEnabled", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "region"];
   var LIST_OPTIONS = ["region", "labels"];
-  // move.join joins the room the move names, on this room's server.
-  var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl"; });
+  // move.join joins the room the move names, on this room's server, as a player: the game server moves only players.
+  var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl" && name !== "isSpectator"; });
   var KICK_OPTIONS = ["keepOut"];
   var ROOM_INFO_FIELDS = ["name", "labels"];
   var ROOM_EVENTS = ["message", "bytes", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
@@ -300,6 +300,15 @@
     }
   }
 
+  /** Whether the page's link is a Watch (?watch=1 beside ?room=): the player came to watch that room, not to play. */
+  function watchFromPage() {
+    try {
+      return Boolean(roomCodeFromPage()) && new URLSearchParams(location.search).get("watch") === "1";
+    } catch (error) {
+      return false;
+    }
+  }
+
   /** The game's own server a friend's Join names beside the room (?server=), or null. */
   function serverUrlFromPage() {
     try {
@@ -352,6 +361,9 @@
     this.name = null;
     this.labels = {};
     this.endsAt = null;
+    // Watching, not playing (joinRoom({ isSpectator: true })): sends nothing, and never counts as away.
+    this.isSpectator = setup.isSpectator === true;
+    this.spectatorCount = 0;
     this._url = setup.url;
     this._pass = setup.pass;
     this._made = { isListed: setup.isListed === false ? false : undefined, friendJoinsEnabled: setup.friendJoinsEnabled === false ? false : undefined, name: setup.name, labels: setup.labels };
@@ -412,7 +424,7 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version"];
+  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "watching_full", "no_room"];
 
   /**
    * Whether a Zaisma room on another version (other_version) has the page reload the game at it: on the
@@ -440,6 +452,7 @@
       if (room._isQuickJoin) hello.isQuickJoin = true;
       // The version this tab runs, so a Zaisma room on another one has the game reload at it first.
       if (config.version && !room._serverUrl) hello.versionId = config.version;
+      if (room.isSpectator) hello.isSpectator = true;
       room._say(hello);
     };
     ws.onmessage = function (event) {
@@ -458,6 +471,7 @@
         room.hostPlayerId = message.hostPlayerId || null;
         room._checks = message.awayChecks || { idleTimeoutSec: null, hiddenTimeoutSec: null };
         room._probeIntervalSec = typeof message.probeIntervalSec === "number" ? message.probeIntervalSec : null;
+        room.spectatorCount = typeof message.spectatorCount === "number" ? message.spectatorCount : 0;
         room._away = room._gone = room._idleSent = room._coming = room._offered = room._isReloadingForVersion = false;
         // In: coming back after a lost connection never turns the player away for someone they blocked.
         room._avoidsBlockedPlayers = false;
@@ -499,6 +513,7 @@
       } else if (message.type === "room") {
         var wasTakingFriendJoins = room.friendJoinsEnabled;
         room._settle(message.room);
+        if (typeof message.spectatorCount === "number") room.spectatorCount = message.spectatorCount;
         if (room.friendJoinsEnabled !== wasTakingFriendJoins) room._sayOwnRoom();
         room._emit("room", message.room);
         room._tellPage();
@@ -524,7 +539,7 @@
       } else if (message.type === "error" && message.code === "other_version" && room._ready && room._reloadsForOtherVersion()) {
         // The room runs another version: the page reloads the game at it, into this room, and this join waits for that.
         room._isReloadingForOtherVersion = room._done = true;
-        window.parent.postMessage({ type: "zaisma:reload", code: room.roomCode, versionId: message.versionId }, config.site);
+        window.parent.postMessage(room._spectating({ type: "zaisma:reload", code: room.roomCode, versionId: message.versionId }), config.site);
       } else if (message.type === "error") {
         room._emit("error", { code: message.code, message: message.message });
         if (room._ready && REFUSED.indexOf(message.code) !== -1) {
@@ -540,7 +555,7 @@
       if (event.code === VERSION_UPDATE_CLOSE_CODE && room._isReloadingForVersion && config.site && window.parent !== window) {
         room._done = true;
         room._setConnectionStatus("reconnecting");
-        window.parent.postMessage({ type: "zaisma:reload", code: room.roomCode }, config.site);
+        window.parent.postMessage(room._spectating({ type: "zaisma:reload", code: room.roomCode }), config.site);
         return;
       }
       // 4000: the match ended. 4001: refused or replaced by another tab. Neither comes back.
@@ -613,7 +628,7 @@
 
   /** Seconds without input before this room's player is asked "Still there?", or null: the game's choice, else the room's. */
   Room.prototype._idleTimeoutSec = function () {
-    if (this._clientIdle.idleCheckEnabled === false) return null;
+    if (this.isSpectator || this._clientIdle.idleCheckEnabled === false) return null;
     return typeof this._clientIdle.idleTimeoutSec === "number" ? this._clientIdle.idleTimeoutSec : this._checks.idleTimeoutSec;
   };
 
@@ -630,8 +645,14 @@
     window.parent.postMessage({ type: "zaisma:connection", code: this.roomCode, connectionStatus: this.connectionStatus, pingDurationMs: this.pingDurationMs, isWeak: this._isWeak === true }, config.site);
   };
 
+  /** Spectators watch: what a spectator tries to send throws, and nothing goes. */
+  function spectatorCannotSend() {
+    return codedError("spectator_cannot_send", "Spectators watch; they can't send to the room. Join without isSpectator to play.");
+  }
+
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
   Room.prototype.send = function (message) {
+    if (this.isSpectator) throw spectatorCannotSend();
     if (!this._away) this._say({ type: "message", data: message });
   };
 
@@ -640,6 +661,7 @@
    * up to 16 KB, counted with messages (30 a second).
    */
   Room.prototype.sendBytes = function (bytes) {
+    if (this.isSpectator) throw spectatorCannotSend();
     if (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes)) throw codedError("bad_bytes", "room.sendBytes takes bytes: a Uint8Array, another typed array or an ArrayBuffer. For JSON, use room.send.");
     if (this._away || !this._ws || this._ws.readyState !== 1) return;
     this._ws.send(bytes);
@@ -675,7 +697,7 @@
   };
   /** In a room on the game's own servers: Zaisma hears which, with its Join switch, for friends' Join. */
   Room.prototype._sayOwnRoom = function () {
-    if (!this._serverUrl || !config.rooms || !OWN_SERVER_URL.test(this._serverUrl)) return;
+    if (this.isSpectator || !this._serverUrl || !config.rooms || !OWN_SERVER_URL.test(this._serverUrl)) return;
     setOwnRoom({ serverUrl: this._serverUrl, roomCode: this.roomCode, friendJoinsEnabled: this.friendJoinsEnabled }).catch(function () { /* not one of the game's own servers, or a guest */ });
   };
   /**
@@ -782,7 +804,7 @@
     var ids = this.players.map(function (each) { return each.id; });
     var muted = this._muted || new Set();
     var session = blockedSet();
-    window.parent.postMessage({
+    window.parent.postMessage(this._spectating({
       type: "zaisma:players",
       code: this.roomCode,
       // Whether the room takes new players by its code, so the page shows the code or says it's closed.
@@ -792,7 +814,16 @@
       mutedPlayerIds: ids.filter(function (playerId) { return muted.has(playerId); }),
       blockedPlayerIds: ids.filter(function (playerId) { return session.has(playerId); }),
       lastingBlockedPlayerIds: ids.filter(function (playerId) { return lastingBlocked.has(playerId); }),
-    }, config.site);
+    }), config.site);
+  };
+  /**
+   * A message to the Zaisma page with how many watch, and whether this player is one of them, when anyone
+   * is: the Players plate says so under the players, and a reload brings a spectator back to watching.
+   */
+  Room.prototype._spectating = function (message) {
+    if (this.spectatorCount > 0) message.spectatorCount = this.spectatorCount;
+    if (this.isSpectator) message.isSpectator = true;
+    return message;
   };
   Room.prototype.isMuted = function (playerId) {
     return Boolean((this._muted && this._muted.has(playerId)) || hasBlocked(playerId) || (this._blocks && this._blocks.has(playerId)));
@@ -840,7 +871,8 @@
     var unasked = [];
     this.players.forEach(function (each) {
       if (each.id === me) return;
-      if (hasBlocked(each.id) && !room._said[each.id]) {
+      // Spectators send nothing, blocks included: nothing of theirs reaches a player.
+      if (hasBlocked(each.id) && !room._said[each.id] && !room.isSpectator) {
         room._said[each.id] = true;
         room._say({ type: "block", playerId: each.id });
       }
@@ -947,6 +979,7 @@
         joinData: joinOptions.joinData,
         clientIdle: clientIdle(joinOptions),
         serverUrl: serverUrl,
+        isSpectator: joinOptions.isSpectator === true,
       });
       room._avoidsBlockedPlayers = joinOptions.avoidBlockedPlayers === true;
       room._isQuickJoin = joinOptions.isQuickJoin === true;
@@ -1687,7 +1720,7 @@
     wrap.focus();
   }
 
-  var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null };
+  var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null, isLinkedAsSpectator: watchFromPage() };
   var friends = { list: listFriends, setRoom: setOwnRoom };
   window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, friends: friends, saves: saves, versions: versions };
 })();

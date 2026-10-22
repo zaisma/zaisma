@@ -111,6 +111,8 @@ function steerBot(state: State, id: string, bot: Body): void {
 
 const arena: GameServer<State> = {
   maximumPlayerCount: 8,
+  // Friends can watch a round without playing: they get the snapshots everyone gets, and send nothing.
+  maximumSpectatorCount: 20,
   ticksPerSec: 20,
 
   setup: () => ({ bodies: {}, colorIndex: 0, botCount: 0 }),
