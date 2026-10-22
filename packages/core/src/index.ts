@@ -46,4 +46,5 @@ export * from "./logs.ts";
 export * from "./qr-code.ts";
 export * from "./health.ts";
 export * from "./performance.ts";
+export * from "./player-performance.ts";
 export * from "./shown-text.ts";

@@ -209,7 +209,12 @@ describe("game server", () => {
     expect(roomed.entered.headers.get("location")).toBe("/live-one--tester/_zaisma/entered?then=%3Froom%3DABCDEF");
     const inside = await SELF.fetch(`${G}/live-one--tester/_zaisma/entered?then=%3Froom%3DABCDEF`, { headers: { cookie: roomed.cookie }, redirect: "manual" });
     expect(inside.headers.get("location")).toBe("/live-one--tester/?room=ABCDEF");
-    expect((await SELF.fetch(`${G}/live-one--tester/`, { headers: { cookie } })).status).toBe(200);
+    const testerPage = await SELF.fetch(`${G}/live-one--tester/`, { headers: { cookie } });
+    expect(testerPage.status).toBe(200);
+    // Tester plays aren't counted, so nothing measures how the game runs there.
+    const testerText = await testerPage.text();
+    expect(testerText).toContain("_zaisma/relay.js");
+    expect(testerText).not.toContain("performance.js");
     // The old addresses with a key in them open nothing.
     expect((await SELF.fetch(`${G}/live-one--${link.token}/`)).status).toBe(404);
   });

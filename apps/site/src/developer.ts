@@ -173,7 +173,7 @@ import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
-import { playStats, playingNowCounts } from "./plays.ts";
+import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions, replaceWaitingVersions } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
@@ -190,7 +190,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
  *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot or background picture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/shaders?screen=   send a background shader (the GLSL text as the body; see backgrounds-api.ts)
@@ -517,7 +517,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -1565,8 +1565,10 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [gamePlayStats, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomUse, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
+  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomUse, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
+    // How the game runs for its players; null when the developer turned the measuring off.
+    game.performance_measuring_enabled ? playerPerformance(env.DB, game.id, dayCount) : null,
     env.DB
       .prepare("SELECT date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(game.id, fromDate)
@@ -1599,6 +1601,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   return {
     period_duration_days: dayCount,
     play_stats: gamePlayStats,
+    performance,
     multiplayer_days: roomDays.map((day) => ({
       date: day.date,
       room_count: day.room_count,
@@ -2365,6 +2368,7 @@ export function gameJson(env: Env, game: Game) {
     account_offer_enabled: Boolean(game.account_offer_enabled),
     deleted_account_erase_enabled: Boolean(game.deleted_account_erase_enabled),
     friend_joins_enabled: Boolean(game.friend_joins_enabled),
+    performance_measuring_enabled: Boolean(game.performance_measuring_enabled),
     multiplayer_mode: game.multiplayer_mode,
     room_browsing: game.room_browsing,
     account_requirement: game.account_requirement,

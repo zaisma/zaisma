@@ -633,6 +633,8 @@ export interface DetailsChange {
   deleted_account_erase_enabled?: boolean;
   /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms. Off grays it as "This game doesn't take joins". */
   friend_joins_enabled?: boolean;
+  /** Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals for get_stats. */
+  performance_measuring_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
   account_requirement?: AccountRequirement;
@@ -705,6 +707,11 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     const fix = "Send true (the default: friends' Join on zaisma.com takes players into this game's rooms) or false (Join shows grayed as \"This game doesn't take joins\"). One room turns it off with room.setFriendJoinsEnabled(false).";
     if (typeof input.friend_joins_enabled !== "boolean") return refuse("friend_joins_enabled", "friend_joins_enabled isn't true or false.", fix);
     change.friend_joins_enabled = input.friend_joins_enabled;
+  }
+  if ("performance_measuring_enabled" in input) {
+    const fix = "Send true (the default: Zaisma measures load time, frame rate, stutter and crashes in players' browsers, as totals in get_stats) or false (nothing of Zaisma's measures the game, and get_stats has performance null).";
+    if (typeof input.performance_measuring_enabled !== "boolean") return refuse("performance_measuring_enabled", "performance_measuring_enabled isn't true or false.", fix);
+    change.performance_measuring_enabled = input.performance_measuring_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) {
@@ -817,6 +824,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.account_offer_enabled !== undefined) set("account_offer_enabled", change.account_offer_enabled ? 1 : 0);
   if (change.deleted_account_erase_enabled !== undefined) set("deleted_account_erase_enabled", change.deleted_account_erase_enabled ? 1 : 0);
   if (change.friend_joins_enabled !== undefined) set("friend_joins_enabled", change.friend_joins_enabled ? 1 : 0);
+  if (change.performance_measuring_enabled !== undefined) set("performance_measuring_enabled", change.performance_measuring_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   if (change.minimum_player_age_years !== undefined) set("minimum_player_age_years", change.minimum_player_age_years);

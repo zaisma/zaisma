@@ -1,5 +1,5 @@
 import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
-import { PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES } from "@zaisma/core";
+import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
 /**
@@ -124,6 +124,7 @@ export const GAME = object({
   deleted_account_erase_enabled: yes("When a player who played the game deletes their Zaisma account, Zaisma erases their rows from the game database (every table with a player_id column) as well as sending account_deleted to your webhooks. false: you handle account_deleted events yourself."),
   multiplayer_mode: MULTIPLAYER_MODE,
   friend_joins_enabled: yes("Friends' Join on zaisma.com takes players into this game's rooms. On by default; off grays it as \"This game doesn't take joins\". One room turns it off with room.setFriendJoinsEnabled(false)."),
+  performance_measuring_enabled: yes("Zaisma measures how the game runs for players (load time, frame rate, stutter, crashes), only as totals; off, get_stats has no performance."),
   room_browsing: ROOM_BROWSING_CHOICE,
   account_requirement: ACCOUNT_REQUIREMENT_CHOICE,
   minimum_player_age_years: MINIMUM_PLAYER_AGE_CHOICE,
@@ -458,9 +459,43 @@ export const ROOM_TRAFFIC = object(
   "This month's traffic in Zaisma rooms (UTC), counted by the rooms and written with their use about hourly. Rooms on your own server aren't counted.",
 );
 
+const PLAYER_PERFORMANCE_MEASURES = {
+  play_count: countOf("Plays measured: counted and uncounted plays with a ticket from Cloudflare's check, once they drew, crashed or waited 2 minutes."),
+  median_loading_duration_sec: nullable(number("Half the plays drew their first frame within this, from the game's page opening (the Chrome check's first draw); null with none drawn.")),
+  slow_tenth_loading_duration_sec: nullable(number("The slowest tenth of plays took this long or longer to draw; null with none drawn.")),
+  median_frames_per_sec: nullable(countOf("Half the seconds of play ran at this frame rate or better, counted from the game's own requestAnimationFrame frames, as the band it falls in (15, 25, 30, 45, 60, 90 or 120; below 15, the rate itself): 60 means 60 to 89. null when not is_measured.")),
+  low_tenth_frames_per_sec: nullable(countOf("The worst tenth of seconds of play ran at this frame rate or lower, in the same bands; null when not is_measured.")),
+  long_frames_per_min: nullable(number("Frames of 50 ms or longer (stutter) a minute of measured play; null when not is_measured.")),
+  crashed_play_pct: nullable(number("Plays that crashed, of play_count, each counted once by what happened first (the three *_count below); null with no plays.")),
+  error_stop_count: countOf("Crashed plays where an uncaught error came first, after which the game asked for no frame for 5 seconds while on screen."),
+  context_lost_count: countOf("Crashed plays where a WebGL context on a canvas in the page was lost first, while on screen, and the game didn't lose it itself."),
+  stopped_responding_count: countOf("Crashed plays where the game's frame stopped answering for 15 seconds while on screen first: frozen or crashed."),
+  median_peak_memory_size_bytes: nullable(countOf("Half the plays used at most this much memory (JavaScript heap, where Chrome and Edge tell it, plus WebAssembly memory) by the time they were first reported, usually their first minute; null when no browser told it.")),
+  is_measured: yes("Frame rates were measured: false for games that draw from a worker (OffscreenCanvas) or never ask for animation frames."),
+};
+
+export const PLAYER_PERFORMANCE = object(
+  {
+    version_totals: list(object({ version_id: idOf("version"), ...PLAYER_PERFORMANCE_MEASURES }), "Each version played in the period, every device together, newest first."),
+    device_totals: list(
+      object({
+        version_id: idOf("version"),
+        browser_name: choice([...BROWSER_NAMES]),
+        os_name: choice([...OS_NAMES]),
+        device_kind: choice([...DEVICE_KINDS, "other"], "other: only in the row for groups under 20 plays."),
+        graphics_family: choice([...GRAPHICS_FAMILIES], "The graphics chip's maker; unknown when the browser hides it."),
+        ...PLAYER_PERFORMANCE_MEASURES,
+      }),
+      `The newest version played in the period, by browser, system, device and graphics chip family, most plays first. Groups under ${PLAYER_PERFORMANCE_LIMITS.minimumGroupPlayCount} plays fold into one last row whose four are all other, so a rare device can't single out a player.`,
+    ),
+  },
+  "How the game runs on players' devices, measured in their browsers at its public address and added up per day: no player IDs. Tester and preview links and the developer's own plays aren't measured. Never shown on the game page, the shelves or the ranking.",
+);
+
 export const STATS = object({
   period_duration_days: countOf(),
   play_stats: PLAY_STATS,
+  performance: nullable(PLAYER_PERFORMANCE),
   multiplayer_days: list(
     object({
       date: date(),

@@ -1,5 +1,6 @@
 import puppeteer from "@cloudflare/puppeteer";
 import {
+  FIRST_DRAW_WATCH,
   PERFORMANCE_CHECK_LIMITS,
   gameAddress,
   gameById,
@@ -129,71 +130,23 @@ async function assetFiles(env: Env, version: Version): Promise<AssetFile[]> {
 }
 
 /**
- * The page script the run puts in every page before the game's own: the time of the first draw on a canvas
- * in the page with a size (WebGL, WebGL 2, 2D or WebGPU), each wrapper removed once one has counted, so the game runs
- * untouched from then on; WebAssembly memories, to sum; and the page's long tasks.
+ * The page script the run puts in every page before the game's own: the first draw and WebAssembly memories
+ * (FIRST_DRAW_WATCH, shared with the game frame's measuring, so load times mean the same), and the page's long tasks.
  */
-export const PERFORMANCE_PROBE = String.raw`(() => {
+export const PERFORMANCE_PROBE = `${FIRST_DRAW_WATCH}
+(() => {
   if (window.__zaismaPerformance) return;
-  const state = { firstDrawAtMs: null, drawKind: null, longTaskDurationsMs: [], memories: new Set() };
+  const drawn = window.__zaismaFirstDraw;
+  const state = { longTaskDurationsMs: [] };
   window.__zaismaPerformance = state;
-  const restorers = [];
-  // isCanvasKnown: the draw call's context says its canvas; WebGPU's queue and WebGL 1's instancing extension don't.
-  const wrap = (prototype, names, kind, isCanvasKnown = true) => {
-    if (!prototype) return;
-    for (const name of names) {
-      const original = prototype[name];
-      if (typeof original !== "function") continue;
-      prototype[name] = function (...args) {
-        const canvas = this && this.canvas;
-        // Only a canvas in the page counts: engines test what they can do on canvases they never show.
-        if (state.firstDrawAtMs === null && (!isCanvasKnown || (canvas && canvas.isConnected && canvas.width && canvas.height))) {
-          state.firstDrawAtMs = performance.timeOrigin + performance.now();
-          state.drawKind = kind;
-          for (const restore of restorers) restore();
-        }
-        return original.apply(this, args);
-      };
-      restorers.push(() => { prototype[name] = original; });
-    }
-  };
-  wrap(window.WebGLRenderingContext && WebGLRenderingContext.prototype, ["drawArrays", "drawElements"], "webgl");
-  wrap(window.WebGL2RenderingContext && WebGL2RenderingContext.prototype, ["drawArrays", "drawElements", "drawArraysInstanced", "drawElementsInstanced", "drawRangeElements"], "webgl");
-  wrap(window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype, ["drawImage", "fill", "fillRect", "fillText", "putImageData"], "2d");
-  // macroquad and other WebGL 1 engines draw everything instanced, through an extension the page has no global for.
-  const originalGetExtension = window.WebGLRenderingContext && WebGLRenderingContext.prototype.getExtension;
-  if (originalGetExtension) {
-    let isInstancingWrapped = false;
-    WebGLRenderingContext.prototype.getExtension = function (name) {
-      const extension = originalGetExtension.call(this, name);
-      if (extension && !isInstancingWrapped && state.firstDrawAtMs === null && String(name).toLowerCase() === "angle_instanced_arrays") {
-        isInstancingWrapped = true;
-        wrap(Object.getPrototypeOf(extension), ["drawArraysInstancedANGLE", "drawElementsInstancedANGLE"], "webgl", false);
-      }
-      return extension;
-    };
-    restorers.push(() => { WebGLRenderingContext.prototype.getExtension = originalGetExtension; });
-  }
-  wrap(window.GPUQueue && GPUQueue.prototype, ["submit"], "webgpu", false);
-  const keep = (exports) => { for (const value of Object.values(exports || {})) if (value instanceof WebAssembly.Memory) state.memories.add(value); };
-  const OriginalMemory = WebAssembly.Memory;
-  WebAssembly.Memory = function Memory(descriptor) { const memory = new OriginalMemory(descriptor); state.memories.add(memory); return memory; };
-  WebAssembly.Memory.prototype = OriginalMemory.prototype;
-  for (const name of ["instantiate", "instantiateStreaming"]) {
-    const original = WebAssembly[name];
-    if (typeof original !== "function") continue;
-    WebAssembly[name] = function (...args) {
-      return original.apply(this, args).then((made) => { keep((made.instance || made).exports); return made; });
-    };
-  }
   try {
     new PerformanceObserver((list) => { for (const entry of list.getEntries()) state.longTaskDurationsMs.push(entry.duration); }).observe({ type: "longtask", buffered: true });
   } catch {}
   state.read = () => ({
-    firstDrawAtMs: state.firstDrawAtMs,
-    drawKind: state.drawKind,
+    firstDrawAtMs: drawn.firstDrawAtMs,
+    drawKind: drawn.drawKind,
     longTaskDurationsMs: state.longTaskDurationsMs,
-    wasmMemorySizeBytes: [...state.memories].reduce((sumBytes, memory) => sumBytes + memory.buffer.byteLength, 0),
+    wasmMemorySizeBytes: [...drawn.memories].reduce((sumBytes, memory) => sumBytes + memory.buffer.byteLength, 0),
   });
 })();`;
 
