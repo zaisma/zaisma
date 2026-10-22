@@ -2,7 +2,8 @@
 // npm run preview -- --reset keeps them), shared by the feedback server (feedback-server.mjs) and the command a session
 // runs when Julius says he left feedback (scripts/feedback.mjs). One file a comment, written whole through a rename, so
 // the two never write over each other. Pictures sit beside each comment: <comment_id>.seen.png (drawn from the page as
-// he saw it) and <comment_id>.live.png (the page loaded again).
+// he saw it), <comment_id>.live.png (the page loaded again) and, when he'd done something on the page first, the replay of it:
+// <comment_id>.replay-<step>.png, listed in <comment_id>.replay.json.
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -14,6 +15,9 @@ export const FEEDBACK_DIRECTORY = join(ROOT, ".wrangler/preview-feedback");
 const COMMENT_ID_PATTERN = /^comment_[a-z0-9]{12}$/;
 const ID_LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789";
 export const MAXIMUM_TEXT_LENGTH = 4000;
+/** What he did on the page before commenting, kept for the replay: the last ones, oldest first. */
+export const MAXIMUM_ACTION_COUNT = 40;
+const ACTION_KINDS = new Set(["move", "press", "release", "key", "scroll"]);
 
 export const isCommentId = (value) => typeof value === "string" && COMMENT_ID_PATTERN.test(value);
 
@@ -24,6 +28,8 @@ function newCommentId() {
 const commentFile = (directory, commentId) => join(directory, `${commentId}.json`);
 export const pictureFile = (directory, commentId, kind) => join(directory, `${commentId}.${kind}.png`);
 export const snapshotFile = (directory, commentId) => join(directory, `${commentId}.html`);
+export const replayFile = (directory, commentId) => join(directory, `${commentId}.replay.json`);
+export const replayPictureFile = (directory, commentId, stepNumber) => join(directory, `${commentId}.replay-${String(stepNumber).padStart(2, "0")}.png`);
 
 function writeWhole(path, contents) {
   mkdirSync(dirname(path), { recursive: true });
@@ -55,6 +61,15 @@ export function listComments({ status, directory = FEEDBACK_DIRECTORY } = {}) {
 const integer = (value) => (Number.isFinite(value) ? Math.round(value) : 0);
 const text = (value, length) => (typeof value === "string" ? value.slice(0, length) : "");
 
+/** One action from the overlay, closed to its kind's fields: a pointer's spot and type, a key, or the page's scroll. */
+function cleanAction(action) {
+  const shown = { kind: action.kind, at_ms: Math.max(0, integer(action.at_ms)), element_label: text(action.element_label, 100) };
+  if (action.kind === "key") return { ...shown, key: text(action.key, 20) };
+  if (action.kind === "scroll") return { ...shown, scroll_x_px: integer(action.scroll_x_px), scroll_y_px: integer(action.scroll_y_px) };
+  return { ...shown, x_px: integer(action.x_px), y_px: integer(action.y_px), pointer_type: action.pointer_type === "touch" ? "touch" : "mouse" };
+}
+const cleanActions = (actions) => (Array.isArray(actions) ? actions : []).filter((action) => ACTION_KINDS.has(action?.kind) && !(action.kind === "key" && !action.key)).slice(-MAXIMUM_ACTION_COUNT).map(cleanAction);
+
 /** A new comment from what the overlay sent: closed to the fields below, the rest dropped. */
 export function addComment(input, { signInCookieHeader = null, directory = FEEDBACK_DIRECTORY, nowMs = Date.now() } = {}) {
   const commentText = text(input.text, MAXIMUM_TEXT_LENGTH).trim();
@@ -68,6 +83,7 @@ export function addComment(input, { signInCookieHeader = null, directory = FEEDB
         comment_id: newCommentId(),
         page_url: pageUrl,
         is_in_frame: input.is_in_frame === true,
+        is_page_comment: input.is_page_comment === true,
         viewport_width_px: integer(input.viewport_width_px),
         viewport_height_px: integer(input.viewport_height_px),
         scroll_x_px: integer(input.scroll_x_px),
@@ -78,6 +94,7 @@ export function addComment(input, { signInCookieHeader = null, directory = FEEDB
         layout_rule: text(input.layout_rule, 500) || null,
         element_class: text(input.element_class, 300),
         element_text: text(input.element_text, 80),
+        recent_actions: cleanActions(input.recent_actions),
         text: commentText,
         status: "open",
         replies: [],
@@ -117,8 +134,21 @@ export function publicComment(comment) {
   return shown;
 }
 
+export function writeReplayPicture(commentId, stepNumber, bytes, directory = FEEDBACK_DIRECTORY) {
+  writeWhole(replayPictureFile(directory, commentId, stepNumber), bytes);
+}
+
 export function writePicture(commentId, kind, bytes, directory = FEEDBACK_DIRECTORY) {
   writeWhole(pictureFile(directory, commentId, kind), bytes);
+}
+
+/** The replay's pictures, each with what happened just before it: [{ step_number, label, picture_path }]. */
+export function writeReplay(commentId, steps, directory = FEEDBACK_DIRECTORY) {
+  writeWhole(replayFile(directory, commentId), JSON.stringify(steps, null, 2));
+}
+
+export function readReplay(commentId, directory = FEEDBACK_DIRECTORY) {
+  return existsSync(replayFile(directory, commentId)) ? JSON.parse(readFileSync(replayFile(directory, commentId), "utf8")) : null;
 }
 
 export function writeSnapshot(commentId, html, directory = FEEDBACK_DIRECTORY) {

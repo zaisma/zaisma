@@ -5,13 +5,14 @@
 //   npm run feedback -- --all                         closed ones too
 //   npm run feedback -- --json                        the same, as JSON
 //   npm run feedback -- reply <comment_id> "<text>"   a reply he sees on the page, under the comment
-//   npm run feedback -- retake <comment_id>           the live picture taken again, after a change
+//   npm run feedback -- retake <comment_id>           the live picture and the replay taken again, after a change
 // Only he closes a comment, on the page. Pictures: <comment_id>.seen.png is the page as he saw it, <comment_id>.live.png the page
-// loaded again, both with his box in orange.
+// loaded again, both with his box in orange, and <comment_id>.replay-<step>.png what he did on the page before commenting, done
+// again a step at a time, for what a still picture can't show (a hover, an animation, a click that does nothing).
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { liveUrl, openPictureTaker, seenUrl } from "./preview/feedback-pictures.mjs";
-import { FEEDBACK_DIRECTORY, listComments, pictureFile, publicComment, readComment, replyToComment } from "./preview/feedback-store.mjs";
+import { FEEDBACK_DIRECTORY, listComments, pictureFile, publicComment, readComment, readReplay, replyToComment } from "./preview/feedback-store.mjs";
 
 const [command, ...rest] = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
 const flags = new Set(process.argv.slice(2).filter((argument) => argument.startsWith("--")));
@@ -49,32 +50,38 @@ if (command === "reply") {
   if (!siteOrigin) fail({ code: "preview_not_running", message: "This checkout's preview isn't running." }, "npm run preview:start, then try again.");
   const taker = await openPictureTaker({ siteOrigin, directory: FEEDBACK_DIRECTORY });
   const path = await taker.picture(comment, "live", liveUrl(comment, siteOrigin));
+  const replaySteps = await taker.replay(comment, liveUrl(comment, siteOrigin));
   await taker.close();
-  if (isJson) console.log(JSON.stringify({ comment_id: commentId, live_picture_path: path }, null, 2));
-  else console.log(`Took ${show(path)} again: ${siteOrigin}${comment.page_url} at ${comment.viewport_width_px} x ${comment.viewport_height_px}, ${comment.theme}.`);
+  if (isJson) console.log(JSON.stringify({ comment_id: commentId, live_picture_path: path, replay_steps: replaySteps }, null, 2));
+  else {
+    console.log(`Took ${show(path)} again: ${siteOrigin}${comment.page_url} at ${comment.viewport_width_px} x ${comment.viewport_height_px}, ${comment.theme}.`);
+    if (replaySteps.length) console.log(`Replayed what Julius did: ${replaySteps.length} pictures, ${show(replaySteps[0].picture_path)} on.`);
+  }
 } else if (command === undefined) {
   const comments = listComments({ status: flags.has("--all") ? undefined : "open" });
   // Pictures the server didn't get to (it was stopped, or Chrome was missing) are taken now, when the preview runs.
-  const missing = comments.filter((comment) => Object.values(pictures(comment)).some((path) => !existsSync(path)));
+  const isMissingReplay = (comment) => comment.recent_actions?.length && !readReplay(comment.comment_id);
+  const missing = comments.filter((comment) => Object.values(pictures(comment)).some((path) => !existsSync(path)) || isMissingReplay(comment));
   const siteOrigin = missing.length ? await runningSite() : null;
   if (siteOrigin) {
     const taker = await openPictureTaker({ siteOrigin, directory: FEEDBACK_DIRECTORY });
     for (const comment of missing) {
       if (!existsSync(pictures(comment).seen_picture_path)) await taker.picture(comment, "seen", seenUrl(comment, siteOrigin)).catch(() => {});
       if (!existsSync(pictures(comment).live_picture_path)) await taker.picture(comment, "live", liveUrl(comment, siteOrigin)).catch(() => {});
+      if (isMissingReplay(comment)) await taker.replay(comment, liveUrl(comment, siteOrigin)).catch(() => {});
     }
     await taker.close();
   }
   const shown = comments.map((comment) => {
     const paths = pictures(comment);
-    return { ...publicComment(comment), seen_picture_path: existsSync(paths.seen_picture_path) ? paths.seen_picture_path : null, live_picture_path: existsSync(paths.live_picture_path) ? paths.live_picture_path : null };
+    return { ...publicComment(comment), seen_picture_path: existsSync(paths.seen_picture_path) ? paths.seen_picture_path : null, live_picture_path: existsSync(paths.live_picture_path) ? paths.live_picture_path : null, replay_steps: readReplay(comment.comment_id) ?? [] };
   });
   const nextSteps = shown.length ? ["Look at each comment's pictures, make the changes, run npm run layout:check, then npm run feedback -- reply <comment_id> \"what changed\" for each.", "npm run feedback -- retake <comment_id> takes the live picture again after a change."] : [];
   if (isJson) console.log(JSON.stringify({ comments: shown, next_steps: nextSteps }, null, 2));
   else if (!shown.length) console.log(flags.has("--all") ? "No feedback on this checkout's preview yet." : "No open feedback. (--all shows closed comments too.)");
   else {
     for (const comment of shown) {
-      const under = comment.component ? `${comment.component}${comment.layout_rule ? ` (${comment.layout_rule})` : ""}` : comment.element_class ? `.${comment.element_class.split(/\s+/).join(".")}` : "the page";
+      const under = comment.is_page_comment ? "the whole page" : comment.component ? `${comment.component}${comment.layout_rule ? ` (${comment.layout_rule})` : ""}` : comment.element_class ? `.${comment.element_class.split(/\s+/).join(".")}` : "the page";
       console.log(`\n${comment.comment_id}  ${comment.status === "closed" ? "closed  " : ""}${comment.page_url}${comment.is_in_frame ? " (in a frame)" : ""}`);
       console.log(`  ${comment.viewport_width_px} x ${comment.viewport_height_px}, ${comment.theme}, scrolled to ${comment.scroll_x_px}, ${comment.scroll_y_px}; box at ${comment.box.left_px}, ${comment.box.top_px}, ${comment.box.width_px} x ${comment.box.height_px}`);
       console.log(`  On ${under}${comment.element_text ? `: "${comment.element_text}"` : ""}`);
@@ -82,6 +89,10 @@ if (command === "reply") {
       for (const reply of comment.replies) console.log(`  ${reply.author === "session" ? "Claude" : "Julius"}: ${reply.text}`);
       console.log(`  Seen: ${comment.seen_picture_path ? show(comment.seen_picture_path) : "not taken yet (start the preview and run this again)"}`);
       console.log(`  Live: ${comment.live_picture_path ? show(comment.live_picture_path) : "not taken yet"}`);
+      if (comment.recent_actions.length) {
+        console.log(`  What he did first (${comment.recent_actions.length} actions), replayed:${comment.replay_steps.length ? "" : " not yet (start the preview and run this again)"}`);
+        for (const step of comment.replay_steps) console.log(`    ${show(step.picture_path)}  ${step.label}`);
+      }
     }
     console.log(`\n${nextSteps.join("\n")}`);
   }

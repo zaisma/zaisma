@@ -1,8 +1,9 @@
 // The preview's feedback overlay, on every page of the local preview only (scripts/preview/workers/site.mjs adds it; zaisma.com
-// never has it). Julius presses Feedback, clicks a thing or drags a box over an area, and writes a comment; it's saved with the
+// never has it). Julius presses Feedback, clicks a thing, drags a box over an area or picks This page, and writes a comment; it's saved with the
 // page, the screen size, light or dark, the scroll, the spot, the component and rule under it (the layout inspector's
 // window.zaismaInspect, which the preview's site entry loads first when the site has it, else the element's class) and a snapshot of the page as he saw it, for the pictures
-// (feedback-pictures.mjs). Open comments show as pins; a session's replies show in the list, where he answers back or closes one.
+// (feedback-pictures.mjs), with what he did on the page before (pointing, clicks, touches, keys and scrolling, never what goes
+// into a password field) for the session to replay. Open comments show as pins; a session's replies show in the list, where he answers back or closes one.
 // In a frame (the gallery's Screens page) it has no button of its own: the top page hands it the clicks and boxes over it, and a
 // comment there keeps the frame's own page and size. It never starts in headless Chrome, so the measuring check and the pictures never
 // see it. Everything is in a shadow root, so page styles don't reach it and its styles don't reach the page.
@@ -144,7 +145,7 @@ textarea:focus{border-color:var(--accent)}
       tag: element.tagName.toLowerCase(),
     };
   }
-  const describedAs = (described) => (described.component ? `<b>${esc(described.component)}</b>${described.layout_rule ? ` · ${esc(described.layout_rule)}` : ""}` : described.element_class ? `<b>.${esc(described.element_class.split(/\s+/).join("."))}</b>` : `<b>${esc(described.tag ?? "")}</b>`);
+  const describedAs = (described) => (described.is_page_comment ? "<b>The whole page</b>" : described.component ? `<b>${esc(described.component)}</b>${described.layout_rule ? ` · ${esc(described.layout_rule)}` : ""}` : described.element_class ? `<b>.${esc(described.element_class.split(/\s+/).join("."))}</b>` : `<b>${esc(described.tag ?? "")}</b>`);
   const chipText = (described) => described.component ?? (described.element_class ? `.${described.element_class.split(/\s+/)[0]}` : described.tag);
 
   // ---- The page as he saw it, for the "seen" picture: form values, open details, open popovers and readable canvases kept, scripts removed ----
@@ -186,6 +187,34 @@ textarea:focus{border-color:var(--accent)}
     if (head) head.insertAdjacentHTML("afterbegin", `<base href="${esc(location.href)}">`);
     return `<!doctype html>${clone.outerHTML}`;
   }
+
+  // ---- What he did on the page before commenting, for the replay: the last ones, a run of pointer moves or scrolls kept as its end ----
+  const MAXIMUM_ACTION_COUNT = 40;
+  const actions = [];
+  const isOurs = (event) => event.composedPath().includes(host);
+  const labelOf = (target) => (target instanceof Element && target !== document.documentElement ? chipText(describe(target)) : "");
+  function record(action, isRun) {
+    const entry = { ...action, at_ms: Math.round(performance.now()) };
+    if (isRun && actions.at(-1)?.kind === action.kind && actions.at(-1)?.pointer_type === action.pointer_type) actions[actions.length - 1] = entry;
+    else actions.push(entry);
+    if (actions.length > MAXIMUM_ACTION_COUNT) actions.shift();
+  }
+  const pointerAction = (kind) => (event) => {
+    if (isOurs(event) || !event.isPrimary) return;
+    const pointerType = event.pointerType === "touch" || event.pointerType === "pen" ? "touch" : "mouse";
+    // A touch only moves while it's down; a mouse's moves are where it points.
+    if (kind === "move" && pointerType === "touch" && !event.pressure) return;
+    record({ kind, x_px: event.clientX, y_px: event.clientY, pointer_type: pointerType, element_label: kind === "move" ? "" : labelOf(event.target) }, kind === "move");
+  };
+  addEventListener("pointermove", pointerAction("move"), { capture: true, passive: true });
+  addEventListener("pointerdown", pointerAction("press"), { capture: true, passive: true });
+  addEventListener("pointerup", pointerAction("release"), { capture: true, passive: true });
+  addEventListener("keydown", (event) => {
+    if (isOurs(event) || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key) || event.metaKey || event.ctrlKey) return;
+    if (event.target?.type === "password") return;
+    record({ kind: "key", key: event.key, element_label: labelOf(event.target) }, false);
+  }, { capture: true });
+  addEventListener("scroll", (event) => event.target === document && record({ kind: "scroll", scroll_x_px: scrollX, scroll_y_px: scrollY }, true), { capture: true, passive: true });
 
   // ---- Talking to the feedback server ----
   async function call(method, path, body) {
@@ -305,8 +334,8 @@ textarea:focus{border-color:var(--accent)}
     return { left, top, width: Math.abs(event.clientX - start.x), height: Math.abs(event.clientY - start.y) };
   };
 
-  function startWriting(rect, element) {
-    const described = describe(element);
+  function startWriting(rect, element, isPageComment = false) {
+    const described = isPageComment ? { component: null, layout_rule: null, element_class: "", element_text: "", tag: "" } : describe(element);
     // Only what's on screen: a tall pane's box ends at the bottom of the viewport.
     const left = Math.max(0, rect.left), top = Math.max(0, rect.top);
     const clipped = { left, top, width: Math.max(1, Math.min(innerWidth, rect.left + rect.width) - left), height: Math.max(1, Math.min(innerHeight, rect.top + rect.height) - top) };
@@ -314,18 +343,22 @@ textarea:focus{border-color:var(--accent)}
     try {
       snapshotHtml = snapshot();
     } catch {}
-    state.draft = { rect: clipped, described, snapshotHtml };
+    // What he did since the page loaded, up to now (Feedback's own clicks aren't in it).
+    state.draft = { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.slice() };
     state.mode = "writing";
     render();
-    showMark(clipped, false, "");
+    if (isPageComment) hideMarks();
+    else showMark(clipped, false, "");
     root.querySelector("textarea")?.focus();
   }
 
   async function save(text) {
-    const { rect, described, snapshotHtml } = state.draft;
+    const { rect, described, snapshotHtml, isPageComment, recentActions } = state.draft;
     const comment = {
       page_url: pageUrl(),
       is_in_frame: isInFrame,
+      is_page_comment: isPageComment,
+      recent_actions: recentActions,
       viewport_width_px: innerWidth,
       viewport_height_px: innerHeight,
       scroll_x_px: scrollX,
@@ -379,7 +412,7 @@ textarea:focus{border-color:var(--accent)}
   }
 
   function renderPins() {
-    const here = numbered().filter(({ comment }) => comment.page_url === pageUrl() && comment.status === "open" && Math.abs(comment.viewport_width_px - innerWidth) < 2);
+    const here = numbered().filter(({ comment }) => comment.page_url === pageUrl() && comment.status === "open" && !comment.is_page_comment && Math.abs(comment.viewport_width_px - innerWidth) < 2);
     pins.innerHTML = here
       .map(({ comment, number }) => {
         const left = comment.box.left_px + comment.scroll_x_px - scrollX, top = comment.box.top_px + comment.scroll_y_px - scrollY;
@@ -397,19 +430,22 @@ textarea:focus{border-color:var(--accent)}
 
   function bar() {
     const count = pageComments().length;
-    return `<div class="box bar"><span>Click a thing or drag a box</span><button class="small" data-action="list">List${count ? ` (${count})` : ""}</button></div>`;
+    const words = innerWidth < PHONE_WIDTH_PX ? "Tap or drag" : "Click a thing or drag a box";
+    return `<div class="box bar"><span>${words}</span><button class="small" data-action="page">This page</button><button class="small" data-action="list">List${count ? ` (${count})` : ""}</button></div>`;
   }
 
   function writingCard() {
-    const { rect, described } = state.draft;
+    const { rect, described, isPageComment, recentActions } = state.draft;
     const isPhone = innerWidth < PHONE_WIDTH_PX;
     const below = rect.top + rect.height + 10, cardHeight = 190;
-    const top = below + cardHeight < innerHeight ? below : Math.max(10, rect.top - cardHeight - 10);
-    const left = Math.min(Math.max(10, rect.left), innerWidth - 330);
+    // A comment on the whole page has no spot: its form sits in the middle.
+    const top = isPageComment ? Math.max(10, (innerHeight - cardHeight) / 2) : below + cardHeight < innerHeight ? below : Math.max(10, rect.top - cardHeight - 10);
+    const left = isPageComment ? Math.max(10, (innerWidth - 320) / 2) : Math.min(Math.max(10, rect.left), innerWidth - 330);
+    const replayed = recentActions.length ? ` · replays your last ${recentActions.length === 1 ? "action" : `${recentActions.length} actions`}` : "";
     return `<div class="box card" style="${isPhone ? "" : `left:${left}px;top:${top}px`}">
-<div class="label">${describedAs(described)}${described.element_text ? ` · “${esc(described.element_text)}”` : ""}</div>
-<textarea placeholder="What should change?" data-field="text"></textarea>
-<div class="row"><span class="label spacer">${innerWidth} × ${innerHeight} · ${theme()}</span><button class="small" data-action="cancel">Cancel</button><button class="small primary" data-action="save">Save</button></div>
+<div class="label">${isPageComment ? "<b>The whole page</b>" : describedAs(described)}${described.element_text ? ` · “${esc(described.element_text)}”` : ""}</div>
+<textarea placeholder="${isPageComment ? "What's wrong or missing here?" : "What should change?"}" data-field="text"></textarea>
+<div class="row"><span class="label spacer">${innerWidth} × ${innerHeight} · ${theme()}${replayed}</span><button class="small" data-action="cancel">Cancel</button><button class="small primary" data-action="save">Save</button></div>
 </div>`;
   }
 
@@ -482,6 +518,7 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
     if (action === "launcher") return setMode(state.mode === "off" ? "picking" : "off");
     if (action === "pick") return (state.threadId = null), setMode("picking");
     if (action === "list") return (state.threadId = null), setMode("panel");
+    if (action === "page") return startWriting({ left: 0, top: 0, width: innerWidth, height: innerHeight }, document.body, true);
     if (action === "close-panel") return (state.threadId = null), setMode("off");
     if (action === "back") return (state.threadId = null), render();
     if (action === "toggle-closed") return (state.isShowingClosed = !state.isShowingClosed), render();

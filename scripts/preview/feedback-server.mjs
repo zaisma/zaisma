@@ -1,6 +1,7 @@
 // The preview's feedback server, for local previews only: the site's preview entry (workers/site.mjs) adds the overlay
 // (feedback-overlay.js) to every page and sends /__preview/feedback/* here, so the page talks to it on its own origin. It keeps
-// the comments (feedback-store.mjs) and takes each one's pictures as it's saved (feedback-pictures.mjs).
+// the comments (feedback-store.mjs) and takes each one's pictures, and the replay of what he did first, as it's saved
+// (feedback-pictures.mjs).
 //   GET   /__preview/feedback/overlay.js
 //   GET   /__preview/feedback/comments?page_url=…&page_url=…   the comments on those pages, and how many are open on every page
 //   POST  /__preview/feedback/comments                         { comment, snapshot_html }: a new comment (the site entry adds the
@@ -34,6 +35,7 @@ async function takePictures(comment) {
     const taker = await pictures();
     await taker.picture(comment, "seen", seenUrl(comment, siteOrigin));
     await taker.picture(comment, "live", liveUrl(comment, siteOrigin));
+    await taker.replay(comment, liveUrl(comment, siteOrigin));
   } catch (error) {
     console.error(`Couldn't take the pictures for ${comment.comment_id}: ${error.message}`);
   }
