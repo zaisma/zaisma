@@ -117,8 +117,45 @@ export function row(options: RowOptions): Raw {
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${isPointerOnly ? " is-pointer-only" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
-  return html`<div class="layout-row alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
+  // An equal row is marked for ROW_LAYOUT_SCRIPT, which gives its cells the widest one's width.
+  return html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`;
 }
+
+/**
+ * Rows, as they're laid out (window.zaismaWatch, glass-script.ts): an equal row's cells each take its widest one's width, wherever it is (a
+ * row in a pane that fits what's in it shares no spare room, so its widest cell would otherwise keep more than the rest); and a row that
+ * can't fit on one line becomes a stack of its controls, each filling its own line as controls do in a pane (is-wrapped), so none is left
+ * short at a line's start. Each row is laid out as it would be first (is-measuring), then set.
+ */
+export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
+  if (!window.zaismaWatch) return;
+  function lay(row) {
+    var cells = Array.prototype.slice.call(row.children);
+    row.classList.add("is-measuring");
+    var widestPx = 0;
+    if (row.classList.contains("widths-equal")) cells.forEach(function (cell) { if (cell.classList.contains("fills")) widestPx = Math.max(widestPx, cell.getBoundingClientRect().width); });
+    row.classList.remove("is-measuring");
+    var equalWidth = widestPx ? Math.ceil(widestPx) + "px" : "";
+    if (row.style.getPropertyValue("--equal-cell-width") !== equalWidth) row.style.setProperty("--equal-cell-width", equalWidth);
+    var wasWrapped = row.classList.contains("is-wrapped");
+    if (wasWrapped) row.classList.remove("is-wrapped");
+    var isRtl = getComputedStyle(row).direction === "rtl", previousStart = null, isWrapped = false;
+    cells.forEach(function (cell) {
+      var box = cell.getBoundingClientRect();
+      if (box.width < 1) return;
+      var start = isRtl ? -box.right : box.left;
+      if (previousStart !== null && start <= previousStart + 0.5) isWrapped = true;
+      previousStart = start;
+    });
+    if (isWrapped) row.classList.add("is-wrapped");
+  }
+  window.zaismaWatch.each(".layout-row", function (row) {
+    lay(row);
+    window.zaismaWatch.size(row, function () { lay(row); });
+  });
+  if (document.fonts) document.fonts.ready.then(function () { document.querySelectorAll(".layout-row").forEach(lay); });
+})();
+`;
 
 export interface GridOptions {
   items: LayoutItem[];
@@ -181,10 +218,10 @@ export interface PanePartsOptions {
  */
 export function paneParts(options: PanePartsOptions): Raw {
   const head = options.head
-    ? html`<div class="pane-head"><div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
+    ? html`<div class="pane-head"${options.head.end && !options.head.end.isWordsAlone ? html` data-control-height="${options.head.end.controlHeight}"` : ""}><div class="pane-head-words">${options.head.words}</div>${options.head.end ? html`<div class="pane-head-end${options.head.end.isWordsAlone ? " is-words" : ""}">${options.head.end}</div>` : ""}</div>`
     : "";
   const foot = options.foot
-    ? html`<div class="pane-foot">${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
+    ? html`<div class="pane-foot"${options.foot.end && !options.foot.end.isWordsAlone ? html` data-control-height="${options.foot.end.controlHeight}"` : ""}>${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
     : "";
   return html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`;
 }
@@ -194,7 +231,7 @@ export function paneParts(options: PanePartsOptions): Raw {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".run-wrap > .run", ".cut-field > .field", ".find", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".text-btn", ".run-wrap > .run", ".cut-field > .field", ".find", ".tab-switch", ".steps"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden, and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, input[type="hidden"])';
@@ -203,8 +240,8 @@ const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, inp
  * Components whose own words sit at their top (a field's label, a table's caption) or their foot (a field's hint), as [the component,
  * its words, or nothing when its words are all of it]: at a pane's edge, those words keep its margin.
  */
-const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ".check-words"], [".numbers", ""]];
-const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ".check-words"], [".numbers", ""]];
+const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".numbers", ""]];
+const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".numbers", ""]];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
@@ -214,18 +251,24 @@ function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectors = [0, 1, 2, 3].flatMap((depthCount) => {
-    const into = ` > *${end}`.repeat(depthCount) + " > ";
+    // Never into words beside a control: they sit on its center line instead.
+    const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
     return [
-      `${into}.is-words${end}`,
+      // A row's words are its own case, below.
+      `${into}.is-words${end}:not(.row-cell)`,
       `${into}:is(h1, h2, h3, p)${end}`,
-      // A row at the edge: every cell of it is at the edge.
-      `${into}.layout-row${end} > .row-cell.is-words`,
+      // A row at the edge: every cell of it is at the edge. Words beside a control sit on its center line instead (ROW_STYLES), unless the
+      // row went onto more lines, when its words are on a line of their own at the top.
+      `${into}.layout-row:is(${edge === "top" ? ":not([data-control-height]), .is-wrapped" : ":not([data-control-height])"})${end} > .row-cell.is-words`,
       // A component whose words are its whole (Numbers) takes the margin itself.
       ...own.flatMap(([component, words]) => (words ? [`${into}${component}${end} > ${words}`, `${into}.layout-row${end} > .row-cell > ${component} > ${words}`] : [`${into}${component}${end}`])),
     ];
   });
   return PANE_CONTENT.flatMap((pane) => selectors.map((selector) => `${pane}${selector}`)).join(",\n");
 }
+
+/** What places its own words: a row with controls on one line and a pane's foot with a corner control (on the control's center line), and a pane's head. */
+const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped), .pane-head, .pane-foot[data-control-height])";
 
 /** What holds a pane's content, a tray's and a sheet's: the edges its words and rows measure from. */
 const PANE_CONTENT = [".glass-pane > .pane-in", ".tray", ".sheet-in"];
@@ -249,7 +292,7 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 /* Words keep the pane's margin: in from the frame gap by --pad-words (a pane sets it), at its sides, and at its top and bottom edges. */
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */
-:is(.stack-cell, .row-cell, .grid-cell).is-words > * { --pad-words: 0px; }
+:is(.stack-cell, .row-cell, .grid-cell, .pane-foot-start).is-words > *, .pane-head-words > * { --pad-words: 0px; }
 ${edgeWords("top")} { padding-top: var(--pad-words); }
 ${edgeWords("bottom")} { padding-bottom: var(--pad-words); }
 `;
@@ -260,8 +303,17 @@ export const ROW_STYLES = `
    starting flush, and nothing in it shrinks below its words. Each control reaches over what's after it by that overlap, the last one past
    the row's end, so the row stops as far short: wherever a line ends on a control, the control ends at the row's end. */
 .layout-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: var(--gap-control-stack); min-width: 0; margin-inline-end: calc(-1 * var(--gap-control-row-boxes)); }
-.layout-row.is-on-field-boxes { align-items: flex-end; }
+/* Fields that show their labels, wrapped onto lines of their own, are blocks one under another. */
+.layout-row.is-on-field-boxes { align-items: flex-end; row-gap: var(--gap-block-block); }
 .row-cell { display: flex; align-items: center; }
+/* Words beside controls sit on the controls' center line: half the tallest control's height less a line's is above their first line and below
+   their last, so held up with the controls (a row, and one at a pane's top edge, where the controls take the corner's cut) their first line
+   lines up, and held down (on a field's boxes, at a pane's bottom edge) their last. A heading beside a button lines up with it however many
+   lines it runs to. A row on lines of its own has nothing beside its words. */
+${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-control-height: var(--control-height-${height}); }`).join("\n")}
+.layout-row[data-control-height]:not(.is-on-field-boxes) { align-items: flex-start; }
+.layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
+.layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
 /* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
    and reaches past the row's end like any last cell. */
@@ -280,15 +332,24 @@ ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inlin
 .row-cell.fills > .shell { display: flex; }
 .row-cell.fills > .shell > .face { width: 100%; justify-content: center; }
 .row-cell:not(.fills) { flex: none; }
+/* An equal row's cells each take its widest one's width at least (ROW_LAYOUT_SCRIPT), so they're equal in a pane that fits what's in it
+   too; while the script measures, each is its own width. */
+.layout-row.widths-equal > .row-cell.fills { min-width: var(--equal-cell-width, auto); }
+.layout-row.is-measuring > .row-cell { flex: none !important; min-width: 0 !important; }
+/* A row that can't fit on one line is a stack of its controls (is-wrapped, ROW_LAYOUT_SCRIPT): each fills its own line, as controls fill a
+   pane's width, and none is left short at a line's start. Words stay as wide as they are. */
+.layout-row.is-wrapped > .row-cell.is-control { flex: 1 1 100%; }
+.layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
+.layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
+.layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
 /* Words at the row's ends keep the pane's margin at that side. */
 .row-cell.is-words:first-child { padding-inline-start: var(--pad-words); }
 .row-cell.is-words:last-child { padding-inline-end: var(--pad-words); }
 /* One height: every control in the row takes the tallest one's (data-control-height, from their size classes). */
 ${CONTROL_HEIGHTS.map((height) => `${HEIGHT_HOLDERS.map((holder) => `.layout-row[data-control-height="${height}"] > .row-cell > ${holder}`).join(", ")} { --control-height: var(--control-height-${height}); }`).join("\n")}
-/* A row at a pane's top edge holds its controls up at the frame gap, to take the corner's cut, while its words keep the margin below it;
-   at the bottom edge, down. */
-${edgeRows("bottom")} { align-items: flex-end; }
+/* A row at a pane's top edge holds its controls up at the frame gap, to take the corner's cut; at the bottom edge, down. */
 ${edgeRows("top")} { align-items: flex-start; }
+${edgeRows("bottom")} { align-items: flex-end; }
 /* A cell whose only thing is hidden takes no room. */
 .row-cell:has(> [hidden]:only-child) { display: none; }
 `;
@@ -306,9 +367,10 @@ export const GRID_STYLES = `
 
 export const TRACK_STYLES = `
 /* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
-   track's own width, from 200px to 260px, so a few show with the next peeking in; room round them for their lifted shadow, given back. */
-.layout-track { --fade-sideways-px: 48px; container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: var(--gap-words-words);
-  padding: var(--gap-words-control) var(--gap-words-words); margin: calc(-1 * var(--gap-words-control)) calc(-1 * var(--gap-words-words)); }
+   track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
+   back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
+.layout-track { --fade-sideways-px: 48px; container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
+  padding: var(--gap-words-control) 0; margin: calc(-1 * var(--gap-words-control)) 0; }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
@@ -329,10 +391,21 @@ export const PANE_PARTS_STYLES = `
    --pad-words); its end control sits in the pane's top end corner at the frame gap, so the edge rule gives it the corner's cut, however
    narrow the pane: the words wrap beside it. The foot is the same at the bottom. */
 .pane-parts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.pane-head, .pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; }
-.pane-head { align-items: flex-start; }
-.pane-foot { align-items: flex-end; }
-.pane-head-words { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-words); padding: var(--pad-words) 0 0 var(--pad-words); }
+/* The head: its heading beside its corner control, and its other words under them both, at the pane's whole width. Its words keep the pane's
+   margin (--head-inset, the pane's --pad-words, read before its words reset it). */
+.pane-head { --head-inset: var(--pad-words); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-words-control); align-items: start; min-width: 0; }
+.pane-head-words { display: contents; }
+.pane-head-words > * { grid-column: 1 / -1; min-width: 0; padding-inline-start: var(--head-inset); }
+.pane-head-words > * + * { margin-top: var(--gap-words-words); }
+.pane-head:has(> .pane-head-end) > .pane-head-words > :first-child { grid-column: 1; grid-row: 1; }
+.pane-head:not([data-control-height]) > .pane-head-words > :first-child { padding-top: var(--head-inset); }
+.pane-head > .pane-head-end { grid-column: 2; grid-row: 1; }
+.pane-foot { display: flex; gap: var(--gap-words-control); min-width: 0; align-items: flex-end; }
+/* Beside a corner control the head's first line sits on its center line, like words beside controls in a row; the foot's last line likewise. */
+.pane-head[data-control-height] > .pane-head-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
+.pane-foot[data-control-height] > .pane-foot-start.is-words { padding-bottom: 0; }
+.pane-foot[data-control-height] > .pane-foot-start.is-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
+.pane-foot[data-control-height] > .pane-foot-start.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 .pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }
 .pane-foot-start { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .pane-foot-start.is-words { padding: 0 0 var(--pad-words) var(--pad-words); }

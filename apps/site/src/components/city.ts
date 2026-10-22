@@ -4,6 +4,8 @@ import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
 import { runButton } from "./actions.ts";
 import { rail } from "./navigation.ts";
+import { stack } from "./layout.ts";
+import { cutPolygon } from "./tokens.ts";
 
 /*
  * The city: Zaisma's own live 3D scene, from the sign-in draft. One city on land in an endless sea, seen on one slow cinematic loop,
@@ -1515,8 +1517,9 @@ const CITY_STYLES = `
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
 /* A pane on the city: glass in front, never resting in the scene. On a wide screen it's the second of two columns (Columns, layout.ts) of
-   the page's width, standing under the header, its edge in line with the header's, down to the same inset from the bottom, the city in
-   the first; on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
+   the page's width, standing a block's gap under the header (--header-room), its edge in line with the header's, as tall as what's in it
+   and at most down to the same inset from the bottom, where what's in it scrolls; the city in the first. On a phone it's full width at the
+   bottom, its edges in line with the header's, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
 .city-page { min-height: 100vh; }
 /* The city is there to play with: a press anywhere but on the pane, the header or the rail goes through the page (and the body it
    lies behind) to it. */
@@ -1525,7 +1528,7 @@ body:has(> .city-page), .city-page { pointer-events: none; }
 /* The pane places itself under the header, so the page keeps no room for it. */
 body:has(> .city-page) { padding-top: 0; }
 html:has(.city-page) { height: 100%; }
-.city-page .city-pane { position: fixed; z-index: 1; top: calc(var(--pad-pane) + 68px + var(--pad-inner-pane)); bottom: var(--pad-pane); right: max(var(--pad-pane), calc((100% - 1240px) / 2)); width: calc((min(1240px, 100% - 2 * var(--pad-pane)) - var(--gap-block-block)) / 2); display: flex; }
+.city-page .city-pane { position: fixed; z-index: 1; top: var(--header-room); max-height: calc(100vh - var(--header-room) - var(--pad-pane)); right: max(var(--pad-pane), calc((100% - 1240px) / 2)); width: calc((min(1240px, 100% - 2 * var(--pad-pane)) - var(--gap-block-block)) / 2); display: flex; }
 .city-page .city-pane > .glass-pane { flex: 1; min-height: 0; }
 /* The other ways in: stacked, cut only at the stack's ends. */
 .city-pane .ways { display: grid; gap: var(--gap-control-stack); }
@@ -1543,14 +1546,17 @@ html:has(.city-page) { height: 100%; }
 @media (max-width: 760px) {
   html:has(.city-page) { height: auto; }
   .city-page { display: flow-root; min-height: 0; padding-bottom: calc(var(--pad-inner-pane) + env(safe-area-inset-bottom)); }
-  .city-page .city-pane { position: relative; top: auto; bottom: auto; right: auto; width: auto; margin: 60vh var(--pad-inner-pane) 0; }
+  .city-page .city-pane { position: relative; top: auto; bottom: auto; right: auto; width: auto; max-height: none; margin: 60vh var(--pad-pane) 0; }
   .city-page .city-pane > .glass-pane > .pane-in { overflow: visible; }
   /* The page's rail runs down the gutter beside the pane. */
   .city-page .rail[data-rail="page"] { right: 1px; }
 }
-/* The gallery's example: the stage in its own box, with a pane on its right. */
-.city-frame { position: relative; width: 100%; height: 420px; overflow: hidden; display: flex; justify-content: flex-end; padding: var(--pad-inner-pane); }
+/* The gallery's example: the stage in its own box, cut like a pane, with a pane on its right as tall as what's in it; where the box is a
+   phone's width, the pane is full width at its foot, as on a phone. */
+.city-frame { position: relative; width: 100%; height: 420px; overflow: hidden; display: flex; align-items: flex-start; justify-content: flex-end; padding: var(--pad-inner-pane);
+  container-type: inline-size; clip-path: ${cutPolygon("pane")}; }
 .city-frame > .glass-pane { position: relative; z-index: 1; }
+@container (max-width: 560px) { .city-frame > .glass-pane { width: 100%; align-self: flex-end; } }
 `;
 
 component({
@@ -1564,7 +1570,7 @@ component({
     {
       label: "A pane on the city",
       isWide: true,
-      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: html`<h2>Welcome back</h2>${runButton("Sign in", { type: "button", isFullWidth: true })}` })}</div>`,
+      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: runButton("Sign in", { type: "button", isFullWidth: true }) }] }) })}</div>`,
     },
   ],
 });

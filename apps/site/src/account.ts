@@ -938,8 +938,7 @@ ${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in"
 <form method="post" action="/join/age" id="age-form">
 ${nextField(next)}
 ${given.via ? html`<input type="hidden" name="with" value="${given.via}">` : ""}
-${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, state: given.ageError ? "marked" : undefined })}
-<p class="note">Your birthday is never shown to anyone.</p>
+${birthdayField({ id: "join-birthday", name: "birthday", label: "When's your birthday?", isRequired: true, hint: "Your birthday is never shown to anyone.", error: given.ageError })}
 ${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>`,
   );

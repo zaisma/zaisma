@@ -21,6 +21,8 @@ export interface SliderOptions {
   pickedNumber: number;
   /** What the number counts, shown after it: "players", "%", "s". */
   unit: string;
+  /** It can't be changed now: it shows its number, and its form sends nothing for it. */
+  isDisabled?: boolean;
   /** Unique on the page. Defaults to slider-<name>. */
   id?: string;
   state?: "is-focused" | "is-pressed";
@@ -33,7 +35,8 @@ const numberWords = (pickedNumber: number, unit: string) => `${pickedNumber.toLo
 export function slider(options: SliderOptions): Raw {
   const id = options.id ?? `slider-${options.name}`;
   const filledPct = (100 * (options.pickedNumber - options.minimumNumber)) / Math.max(1e-9, options.maximumNumber - options.minimumNumber);
-  return html`<div class="slider${options.state ? ` ${options.state}` : ""}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}" data-slider><span class="slider-thumb cut-raised" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span></div></div>`;
+  const className = ["slider", options.state ?? "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
+  return html`<div class="${className}" style="--fill:${(Math.max(0, Math.min(100, filledPct)) / 100).toFixed(4)}"><div class="slider-head"><label for="${id}">${options.label}</label><output for="${id}" data-unit="${options.unit}">${numberWords(options.pickedNumber, options.unit)}</output></div><div class="slider-track"><span class="slider-line" aria-hidden="true"></span><span class="slider-fill" aria-hidden="true"></span><input class="slider-input" type="range" id="${id}" name="${options.name}" min="${options.minimumNumber}" max="${options.maximumNumber}" step="${options.stepNumber}" value="${options.pickedNumber}"${options.isDisabled ? raw(" disabled") : ""} data-slider><span class="slider-thumb cut-raised" data-cut-line="6" aria-hidden="true">${CUT_LINE}</span></div></div>`;
 }
 
 /** A slider's fill and number follow its thumb. */
@@ -56,23 +59,36 @@ component({
   group: "inputs",
   summary: "A number on a scale: players in a room, a volume. Dragged, tapped or stepped with the arrow keys; the number shows with its unit as it moves. There are no knobs: this covers them.",
   styles: `
-/* A slider: a hairline track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
-   unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. */
-.slider { --thumb: 30px; display: grid; gap: var(--gap-words-control); }
+/* A slider: a line for a track, filled orange up to a raised white slab, the thumb. The system's range input lies over the track,
+   unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. Its question
+   sits at the start and its number at the end, apart, so they never read as one phrase. */
+.slider { --thumb: 30px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
 .slider-head > label { padding-inline-start: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
-.slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
-.slider-track { position: relative; height: var(--thumb); }
+.slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* It fills a pane's width; in a pane that fits what's in it, its track is a card's width (--size-card), or what room there is. */
+.slider-track { position: relative; height: var(--thumb); width: var(--size-card); min-width: 100%; max-width: 100%; }
+/* The line is drawn as an edge you can press (--press-rim), so the scale can be found at a glance on any glass. */
 .slider-line, .slider-fill { position: absolute; top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); pointer-events: none; }
-.slider-line { right: calc(var(--thumb) / 2); background: var(--line); }
-.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: linear-gradient(90deg, #E9820C, var(--run)); }
+.slider-line { right: calc(var(--thumb) / 2); background: var(--press-rim); }
+.slider-fill { width: calc((100% - var(--thumb)) * var(--fill)); height: 6px; top: calc(50% - 3px); background: var(--run); }
 .slider-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+/* On a phone the track takes a whole control's height (--control-height-regular) to touch, centered on it. */
+@media (pointer: coarse) { .slider-input { inset: min(0px, calc(50% - var(--control-height-regular) / 2)) 0; height: auto; } }
 .slider-input::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); }
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 .slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
   background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape); transition: filter 0.2s; }
-.slider:hover .slider-thumb { filter: brightness(1.06); }
+.slider-thumb > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
+.slider:not(.is-disabled):hover .slider-thumb { filter: brightness(1.06); }
 .slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: brightness(0.94); box-shadow: var(--press-shade); }
+/* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
+.slider.is-disabled .slider-input { cursor: default; }
+.slider.is-disabled .slider-head > output { color: var(--muted); }
+.slider.is-disabled .slider-fill { background: var(--muted); }
+.slider.is-disabled .slider-line { background: var(--line); }
+.slider.is-disabled .slider-thumb { box-shadow: none; }
+.slider.is-disabled .slider-thumb > .cut-line polygon { stroke: var(--line); }
 .slider-input:focus-visible + .slider-thumb > .cut-line polygon, .slider.is-focused .slider-thumb > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
   render: slider,
@@ -81,59 +97,116 @@ component({
     { label: "Pressed", markup: examplePane(slider({ id: "example-slider-pressed", name: "room_player_count", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 64, unit: "players", state: "is-pressed" })), isStill: true },
     { label: "Keyboard focus", markup: examplePane(slider({ id: "example-slider-focus", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 40, unit: "%", state: "is-focused" })), isStill: true },
     { label: "At its ends", markup: examplePane(html`${slider({ id: "example-slider-least", name: "music_volume", label: "Music", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 0, unit: "%" })}${slider({ id: "example-slider-most", name: "effects_volume", label: "Effects", minimumNumber: 0, maximumNumber: 100, stepNumber: 5, pickedNumber: 100, unit: "%" })}`) },
+    { label: "Big numbers", markup: examplePane(slider({ id: "example-slider-big", name: "world_player_count", label: "Players in a world", minimumNumber: 100, maximumNumber: 10000, stepNumber: 100, pickedNumber: 2400, unit: "players" })) },
+    { label: "Can't be changed", markup: examplePane(slider({ id: "example-slider-disabled", name: "room_player_count_locked", label: "Players in a room", minimumNumber: 2, maximumNumber: 100, stepNumber: 1, pickedNumber: 32, unit: "players", isDisabled: true })) },
   ],
 });
+
+export interface FileDropFile {
+  fileName: string;
+  byteCount: number;
+  /** While it uploads: how much of it has gone so far. */
+  uploadedByteCount?: number;
+}
 
 export interface FileDropOptions {
   name: string;
   label: string;
-  /** The kinds it takes, as a file input's accept: ".zip", "image/png,image/webp". */
+  /** The kinds it takes, as a file input's accept: ".zip", "image/png,image/webp". A file of another kind is refused, in words. */
   accept: string;
   isMultiple?: boolean;
   /** What to drop, in a few words: "A .zip of your game's folder, up to 500 MB." */
   hint: string;
+  /** The most one file may be, in bytes: a bigger one is refused, in words, before it's sent. */
+  maximumByteCount?: number;
+  /** What's wrong with what was picked, said under it: the wrong kind of file, or too big. */
+  error?: string;
+  /** Files picked already, listed under it with their sizes and, while they upload, how much has gone: for a page that sends them itself. */
+  pickedFiles?: FileDropFile[];
+  /** It can't take files now: it shows why in its hint, and its form sends nothing for it. */
+  isDisabled?: boolean;
   /** Unique on the page. Defaults to drop-<name>. */
   id?: string;
   /** "over" shows a file held over it: the gallery's fixed state. */
   state?: "over";
 }
 
+/** A size in words: "640 KB", "482.3 MB", "1.25 GB", its number and unit kept on one line. */
+const byteWords = (byteCount: number): string =>
+  byteCount < 1e3 ? `${byteCount}\u00a0bytes` : byteCount < 1e6 ? `${Math.round(byteCount / 1e3)}\u00a0KB` : byteCount < 1e9 ? `${Number((byteCount / 1e6).toFixed(1))}\u00a0MB` : `${Number((byteCount / 1e9).toFixed(2))}\u00a0GB`;
+
+/** One picked file's row: its name, its size, and while it uploads, how much has gone, with a line that fills as it goes. */
+const fileRow = (file: FileDropFile): Raw => {
+  const isUploading = file.uploadedByteCount !== undefined && file.uploadedByteCount < file.byteCount;
+  const sentNumber = isUploading ? Math.max(0, Math.min(1, (file.uploadedByteCount ?? 0) / Math.max(1, file.byteCount))) : 0;
+  return html`<li${isUploading ? html` class="is-uploading" style="--sent:${sentNumber.toFixed(4)}"` : ""}><span class="file-drop-name">${file.fileName}</span><span class="file-drop-size">${isUploading ? `${byteWords(file.uploadedByteCount ?? 0)} of ${byteWords(file.byteCount)}` : byteWords(file.byteCount)}</span></li>`;
+};
+
 /**
  * A file drop: a carved field the size of a pane, its outline drawn dashed, turning orange while a file is held over it. It's a real file
- * input across the whole field, so a drop, a tap and the keyboard all reach it; the files picked are listed under it with their sizes.
+ * input across the whole field, so a drop, a tap and the keyboard all reach it; the files picked are listed under it with their sizes,
+ * and a file of the wrong kind or too big is refused, in words, before it's sent.
  */
 export function fileDrop(options: FileDropOptions): Raw {
   const id = options.id ?? `drop-${options.name}`;
-  return html`<div class="file-drop-wrap" data-file-drop><div class="file-drop cut-carved${options.state === "over" ? " is-over" : ""}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint">${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><ul class="file-drop-list" aria-live="polite" hidden></ul></div>`;
+  const files = options.pickedFiles ?? [];
+  const className = ["file-drop", "cut-carved", options.state === "over" ? "is-over" : "", options.error ? "is-marked" : "", options.isDisabled ? "is-disabled" : ""].filter(Boolean).join(" ");
+  return html`<div class="file-drop-wrap" data-file-drop${options.maximumByteCount ? html` data-most-bytes="${options.maximumByteCount}"` : ""}><div class="${className}" data-cut-line="10">${CUT_LINE}<input class="file-drop-input" type="file" id="${id}" name="${options.name}" accept="${options.accept}"${options.isMultiple ? raw(" multiple") : ""} aria-describedby="${id}-hint${options.error ? ` ${id}-error` : ""}"${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>${icon("upload")}<span class="file-drop-words"><label for="${id}">${options.label}</label><span id="${id}-hint">${options.hint}</span></span></div><p class="field-error" id="${id}-error"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p><ul class="file-drop-list" aria-live="polite"${files.length ? "" : raw(" hidden")}>${files.map(fileRow)}</ul></div>`;
 }
 
-/** A file drop lights while a file is held over it, and lists what's picked, each with its size. */
+/**
+ * A file drop lights while a file is held over it, and lists what's picked, each with its size. A file of a kind it doesn't take, or bigger
+ * than its most, is refused: the pick is cleared and what's wrong is said under it, in words.
+ */
 export const FILE_DROP_SCRIPT = `/* file drops */(function () {
+  // A size in words, its number and unit kept on one line.
   function sizeWords(byteCount) {
-    if (byteCount < 1000) return byteCount + " bytes";
-    if (byteCount < 1e6) return (byteCount / 1e3).toFixed(0) + " KB";
-    if (byteCount < 1e9) return (byteCount / 1e6).toFixed(1) + " MB";
-    return (byteCount / 1e9).toFixed(2) + " GB";
+    if (byteCount < 1e3) return byteCount + "\\u00a0bytes";
+    if (byteCount < 1e6) return Math.round(byteCount / 1e3) + "\\u00a0KB";
+    if (byteCount < 1e9) return Number((byteCount / 1e6).toFixed(1)) + "\\u00a0MB";
+    return Number((byteCount / 1e9).toFixed(2)) + "\\u00a0GB";
   }
   document.querySelectorAll("[data-file-drop]").forEach(function (root) {
-    var drop = root.querySelector(".file-drop"), input = root.querySelector(".file-drop-input"), list = root.querySelector(".file-drop-list");
+    var drop = root.querySelector(".file-drop"), input = root.querySelector(".file-drop-input"), list = root.querySelector(".file-drop-list"), error = root.querySelector(".field-error");
+    var most = Number(root.getAttribute("data-most-bytes")) || 0, kinds = (input.getAttribute("accept") || "").split(",").map(function (kind) { return kind.trim().toLowerCase(); }).filter(Boolean);
     var depth = 0;
+    // The kinds it takes, in words: ".zip", or ".png, .jpeg or .webp".
+    function kindsWords() {
+      var words = kinds.map(function (kind) { var parts = kind.split("/"); return kind.charAt(0) === "." ? kind : parts[1] === "*" ? parts[0] + " file" : "." + parts[1]; });
+      return words.length > 1 ? words.slice(0, -1).join(", ") + " or " + words[words.length - 1] : words[0];
+    }
+    function takes(file) {
+      if (!kinds.length) return true;
+      var name = file.name.toLowerCase(), type = (file.type || "").toLowerCase();
+      return kinds.some(function (kind) { return kind.charAt(0) === "." ? name.slice(-kind.length) === kind : /\\/\\*$/.test(kind) ? type.indexOf(kind.slice(0, -1)) === 0 : type === kind; });
+    }
+    function say(words) {
+      error.textContent = words; error.hidden = !words; drop.classList.toggle("is-marked", Boolean(words));
+      var described = (input.getAttribute("aria-describedby") || "").split(" ").filter(function (each) { return each && each !== error.id; });
+      if (words) { described.push(error.id); input.setAttribute("aria-invalid", "true"); } else input.removeAttribute("aria-invalid");
+      input.setAttribute("aria-describedby", described.join(" "));
+    }
     input.addEventListener("dragenter", function () { depth++; drop.classList.add("is-over"); });
     input.addEventListener("dragleave", function () { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove("is-over"); });
     input.addEventListener("drop", function () { depth = 0; drop.classList.remove("is-over"); });
     input.addEventListener("change", function () {
+      var picked = Array.prototype.slice.call(input.files), wrong = picked.find(function (file) { return !takes(file); }), big = most ? picked.find(function (file) { return file.size > most; }) : null;
+      var words = wrong ? wrong.name + " isn't a " + kindsWords() + "." : big ? big.name + " is " + sizeWords(big.size) + "; the most is " + sizeWords(most) + "." : "";
+      if (words) { input.value = ""; picked = []; }
+      say(words);
       list.textContent = "";
-      Array.prototype.forEach.call(input.files, function (file) {
+      picked.forEach(function (file) {
         var row = document.createElement("li"), name = document.createElement("span"), size = document.createElement("span");
         name.className = "file-drop-name"; name.textContent = file.name; size.className = "file-drop-size"; size.textContent = sizeWords(file.size);
         row.appendChild(name); row.appendChild(size); list.appendChild(row);
       });
-      list.hidden = !input.files.length;
-      drop.classList.toggle("has-files", input.files.length > 0);
+      list.hidden = !picked.length;
     });
   });
 })();
 `;
+
+const BUILD_HINT = "Or tap to pick it. Up to 500\u00a0MB; the upload command takes bigger builds.";
 
 component({
   name: "File drop",
@@ -143,34 +216,52 @@ component({
   styles: `
 /* A file drop: a carved field the size of a pane, its outline dashed. Pointing at it clears it a little; a file held over it whitens it and
    turns the dashes orange, and keyboard focus draws the outline whole, in orange. The file input lies across all of it, unseen. */
-.file-drop-wrap { display: grid; gap: var(--gap-words-control); }
+/* One column that never grows past what holds it, so a long file name wraps instead of widening the drop. */
+.file-drop-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); }
 .file-drop { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); min-height: 168px;
   padding: var(--pad-pane); text-align: center; color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-.file-drop:hover { --face-color: var(--field-hover); }
+.file-drop:not(.is-disabled):hover { --face-color: var(--field-hover); }
 .file-drop.is-over { --face-color: var(--field-focus); color: var(--ink); }
 .file-drop > .ico { width: 28px; height: 28px; transition: transform 0.3s var(--spring); }
 .file-drop.is-over > .ico { transform: translateY(-3px); }
 .file-drop-input { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.file-drop-words { display: grid; gap: var(--gap-words-words); }
+.file-drop-words { display: grid; gap: var(--gap-words-words); text-wrap: pretty; }
 .file-drop-words label { font: var(--type-label); color: var(--ink); }
 .file-drop-words span { font: var(--type-facts); color: var(--ink-2); }
 .file-drop > .cut-line { z-index: 4; }
 .file-drop > .cut-line polygon { stroke: var(--drop-dash); stroke-width: 2; stroke-dasharray: 7 5; }
 .file-drop.is-over > .cut-line polygon { stroke: var(--focus); stroke-width: 3; }
+/* Marked wrong: the dashes in amber, and what's wrong said under it. */
+.file-drop.is-marked > .cut-line polygon { stroke: var(--marked); }
+/* Can't take files now: flat in the glass, its words and dashes quieter, and nothing changes as you point at it. */
+.file-drop.is-disabled { --face-color: var(--well); box-shadow: none; }
+.file-drop.is-disabled .file-drop-input { cursor: default; }
+.file-drop.is-disabled .file-drop-words label { color: var(--muted); }
+.file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
 .file-drop:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
-.file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.file-drop-list li { display: flex; justify-content: space-between; gap: var(--gap-words-control); padding: var(--gap-words-words) 0; border-top: var(--divider); font: var(--type-words); color: var(--ink); }
+/* What's picked: a row for each file, its words keeping the pane's margin all round (so the last row's keep it at a pane's foot), its name
+   whole, on more lines where it's long; while one uploads, a line along its foot fills as it goes. */
+.file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.file-drop-list li { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-control); padding: max(var(--gap-words-words), var(--pad-words)) var(--pad-words); border-top: var(--divider); font: var(--type-words); color: var(--ink); }
 .file-drop-list li:first-child { border-top: 0; }
-.file-drop-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-drop-size { flex: none; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
+.file-drop-list li.is-uploading::after { content: ""; position: absolute; left: var(--pad-words); right: var(--pad-words); bottom: 0; height: 2px; background: linear-gradient(90deg, var(--meter-fill) calc(var(--sent) * 100%), var(--line) 0); }
+.file-drop-name { min-width: 0; overflow-wrap: anywhere; }
+.file-drop-size { flex: none; font: var(--type-facts); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .file-drop > .ico { transition: none; } }
 `,
   render: fileDrop,
   examples: [
-    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
-    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000 }) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, state: "over" }) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
+    {
+      label: "Picked: listed with their sizes",
+      markup: examplePane(fileDrop({ id: "example-drop-picked", name: "screenshots_picked", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9.", pickedFiles: [{ fileName: "ashen-crown-iron-vigil-siege-at-dawn.png", byteCount: 4_812_000 }, { fileName: "boss-arena.webp", byteCount: 912_000 }] })),
+    },
+    { label: "Uploading", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-uploading", name: "build_uploading", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, pickedFiles: [{ fileName: "ashen-crown-1.4.2-the-long-night.zip", byteCount: 482_300_000, uploadedByteCount: 211_000_000 }] }) }) },
+    { label: "Too big: refused, in words", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-error", name: "build_error", label: "Drop your game's folder as a .zip", accept: ".zip", hint: BUILD_HINT, maximumByteCount: 500_000_000, error: "ashen-crown-1.4.2-with-cinematics.zip is 1.12\u00a0GB; the most is 500\u00a0MB. The upload command takes bigger builds." }) }) },
+    { label: "Can't take files now", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-disabled", name: "build_disabled", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "You can send another once version 1.4.2 is checked, usually within a minute.", isDisabled: true }) }) },
   ],
 });
 
@@ -180,18 +271,24 @@ export interface CodeFieldOptions {
   code: string;
   /** Unique on the page. Defaults to a slug of its label. */
   id?: string;
+  /** The gallery's fixed states: focused, or just copied. */
+  state?: "is-focused" | "is-copied";
 }
 
 /**
  * A code field: code in a carved field, shown whole (it wraps rather than hiding any of it), with a Copy button at its end; for an API key
- * shown once, an address, a command. Clicking the code selects all of it.
+ * shown once, an address, a command. Code with spaces in it (a command) breaks only at its spaces, so no part of it is split; code with
+ * none (a key, an address) is one long token and breaks anywhere, filling each line. Clicking the code selects all of it.
  */
 export function codeField(options: CodeFieldOptions): Raw {
   const id = options.id ?? `code-${options.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  return html`<div class="cut-field"><span class="code-label" id="${id}-label">${options.label}</span><div class="field code cut-carved" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${options.code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}<span class="code-copied" role="status"></span></div></div>`;
+  const isCommand = / /.test(options.code.trim());
+  const code = isCommand ? options.code.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.code;
+  const isCopied = options.state === "is-copied";
+  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
 }
 
-/** Copy: the field's whole code goes to the clipboard, and "Copied" shows for a moment; clicking the code selects all of it. */
+/** Copy: the field's whole code goes to the clipboard, and "Copied" shows over its end for a moment; clicking the code selects all of it. */
 export const COPY_SCRIPT = `/* code fields */(function () {
   function selectAll(element) { var range = document.createRange(); range.selectNodeContents(element); var picked = window.getSelection(); picked.removeAllRanges(); picked.addRange(range); }
   document.addEventListener("click", function (event) {
@@ -199,11 +296,11 @@ export const COPY_SCRIPT = `/* code fields */(function () {
     if (code) { selectAll(code); return; }
     var copy = event.target.closest && event.target.closest(".field.code > .cut-btn[aria-controls]");
     if (!copy) return;
-    var text = document.getElementById(copy.getAttribute("aria-controls")), field = copy.parentElement, said = field.querySelector(".code-copied");
-    if (!text) return;
+    var text = document.getElementById(copy.getAttribute("aria-controls")), holder = copy.closest(".code-field"), said = holder && holder.querySelector(".code-copied");
+    if (!text || !said) return;
     function done() {
-      said.textContent = "Copied"; field.classList.add("is-copied");
-      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
+      said.textContent = "Copied"; holder.classList.add("is-copied");
+      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; holder.classList.remove("is-copied"); }, 1600);
     }
     // Where the clipboard isn't open to the page, the code is selected and copied the old way.
     function byHand() { selectAll(text); try { if (document.execCommand("copy")) done(); } catch (error) {} }
@@ -220,19 +317,33 @@ component({
   summary: "Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.",
   styles: `
 /* A code field: code set into the glass, a carved well like a switch's (nothing to type, so it isn't a field's lighter face), all of it in
-   code's letters, wrapping onto more lines rather than hiding any. Copy is the small raised cut button at its end, standing out from the well; once it's copied, "Copied" shows beside it for a moment. */
-.code-label { padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
-.field.code { height: auto; min-height: 52px; align-items: stretch; }
-.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 15px 104px 15px 16px; font: 500 15px/1.45 ui-monospace, Menlo, monospace; color: var(--ink);
+   code's letters, wrapping onto more lines rather than hiding any. Copy is the small raised cut button at its end, standing out from the
+   well; once it's copied, "Copied" shows at the end of its label for a moment, over Copy. */
+.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); padding-inline: var(--pad-words); }
+.code-label { font: var(--type-label); color: var(--ink-2); }
+.code-copied { font: var(--type-facts); color: var(--ink-2); opacity: 0; transition: opacity 0.2s; }
+.code-field.is-copied .code-copied { opacity: 1; }
+.field.code { height: auto; min-height: var(--control-height-field); align-items: stretch; }
+/* Each line is as tall as Copy's half and the gap round it, so the first line sits on Copy's center line and the second clears it. */
+/* One long token (a key, an address) breaks at a line's end, or at a slash or hyphen where one is near it. */
+.code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 14px var(--pad-inside-words); font: 500 15px/24px ui-monospace, Menlo, monospace; color: var(--ink);
   overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+/* Only the first line keeps clear of Copy (and its gap); the lines under it run the field's whole width. */
+.code-text::before { content: ""; float: right; width: 48px; height: 24px; }
+/* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
+.code-word { display: inline-block; max-width: 100%; }
 .code-text:focus-visible { outline: none; }
-.field.code:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.code-copied { position: absolute; z-index: 5; right: 56px; top: 17px; font: var(--type-facts); color: var(--ink-2); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
-.field.code.is-copied .code-copied { opacity: 1; }
+.field.code:focus-within > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
+@media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--control-height-regular)) / 2); } }
 `,
   render: codeField,
   examples: [
     { label: "An API key, shown once", markup: examplePane(codeField({ id: "example-code-key", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60" })) },
-    { label: "A command", markup: examplePane(codeField({ id: "example-code-command", label: "Upload from your terminal", code: "npx @zaisma/cli upload ./build --game ashen-crown" })) },
+    { label: "A command: it breaks only at its spaces", markup: examplePane(codeField({ id: "example-code-command", label: "Upload from your terminal", code: "npx @zaisma/cli upload ./build --game ashen-crown" })) },
+    { label: "A game's address", markup: examplePane(codeField({ id: "example-code-address", label: "Your game's address", code: "https://zaisma.com/g/ashen-crown-the-long-night" })) },
+    { label: "One long token", markup: examplePane(codeField({ id: "example-code-secret", label: "Webhook signing secret", code: "whsec_4b9f02d7e1c86a35f0d2b7194ce6a8d3f51b0e9c27a4d6f8b13e5c0a9d7f2e64" })) },
+    { label: "Copied", markup: examplePane(codeField({ id: "example-code-copied", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-copied" })), isStill: true },
+    { label: "Keyboard focus", markup: examplePane(codeField({ id: "example-code-focused", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-focused" })), isStill: true },
   ],
 });

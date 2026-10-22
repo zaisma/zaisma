@@ -274,10 +274,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .own-scroll),
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
-    var p = rectOf(holder), scroller = el.closest(".own-scroll");
+    // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
+    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
     if (!scroller || scroller === holder || !holder.contains(scroller) || scroller.scrollHeight <= scroller.clientHeight + 1) return p;
-    var s = rectOf(scroller), top = s.top - scroller.scrollTop;
-    return { top: top, bottom: top + scroller.scrollHeight, left: p.left, right: p.right };
+    // The holder's own box, run on by what's scrolled out of view above and below it, so a scroller that's only part of it (a sheet's body,
+    // under its head) measures as one that fills it.
+    return { top: p.top - scroller.scrollTop, bottom: p.bottom + scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, left: p.left, right: p.right };
   }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
@@ -296,9 +298,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
+    // Never more than a quarter of its short side, as on no pane: a small box near a corner (a check's box) keeps its shape.
+    var most = Math.min(w, h) * 0.25;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
-      return Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's

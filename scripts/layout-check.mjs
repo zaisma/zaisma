@@ -60,7 +60,8 @@ async function checkPage(chrome, contextId, url, size, theme, options) {
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
     await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
     const isMainActionChecked = options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone);
-    const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify({ isMainActionChecked })})`, returnByValue: true });
+    const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold), isTouch: size.isPhone };
+    const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
     if (exceptionDetails) return [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }];
     return result.value;
   } finally {

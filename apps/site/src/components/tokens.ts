@@ -20,6 +20,10 @@ export const LIGHT_GLASS = `color-scheme: light;
   --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.82); --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
+  /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
+  --press-rim: rgba(20, 23, 28, 0.5);
+  /* A color swatch's rim against its well, so a color near the well's own (black in dark, white in light) still shows: 3:1 or more. */
+  --swatch-rim: rgba(20, 23, 28, 0.5);
   --field-face: rgba(255, 255, 255, 0.5); --field-hover: rgba(255, 255, 255, 0.66); --field-focus: rgba(255, 255, 255, 0.94);
   --field-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
@@ -35,16 +39,17 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
      so it takes that glass's --line: a var() in a custom property is read where it's set. */
   --divider: 1px solid var(--line);
-  --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(232, 150, 20, 0.26); --tag-warning-ink: #6A4300; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
+  --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(217, 165, 28, 0.3); --tag-warning-ink: var(--warning); --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   /* Data: a table's header row over the rows scrolling under it, a chart's fill under its line, a meter's fill and its amber past 80%. */
-  --table-head: rgba(250, 252, 255, 0.42); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-fill: rgba(60, 72, 94, 0.42); --meter-near: #E39318; --meter-full: #B86A06; --meter-full-ink: #9A5800;
+  --table-head: rgba(250, 252, 255, 0.42); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-fill: rgba(60, 72, 94, 0.42); --meter-near: #D9A51C; --meter-full: #A87C0E; --meter-full-ink: var(--warning);
   /* A file drop's dashed outline, waiting for a file. */
   --drop-dash: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03); --edge-caustic: rgba(255, 252, 244, 0.95);
-  --link-hover: var(--run-lo); --marked: var(--run-lo);
+  /* A warning and a field marked wrong: amber, a yellower hue than the runner's orange, so it never reads as something to press or as focus. */
+  --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
@@ -61,6 +66,8 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: rgba(255, 255, 255, 0.14); --btn-hover: rgba(255, 255, 255, 0.26); --btn-press: rgba(255, 255, 255, 0.07);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
+  --press-rim: rgba(255, 255, 255, 0.45);
+  --swatch-rim: rgba(255, 255, 255, 0.45);
   --field-face: rgba(255, 255, 255, 0.08); --field-hover: rgba(255, 255, 255, 0.12); --field-focus: rgba(255, 255, 255, 0.16);
   --field-shade: inset 0 1px 3px rgba(0, 0, 0, 0.25); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
@@ -69,14 +76,14 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
-  --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(200, 130, 20, 0.3); --tag-warning-ink: #F8D68C; --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
-  --table-head: rgba(14, 17, 24, 0.38); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #F0A93A; --meter-full: #B87412; --meter-full-ink: #F6C46E; --drop-dash: rgba(255, 255, 255, 0.34);
+  --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
+  --table-head: rgba(14, 17, 24, 0.38); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #E6B53A; --meter-full: #A9811C; --meter-full-ink: var(--warning); --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
   --edge-lit: rgba(220, 228, 242, 0.55); --edge-shade: rgba(140, 152, 176, 0.05); --edge-corner: rgba(196, 206, 224, 0.26);
   --edge-spec: rgba(255, 255, 255, 0.4); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: rgba(255, 250, 240, 0.4);
-  --link-hover: var(--run-hi); --marked: var(--run-hi);
+  --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
@@ -154,7 +161,7 @@ html, body { overscroll-behavior-x: none; }
   --spring: cubic-bezier(.3, 1.2, .4, 1);
   /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
      its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
-  --focus: var(--run); --focus-on-run: var(--run-lo); --focus-stroke: 4;
+  --focus: var(--run); --focus-on-run: #7A4100; --focus-stroke: 4;
   /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
      boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbor distance. */
@@ -171,6 +178,9 @@ html, body { overscroll-behavior-x: none; }
   --pad-pane: 24px;
   --pad-frame: 12px;
   --pad-words: 0px;
+  /* What has an edge and words inside it (a field, a list's rows, a table's cells, a choice card) keeps its words this far in from its edge,
+     so where it sits at the frame gap its words line up with the pane's words: --pad-pane less --pad-frame. */
+  --pad-inside-words: calc(var(--pad-pane) - var(--pad-frame));
   --pad-inner-pane: 12px;
   --pad-tray: 16px;
   /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, large and small, read by the edge rule (GLASS_SCRIPT)
@@ -184,6 +194,8 @@ html, body { overscroll-behavior-x: none; }
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
   --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;
+  /* A figure's least width in Numbers: two side by side on a phone. */
+  --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
   --type-title: 600 40px/1.04 var(--display);
   --type-heading: 600 30px/1.1 var(--display);
@@ -211,6 +223,9 @@ html, body { overscroll-behavior-x: none; }
 .shell { position: relative; display: inline-flex; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .shell > .face { pointer-events: none; }
 [hidden] { display: none !important; }
+/* Words never leave one word alone on their last line: paragraphs and lines wrap evenly at their end, headings evenly throughout. */
+:where(p, li, dd, dt, figcaption, legend, label, blockquote, td, th) { text-wrap: pretty; }
+:where(h1, h2, h3, h4) { text-wrap: balance; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and

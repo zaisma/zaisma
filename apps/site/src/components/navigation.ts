@@ -32,23 +32,40 @@ export interface HeaderOptions {
   ownTabs?: SwitchTab[];
   /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
   yourGamesHref?: string;
+  /** The page shows its own runner (a game's Play, a form's Save), so Sign in is a cut button: one runner in view. */
+  hasPageRunner?: boolean;
   /** Fixed slim, as after scrolling: the gallery's state. */
   isCompact?: boolean;
   /** The account menu starts open: the gallery's state. */
   isMenuOpen?: boolean;
+  /** On a phone, the search starts open in place of the tabs: the gallery's state. */
+  isSearchOpen?: boolean;
   /** Unique on the page, for the menu's id. Defaults to "top". */
   id?: string;
 }
 
 const tab = (label: string, href: string, isCurrent: boolean, isFoldable = false, isOpen = true): SwitchTab => ({ label, href, isCurrent, isFoldable, isFolded: isFoldable && !isOpen });
 
-/** The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. */
+/**
+ * The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. Its tabs show only as a choice, two or
+ * more: a lone Home would be a button to where the logo goes already, so then there's no row of tabs (they stay in the page, hidden, so the
+ * developer tabs still fold on the way to a developer page).
+ */
 export function header(options: HeaderOptions): Raw {
   const id = options.id ?? "top";
   const account = options.account ?? null;
   const wordmark = logo("wordmark");
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
+  const tabs = options.ownTabs ?? [
+    tab("Home", "/", options.current === "home"),
+    ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []),
+    tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen),
+    tab("Forum", "/forum", options.current === "forum", true, isOpen),
+  ];
+  const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
+  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
+  const signIn = options.hasPageRunner ? cutButton("Sign in", { href: "/signin" }) : runButton("Sign in", { href: "/signin" });
   const menuItems: DropdownItem[] = account
     ? [
         { label: "Your profile", icon: "person", href: `/@${account.username}` },
@@ -59,14 +76,12 @@ export function header(options: HeaderOptions): Raw {
         { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
-  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top glass${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${wordmark}
-  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>`}
-  ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
+  ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs })}</nav>`}
+  ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
-    account
-      ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
-      : runButton("Sign in", { href: "/signin" })
+    account ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen }) : signIn
   }</div>`}
 </header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
 }
@@ -78,7 +93,8 @@ export interface AccountButtonOptions {
   /** The id of the account menu it opens. */
   menuId: string;
   isMenuOpen?: boolean;
-  state?: "is-focused";
+  /** The gallery's fixed states: pointed at, pressed, or with keyboard focus. */
+  state?: "is-pointed" | "is-pressed" | "is-focused";
 }
 
 /**
@@ -90,42 +106,51 @@ export function accountButton(options: AccountButtonOptions): Raw {
 }
 
 const HEADER_STYLES = `
+/* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
+   inside its inset. On a phone its first row is small controls, and the tabs, where there are any, a row of regular height under it. */
+:root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+@media (max-width: 760px) {
+  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); }
+  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-inner-pane)); }
+}
 /* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
   position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: var(--header-height);
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
 }
-.top.is-compact { height: 58px; top: 8px; }
+/* Compact, once the page scrolls: its controls are small ones, and it's as tall as they are inside its inset. */
+.top.is-compact { height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); top: 8px; }
 .top > :not(.edge) { position: relative; z-index: 3; }
 .top .find, .top .find input, .top .run { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
 /* Your picture is glass, so its changes start with the glass's. */
 .top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
-.top.is-compact .nav { --switch-height: 38px; }
-.top.is-compact .find, .top.is-compact .run { height: 38px; }
+.top.is-compact .nav { --switch-height: var(--control-height-small); }
+.top.is-compact :is(.find, .run, .end > .cut-btn) { --control-height: var(--control-height-small); }
 .top.is-compact .run { font-size: 15px; }
-.top.is-compact .me { --frame: 38px; }
+.top.is-compact .me { --frame: var(--control-height-small); }
 
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
 .top > .logo { margin-right: var(--gap-block-block); }
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
-.top .find:has(~ .end > .run-wrap) { margin-inline-end: var(--gap-control-row-boxes); }
+.top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 .top.is-compact .logo { --logo-height: 23px; }
 
-/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims. */
+/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims.
+   With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
+.top .nav[hidden] { display: none; }
 .nav > .switch-frame { flex: 1; }
 
-/* Search sits after the tabs, pushed to the end. */
+/* Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
 .top .find { margin-left: auto; }
-.end { display: flex; align-items: center; flex: none; }
+.end { display: flex; align-items: center; flex: none; margin-left: auto; }
 .top .find ~ .end { margin-left: 0; }
-.top .nav + .end { margin-left: auto; }
 
 
 /* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
@@ -143,21 +168,34 @@ const HEADER_STYLES = `
   .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
-  .top > .logo { margin-left: 6px; }
+  /* Words keep the page's margin from the header's edge, as in a pane: the logo, and the open search field's words (its icon first). */
+  .top { --pad-words: calc(var(--pad-pane) - var(--pad-inner-pane)); }
+  .top > .logo { margin-left: var(--pad-words); }
+  .top .find { --pad-inside-words: var(--pad-words); }
   .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
-  .top.searching .find { display: block; }
+  .top.searching .find { display: flex; }
   .top.searching .nav { display: none; }
   .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
-  .top .nav + .end { margin-left: auto; }
-  .top .nav { order: 4; flex-basis: 100%; --switch-height: 42px; }
-  /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
-  .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
+  /* The tabs are a row of regular height: a finger's. */
+  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; --switch-height: var(--control-height-regular); }
+  /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
+     a small cut button beside the page's own runner. */
+  .top .end > .run-wrap > .run, .top .end > .cut-btn { --control-height: var(--control-height-small); }
+  .top .end .run { padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
   /* The picture is as tall as the search button beside it, at rest or compact. */
-  .top .me, .top.is-compact .me { --frame: 36px; }
+  .top .me, .top.is-compact .me { --frame: var(--control-height-small); }
   /* The search button and Sign in are a row of two controls, slanting toward each other; beside your picture, which never slants, it keeps a control's gap. */
-  .top > .find + .cut-btn:has(~ .end > .run-wrap) { margin-right: var(--gap-control-row-boxes); }
+  .top > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); }
   .top > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+}
+/* The account menu hangs from your picture's right end, so it's never wider than the room from there back to the page's margin: the
+   header's width less its inset (a phone's header is narrower than the menu's own width). */
+.top + .dropdown { max-width: calc(100% - 2 * var(--pad-pane) - var(--pad-inner-pane)); }
+/* On a touch screen, Sign in and your picture are small, so each takes a regular control's height to press, reaching into the header's inset
+   above and below it. */
+@media (pointer: coarse) {
+  .top .end > .shell::after, .top .end > .me::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -401,14 +439,22 @@ export const RAIL_SCRIPT = `/* rail */(function () {
 `;
 
 
-/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
-export function rowArrows(options: { rowName: string; trackId: string }): ControlMarkup {
-  const arrow = (way: "back" | "on") =>
-    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
+export interface RowArrowsOptions {
+  /** The row's name, for a screen reader: "Scroll Popular on". */
+  rowName: string;
+  /** The id of the track it scrolls (Track, layout.ts). */
+  trackId: string;
+  /** Where the row starts scrolled to, so both arrows or only the back one can be pressed: the gallery's fixed states. */
+  scrolledTo?: "middle" | "end";
 }
 
-/** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
+/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
+export function rowArrows(options: RowArrowsOptions): ControlMarkup {
+  const arrow = (way: "back" | "on") =>
+    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
+  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
+}
+
 /**
  * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
  * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
@@ -443,23 +489,56 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   find();
   window.zaismaWatch.resize(function () { boxes.forEach(sync); });
-  // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
+  // Rows that scroll sideways fade over a side with more past it, and start where the one you're on shows whole.
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
-    var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
-    if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
-    // More that way is something shown running past that edge: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never
-    // counts, so a row whose box only rounds a few pixels wider than what it shows (a phone's emulator) never fades.
+    // What's shown in it: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never counts, so a row whose box only rounds a
+    // few pixels wider than what it shows (a phone's emulator) never fades.
+    function shown() {
+      return Array.prototype.filter.call(row.querySelectorAll(":scope > *, :scope > * > *"), function (el) {
+        if (el.classList.contains("folded") || el.hasAttribute("aria-hidden") || el.children.length && el.parentElement === row && el.querySelector(":scope > a, :scope > button, :scope > .cover")) return false;
+        return el.getBoundingClientRect().width >= 1 && !/^(absolute|fixed)$/.test(getComputedStyle(el).position);
+      });
+    }
+    // More that way is something shown running past that edge.
     function shownSpan() {
       var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity;
-      Array.prototype.forEach.call(row.querySelectorAll(":scope > *, :scope > * > *"), function (el) {
-        if (el.classList.contains("folded") || el.hasAttribute("aria-hidden") || el.children.length && el.parentElement === row && el.querySelector(":scope > a, :scope > button, :scope > .cover")) return;
-        var r = el.getBoundingClientRect(); if (r.width < 1 || /^(absolute|fixed)$/.test(getComputedStyle(el).position)) return;
-        left = Math.min(left, r.left); right = Math.max(right, r.right);
-      });
+      shown().forEach(function (el) { var r = el.getBoundingClientRect(); left = Math.min(left, r.left); right = Math.max(right, r.right); });
       return left === Infinity ? { before: 0, after: 0 } : { before: box.left - left, after: right - box.right };
     }
     function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
-    function ends() { var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
+    var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
+    function start() { if (here && !isStarted && row.scrollWidth - row.clientWidth > 1) { isStarted = true; row.showWhole(here, false); } }
+    function ends() { start(); var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    // Where something sits along the row's whole scrolled content.
+    function along(el) { var r = el.getBoundingClientRect(), start = r.left - row.getBoundingClientRect().left + row.scrollLeft; return { start: start, end: start + r.width }; }
+    // Scrolls the least that shows something whole, clear of the fades: back to just past the fade at the start (the row's scroll padding
+    // there, which a framed switch sets to its fade at that side and snaps by), or on to the first stop, a shown thing's start, from which
+    // it's whole clear of the fade at the end (--fade-sideways-px). isGliding scrolls smoothly; a smooth scroll can be cut short (a touch
+    // still settling, the page scrolling too), so it lands once it's over.
+    row.showWhole = function (el, isGliding) {
+      var css = getComputedStyle(row), most = row.scrollWidth - row.clientWidth, now = row.scrollLeft, at = along(el);
+      var fadePx = parseFloat(css.scrollPaddingLeft) || 0, endFadePx = parseFloat(css.getPropertyValue("--fade-sideways-px")) || fadePx;
+      if (most <= 1) return;
+      // At the row's very start or end there's no fade on that side.
+      var fadeAfter = function (scrollPx) { return scrollPx < most - 1 ? endFadePx : 0; }, goal = now;
+      if (at.start < now + (now > 1 ? fadePx : 0)) goal = at.start - fadePx;
+      else if (at.end > now + row.clientWidth - fadeAfter(now)) {
+        goal = at.start - fadePx;
+        shown().some(function (stop) {
+          var scrollPx = Math.max(0, Math.min(most, along(stop).start - fadePx));
+          if (scrollPx > now && at.end <= scrollPx + row.clientWidth - fadeAfter(scrollPx)) { goal = scrollPx; return true; }
+          return false;
+        });
+      }
+      goal = Math.max(0, Math.min(most, goal));
+      if (Math.abs(goal - now) < 1) return;
+      if (!isGliding || reduce) { row.scrollLeft = goal; return; }
+      row.scrollTo({ left: goal, behavior: "smooth" });
+      clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
+    };
+    if (here && document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (isStarted) row.showWhole(here, false); });
     row.addEventListener("scroll", fades, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
@@ -487,13 +566,18 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
 })();
 `;
 
+/** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
     var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
     if (!track) return;
+    // The gallery's fixed states: the row starts scrolled to its middle or its end, once it's laid out (a section off screen isn't yet).
+    var scrolledTo = steps.getAttribute("data-scrolled-to");
     function ends() {
-      var more = track.scrollWidth - track.clientWidth, left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
+      var more = track.scrollWidth - track.clientWidth;
+      if (scrolledTo && more > 2) { track.scrollLeft = scrolledTo === "end" ? more : more / 2; scrolledTo = null; }
+      var left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
       back.disabled = !left; on.disabled = !right; steps.hidden = more <= 2;
     }
     function by(direction) { track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" }); }
@@ -508,7 +592,10 @@ export const ROW_SCRIPT = `/* rows */(function () {
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
 const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
+/** A footer example: a small page of its own, cut like a pane, with the backdrop behind it, as the header's are. */
+const pageFrame = (markup: Raw) => html`<div class="header-frame"><div class="backdrop is-framed" aria-hidden="true"></div><div class="header-scroll" data-scroll-box>${markup}</div></div>`;
 const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { presence: "online", isCut: true }) };
+const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg", pictureMarkup: pictureFrame("maximilian_vandenberg", "md", { presence: "online", isCut: true }) };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
 
 component({
@@ -520,10 +607,14 @@ component({
   render: header,
   examples: [
     { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
-    { label: "Signed out, on Home", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
+    { label: "Signed out, on Home: no tabs, since Home alone isn't a choice", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
+    { label: "Signed out, on a page with its own runner (a game's Play): Sign in is a cut button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true })) },
     { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
+    { label: "A long username, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-long", current: "home", search: GAMES_SEARCH, account: LONG_NAMED_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
     { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "Search open (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "Ashen Crown" }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true })) },
     { label: "Compact, after scrolling", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
+    { label: "Compact and signed out", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, isCompact: true })) },
     { label: "On sign-in", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });
@@ -535,20 +626,26 @@ component({
   summary: "You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
 /* Your picture in its frame, as tall as the controls beside it and cut by the edge rule like them (Picture frame's isCut), so it fits the
-   header's corner. Pointing brightens it, pressing sinks it a little, and with the menu open or by keyboard its rim turns orange. Online,
-   its green line runs inside the frame's foot, so nothing sits outside the button to crowd the header's edge or what's below it. */
-.me { --frame: 44px; position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+   header's corner. Pointing brightens it, pressing sinks it a little, and with the menu open or by keyboard the focus line runs round it
+   inside its cut, as on every control. Online, its green line runs inside the frame's foot, so nothing sits outside the button to crowd the
+   header's edge or what's below it. */
+.me { --frame: var(--control-height-regular); position: relative; display: flex; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .me .frame { --frame: inherit; transition: var(--glass-transition), width 0.45s cubic-bezier(.2,.8,.2,1), height 0.45s cubic-bezier(.2,.8,.2,1), scale 0.15s; }
 .me .frame-picture { transition: filter 0.2s; }
-.me:hover .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
-.me:active .frame { scale: 0.95; }
+.me:hover .frame-picture, .me.is-pointed .frame-picture, .me[aria-expanded="true"] .frame-picture { filter: brightness(1.1); }
+.me:active .frame, .me.is-pressed .frame { scale: 0.95; }
 .me:focus-visible { outline: none; }
+/* The focus line, as on a glass button: the frame's drawn rim, whole, its hairline in the focus color as wide as every control's focus line
+   (half of it shows inside the cut), and the pale parts of the rim that lie over it (its band, glint, facets, fringe) put away. */
 .me:focus-visible .frame > .edge, .me.is-focused .frame > .edge, .me[aria-expanded="true"] .frame > .edge { opacity: 1; }
-.me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: 2; }
+.me:focus-visible .frame > .edge .hair, .me.is-focused .frame > .edge .hair, .me[aria-expanded="true"] .frame > .edge .hair { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.me:focus-visible .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me.is-focused .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner), .me[aria-expanded="true"] .frame > .edge :is(.rim-band, .spec-line, .facet, .fringe, .inner) { opacity: 0; }
 `,
   render: accountButton,
   examples: [
     { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }) },
+    { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
+    { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },
     { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },
     { label: "Keyboard focus", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-focused" }), isStill: true },
   ],
@@ -570,18 +667,19 @@ component({
   transition: var(--glass-transition);
 }
 .foot > :not(.edge) { position: relative; z-index: 3; }
-/* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
-.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
+/* Quiet links in a row read as one sentence at a word's gap, so each sits a block's gap apart: a list of places, not a line of words. Each
+   link is whole on its line (its words never wrap), and the row wraps between links. */
+.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); white-space: nowrap; }
 .foot p { margin: 0 0 0 auto; }
-/* On a phone it stacks, centered: the mark, the links two by two, then the license. */
+/* On a phone it stacks, centered: the mark, the links on centered lines as many as fit, then the license. */
 @media (max-width: 760px) {
   .foot { flex-direction: column; align-items: center; padding: var(--pad-pane); text-align: center; }
-  .foot nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-items: center; gap: var(--gap-words-words) var(--gap-block-block); width: 100%; }
+  .foot nav { justify-content: center; width: 100%; }
   .foot p { margin: 0; }
 }
 `,
   render: footer,
-  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneWidth: "full", body: footer() }) }],
+  examples: [{ label: "At the end of a page, on its backdrop", isWide: true, markup: pageFrame(footer()) }],
 });
 
 component({
@@ -694,6 +792,12 @@ component({
   ],
 });
 
+/** Every stand-in game's cover, as a track's items. */
+const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
+/** A shelf of every stand-in game, for its arrows' states. */
+const arrowsShelf = (id: string, title: string, scrolledTo?: "middle" | "end") =>
+  glassPane({ paneWidth: "full", body: shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo }) });
+
 component({
   name: "Row arrows",
   slug: "row-arrows",
@@ -714,7 +818,9 @@ component({
 `,
   render: rowArrows,
   examples: [
-    { label: "A row's arrows, at its start", markup: html`${rowArrows({ rowName: "Popular", trackId: "example-arrows-track" })}${track({ id: "example-arrows-track", itemSize: "cover", items: [] })}` },
+    { label: "At the row's start: back lies flat (with a mouse; a touch screen swipes and shows none)", isWide: true, markup: arrowsShelf("example-arrows-start", "Popular") },
+    { label: "Partway along: both can be pressed", isWide: true, markup: arrowsShelf("example-arrows-middle", "Trending", "middle") },
+    { label: "At the row's end: on lies flat", isWide: true, markup: arrowsShelf("example-arrows-end", "New", "end") },
   ],
 });
 
@@ -724,44 +830,46 @@ export interface ShelfOptions {
   /** Its track's id, for its arrows and a page script that fills it. */
   trackId: string;
   title: string;
-  /** Where its title goes, like Browse sorted the same way. Left out, the title is words alone. */
+  /** Where its title goes, the whole list it's from (Browse, sorted the same way): the title is then a Link. Left out, it's words alone. */
   titleHref?: string;
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
   items: LayoutItem[];
+  /** What it says while it has no covers (Continue playing before you've played anything), in place of its row and arrows. */
+  emptyText?: string;
+  /** Where its row starts scrolled to: the gallery's fixed states (Row arrows'). */
+  scrolledTo?: "middle" | "end";
 }
 
 /**
  * A shelf: a row of games under its heading, with its sort and, for a mouse, its arrows at the heading's end, and its covers in a track
- * that scrolls sideways. Where the heading and the sort don't fit side by side (a phone), the sort goes under the heading, at its own width.
+ * that scrolls sideways. Where the heading and the sort don't fit side by side (a phone), the sort and the arrows go under the heading and
+ * fill that line, the sort's tabs sharing it.
  */
 export function shelf(options: ShelfOptions): Raw {
   const titleId = `${options.id}-title`;
-  const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref, { isQuiet: true }) : options.title}</h2>`;
+  const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref) : options.title}</h2>`;
+  const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
+  const controls: LayoutItem[] = [
+    ...(options.sortTabs ? [{ kind: "control" as const, markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] : []),
+    ...(isEmpty ? [] : [{ kind: "control" as const, markup: rowArrows({ rowName: options.title, trackId: options.trackId, scrolledTo: options.scrolledTo }) }]),
+  ];
   return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
-      {
-        kind: "block",
-        markup: row({
-          widths: "lead-fills",
-          // The sort and the arrows go together, so where they don't fit beside the heading they go under it as one.
-          items: [
-            { kind: "words", markup: title },
-            {
-              kind: "block",
-              markup: row({
-                widths: "fit",
-                items: [
-                  ...(options.sortTabs ? [{ kind: "control" as const, markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] : []),
-                  { kind: "control", markup: rowArrows({ rowName: options.title, trackId: options.trackId }) },
-                ],
-              }),
-            },
-          ],
-        }),
-      },
-      { kind: "block", markup: track({ id: options.trackId, itemSize: "cover", items: options.items }) },
+      controls.length
+        ? {
+            kind: "block",
+            markup: row({
+              widths: "lead-fills",
+              // The sort and the arrows go together, so where they don't fit beside the heading they go under it as one, the sort filling.
+              items: [{ kind: "words", markup: title }, { kind: "block", markup: options.sortTabs ? row({ widths: "lead-fills", items: controls }) : row({ widths: "fit", alignment: "end", items: controls }) }],
+            }),
+          }
+        : { kind: "words", markup: title },
+      isEmpty
+        ? { kind: "words", markup: html`<p class="shelf-note">${options.emptyText}</p>` }
+        : { kind: "block", markup: track({ id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;
 }
@@ -772,13 +880,22 @@ component({
   group: "navigation",
   summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.",
   styles: `
-/* A shelf: its heading, then its sort and its arrows together, in a row, the heading filling and never wrapping (so the sort and arrows go
-   under it where they don't fit), then its track of covers. */
-.shelf .shelf-title { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
+/* A shelf: its heading, then its sort and its arrows together, in a row, then its track of covers. The heading keeps its whole width
+   beside them, up to the shelf's own (a container), so they go under it before it wraps; only a heading longer than the shelf wraps,
+   keeping the pane's margin at its end too. */
+.shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
+.shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+/* Under the heading, the sort and the arrows fill their line, never wider than it: the sort gives up room round its tabs' words to fit
+   (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
+.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
+.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
+.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
+/* With no games yet, a line in their place. */
+.shelf .shelf-note { margin: 0; font: var(--type-words); color: var(--ink-2); }
 `,
   render: shelf,
   examples: [
-    { label: "Popular, its title a link to Browse", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block" as const, markup: cover })) }) }) },
+    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS }) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
@@ -789,23 +906,52 @@ component({
           trackId: "example-shelf-continue-track",
           title: "Continue playing",
           sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
-          items: Object.values(STAND_IN_COVERS).slice(0, 5).map((cover) => ({ kind: "block" as const, markup: cover })),
+          items: STAND_IN_COVER_ITEMS.slice(0, 5),
         }),
+      }),
+    },
+    {
+      label: "A long title with its sort: on a phone the sort goes under it",
+      isWide: true,
+      markup: glassPane({
+        paneWidth: "full",
+        body: shelf({
+          id: "example-shelf-long",
+          trackId: "example-shelf-long-track",
+          title: "Because you played Ashen Crown",
+          titleHref: "#shelf",
+          sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
+          items: STAND_IN_COVER_ITEMS.slice(2),
+        }),
+      }),
+    },
+    {
+      label: "Empty: Continue playing before you've played anything",
+      isWide: true,
+      markup: glassPane({
+        paneWidth: "full",
+        body: shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." }),
       }),
     },
   ],
 });
 
+/** A page's section: a link to it, with a count of what's new in it (unread reports) when there is one. */
+export type SectionTab = Pick<SwitchTab, "label" | "isCurrent" | "badgeCount" | "state"> & { href: string };
+
 export interface SectionTabsOptions {
   /** What the sections are, for a screen reader: "Game sections". */
   label: string;
-  tabs: { label: string; href: string; isCurrent: boolean }[];
+  tabs: SectionTab[];
 }
 
 /** A page's own sections as tabs (a game dashboard's Overview, Versions, Players; a profile's Games and Friends): the header's tabs, under the page's title. */
 export function sectionTabs(options: SectionTabsOptions): Raw {
   return html`<nav class="section-tabs" aria-label="${options.label}">${tabSwitch({ label: options.label, switchSize: "big", isFramed: true, tabs: options.tabs })}</nav>`;
 }
+
+const DASHBOARD_SECTIONS = ["Overview", "Versions", "Players", "Rooms", "Saves", "Reports", "Stats", "Settings"];
+const PROFILE_SECTIONS = ["Games", "Friends", "Forum posts", "Saves", "Rooms"];
 
 component({
   name: "Section tabs",
@@ -814,39 +960,66 @@ component({
   summary: "A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.",
   styles: `
 /* Section tabs: the header's framed switch for a page's own sections. As wide as its tabs, and never wider than the page: past that
-   they scroll sideways inside their frame, fading out over a side with more, starting on the one you're on. */
+   they scroll sideways inside their frame, fading out over a side with more, and rest on whole tabs, starting where the one you're on shows whole. */
 .section-tabs { display: flex; min-width: 0; max-width: 100%; }
 .section-tabs > .switch-frame { flex: 0 1 auto; }
 `,
   render: sectionTabs,
   examples: [
-    { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Stats", "Settings"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
+    {
+      label: "With counts: reports waiting, players asking to join",
+      isWide: true,
+      markup: sectionTabs({ label: "Game sections", tabs: DASHBOARD_SECTIONS.map((label) => ({ label, href: "#section-tabs", isCurrent: label === "Players", badgeCount: label === "Players" ? 4 : label === "Reports" ? 12 : undefined })) }),
+    },
+    {
+      label: "Pointed",
+      isStill: true,
+      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-pointed" : undefined })) }),
+    },
+    {
+      label: "Keyboard focus",
+      isStill: true,
+      markup: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.slice(0, 3).map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 0, state: tabIndex === 1 ? "is-focused" : undefined })) }),
+    },
+    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: PROFILE_SECTIONS.map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
 export interface LoadMoreOptions {
-  /** The next page's address: the same page with the next cursor. */
-  href: string;
+  /** The next page's address: the same page with the next cursor. Left out, the list has ended, and its end words (endText) show instead. */
+  href?: string;
   label: string;
-  /** The id of the list it adds to; the next page has a list of the same id, and its own Load more for the page after. */
+  /** The id of the list it adds to; the next page has a list of the same id, and its own Load more for the page after, or its end words. */
   listId: string;
+  /** What it says once the list has ended: "That's every version." */
+  endText?: string;
+  /** The last press didn't load, so it says so under the button: the gallery's fixed state (LOAD_MORE_SCRIPT says it as it happens). */
+  isFailed?: boolean;
 }
 
-/** Load more: a cut button under a long list that adds the next page to it in place. Without scripts it's a link to that page. */
+/** What Load more says under itself when the next page didn't come. */
+const LOAD_FAILED_TEXT = "That didn't load. Check your connection, then try again.";
+
+/**
+ * Load more: a cut button under a long list that adds the next page to it in place. Without scripts it's a link to that page. Once the list
+ * has ended, a line saying so takes its place.
+ */
 export function loadMore(options: LoadMoreOptions): Raw {
-  return html`<div class="load-more" data-load-more="${options.listId}">${cutButton(options.label, { href: options.href, isFullWidth: true })}</div>`;
+  if (!options.href) return html`<div class="load-more" data-load-more="${options.listId}"><p class="load-more-words">${options.endText ?? ""}</p></div>`;
+  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${options.listId}">${cutButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
 }
 
 /**
  * Load more: pressing it fetches its page, adds what's in that page's list of the same id to this one, and puts that page's own
- * Load more in its place (or none, at the end). It's busy while it waits; if the page doesn't come, it goes there instead.
+ * Load more in its place (or its end words, or nothing, at the end). It's busy while it waits; if the page doesn't come, it says so under
+ * the button and can be pressed again, and if the page has no list of that id, it goes there instead.
  */
 export const LOAD_MORE_SCRIPT = `/* load more */(function () {
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("[data-load-more] > a.shell[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    var holder = link.parentElement, list = document.getElementById(holder.getAttribute("data-load-more"));
+    var holder = link.parentElement, list = document.getElementById(holder.getAttribute("data-load-more")), words = holder.querySelector(".load-more-words");
     if (!list) return;
     event.preventDefault();
     if (link.getAttribute("aria-busy") === "true") return;
@@ -856,11 +1029,14 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
       return response.text();
     }).then(function (text) {
       var next = new DOMParser().parseFromString(text, "text/html"), more = next.getElementById(list.id);
-      if (!more) throw new Error("no list");
+      if (!more) { location.href = link.href; return; }
       Array.prototype.slice.call(more.children).forEach(function (child) { list.appendChild(document.importNode(child, true)); });
       var after = next.querySelector('[data-load-more="' + list.id + '"]');
       if (after) holder.replaceWith(document.importNode(after, true)); else holder.remove();
-    }).catch(function () { location.href = link.href; });
+    }).catch(function () {
+      link.removeAttribute("aria-busy"); holder.classList.add("is-failed");
+      if (words) { words.textContent = ${JSON.stringify(LOAD_FAILED_TEXT)}; words.hidden = false; }
+    });
   });
 })();
 `;
@@ -874,12 +1050,26 @@ component({
   group: "navigation",
   summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes. Without scripts it's a link to that page.",
   styles: `
-/* Load more: a full-width cut button under its list, a block below it. */
-.load-more { display: flex; }
+/* Load more: a full-width cut button under its list, a block below it, with what went wrong under it as a control's words; or, once the
+   list has ended, a line of words saying so. */
+.load-more { display: flex; flex-direction: column; gap: var(--gap-words-control); }
+.load-more-words { margin: 0; font: var(--type-note); color: var(--muted); }
+.load-more.is-failed .load-more-words { color: var(--marked); }
 `,
   render: loadMore,
   examples: [
     { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
+    {
+      label: "After a failed load: press it again",
+      isWide: true,
+      isStill: true,
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-failed-list", rows: LOADED_ROWS })}${loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true })}` }),
+    },
+    {
+      label: "At the end of the list",
+      isWide: true,
+      markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-end-list", rows: LOADED_ROWS })}${loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." })}` }),
+    },
   ],
 });
