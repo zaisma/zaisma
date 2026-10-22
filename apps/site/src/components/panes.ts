@@ -4,6 +4,7 @@ import { CUT_LINE, EDGE, MARK, PANE_SIZES, ago, glassPane, icon, sheetMarkup, ta
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
+import { selectField } from "./choices.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -855,3 +856,90 @@ component({
   ],
 });
 
+
+export interface PaneHeadOptions {
+  /** The pane's heading and anything said under it (who's playing), on the left. */
+  heading: Raw;
+  /** What belongs in the pane's top corner (a room code box), on the right. */
+  end: Raw;
+}
+
+/**
+ * A pane's head: its heading on the left and one thing in its top right corner, side by side whatever their widths, until the pane is
+ * too narrow for both (a phone), when the corner's thing goes under the heading at the pane's full width. It goes by the pane's own width,
+ * never the screen's, so it holds the same wherever the pane sits.
+ */
+export function paneHead(options: PaneHeadOptions): Raw {
+  return html`<div class="pane-head"><div class="pane-head-in"><div class="pane-head-words">${options.heading}</div><div class="pane-head-end">${options.end}</div></div></div>`;
+}
+
+component({
+  name: "Pane head",
+  slug: "pane-head",
+  group: "panes",
+  summary: "A pane's heading with one thing in its top right corner, like a game's Rooms with its room code box. They sit side by side until the pane is too narrow, then the corner's thing goes under the heading.",
+  styles: `
+/* A pane's head: the heading and the corner's thing side by side, by the pane's own width (a container), stacking under 480px. */
+.pane-head { container-type: inline-size; }
+.pane-head-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gap-words-control) var(--gap-block-block); }
+.pane-head-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
+.pane-head-end { justify-self: end; }
+@container (max-width: 480px) {
+  .pane-head-in { grid-template-columns: minmax(0, 1fr); }
+  .pane-head-end { justify-self: stretch; }
+}
+`,
+  render: paneHead,
+  examples: [
+    {
+      label: "A heading with a code box in its corner",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: paneHead({ heading: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: html`<form class="control-row">${cutField({ id: "pane-head-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "Room code", isLabelHidden: true })}${cutButton("Join", { type: "button" })}</form>` }) }),
+    },
+  ],
+});
+
+export interface ToolRowOptions {
+  /** The controls, each as wide as its words need (small select fields, small buttons), in one row of one height. */
+  items: Raw[];
+  /** Controls kept at the row's right end (a Refresh button). */
+  end?: Raw;
+}
+
+/**
+ * A row of small controls over what they work on (a table's pickers and its Refresh): each only as wide as its words, all one height (a
+ * small control's), side by side with the end's at the right, wrapping onto more rows only when they don't fit. It sits close to what it
+ * works on: the page puts it a pane's margin above it.
+ */
+export function toolRow(options: ToolRowOptions): Raw {
+  return html`<div class="tool-row">${options.items.map((item) => html`<div class="tool-row-item">${item}</div>`)}${options.end ? html`<div class="tool-row-end">${options.end}</div>` : ""}</div>`;
+}
+
+component({
+  name: "Tool row",
+  slug: "tool-row",
+  group: "panes",
+  summary: "Small controls in one row over what they work on: pickers and a Refresh over a table. Each fits its words, all one height; they wrap only when they don't fit.",
+  styles: `
+/* A tool row: small controls each fitting its words, one height, wrapping only when needed; the end's at the right. */
+.tool-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); min-width: 0; }
+.tool-row-item { flex: 0 1 auto; min-width: 0; }
+.tool-row-end { display: flex; gap: var(--gap-words-control); margin-left: auto; }
+.tool-row-item > .cut-field, .tool-row-item .field.select.small { width: max-content; max-width: 100%; }
+`,
+  render: toolRow,
+  examples: [
+    {
+      label: "Pickers and a Refresh over a table",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: toolRow({
+        items: [
+          selectField({ id: "tool-row-region", name: "region", label: "Region", isSmall: true, choices: [{ label: "All", choiceValue: "", icon: "globe" }, { label: "Europe", choiceValue: "EU", icon: "globe-europe", badgeCount: 60 }] }),
+          selectField({ id: "tool-row-mode", name: "mode", label: "Mode", isSmall: true, choices: [{ label: "Any", choiceValue: "" }, { label: "Survival", choiceValue: "survival" }] }),
+          selectField({ id: "tool-row-map", name: "map", label: "Map", isSmall: true, choices: [{ label: "Any", choiceValue: "" }, { label: "Glacier", choiceValue: "glacier" }] }),
+        ],
+        end: cutButton("Refresh", { type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }),
+      }) }),
+    },
+  ],
+});

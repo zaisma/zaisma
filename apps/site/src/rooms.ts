@@ -2,6 +2,7 @@ import { ROOM_PAGE_ROOM_COUNT, checkText, gameBySlug, hasSpace, isQuickJoining, 
 import type { Env } from "./env.ts";
 import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
+import { toolRow } from "./components/panes.ts";
 import { country, emptyState, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import type { IconName } from "./components/foundations.ts";
@@ -103,7 +104,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
   return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
-<div class="rooms-pick">${regions || filterFields.length ? html`<div class="rooms-filters">${regions}${filterFields}</div>` : ""}${cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true })}</div>
+${toolRow({ items: [regions, ...filterFields].filter(Boolean) as Raw[], end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }) })}
 ${open.length ? roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }) : emptyState({ title: "No open rooms", text: empty })}
 ${open.length && isQuickJoining(game) ? html`<p class="rooms-more">Or press Play and the game finds you one.</p>` : ""}
 ${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}

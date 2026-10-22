@@ -469,7 +469,7 @@ export interface TableColumn {
   widthPx?: number;
   /** Its heading sorts the rows by its numbers: most first, then fewest first, then back to the table's own order. */
   isSortable?: boolean;
-  /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
+  /** Its cells are numbers: in figures of one width, so a column's digits line up. Every column, numbers too, starts at its heading's left. */
   isNumeric?: boolean;
 }
 
@@ -503,7 +503,7 @@ export interface TableOptions {
 }
 
 /**
- * A table in a carved well, like the switch's: a header row over its rows, hairlines between rows, numbers right-aligned in figures of one
+ * A table in a carved well, like the switch's: a header row over its rows, hairlines between rows, every column starting at its heading's left, numbers in figures of one
  * width, and at most one head column (headColumn) that stays put as it scrolls sideways: the first, naming the rows, or the last, its
  * buttons. On a phone it scrolls sideways inside its well, fading at its edges: a row never folds into a card,
  * since players and developers compare rows. Its well is cut by the edge rule, so its corners follow the pane's where it sits in one.
@@ -563,7 +563,7 @@ export function table(options: TableOptions): Raw {
   const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
   // The pager: hidden until the rows need pages (TABLE_SCRIPT).
-  const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}</div></nav>`;
+  const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("First page", { type: "button", icon: "arrow-first", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "first" } })}${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}${cutButton("Last page", { type: "button", icon: "arrow-last", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "last" } })}</div></nav>`;
   return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div>${pager}</div>`;
 }
 
@@ -634,14 +634,16 @@ export const TABLE_SCRIPT = `/* tables */(function () {
     scroll.style.minHeight = measured.pagePx + "px";
     pager.hidden = false;
     pager.querySelector(".table-page-words").textContent = (first + local + 1) + "–" + Math.min(first + rowCount, first + local + size) + " of " + total;
-    pager.querySelector('[data-page-step="-1"]').disabled = first + local === 0;
-    pager.querySelector('[data-page-step="1"]').disabled = first + local + size >= total;
+    pager.querySelector('[data-page-step="first"]').disabled = pager.querySelector('[data-page-step="-1"]').disabled = first + local === 0;
+    pager.querySelector('[data-page-step="last"]').disabled = pager.querySelector('[data-page-step="1"]').disabled = first + local + size >= total;
   }
   document.addEventListener("click", function (event) {
     var step = event.target.closest && event.target.closest(".table-pages [data-page-step]"); if (!step) return;
     var table = step.closest(".table"), frame = table.querySelector(".table-frame"), holder = table.closest("[data-table-holder]") || table.parentElement;
     var rowCount = mainOf(frame).tBodies[0].rows.length, first = (parseInt(table.dataset.firstRowNumber, 10) || 1) - 1, size = sizeOf(frame).size;
-    var now = parseInt(holder.dataset.tableRow, 10) || first, next = step.getAttribute("data-page-step") === "1" ? now + size : now - 1 < first ? now - 1 : Math.max(first, now - size);
+    // First and last go to the ends of the whole list (the table lands on the page that holds that row); back and on step a page.
+    var now = parseInt(holder.dataset.tableRow, 10) || first, way = step.getAttribute("data-page-step"), total = parseInt(table.dataset.totalRowCount, 10) || rowCount;
+    var next = way === "first" ? 0 : way === "last" ? total - 1 : way === "1" ? now + size : now - 1 < first ? now - 1 : Math.max(first, now - size);
     if (next < 0) return;
     holder.dataset.tableRow = next;
     // Past this slice: the page loads the one with that row, and the table lands on it.
@@ -705,7 +707,7 @@ component({
   name: "Table",
   slug: "table",
   group: "data",
-  summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.",
+  summary: "Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, every column lines up under its heading's left edge, and on a phone it scrolls sideways rather than folding rows into cards.",
   styles: `
 /* A table: a carved well, like the switch's, and its rails; a label above it is the page's own, not the table's. Nothing in it is glass: its header row and its head
    column sit in the well itself, in the header's quieter words, with a hairline between them and the rows. Each part is clipped at its own
@@ -768,7 +770,7 @@ component({
 .data-table .row-head { width: 0; padding: 0; }
 .table-x .data-table td:first-child, .table-x .data-table .row-head + td { color: var(--ink); }
 .data-table code { font: var(--type-code); }
-.data-table .num { text-align: right; }
+.data-table .num { font-variant-numeric: tabular-nums; }
 /* A heading that sorts: its words and a small chevron, quiet until it sorts, then in full ink with the chevron pointing the way it runs. */
 .table-sort { display: inline-flex; align-items: center; gap: var(--gap-words-words); margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
 .table-sort > .ico { width: 10px; height: 7px; stroke-width: 2.4; opacity: 0.35; transition: transform 0.25s, opacity 0.2s; }

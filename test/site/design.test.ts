@@ -503,6 +503,8 @@ const OWN_SVG = new Map<string, string>([
   ["const stroke = ", "the icon set's line icons"],
   ["const siteMark = ", "the icon set's marks of the sites a developer links to, as each site draws it"],
   ['"arrow-back"', "the icon set's filled arrows"],
+  ['"arrow-first"', "the icon set's filled arrows, doubled: to the very start"],
+  ['"arrow-last"', "the icon set's filled arrows, doubled: to the very end"],
   ['"arrow-on"', "the icon set's filled arrows"],
   ["play: '<svg", "the icon set's play triangle"],
   ["9988 2820", "Zaisma's wordmark (the Logo)"],

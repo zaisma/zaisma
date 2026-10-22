@@ -48,23 +48,14 @@ html[data-game-world] canvas.backdrop.is-shown { opacity: 1; }
 #updates > .glass-pane { max-height: min(640px, 80svh); }
 .game-more { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--gap-block-block); }
 
-/* Rooms: the heading with who's playing under it, beside the code box in the pane's top corner; then the pickers and the rooms. */
-.rooms-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-control) var(--gap-block-block); }
-.rooms-title { flex: 1 1 200px; display: grid; gap: var(--gap-words-words); min-width: 0; }
+/* Rooms: the heading with who's playing under it, beside the code box in the pane's top corner (Pane head); then the pickers close over
+   the rooms (Tool row), a pane's margin above them, and further from the head. */
+.game-sections .pane-head-end > .code-join { width: 320px; max-width: 100%; }
+@container (max-width: 480px) { .game-sections .pane-head-end > .code-join { width: 100%; } }
+#rooms-list { margin-top: var(--pad-pane); }
 .rooms-playing { font: var(--type-words); }
 .rooms-playing b { font-weight: 600; color: var(--ink); }
-.rooms-top > .code-join { flex: 0 1 320px; min-width: 240px; }
-.rooms-in { display: flex; flex-direction: column; gap: var(--gap-block-block); }
-/* The region switch and the small label pickers share one row while they fit. */
-.rooms-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-control); }
-/* The label pickers stay together: beside the switch while they fit, or all on the next line. */
-.rooms-filters { flex: 1 1 360px; display: flex; flex-wrap: wrap; gap: var(--gap-words-control); min-width: 0; }
-/* Each picker keeps room for its name, its pick and its chevron; on a narrow phone they wrap two to a row. */
-.rooms-filter { flex: 1 1 128px; min-width: 0; max-width: 200px; }
-/* The region's picker has its globe to fit beside its words too. */
-.rooms-filter[data-region-filter] { flex: 1.4 1 160px; max-width: 240px; }
-/* Refresh at the row's end. */
-#rooms-refresh { margin-left: auto; }
+.rooms-in { display: flex; flex-direction: column; gap: var(--pad-pane); }
 /* The rooms table keeps to about five rooms' height, so the rest of the page stays near; more scroll inside it under its header. */
 #rooms-list { --table-height: 340px; }
 .rooms-more { font: var(--type-note); color: var(--muted); }
@@ -167,7 +158,6 @@ dialog.game-plate > .glass-pane { width: 100%; }
   .game { display: block; padding: 0 var(--gap-control-stack); }
   .game-window { height: max(200px, calc(100svh - var(--header-room) - 480px)); }
   .game-pane { position: relative; top: auto; }
-  .rooms-top > .code-join { flex: 1 1 100%; min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) { body.playing > .game, body.playing > .backdrop { transition: none; } #conn.retrying .face > .ico { animation: none; } }
 `);

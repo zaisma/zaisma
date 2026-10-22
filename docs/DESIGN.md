@@ -268,6 +268,10 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `tone?: "amber"`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`
+- **Pane head** (`paneHead(options: PaneHeadOptions)`, `panes.ts`): A pane's heading with one thing in its top right corner, like a game's Rooms with its room code box. They sit side by side until the pane is too narrow, then the corner's thing goes under the heading.
+  - `options`: `heading: Raw`, `end: Raw`
+- **Tool row** (`toolRow(options: ToolRowOptions)`, `panes.ts`): Small controls in one row over what they work on: pickers and a Refresh over a table. Each fits its words, all one height; they wrap only when they don't fit.
+  - `options`: `items: Raw[]`, `end?: Raw`
 
 ### Data
 
@@ -291,7 +295,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `title: string`, `text: string`, `action?: Raw`
 - **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
   - `options`: `label: string`
-- **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
+- **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, every column lines up under its heading's left edge, and on a phone it scrolls sideways rather than folding rows into cards.
   - `options`: `label: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `headColumn?: "first" | "last"`, `footRow?: (Raw | string)[]`, `maximumRowCount?: number`, `rowSlice?: { firstRowNumber: number; totalRowCount: number }`, `isCompact?: boolean`, `isEven?: boolean`, `id?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`

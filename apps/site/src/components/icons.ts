@@ -73,6 +73,9 @@ export const ICONS = {
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
   "arrow-on": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>',
+  // Two arrows: to the very start or end (a table's first and last page).
+  "arrow-first": '<svg class="ico solid" viewBox="0 0 20 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8zM20 0h-5L8 8l7 8h5l-7-8z"/></svg>',
+  "arrow-last": '<svg class="ico solid" viewBox="0 0 20 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8zM8 0h5l7 8-7 8H8l7-8z"/></svg>',
   // Sites a developer links to from their game's page, each in its own mark.
   ...(Object.fromEntries(Object.keys(LINK_BRAND_ICON_PATHS).map((site) => [`site-${site}`, siteMark(site as keyof typeof LINK_BRAND_ICON_PATHS)])) as Record<`site-${keyof typeof LINK_BRAND_ICON_PATHS}`, string>),
   play: '<svg class="play" viewBox="0 0 16 18" width="14" height="16" aria-hidden="true"><path d="M2 1.5l12 7.5-12 7.5z" fill="currentColor"/></svg>',

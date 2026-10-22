@@ -29,7 +29,7 @@ import { cutButton, runButton, textButton, textLink } from "./components/actions
 import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import { glassPane, logo, tag, type IconName } from "./components/foundations.ts";
-import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
+import { banner, dropdown, notice, pictureViewer, paneHead } from "./components/panes.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { GAME_BACKGROUND_SCRIPT, GAME_OPENING_SCRIPT } from "./game-background-script.ts";
 import { GAME_PAGE_STYLE } from "./game-page-style.ts";
@@ -187,7 +187,7 @@ ${developer || pageLinks.length
     ? glassPane({
         paneSize: "full",
         label: "Rooms",
-        body: html`<div class="rooms-top"><div class="rooms-title"><h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p></div>${codeBox(game.slug)}</div><div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
+        body: html`${paneHead({ heading: html`<h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p>`, end: codeBox(game.slug) })}<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
       })
     : "";
   const response = layout(env, {
