@@ -768,6 +768,7 @@ const PRIVACY = `
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
 <p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
+<p>Zaisma measures how games run (load time, frame rate, crashes) by browser and device type, only as totals.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your username</strong>, the one you pick. Everyone can see it.</li>
