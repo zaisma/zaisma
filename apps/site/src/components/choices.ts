@@ -171,12 +171,20 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       if (isOpen) { place(); setActive(Math.max(0, picked())); list.focus({ preventScroll: true }); }
     });
     window.zaismaWatch.resize(function () { if (list.matches(":popover-open")) place(); });
-    window.zaismaWatch.scroll(function () { if (list.matches(":popover-open")) place(); });
+    // It follows its field as the page scrolls, and closes once the field goes under the header or off the screen, so it never hangs
+    // over the header or open with nothing to belong to.
+    window.zaismaWatch.scroll(function () {
+      if (!list.matches(":popover-open")) return;
+      var r = field.getBoundingClientRect(), head = document.querySelector("body > header.top"), headFoot = head ? head.getBoundingClientRect().bottom : 0;
+      if (r.top < headFoot || r.bottom > window.innerHeight) list.hidePopover(); else place();
+    });
     button.addEventListener("keydown", function (event) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); list.showPopover(); }
     });
     list.addEventListener("click", function (event) { var o = event.target.closest('[role="option"]'); if (o) pick(options.indexOf(o)); });
-    list.addEventListener("pointermove", function (event) { var o = event.target.closest('[role="option"]'); if (o && options.indexOf(o) !== active) setActive(options.indexOf(o)); });
+    list.addEventListener("pointermove", function (event) { var o = event.target.closest('[role="option"]'); if (o && !o.classList.contains("is-active")) setActive(options.indexOf(o)); });
+    // The pointer gone, no choice stays lit under it; the arrow keys light one again from where it was.
+    list.addEventListener("pointerleave", function () { options.forEach(function (o) { o.classList.remove("is-active"); }); });
     list.addEventListener("keydown", function (event) {
       var key = event.key, step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[key];
       if (step) { setActive(active + step); event.preventDefault(); return; }
