@@ -476,6 +476,8 @@ export interface TableColumn {
 export interface TableOptions {
   /** What the table is, said above it (it stays put as the table scrolls sideways) and to screen readers. */
   caption: string;
+  /** Its caption is said only to screen readers, where what holds it already says what it is (a game's Rooms pane). */
+  isCaptionHidden?: boolean;
   columns: TableColumn[];
   /** One list of cells a row, in the columns' order. */
   rows: (Raw | string)[][];
@@ -554,7 +556,7 @@ export function table(options: TableOptions): Raw {
   const first = (part: "head" | "rows" | "foot") => (options.headColumn === "first" ? side(part) : "");
   const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div></div>`;
+  return html`<div class="table"><p class="table-caption${options.isCaptionHidden ? " sr" : ""}" id="${id}-caption">${options.caption}</p><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div></div>${footPart}</div></div></div>`;
 }
 
 /**
@@ -665,6 +667,9 @@ component({
 .table > .rail[data-rail="box"] { position: relative; grid-row: 2; grid-column: 2; top: auto; right: auto; bottom: auto; margin: calc(var(--table-head-h) + 4px) 0 calc(var(--table-foot-h, 0px) + 4px) 4px; }
 .table > .rail.sideways { grid-row: 3; grid-column: 1; margin: 0 calc(var(--table-last-w, 0px) + 4px) 0 calc(var(--table-first-w, 0px) + 4px); }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
+/* A caption for screen readers only takes no room: the well starts at the top, its sideways rail still a gap under it. */
+.table:has(> .table-caption.sr) { row-gap: 0; }
+.table:has(> .table-caption.sr) > .rail.sideways { margin-top: var(--gap-words-control); }
 .table-well { position: relative; display: flex; min-width: 0; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .table-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; clip-path: var(--cut-shape); }
 /* The header: the head column's heading, and the scrolling columns' headings in a box that clips them, following the rows sideways. Its

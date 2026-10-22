@@ -292,7 +292,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
   - `options`: `label: string`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, numbers line up on the right, and on a phone it scrolls sideways rather than folding rows into cards.
-  - `options`: `caption: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `headColumn?: "first" | "last"`, `footRow?: (Raw | string)[]`, `isCompact?: boolean`, `isEven?: boolean`, `id?: string`
+  - `options`: `caption: string`, `isCaptionHidden?: boolean`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `headColumn?: "first" | "last"`, `footRow?: (Raw | string)[]`, `isCompact?: boolean`, `isEven?: boolean`, `id?: string`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point in orange with its number, and any point's number where you point. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.
