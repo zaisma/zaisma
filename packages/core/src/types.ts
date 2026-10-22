@@ -42,6 +42,8 @@ export interface Game {
   deleted_account_erase_enabled: number;
   /** 1 when Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms; 0 grays it as "This game doesn't take joins". */
   friend_joins_enabled: number;
+  /** 1 when Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals. */
+  performance_measuring_enabled: number;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */

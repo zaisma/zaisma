@@ -17,6 +17,7 @@
     "./saves.js": "./saves.js",
     "./picture.js": "./picture.js",
     "./relay.js": "./relay.js",
-    "./warm.js": "./warm.js"
+    "./warm.js": "./warm.js",
+    "./performance.js": "./performance.js"
   }
 }

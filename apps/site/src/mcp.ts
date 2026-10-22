@@ -132,6 +132,11 @@ const details = {
     type: "boolean",
     description: "Copy signed-in players' browser saves (localStorage and IndexedDB) to their account, so progress follows them to any device. On by default; turn off for games that keep their own saves on a server.",
   },
+  performance_measuring_enabled: {
+    type: "boolean",
+    description:
+      "Whether Zaisma measures how the game runs on players' devices: load time (to the first draw on a canvas), frame rate, stutter (frames of 50 ms or more), crashes and peak memory, added up per version and by browser, system, device and graphics chip family for get_stats' performance, never per player. On by default; false stops Zaisma adding its measuring script to the game's pages at all, and get_stats answers performance null.",
+  },
   account_offer_enabled: {
     type: "boolean",
     description: "Show guests the \"Keep your progress\" card by itself once they have progress and have played 5 minutes: it offers a free account so their progress is kept, beside the game. On by default; turn off for games that pick the moment themselves: Zaisma.player.offerAccount() shows the same card whenever the game likes, whatever this setting, at most once a visit and not for 3 days after the player chose Not now (Zaisma.player.signIn() asks with the game's own reason).",
@@ -1012,7 +1017,7 @@ export const TOOLS: Tool[] = [
     name: "get_stats",
     title: "Play stats",
     description:
-      "Play stats over the last period_duration_days (30 unless you say): counted plays, players, new players and play time per day, and how many new players came back 1, 7 and 30 days later. Counted plays are the official numbers: the game on screen for a minute in a browser Cloudflare checked; started_play_count is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. Also multiplayer use per day, room play time this month against the free hours (counted hours include relayed data and game server CPU past 25 CPU-seconds a player-hour; until hosting billing is ready, no new rooms open past them until the month resets; matches already running carry on), room_traffic: how much each player sends and gets a second, the biggest message types, and traffic_hints with what to change, requests to the game's own game server this month against the free 1 million (past them, requests answer request_limit until the month resets), the live version's schedules with their next and last runs, and for games with their own game server, its calls, requests, scheduled runs and recent errors.",
+      "Play stats over the last period_duration_days (30 unless you say): counted plays, players, new players and play time per day, and how many new players came back 1, 7 and 30 days later. Counted plays are the official numbers: the game on screen for a minute in a browser Cloudflare checked; started_play_count is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. performance says how the game runs on players' devices, by version and by browser, device and graphics chip, with groups under 20 plays in other; players are never named. Also multiplayer use per day, room play time this month against the free hours (counted hours include relayed data and game server CPU past 25 CPU-seconds a player-hour; until hosting billing is ready, no new rooms open past them until the month resets; matches already running carry on), room_traffic: how much each player sends and gets a second, the biggest message types, and traffic_hints with what to change, requests to the game's own game server this month against the free 1 million (past them, requests answer request_limit until the month resets), the live version's schedules with their next and last runs, and for games with their own game server, its calls, requests, scheduled runs and recent errors.",
     inputSchema: object({ slug, period_duration_days: { type: "integer", minimum: 1, maximum: 90, description: "How many days back, today included; 30 by default" } }, ["slug"]),
     outputSchema: STATS,
     annotations: read,

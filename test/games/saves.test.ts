@@ -20,9 +20,9 @@ describe("cloud saves on the game domain", () => {
     await env.DB.exec("DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
 
-  const OURS = '<script src="/saver/_zaisma/relay.js?v=6"></script><script src="/saver/_zaisma/saves.js?v=6"></script><script src="/saver/_zaisma/picture.js?v=6"></script>';
+  const OURS = '<script src="/saver/_zaisma/relay.js?v=6"></script><script src="/saver/_zaisma/saves.js?v=6"></script><script src="/saver/_zaisma/picture.js?v=6"></script><script src="/saver/_zaisma/performance.js?v=6"></script>';
 
-  it("adds the relay, saves and picture scripts first in every page's head", async () => {
+  it("adds the relay, saves, picture and performance scripts first in every page's head", async () => {
     await addGame("saver");
     const page = await (await SELF.fetch(`${G}/saver/`)).text();
     expect(page).toContain(`<head>${OURS}<title>`);
@@ -34,7 +34,7 @@ describe("cloud saves on the game domain", () => {
     await addGame("saver");
     const first = await SELF.fetch(`${G}/saver/`);
     const etag = first.headers.get("etag")!;
-    expect(etag).toMatch(/^W\/".*-z6s"$/);
+    expect(etag).toMatch(/^W\/".*-z6sm"$/);
     expect((await SELF.fetch(`${G}/saver/`, { headers: { "If-None-Match": etag } })).status).toBe(304);
   });
 
@@ -54,11 +54,24 @@ describe("cloud saves on the game domain", () => {
     await addGame("own-saves", 0);
     const page = await (await SELF.fetch(`${G}/own-saves/`)).text();
     expect(page).not.toContain("_zaisma/saves.js");
-    expect(page).toContain('<head><script src="/own-saves/_zaisma/relay.js?v=6"></script><script src="/own-saves/_zaisma/picture.js?v=6"></script><title>');
+    expect(page).toContain('<head><script src="/own-saves/_zaisma/relay.js?v=6"></script><script src="/own-saves/_zaisma/picture.js?v=6"></script><script src="/own-saves/_zaisma/performance.js?v=6"></script><title>');
     const script = await (await SELF.fetch(`${G}/own-saves/_zaisma/picture.js`)).text();
     expect(script).toContain('var __ZAISMA_PICTURE__ = {"site":"https://zaisma.test"}');
     expect((await SELF.fetch(`${G}/own-saves/_zaisma/saves.js`)).status).toBe(404);
     expect((await SELF.fetch(`${G}/own-saves/_zaisma/restore`)).status).toBe(404);
+  });
+
+  it("measures how the game runs unless the developer turned it off", async () => {
+    await addGame("measured");
+    const script = await (await SELF.fetch(`${G}/measured/_zaisma/performance.js`)).text();
+    expect(script).toContain('var __ZAISMA_PERFORMANCE__ = {"site":"https://zaisma.test","limits":{');
+    // The first draw is watched the same way as in the Chrome check, before the measuring.
+    expect(script.indexOf("__zaismaFirstDraw = state")).toBeLessThan(script.indexOf("zaisma:performance"));
+    await env.DB.prepare("UPDATE games SET performance_measuring_enabled = 0 WHERE slug = 'measured'").run();
+    const page = await SELF.fetch(`${G}/measured/`);
+    expect(await page.text()).not.toContain("performance.js");
+    expect(page.headers.get("etag")).toMatch(/-z6s"$/);
+    expect((await SELF.fetch(`${G}/measured/_zaisma/performance.js`)).status).toBe(404);
   });
 
   it("puts the tag in the right place for odd pages", () => {

@@ -121,7 +121,71 @@ export interface PerformanceObservations {
   memorySizeBytes: number | null;
 }
 
-const START_FILE_DESTINATIONS: Record<string, StartFile["destination"]> = { script: "script", empty: "fetch", style: "style", image: "image", font: "font" };
+/**
+ * The first draw and WebAssembly memories, as a page script, shared by the Chrome check's probe
+ * (apps/site/src/performance-check.ts) and the game frame's measuring (packages/sdk/performance.js), so a load
+ * time means the same in both: the time of the first draw on a canvas in the page with a size (WebGL, WebGL 2,
+ * 2D or WebGPU), each wrapper removed once one has counted, so the game runs untouched from then on. Its state
+ * is window.__zaismaFirstDraw: { firstDrawAtMs (wall time), drawKind, memories (a Set of WebAssembly.Memory) }.
+ * Runs once a page, whichever script comes first.
+ */
+export const FIRST_DRAW_WATCH = String.raw`(() => {
+  if (window.__zaismaFirstDraw) return;
+  const state = { firstDrawAtMs: null, drawKind: null, memories: new Set() };
+  window.__zaismaFirstDraw = state;
+  const restorers = [];
+  // isCanvasKnown: the draw call's context says its canvas; WebGPU's queue and WebGL 1's instancing extension don't.
+  const wrap = (prototype, names, kind, isCanvasKnown = true) => {
+    if (!prototype) return;
+    for (const name of names) {
+      const original = prototype[name];
+      if (typeof original !== "function") continue;
+      prototype[name] = function (...args) {
+        const canvas = this && this.canvas;
+        // Only a canvas in the page counts: engines test what they can do on canvases they never show.
+        if (state.firstDrawAtMs === null && (!isCanvasKnown || (canvas && canvas.isConnected && canvas.width && canvas.height))) {
+          state.firstDrawAtMs = performance.timeOrigin + performance.now();
+          state.drawKind = kind;
+          for (const restore of restorers) restore();
+        }
+        return original.apply(this, args);
+      };
+      restorers.push(() => { prototype[name] = original; });
+    }
+  };
+  wrap(window.WebGLRenderingContext && WebGLRenderingContext.prototype, ["drawArrays", "drawElements"], "webgl");
+  wrap(window.WebGL2RenderingContext && WebGL2RenderingContext.prototype, ["drawArrays", "drawElements", "drawArraysInstanced", "drawElementsInstanced", "drawRangeElements"], "webgl");
+  wrap(window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype, ["drawImage", "fill", "fillRect", "fillText", "putImageData"], "2d");
+  // macroquad and other WebGL 1 engines draw everything instanced, through an extension the page has no global for.
+  const originalGetExtension = window.WebGLRenderingContext && WebGLRenderingContext.prototype.getExtension;
+  if (originalGetExtension) {
+    let isInstancingWrapped = false;
+    WebGLRenderingContext.prototype.getExtension = function (name) {
+      const extension = originalGetExtension.call(this, name);
+      if (extension && !isInstancingWrapped && state.firstDrawAtMs === null && String(name).toLowerCase() === "angle_instanced_arrays") {
+        isInstancingWrapped = true;
+        wrap(Object.getPrototypeOf(extension), ["drawArraysInstancedANGLE", "drawElementsInstancedANGLE"], "webgl", false);
+      }
+      return extension;
+    };
+    restorers.push(() => { WebGLRenderingContext.prototype.getExtension = originalGetExtension; });
+  }
+  wrap(window.GPUQueue && GPUQueue.prototype, ["submit"], "webgpu", false);
+  if (!window.WebAssembly) return;
+  const keep = (exports) => { for (const value of Object.values(exports || {})) if (value instanceof WebAssembly.Memory) state.memories.add(value); };
+  const OriginalMemory = WebAssembly.Memory;
+  WebAssembly.Memory = function Memory(descriptor) { const memory = new OriginalMemory(descriptor); state.memories.add(memory); return memory; };
+  WebAssembly.Memory.prototype = OriginalMemory.prototype;
+  for (const name of ["instantiate", "instantiateStreaming"]) {
+    const original = WebAssembly[name];
+    if (typeof original !== "function") continue;
+    WebAssembly[name] = function (...args) {
+      return original.apply(this, args).then((made) => { keep((made.instance || made).exports); return made; });
+    };
+  }
+})();`;
+
+const START_FILE_DESTINATIONS:Record<string, StartFile["destination"]> = { script: "script", empty: "fetch", style: "style", image: "image", font: "font" };
 
 /** The path of a URL inside the game, decoded, with its query, at the game's address or its version's; null when it's not one of the game's files (another site, or Zaisma's own _zaisma/ scripts). */
 function gamePathOf(url: string, gameBaseUrl: string): string | null {

@@ -44,6 +44,7 @@ export const ERROR_CODES = {
   bad_account_offer_enabled: { httpStatus: 400, meaning: "account_offer_enabled isn't true or false." },
   bad_deleted_account_erase_enabled: { httpStatus: 400, meaning: "deleted_account_erase_enabled isn't true or false." },
   bad_friend_joins_enabled: { httpStatus: 400, meaning: "friend_joins_enabled isn't true or false." },
+  bad_performance_measuring_enabled: { httpStatus: 400, meaning: "performance_measuring_enabled isn't true or false." },
   bad_room_browsing: { httpStatus: 400, meaning: "room_browsing isn't page, game or off." },
   bad_multiplayer_mode: { httpStatus: 400, meaning: "multiplayer_mode isn't none, relay or own." },
   bad_account_requirement: { httpStatus: 400, meaning: "account_requirement isn't none, multiplayer or whole_game." },

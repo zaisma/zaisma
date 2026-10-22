@@ -19,7 +19,7 @@
     "ROOMS_ORIGIN": "https://rooms.zaisma.com"
   },
   // The SDK and its types, the cloud saves script and the report picture script are served to games as text.
-  "rules": [{ "type": "Text", "globs": ["**/zaisma.js", "**/zaisma.d.ts", "**/saves.js", "**/picture.js", "**/relay.js", "**/warm.js"], "fallthrough": true }],
+  "rules": [{ "type": "Text", "globs": ["**/zaisma.js", "**/zaisma.d.ts", "**/saves.js", "**/picture.js", "**/relay.js", "**/warm.js", "**/performance.js"], "fallthrough": true }],
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }]
 }

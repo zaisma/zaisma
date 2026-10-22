@@ -1,3 +1,18 @@
+import {
+  CRASH_KINDS,
+  FRAME_RATE_BUCKETS,
+  LOADING_BUCKETS_SEC,
+  MEMORY_BUCKETS_BYTES,
+  PLAYER_PERFORMANCE_LIMITS,
+  browserOf,
+  bucketOf,
+  countsWithin,
+  osOf,
+  playerPerformanceRow,
+  readPlayPerformanceReport,
+  type PerformanceDay,
+  type PlayerPerformanceRow,
+} from "@zaisma/core";
 import { accountById, createEntryGrant, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -28,6 +43,7 @@ import { isRealBrowser } from "./turnstile.ts";
  *     { ticket, counted: true }   a minute on screen: count the play
  *     { ticket, seconds, is_away } time on screen since the last report, up to 10 minutes; is_away: true
  *          when the tab was hidden. A ticket whose last report is under 6 minutes old and not away is "playing now".
+ *          With performance, how the game ran since the last report (addPerformance), unless the developer turned measuring off.
  *
  *   POST /api/plays/:slug/entry   { then }: Play on an accounts-only game. Answers { entry_url }, the game
  *          domain's address that swaps a grant for its entry cookie and then opens then (a path and query
@@ -87,6 +103,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
     else {
       await addTime(env.DB, game.id, body.ticket, body.seconds);
       await reportPlaying(env.DB, game.id, body.ticket, body.is_away === true);
+      if (body.performance !== undefined && game.performance_measuring_enabled) await addPerformance(env.DB, game, body.ticket, body.performance, request.headers.get("user-agent") ?? "");
     }
     return ok();
   }
@@ -281,6 +298,136 @@ export async function addTime(database: D1Database, gameId: string, id: string, 
 }
 
 /**
+ * How the game ran in a play since its last report (docs/DECISIONS.md, "How a game runs for its players is the
+ * developer's, as totals"), added to the day's totals for its version and device group. Only with a ticket of
+ * this game, so only from a browser Cloudflare checked, never a tester link or the developer's own play. The
+ * browser and system are read here from the request's User-Agent, which isn't kept. The server keeps the
+ * backstop: every value is clamped, a ticket counts its play, load time and memory once (its first report)
+ * and a crash once, and it can't claim more measured time than it has been open.
+ */
+export async function addPerformance(database: D1Database, game: Pick<Game, "id" | "live_version_id">, ticketId: string, sent: unknown, userAgent: string, nowMs = Date.now()): Promise<boolean> {
+  const report = readPlayPerformanceReport(sent);
+  if (!report || !game.live_version_id) return false;
+  const ticket = await database
+    .prepare("SELECT issued_at_ms, has_performance_loading, has_performance_crash, measured_duration_sec FROM play_tickets WHERE id = ? AND game_id = ? AND issued_at_ms > ?")
+    .bind(ticketId, game.id, nowMs - TICKET_MS)
+    .first<{ issued_at_ms: number; has_performance_loading: number; has_performance_crash: number; measured_duration_sec: number }>();
+  if (!ticket) return false;
+  // A little leeway for clocks, as addTime has.
+  const openDurationSec = (nowMs - ticket.issued_at_ms) / 1000 + 10;
+  const isFirstReport = !ticket.has_performance_loading;
+  const crashKind = ticket.has_performance_crash ? null : report.crash_kind;
+  const measuredDurationSec = Math.max(0, Math.min(report.measured_duration_sec, Math.floor(openDurationSec - ticket.measured_duration_sec)));
+  // A long frame is 50 ms or more, so there can't be more than 20 a second.
+  const longFrameCount = Math.min(report.long_frame_count, measuredDurationSec * 20);
+  if (!isFirstReport && !crashKind && !measuredDurationSec) return false;
+  // Taken from the ticket first, so the same report sent twice at once counts once.
+  const taken = await database
+    .prepare(
+      "UPDATE play_tickets SET has_performance_loading = 1, has_performance_crash = ?1, measured_duration_sec = measured_duration_sec + ?2 WHERE id = ?3 AND has_performance_loading = ?4 AND has_performance_crash = ?5 AND measured_duration_sec = ?6",
+    )
+    .bind(ticket.has_performance_crash || crashKind ? 1 : 0, measuredDurationSec, ticketId, ticket.has_performance_loading, ticket.has_performance_crash, ticket.measured_duration_sec)
+    .run();
+  if (!taken.meta.changes) return false;
+  // The version the frame ran: the live one, or one published earlier that a room still plays.
+  const versionId =
+    report.version_id && report.version_id !== game.live_version_id && (await database.prepare("SELECT 1 FROM versions WHERE id = ? AND game_id = ? AND published_at_ms IS NOT NULL").bind(report.version_id, game.id).first())
+      ? report.version_id
+      : game.live_version_id;
+  const loadingCounts = LOADING_BUCKETS_SEC.map(() => 0).concat(0);
+  if (isFirstReport && report.loading_duration_sec !== null) loadingCounts[bucketOf(LOADING_BUCKETS_SEC, Math.min(report.loading_duration_sec, openDurationSec))]! += 1;
+  const memoryCounts = MEMORY_BUCKETS_BYTES.map(() => 0).concat(0);
+  if (isFirstReport && report.peak_memory_size_bytes > 0) memoryCounts[bucketOf(MEMORY_BUCKETS_BYTES, report.peak_memory_size_bytes)]! += 1;
+  const crashCounts = CRASH_KINDS.map((kind) => (kind === crashKind ? 1 : 0));
+  await database
+    .prepare(
+      `INSERT INTO performance_days (game_id, date, version_id, browser_name, os_name, device_kind, graphics_family, play_count, loading_counts, frame_rate_seconds, long_frame_count, measured_duration_sec, error_stop_count, context_lost_count, stopped_responding_count, memory_counts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (game_id, date, version_id, browser_name, os_name, device_kind, graphics_family) DO UPDATE SET
+         play_count = play_count + excluded.play_count, ${addedCounts("loading_counts", loadingCounts.length)}, ${addedCounts("frame_rate_seconds", FRAME_RATE_BUCKETS.length + 1)},
+         long_frame_count = long_frame_count + excluded.long_frame_count, measured_duration_sec = measured_duration_sec + excluded.measured_duration_sec,
+         error_stop_count = error_stop_count + excluded.error_stop_count, context_lost_count = context_lost_count + excluded.context_lost_count,
+         stopped_responding_count = stopped_responding_count + excluded.stopped_responding_count, ${addedCounts("memory_counts", memoryCounts.length)}`,
+    )
+    .bind(
+      game.id,
+      today(nowMs),
+      versionId,
+      browserOf(userAgent),
+      osOf(userAgent),
+      report.device_kind,
+      report.graphics_family,
+      isFirstReport ? 1 : 0,
+      JSON.stringify(loadingCounts),
+      JSON.stringify(countsWithin(report.frame_rate_seconds, measuredDurationSec)),
+      longFrameCount,
+      measuredDurationSec,
+      ...crashCounts,
+      JSON.stringify(memoryCounts),
+    )
+    .run();
+  return true;
+}
+
+/** A JSON array of counts added to the new row's, bucket by bucket, in one statement, so reports at once never lose counts. */
+const addedCounts = (column: string, bucketCount: number) =>
+  `${column} = json_array(${Array.from({ length: bucketCount }, (_, i) => `COALESCE(json_extract(${column}, '$[${i}]'), 0) + COALESCE(json_extract(excluded.${column}, '$[${i}]'), 0)`).join(", ")})`;
+
+/** The developer API's performance (PLAYER_PERFORMANCE in schemas.ts). */
+export interface PlayerPerformance {
+  version_totals: ({ version_id: string } & PlayerPerformanceRow)[];
+  device_totals: ({ version_id: string; browser_name: string; os_name: string; device_kind: string; graphics_family: string } & PlayerPerformanceRow)[];
+}
+
+/**
+ * How a game ran for its players over the last `periodDurationDays` days: each version, then the newest version by
+ * device group, with groups under 20 plays folded into one other row.
+ */
+export async function playerPerformance(database: D1Database, gameId: string, periodDurationDays: number, nowMs = Date.now()): Promise<PlayerPerformance> {
+  const { results } = await database
+    .prepare(
+      "SELECT performance_days.*, versions.created_at_ms AS version_created_at_ms FROM performance_days LEFT JOIN versions ON versions.id = performance_days.version_id WHERE performance_days.game_id = ? AND performance_days.date >= ?",
+    )
+    .bind(gameId, today(nowMs - (periodDurationDays - 1) * DAY_MS))
+    .all<Record<string, unknown> & { version_created_at_ms: number | null }>();
+  const readCounts = (text: unknown) => {
+    try {
+      const counts = JSON.parse(String(text));
+      return Array.isArray(counts) ? counts.map((bucketCount) => Number(bucketCount) || 0) : [];
+    } catch {
+      return [];
+    }
+  };
+  const days = results.map((row) => ({
+    ...(row as unknown as PerformanceDay),
+    loading_counts: readCounts(row.loading_counts),
+    frame_rate_seconds: readCounts(row.frame_rate_seconds),
+    memory_counts: readCounts(row.memory_counts),
+    versionCreatedAtMs: row.version_created_at_ms ?? 0,
+  }));
+  const versionIds = [...new Set(days.sort((first, second) => second.versionCreatedAtMs - first.versionCreatedAtMs).map((day) => day.version_id))];
+  const newestDays = days.filter((day) => day.version_id === versionIds[0]);
+  const groups = new Map<string, typeof newestDays>();
+  for (const day of newestDays) {
+    const key = [day.browser_name, day.os_name, day.device_kind, day.graphics_family].join(" ");
+    groups.set(key, [...(groups.get(key) ?? []), day]);
+  }
+  const byDevice: PlayerPerformance["device_totals"] = [];
+  const foldedDays: PerformanceDay[] = [];
+  for (const groupDays of groups.values()) {
+    const row = playerPerformanceRow(groupDays);
+    if (row.play_count < PLAYER_PERFORMANCE_LIMITS.minimumGroupPlayCount) foldedDays.push(...groupDays);
+    else byDevice.push({ version_id: versionIds[0]!, browser_name: groupDays[0]!.browser_name, os_name: groupDays[0]!.os_name, device_kind: groupDays[0]!.device_kind, graphics_family: groupDays[0]!.graphics_family, ...row });
+  }
+  byDevice.sort((first, second) => second.play_count - first.play_count);
+  if (foldedDays.length) byDevice.push({ version_id: versionIds[0]!, browser_name: "other", os_name: "other", device_kind: "other", graphics_family: "other", ...playerPerformanceRow(foldedDays) });
+  return {
+    version_totals: versionIds.map((versionId) => ({ version_id: versionId, ...playerPerformanceRow(days.filter((day) => day.version_id === versionId)) })),
+    device_totals: byDevice,
+  };
+}
+
+/**
  * The signed-in player's account (null for a guest), with the cookies of a session it refreshed: a game
  * page can sit open longer than a sign-in lasts before the player presses Play.
  */
@@ -459,14 +606,50 @@ const check = () => new Promise((done) => {
 });
 let ticket = null, shown = 0, since = 0, sent = 0, counted = false;
 const onScreen = () => shown + (since ? Date.now() - since : 0);
+// How the game runs, from the game frame's _zaisma/performance.js: added up here and sent with the time reports, so it rides
+// the checked ticket. Only once the frame says it's settled (it drew, crashed or gave up waiting), so the first report has the load time.
+const newMeasured = () => ({ device_kind: mine, version_id: null, graphics_family: null, loading_duration_sec: null, frame_rate_seconds: [], long_frame_count: 0, measured_duration_sec: 0, crash_kind_counts: {}, peak_memory_size_bytes: 0 });
+let measured = null, isSettled = false, aliveAt = 0, hasStoppedResponding = false;
+const amount = (v) => (typeof v === "number" && isFinite(v) && v > 0 ? v : 0);
+addEventListener("message", (e) => {
+  if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow || !e.data) return;
+  const d = e.data;
+  if (d.type === "zaisma:alive") aliveAt = Date.now();
+  if (d.type !== "zaisma:performance") return;
+  aliveAt = Date.now();
+  measured = measured || newMeasured();
+  if (typeof d.version_id === "string") measured.version_id = d.version_id;
+  if (typeof d.graphics_family === "string") measured.graphics_family = d.graphics_family;
+  if (measured.loading_duration_sec === null && typeof d.loading_duration_sec === "number") measured.loading_duration_sec = d.loading_duration_sec;
+  if (Array.isArray(d.frame_rate_seconds)) measured.frame_rate_seconds = d.frame_rate_seconds.slice(0, 16).map((seconds, i) => (measured.frame_rate_seconds[i] || 0) + amount(seconds));
+  measured.long_frame_count += amount(d.long_frame_count);
+  measured.measured_duration_sec += amount(d.measured_duration_sec);
+  for (const kind of ["error_stop", "context_lost"]) if (d.crash_kind_counts && amount(d.crash_kind_counts[kind])) measured.crash_kind_counts[kind] = 1;
+  measured.peak_memory_size_bytes = Math.max(measured.peak_memory_size_bytes, amount(d.peak_memory_size_bytes));
+  if (d.is_settled === true) isSettled = true;
+});
+// What's been measured since the last report, or nothing; load time, memory and what the frame is stay for the next.
+const measuredReport = () => {
+  if (!measured || !isSettled) return {};
+  const report = measured;
+  measured = { ...newMeasured(), version_id: report.version_id, graphics_family: report.graphics_family, loading_duration_sec: report.loading_duration_sec, peak_memory_size_bytes: report.peak_memory_size_bytes };
+  return JSON.stringify(report).length <= ${PLAYER_PERFORMANCE_LIMITS.maximumReportSizeBytes} ? { performance: report } : {};
+};
 // Every report says whether the tab is hidden, so "playing now" leaves a game the moment its player does.
 const flush = (away) => {
   if (since) { shown += Date.now() - since; since = document.hidden ? 0 : Date.now(); }
   if (!ticket) return;
   const seconds = Math.floor((shown - sent) / 1000);
-  if (seconds >= 1 || away) { beacon({ ticket, seconds: Math.max(seconds, 0), is_away: Boolean(away) }); sent += Math.max(seconds, 0) * 1000; }
+  if (seconds >= 1 || away) { beacon({ ticket, seconds: Math.max(seconds, 0), is_away: Boolean(away), ...measuredReport() }); sent += Math.max(seconds, 0) * 1000; }
 };
 const tick = () => {
+  // The game frame stopped answering while on screen: frozen or crashed. Once a play.
+  if (frame && aliveAt && !document.hidden && !hasStoppedResponding && Date.now() - aliveAt >= ${PLAYER_PERFORMANCE_LIMITS.stoppedRespondingAfterSec * 1000}) {
+    hasStoppedResponding = true;
+    measured = measured || newMeasured();
+    measured.crash_kind_counts.stopped_responding = 1;
+    isSettled = true;
+  }
   if (ticket && !counted && onScreen() >= 60000) {
     counted = true;
     flush(document.hidden);
@@ -483,7 +666,7 @@ return () => {
   since = document.hidden ? 0 : Date.now();
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) flush(true);
-    else { since = Date.now(); if (ticket) post({ ticket, seconds: 0, is_away: false }); }
+    else { since = Date.now(); if (aliveAt) aliveAt = Date.now(); if (ticket) post({ ticket, seconds: 0, is_away: false }); }
   });
   addEventListener("pagehide", () => flush(true));
   setInterval(tick, 5000);

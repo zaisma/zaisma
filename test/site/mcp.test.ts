@@ -194,6 +194,37 @@ describe("publishing a game through the MCP", () => {
     expect((await tool("update_game", { slug: "quiet-rooms", friend_joins_enabled: false })).game.friend_joins_enabled).toBe(false);
   });
 
+  it("says how the game runs on players' devices, folding small device groups into other, and turns measuring off", async () => {
+    await tool("create_game", { title: "Hop" });
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    const today = new Date().toISOString().slice(0, 10);
+    await env.DB.exec("DELETE FROM performance_days;");
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('version_old', ?, 'p', 1, 0, 'approved', 1), ('version_new', ?, 'p', 1, 0, 'approved', 2)").bind(game.id, game.id),
+      ...[
+        ["version_old", "chrome", "windows", "computer", "intel", 30],
+        ["version_new", "chrome", "windows", "computer", "nvidia", 25],
+        ["version_new", "safari", "ios", "phone", "apple", 19],
+        ["version_new", "firefox", "linux", "computer", "amd", 1],
+      ].map(([versionId, browserName, osName, deviceKind, graphicsFamily, playCount]) =>
+        env.DB.prepare(
+          "INSERT INTO performance_days (game_id, date, version_id, browser_name, os_name, device_kind, graphics_family, play_count, loading_counts, frame_rate_seconds, long_frame_count, measured_duration_sec, error_stop_count, memory_counts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[0,0,0,0,0,600,0,0]', 12, 600, 1, '[]')",
+        ).bind(game.id, today, versionId, browserName, osName, deviceKind, graphicsFamily, playCount, JSON.stringify([0, playCount, 0, 0, 0, 0, 0])),
+      ),
+    ]);
+    const { performance } = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(performance.version_totals.map((row: { version_id: string; play_count: number }) => [row.version_id, row.play_count])).toEqual([["version_new", 45], ["version_old", 30]]);
+    // A group of 19 plays shows only inside other.
+    expect(performance.device_totals).toEqual([
+      expect.objectContaining({ version_id: "version_new", browser_name: "chrome", os_name: "windows", device_kind: "computer", graphics_family: "nvidia", play_count: 25, median_frames_per_sec: 60, long_frames_per_min: 1.2, error_stop_count: 1, context_lost_count: 0, stopped_responding_count: 0, crashed_play_pct: 4, median_peak_memory_size_bytes: null, is_measured: true }),
+      expect.objectContaining({ version_id: "version_new", browser_name: "other", os_name: "other", device_kind: "other", graphics_family: "other", play_count: 20 }),
+    ]);
+    expect(await tool("update_game", { slug: "hop", performance_measuring_enabled: "off" })).toMatchObject({ code: "bad_performance_measuring_enabled", field: "performance_measuring_enabled" });
+    expect((await tool("update_game", { slug: "hop", performance_measuring_enabled: false })).game.performance_measuring_enabled).toBe(false);
+    expect((await tool("get_stats", { slug: "hop" })).performance).toBeNull();
+    await env.DB.exec("DELETE FROM performance_days;");
+  });
+
   /** A screenshot, which a listed game needs: a PNG header is all the image check reads. */
   const addScreenshot = async (slug: string) => {
     const bytes = new Uint8Array(64);
