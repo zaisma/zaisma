@@ -130,7 +130,7 @@ jobs:
       - run: npm run preview:start -- --reset --engines-only
       - run: npm run engines:play
       - if: failure()
-        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log .wrangler/preview/games.log || true
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
   # The measuring check (npm run layout:check): every page in headless Chrome at 320 x 667 and 1440 x 900, light and dark,
   # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts).
@@ -154,7 +154,7 @@ jobs:
         env:
           LAYOUT_CHECK: "1"
       - if: failure()
-        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log || true
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
   docs-tests:
     name: Docs tests
