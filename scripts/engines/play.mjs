@@ -13,12 +13,15 @@
 // sample says it started by setting window.zaismaEngineSample = { engine, version, started: true }.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { availableParallelism, homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
+// Samples played at once, each in a window of its own (tabs that share one aren't drawn): one fewer than the cores, at most 3,
+// so the preview keeps a core and each game's software WebGL gets one.
+const PLAYING_AT_ONCE_COUNT = Math.max(1, Math.min(3, availableParallelism() - 1));
 // The first Chrome with Document-Isolation-Policy, which games need for threads.
 const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
@@ -55,10 +58,16 @@ for (const engine of engines) {
 
 const chrome = await openChrome();
 try {
-  for (const sample of samples.filter((candidate) => engines.includes(candidate.engine) && candidate.scan_status === "approved")) {
-    console.log(`${sample.engine}: ${site}/g/${sample.slug}?play`);
-    await play(chrome, sample);
-  }
+  const toPlay = samples.filter((candidate) => engines.includes(candidate.engine) && candidate.scan_status === "approved");
+  let nextIndex = 0;
+  const playNext = async () => {
+    while (nextIndex < toPlay.length) {
+      const sample = toPlay[nextIndex++];
+      console.log(`${sample.engine}: ${site}/g/${sample.slug}?play`);
+      await play(chrome, sample);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PLAYING_AT_ONCE_COUNT, toPlay.length) }, playNext));
 } finally {
   await chrome.close();
 }
@@ -67,7 +76,7 @@ console.log(`ENGINES PASS: ${engines.join(", ")} uploaded, passed the scan and p
 
 /** Opens the sample's game page in a fresh tab and checks the engine starts, draws, and throws and is refused nothing. */
 async function play(chrome, sample) {
-  const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
+  const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", newWindow: true });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
   // Every frame's scripts, by "<session> <context id>": the game's frame has its own process and DevTools
@@ -174,7 +183,7 @@ async function openChrome() {
   ].find((candidate) => candidate && existsSync(candidate));
   if (!path) stop("No Chrome found: set CHROME_PATH to a Chrome or Chromium.");
   const profile = mkdtempSync(join(tmpdir(), "zaisma-engines-"));
-  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const address = await new Promise((resolve, reject) => {
     let output = "";
     child.stderr.on("data", (chunk) => {
