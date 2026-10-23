@@ -13,6 +13,8 @@ async function files(sizes: Record<string, number>): Promise<Manifest> {
   );
   return { files: Object.fromEntries(entries) };
 }
+/** A manifest of these paths with nothing stored: for checks that refuse on the manifest alone, before storage is asked. */
+const manifestOnly = (paths: string[]): Manifest => ({ files: Object.fromEntries(paths.map((path, i) => [path, { sha256: String(i).padStart(64, "0") }])) });
 const v = { kind: "files" as const, r2_prefix: "" };
 
 describe("a game's own game server in its upload", () => {
@@ -24,10 +26,13 @@ describe("a game's own game server in its upload", () => {
     expect(await serverModules(env.GAMES, v, await files({ "index.html": 9, "server/index.js": 5 }))).toBeNull();
   });
 
-  it("is refused over 5 MB or 500 files", async () => {
+  it("is refused over 5 MB", async () => {
     expect(await serverModules(env.GAMES, v, await files({ "zaisma-server/index.js": 3_000_000, "zaisma-server/physics.wasm": 3_000_000 }))).toEqual({ error: "A game server can be up to 5 MB." });
-    const many = Object.fromEntries([["zaisma-server/index.js", 1], ...Array.from({ length: 500 }, (_, i) => [`zaisma-server/f${i}.js`, 1])]);
-    expect(await serverModules(env.GAMES, v, await files(many))).toEqual({ error: "A game server can have up to 500 files." });
+  });
+
+  it("is refused over 500 files, counted from the manifest", async () => {
+    const many = manifestOnly(["zaisma-server/index.js", ...Array.from({ length: 500 }, (_, i) => `zaisma-server/f${i}.js`)]);
+    expect(await serverModules(env.GAMES, v, many)).toEqual({ error: "A game server can have up to 500 files." });
   });
 
   it("is never served to players, whichever way it's laid out", () => {

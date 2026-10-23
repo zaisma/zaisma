@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CODES, addImage, KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, brotliKeyOf, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
@@ -6,6 +6,7 @@ import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { adminForm } from "../../apps/site/src/admin.ts";
 import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 import { letPublish } from "../helpers.ts";
+import worker from "../../apps/site/src/index.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
@@ -82,7 +83,13 @@ describe("file-by-file uploads", () => {
     const real = await sha256Hex(enc("hello"));
     const wrong = await api(`/files/${real}`, { method: "PUT", raw: enc("not hello") });
     expect(wrong.status).toBe(400);
+    expect(((await wrong.json()) as { error: { code: string } }).error.code).toBe("hash_mismatch");
     expect(await env.GAMES.head(blobKey(real))).toBeNull();
+    // Storage failing isn't the file's fault: never hash_mismatch.
+    const broken = { ...env, GAMES: { ...env.GAMES, put: async () => { throw new Error("put: We encountered an internal error. Please try again. (10001)"); } } as unknown as R2Bucket };
+    const failed = await worker.fetch(new Request(`${SITE}/api/dev/files/${real}`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-length": "5" }, body: enc("hello") }), broken, createExecutionContext());
+    expect(failed.status).toBe(500);
+    expect(((await failed.json()) as { error: { code: string } }).error.code).toBe("internal_error");
 
     const exe = new Uint8Array([0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0xff, 0xff, 0, 0]);
     const res = await api(`/files/${await sha256Hex(exe)}`, { method: "PUT", raw: exe });

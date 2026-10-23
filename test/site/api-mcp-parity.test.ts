@@ -1,7 +1,7 @@
-import { env, SELF } from "cloudflare:test";
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { createAccount, createApiKey } from "@zaisma/core";
-import { API_ROUTES, apiRoutesAt } from "../../apps/site/src/developer.ts";
+import { ApiError, createAccount } from "@zaisma/core";
+import { API_ROUTES, apiRoutesAt, callerFor, route } from "../../apps/site/src/developer.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 
 /**
@@ -104,20 +104,20 @@ describe("the developer API and the MCP", async () => {
 
   it("the router answers every call in API_ROUTES", async () => {
     // Placeholders are made up, so most calls say no; never with "no such call" or "wrong method".
+    // The router itself, in this Worker: through SELF, each of the 100-odd calls would be a round trip through the test runner.
     await createAccount(env.DB, { id: "parity-dev", username: "Parity_Dev", ageBand: "18+" });
-    const { token } = await createApiKey(env.DB, "parity-dev", "parity");
+    const caller = { ...(await callerFor(env, new Request("https://zaisma.test/api/dev"), "parity-dev"))!, via: "api" as const };
     const unanswered: string[] = [];
     for (const apiRoute of API_ROUTES) {
       const path = apiRoute.path.replace(/:[a-z0-9_]+/g, (name) => (name === ":sha256" ? "0".repeat(64) : name === ":part_number" ? "1" : "parity-test"));
-      const response = await SELF.fetch(`https://zaisma.test/api/dev${path}`, {
-        method: apiRoute.method,
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: apiRoute.method === "GET" ? undefined : "{}",
-      });
-      const error = response.ok ? null : ((await response.json().catch(() => ({}))) as { error?: { code: string; message: string } }).error;
+      const request = new Request(`https://zaisma.test/api/dev${path}`, { method: apiRoute.method, headers: { "content-type": "application/json" }, body: apiRoute.method === "GET" ? undefined : "{}" });
+      const error = await route(request, env, path, caller).then(
+        () => null,
+        (thrown: unknown) => (thrown instanceof ApiError ? thrown.toAnswer().error : null),
+      );
       if (error?.code === "bad_method" || error?.message.startsWith("There's no API call")) unanswered.push(`${nameOf(apiRoute)} (${error.message})`);
     }
-    await env.DB.exec("DELETE FROM api_keys WHERE account_id = 'parity-dev'; DELETE FROM owners WHERE account_id = 'parity-dev'; DELETE FROM accounts WHERE id = 'parity-dev';");
+    await env.DB.exec("DELETE FROM owners WHERE account_id = 'parity-dev'; DELETE FROM accounts WHERE id = 'parity-dev';");
     expect(unanswered, `API_ROUTES lists calls the router doesn't answer: ${unanswered.join("; ")}. Handle them in route() or take them out.`).toEqual([]);
   });
 

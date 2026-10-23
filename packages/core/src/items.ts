@@ -32,7 +32,7 @@ export const PURCHASE_STATUSES = ["pending", "completed", "failed", "refunded", 
 export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
 
 export const ITEM_LIMITS = {
-  /** A cosmetics-heavy PC game has hundreds of skins; a full pass stays near 40 KB. */
+  /** A cosmetics-heavy PC game has hundreds of skins; a pass owning them all fits REQUEST_LIMITS.maximumPassSizeBytes. */
   maximumItemCount: 1000,
   maximumItemNameCharacterCount: 40,
   maximumTitleCharacterCount: 60,
@@ -93,9 +93,32 @@ export const ZERO_DECIMAL_CURRENCIES: readonly string[] = ["bif", "clp", "djf", 
 /** The currency a player in each country pays in, for the countries whose currency Zaisma prices in (ISO 3166 codes, as Cloudflare's CF-IPCountry gives them). */
 export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   US: "usd",
+  // Places Cloudflare names apart from the United States, and countries that use the US dollar.
+  PR: "usd",
+  GU: "usd",
+  VI: "usd",
+  AS: "usd",
+  MP: "usd",
+  UM: "usd",
+  EC: "usd",
+  SV: "usd",
+  PA: "usd",
+  TL: "usd",
+  FM: "usd",
+  MH: "usd",
+  PW: "usd",
+  BQ: "usd",
+  TC: "usd",
+  VG: "usd",
   AE: "aed",
   AR: "ars",
   AU: "aud",
+  CX: "aud",
+  CC: "aud",
+  NF: "aud",
+  KI: "aud",
+  NR: "aud",
+  TV: "aud",
   BR: "brl",
   CA: "cad",
   CH: "chf",
@@ -103,7 +126,12 @@ export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   CO: "cop",
   CZ: "czk",
   DK: "dkk",
+  FO: "dkk",
+  GL: "dkk",
   GB: "gbp",
+  IM: "gbp",
+  JE: "gbp",
+  GG: "gbp",
   HK: "hkd",
   HU: "huf",
   ID: "idr",
@@ -114,7 +142,12 @@ export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   MX: "mxn",
   MY: "myr",
   NO: "nok",
+  SJ: "nok",
   NZ: "nzd",
+  CK: "nzd",
+  NU: "nzd",
+  PN: "nzd",
+  TK: "nzd",
   PH: "php",
   PL: "pln",
   RO: "ron",
@@ -123,9 +156,10 @@ export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   SG: "sgd",
   TH: "thb",
   ZA: "zar",
-  // The euro area, and the small states that use the euro.
+  // The euro area (Bulgaria since January 1, 2026), the regions of its countries Cloudflare names apart, and the small states that use the euro.
   AT: "eur",
   BE: "eur",
+  BG: "eur",
   HR: "eur",
   CY: "eur",
   EE: "eur",
@@ -144,6 +178,15 @@ export const COUNTRY_CURRENCIES: Readonly<Record<string, string>> = {
   SK: "eur",
   SI: "eur",
   ES: "eur",
+  AX: "eur",
+  GF: "eur",
+  GP: "eur",
+  MQ: "eur",
+  RE: "eur",
+  YT: "eur",
+  PM: "eur",
+  BL: "eur",
+  MF: "eur",
   AD: "eur",
   MC: "eur",
   SM: "eur",
@@ -462,23 +505,24 @@ export async function ownedItemNames(database: D1Database, gameId: string, playe
   return results.map((row) => row.item_name);
 }
 
+/** The completed purchase or grant through which a player owns a permanent item, or null when they don't own it. */
+export async function owningPurchaseOf(database: D1Database, gameId: string, playerId: string, itemName: string): Promise<Purchase | null> {
+  return database
+    .prepare(`SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE game_id = ? AND player_id = ? AND item_name = ? AND item_kind = 'permanent' AND purchase_status = 'completed' ORDER BY created_at_ms LIMIT 1`)
+    .bind(gameId, playerId, itemName)
+    .first<Purchase>();
+}
+
 /**
  * The developer gives a player an item: a purchase with no money, completed at once, with the same receipt.
- * A permanent item the player already owns answers the purchase that owns it, with isAlreadyOwned.
+ * Not recorded yet: its receipt is signed first, so a grant whose receipt can't be signed is never recorded,
+ * and trying again can't give the item twice. recordGrant records it.
  */
-export async function recordGrant(
-  database: D1Database,
+export function newGrant(
   game: { id: string },
   grant: { playerId: string; gameItem: Pick<GameItem, "item_name" | "item_kind">; itemCount: number; gameAccountId: string | null; nowMs: number },
-): Promise<{ purchase: Purchase; isAlreadyOwned: boolean }> {
-  if (grant.gameItem.item_kind === "permanent") {
-    const owning = await database
-      .prepare(`SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE game_id = ? AND player_id = ? AND item_name = ? AND item_kind = 'permanent' AND purchase_status = 'completed' ORDER BY created_at_ms LIMIT 1`)
-      .bind(game.id, grant.playerId, grant.gameItem.item_name)
-      .first<Purchase>();
-    if (owning) return { purchase: owning, isAlreadyOwned: true };
-  }
-  const purchase: Purchase = {
+): Purchase {
+  return {
     id: newId("purchase"),
     game_id: game.id,
     item_name: grant.gameItem.item_name,
@@ -496,11 +540,22 @@ export async function recordGrant(
     purchased_at_ms: grant.nowMs,
     refunded_at_ms: null,
   };
-  await database
-    .prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, 'grant', 'completed', ?, ?)")
-    .bind(purchase.id, game.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.player_id, purchase.game_account_id, grant.nowMs, grant.nowMs)
+}
+
+/**
+ * Records a grant (newGrant). A player owns a permanent item through one completed purchase
+ * (purchases_one_owner), so when they already own it, nothing is recorded and the purchase that owns it
+ * answers, with isAlreadyOwned: of two grants of it at once, the one recorded second finds the first.
+ */
+export async function recordGrant(database: D1Database, grant: Purchase): Promise<{ purchase: Purchase; isAlreadyOwned: boolean }> {
+  const recorded = await database
+    .prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, 'grant', 'completed', ?, ?) ON CONFLICT DO NOTHING")
+    .bind(grant.id, grant.game_id, grant.item_name, grant.item_kind, grant.item_count, grant.player_id, grant.game_account_id, grant.created_at_ms, grant.purchased_at_ms)
     .run();
-  return { purchase, isAlreadyOwned: false };
+  if (recorded.meta.changes > 0) return { purchase: grant, isAlreadyOwned: false };
+  const owning = await owningPurchaseOf(database, grant.game_id, grant.player_id, grant.item_name);
+  if (!owning) throw new Error(`The grant ${grant.id} of ${grant.item_name} wasn't recorded, and no purchase owns it.`);
+  return { purchase: owning, isAlreadyOwned: true };
 }
 
 /** Takes a completed purchase or grant back: refunded (the developer's call) or charged_back (the card's). False when it wasn't completed. */
