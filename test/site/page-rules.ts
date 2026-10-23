@@ -35,8 +35,11 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
 ];
 
-/** The page sheets pages may link: the site's (with Steel for pages not rebuilt yet) and the gallery's, each every component's styles with the shell's or the gallery's. */
-export const PAGE_SHEETS = ["site", "site-steel", "design"];
+/** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */
+export const PAGE_SHEETS = ["site", "design"];
+
+/** The sheets only Steel pages link, until they're rebuilt: the site's with Steel, and a few pages' own Steel styles. A rebuilt page links none. */
+export const STEEL_PAGE_SHEETS = ["site-steel", "dashboard", "forum", "profile"];
 
 const styledBy = (css: string, name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(css);
 
