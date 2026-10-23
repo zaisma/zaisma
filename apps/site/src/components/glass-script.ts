@@ -298,8 +298,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
-    // Never more than a quarter of its short side, as on no pane: a small box near a corner (a check's box) keeps its shape.
-    var most = Math.min(w, h) * 0.25;
+    // A small box near a corner (a check's box) keeps its shape: never more than a quarter of its short side, as on no pane. A thin bar (a
+    // scrollbar along a pane's foot) follows the corner across its whole height instead.
+    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.25 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
       return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
@@ -335,7 +336,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The outline, clockwise from the top left.
   function controlShape(w, h, slant, cuts, beside) {
     // Always two points a corner, the same one twice where it's square or slanted, so any two shapes blend point for point (a glide).
-    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h / 2); });
+    // A corner's cut takes at most its side's height, shared with the corner above or below it when both are cut.
+    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
+    [[0, 3], [1, 2]].forEach(function (pair) { var sum = c[pair[0]] + c[pair[1]]; if (sum > h) { c[pair[0]] *= h / sum; c[pair[1]] *= h / sum; } });
     var corner = function (cut, a, b, sharp) { return cut > 0.5 ? [a, b] : [sharp, sharp]; };
     return [].concat(
       beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
@@ -345,7 +348,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
-    el.cutCorners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h / 2); });
+    var corners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h); });
+    [[0, 3], [1, 2]].forEach(function (pair) { var sum = corners[pair[0]] + corners[pair[1]]; if (sum > h) { corners[pair[0]] *= h / sum; corners[pair[1]] *= h / sum; } });
+    el.cutCorners = corners;
     // Which ends slant, for CSS (data-slanted): an icon alone in a control centers in what shows of it, clear of a slant. Not for a glide's step.
     if (!as) { var slanted = ((beside.start ? "start " : "") + (beside.end ? "end" : "")).trim(); if ((el.getAttribute("data-slanted") || "") !== slanted) { if (slanted) el.setAttribute("data-slanted", slanted); else el.removeAttribute("data-slanted"); } }
     // A control's own parts (a switch's slab, data-cut-beside) keep their own slant; controls beside each other share --control-slant.

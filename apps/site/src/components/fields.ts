@@ -164,6 +164,20 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     show.querySelector(".face > span:not(.loader)").textContent = on ? "Hide" : "Show";
     show.setAttribute("aria-pressed", String(on));
   });
+  // Words in a field fade out at an end with more of them past it, never cut off hard there: as they're typed, the caret moves or the
+  // field scrolls, and when it's resized.
+  var TEXT = ".field > input:not([type='hidden']), .find > input[type='search']";
+  function fadeText(input) {
+    var holder = input.parentElement, morePx = input.scrollWidth - input.clientWidth;
+    holder.classList.toggle("more-left", morePx > 1 && input.scrollLeft > 1);
+    holder.classList.toggle("more-right", morePx > 1 && input.scrollLeft < morePx - 1);
+  }
+  function later(input) { requestAnimationFrame(function () { fadeText(input); }); }
+  ["input", "focusin", "focusout", "keyup", "click", "scroll"].forEach(function (type) {
+    document.addEventListener(type, function (event) { if (event.target.matches && event.target.matches(TEXT)) later(event.target); }, true);
+  });
+  document.addEventListener("selectionchange", function () { var input = document.activeElement; if (input && input.matches && input.matches(TEXT)) later(input); });
+  window.zaismaWatch.each(TEXT, function (input) { fadeText(input); window.zaismaWatch.size(input, function () { fadeText(input); }); });
 })();
 `;
 
@@ -418,12 +432,23 @@ const FIELD_STYLES = `
 /* Its words (label, error, hint) keep a pane's margin, --pad-words in from its box, which sits at the frame gap. */
 .cut-field > label { padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
 .field { --control-height: var(--control-height-field); position: relative; display: flex; align-items: center; height: var(--control-height); color: var(--muted); }
-.field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 calc(var(--pad-inside-words) + 34px);
-  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
-  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: --face-color 0.25s; }
-.field:hover input { --face-color: var(--field-hover); }
-.field input:focus, .field.is-focused input { outline: none; --face-color: var(--field-focus); border: 0; }
+/* Its face is a layer of its own under its words (the field's ::before), so the words can fade out at an end with more of them past it
+   (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
+.field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
+.field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 var(--text-end) 0 var(--text-start);
+  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
+  background: transparent; border: 0; border-radius: 0; clip-path: var(--cut-shape); }
+.field:has(> input)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
+  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.field:has(> input):hover::before { --face-color: var(--field-hover); }
+.field:has(> input:focus)::before, .field.is-focused::before { --face-color: var(--field-focus); }
+.field input:focus, .field.is-focused input { outline: none; border: 0; }
+:is(.field, .find) > input { --fade-start: 0px; --fade-end: 0px; }
+:is(.field, .find).more-left > input { --fade-start: 24px; }
+:is(.field, .find).more-right > input { --fade-end: 24px; }
+:is(.field, .find):is(.more-left, .more-right) > input {
+  -webkit-mask-image: linear-gradient(90deg, transparent var(--text-start), #000 calc(var(--text-start) + var(--fade-start)), #000 calc(100% - var(--text-end) - var(--fade-end)), transparent calc(100% - var(--text-end)));
+  mask-image: linear-gradient(90deg, transparent var(--text-start), #000 calc(var(--text-start) + var(--fade-start)), #000 calc(100% - var(--text-end) - var(--fade-end)), transparent calc(100% - var(--text-end))); }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
@@ -435,20 +460,21 @@ const FIELD_STYLES = `
 .field-error { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
-.field.no-icon input { padding-left: var(--pad-inside-words); }
+.field.no-icon > input { --text-start: var(--pad-inside-words); }
 /* Show/Hide: a small cut button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its words change and its
    width doesn't, so what's typed keeps exactly the room it leaves: the toggle's width and its inset on each side. */
 .field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
 .field.with-toggle { --toggle-width: 62px; }
 .field.with-toggle > .cut-btn > .face { width: var(--toggle-width); padding: 0; }
-.field.with-toggle input { padding-right: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
+.field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
 .field > .cut-btn { position: absolute; z-index: 5; right: var(--toggle-inset); top: var(--toggle-inset); }
 /* Read-only: nothing to type, so it's carved into the glass like a code field instead of a field's lighter face; it can still be selected,
    copied and focused. */
-.field input[readonly], .field:hover input[readonly], .field input[readonly]:focus { --face-color: var(--well); box-shadow: var(--well-shade); }
+.field:has(> input[readonly])::before { --face-color: var(--well); box-shadow: var(--well-shade); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */
 .field:has(input:disabled) { color: var(--muted); pointer-events: none; }
-.field input:disabled { --face-color: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 1; }
+.field input:disabled { color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 1; }
+.field:has(> input:disabled)::before { --face-color: var(--off-face); box-shadow: var(--well-shade); }
 `;
 
 component({
@@ -489,16 +515,18 @@ component({
    for a finger, so the browser's own clear button is hidden. "/" jumps to it. */
 .find { --control-height: var(--control-height-regular); --search-end-room: 16px; position: relative; display: flex; align-items: center; flex: 1; max-width: 460px; height: var(--control-height); margin: 0; color: var(--muted); }
 .find input[type="search"] {
-  position: relative; z-index: 2; width: 100%; height: 100%; padding: 0 var(--search-end-room) 0 calc(var(--pad-inside-words) + 34px);
-  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
-  --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0;
-  box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape);
-  transition: --face-color 0.25s;
+  --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--search-end-room);
+  position: relative; z-index: 2; width: 100%; height: 100%; padding: 0 var(--text-end) 0 var(--text-start);
+  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
+  background: transparent; border: 0; border-radius: 0; clip-path: var(--cut-shape);
 }
-.find:hover input[type="search"] { --face-color: var(--field-hover); }
+/* Its face is a layer under its words, as a cut field's is, so its words fade at an end with more past it. */
+.find::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
+  box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
+.find:hover::before { --face-color: var(--field-hover); }
 .find input::placeholder { color: var(--muted); }
-.find input:focus, .find.is-focused input { outline: none; --face-color: var(--field-focus); }
+.find input:focus, .find.is-focused input { outline: none; }
+.find:has(> input:focus)::before, .find.is-focused::before { --face-color: var(--field-focus); }
 .find:focus-within, .find.is-focused { color: var(--ink); }
 .find > .cut-line { z-index: 4; }
 .find > .cut-line polygon { stroke: var(--field-outline); }

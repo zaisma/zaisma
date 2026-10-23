@@ -186,7 +186,8 @@ const DROPDOWN_STYLES = `
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dropdown-choice > .tag { margin-left: auto; }
-.dropdown-choice:hover, .dropdown-choice.is-pointed, .dropdown-choice:focus-visible, .dropdown-choice.is-focused { --face-color: var(--ghost); color: var(--ink); }
+/* Pointed at, a choice takes a wash of the words' own color: darker on light glass, lighter on smoked, so it shows on either. */
+.dropdown-choice:hover, .dropdown-choice.is-pointed, .dropdown-choice:focus-visible, .dropdown-choice.is-focused { --face-color: var(--wash); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .dropdown-choice:focus-visible { outline: none; }
 .dropdown-choice:focus-visible > .cut-line polygon, .dropdown-choice.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -663,7 +664,8 @@ component({
 .notice > .ico { width: 20px; height: 20px; }
 .notice.done > .ico { color: var(--online); stroke-width: 2.4; }
 .notice.problem > .ico { color: var(--marked); }
-.notice.problem { padding-right: var(--pad-inner-pane); }
+/* A control at its end (Close, Undo) sits at the inner pane's gap from its end, as at its top and foot, and takes its corners' cut. */
+.notice:is(.problem, :has(> .notice-undo)) { padding-right: var(--pad-inner-pane); }
 .notice-text { min-width: 0; }
 .notice-undo { display: flex; }
 /* Two or more in place, one under another, as floating ones stack. */
@@ -872,20 +874,31 @@ component({
   styles: `
 /* A step flow: a pane whose top is a row of thin cut lines, one per step, each with its name under it. Done steps are filled orange; the one
    you're on fills in orange as you reach it, brightening to a light at its leading end, so it reads as moving on; the ones ahead are faint.
-   The line keeps the pane's margin at its sides, like words, so its ends stay clear of the pane's cut corners, and each name starts where
-   its line does. The step's words and fields come next, then Back and Next. */
-.step-line { list-style: none; margin: 0; padding: 0 var(--pad-words); display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); column-gap: var(--gap-control-row); row-gap: var(--gap-words-control);
+   The line runs from frame gap to frame gap, each step slanting toward the next, and its two outer ends are cut by the pane's corners as
+   anything in a corner is (the corner's cut at the frame gap, from the cut tokens). Each name keeps the margin from its line's start. The
+   step's words and fields come next, then Back and Next. */
+.step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); column-gap: var(--gap-control-row); row-gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px));
   container-type: inline-size; }
-.step-line > li { display: grid; align-content: start; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
-.step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+/* Each name sits under its line at the words' gap, or further down where the pane's margin above it is more. */
+.step-line > li { display: grid; align-content: start; gap: max(var(--gap-words-control), calc(var(--pad-words) - 4px)); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
+.step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  --corner-start: calc(var(--pane-cut-large) - 0.586 * var(--pad-frame)); --corner-end: calc(var(--pane-cut-small) - 0.586 * var(--pad-frame)); }
+.step-line > li:first-child .step-mark { clip-path: polygon(var(--corner-start) 0, 100% 0, calc(100% - 3px) 100%, calc(var(--corner-start) - 4px) 100%); }
+.step-line > li:last-child .step-mark { clip-path: polygon(3px 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, 0 100%); }
+.step-line > li:only-child .step-mark { clip-path: polygon(var(--corner-start) 0, calc(100% - var(--corner-end)) 0, calc(100% - var(--corner-end) + 4px) 100%, calc(var(--corner-start) - 4px) 100%); }
+.step-label { padding-inline-start: var(--pad-words); }
 .step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
+/* The light at the leading end of the step you're on is a layer of its own over the fill, fading in and out, so it moves from line to line
+   smoothly as you go on or back. */
+.step-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, #FFC277 82%, #FFF4E2); opacity: 0; transition: opacity 0.3s ease; }
+.step-line > li:is(.is-current, .is-leaving) .step-fill::after { opacity: 1; }
 .step-line > li.is-done { color: var(--ink-2); }
 .step-line > li.is-done .step-fill { transform: scaleX(1); }
 .step-line > li.is-current { color: var(--ink); }
-.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
+.step-line > li.is-current .step-fill { transform: scaleX(1); transition-delay: 0.1s; }
 @starting-style { .step-line > li.is-current .step-fill { transform: scaleX(0); } }
-/* Going back, a line shrinks away with its light still at its tip, before the step it goes back to takes the light. */
-.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
+/* Going back, a line shrinks away with its light still at its tip, and halfway through the step it goes back to takes the light, fading in. */
+.step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* Narrow (by the line's own width, as on a phone), only the step you're on is named, under the whole line. */
@@ -895,8 +908,9 @@ component({
   .step-line > li > .step-label { display: none; }
   .step-line > li.is-current > .step-label { display: block; grid-row: 2; grid-column: 1; width: 100cqi; }
 }
-/* Going back, the step you return to shows as current at once, its line solid until the line past it has shrunk away. */
-.step-line > li.is-waiting .step-fill { transform: scaleX(1); background: linear-gradient(90deg, #E9820C, var(--run)); transition: none; }
+/* Going back, the step you return to shows as current at once, its line full while the line past it shrinks away, its light fading in. */
+.step-line > li.is-waiting .step-fill { transform: scaleX(1); transition: none; }
+.step-line > li.is-waiting .step-fill::after { transition-delay: 0.2s; }
 @media (prefers-reduced-motion: reduce) { .step-fill { transition: none; } }
 `,
   render: stepFlow,

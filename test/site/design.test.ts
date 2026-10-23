@@ -498,6 +498,9 @@ const HAND_CUT = new Set<string>([
   ".tag", ".cover-bar",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
   ".text-line", ".step-mark",
+  // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
+  // for a bar four pixels tall).
+  ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
   // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
   ".presence-line", ".presence-play",
 ]);
@@ -570,9 +573,10 @@ const NOT_TYPE = new Set<string>([
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
+  ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
   ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
   // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
   '.field input, .find input[type="search"], .bday-field | font-size', ".select-button | font-size",
@@ -627,6 +631,8 @@ const NOT_SPACING = new Set<string>([
   ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child | padding-top", ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child | padding-bottom",
   ".pane-head[data-control-height] > .pane-head-words > :first-child | padding-top",
   ".pane-foot[data-control-height] > .pane-foot-start.is-words > :first-child | padding-top", ".pane-foot[data-control-height] > .pane-foot-start.is-words > :last-child | padding-bottom",
+  // A step's name under its line: the words' gap, or more where the pane's margin over it is more (less the line's own 4px).
+  ".step-line | row-gap", ".step-line > li | gap",
   // A tag's icon and its words: closer than any gap, inside a tag's own small carving.
   ".tag:has(> .ico) | gap",
   // A word of code in a line of reading: its own room round it in the well, smaller than any gap.

@@ -79,7 +79,6 @@ component({
 .slider-input::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; }
 .slider-thumb { position: absolute; z-index: 2; top: 0; left: calc((100% - var(--thumb)) * var(--fill)); width: var(--thumb); height: var(--thumb); pointer-events: none;
   background: linear-gradient(180deg, #fff, #E9EDF3); box-shadow: 0 1px 3px rgba(20,23,28,0.25); clip-path: var(--cut-shape); transition: filter 0.2s; }
-.slider-thumb > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
 .slider:not(.is-disabled):hover .slider-thumb { filter: brightness(1.06); }
 .slider-input:active + .slider-thumb, .slider.is-pressed .slider-thumb { filter: brightness(0.94); box-shadow: var(--press-shade); }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
@@ -87,7 +86,8 @@ component({
 .slider.is-disabled .slider-head > output { color: var(--muted); }
 .slider.is-disabled .slider-fill { background: var(--muted); }
 .slider.is-disabled .slider-line { background: var(--line); }
-.slider.is-disabled .slider-thumb { box-shadow: none; }
+/* Its thumb is dimmed too, faded into the glass, so it plainly can't be dragged. */
+.slider.is-disabled .slider-thumb { box-shadow: none; opacity: 0.45; }
 .slider.is-disabled .slider-thumb > .cut-line polygon { stroke: var(--line); }
 .slider-input:focus-visible + .slider-thumb > .cut-line polygon, .slider.is-focused .slider-thumb > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,

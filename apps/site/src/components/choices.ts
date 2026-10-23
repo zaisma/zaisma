@@ -387,8 +387,7 @@ component({
 ${TOUCH_ROOM(".check")}
 .check-box { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: transparent;
   --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, color 0.2s; }
-/* At rest its outline is drawn (--press-rim), so the box can be found at a glance on any glass; ticked, its orange is its edge. */
-.check-box.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
+/* At rest it's carved into the glass, its edges lit and shaded like every carving; ticked, its orange is its edge. */
 .check-box:has(.check-input:checked) > .cut-line polygon { stroke: transparent; }
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
@@ -516,8 +515,6 @@ component({
 .choice-cards > .choice-card:not(:last-child) { margin-inline-end: max(var(--gap-control-row-boxes), min(0px, (var(--choice-row-least) - 100%) * 999)); }
 .choice-card { position: relative; display: flex; align-items: flex-start; gap: var(--gap-words-words); min-height: 76px; padding: 14px var(--pad-inside-words); cursor: pointer; -webkit-tap-highlight-color: transparent;
   color: var(--muted); --face-color: var(--well); background: var(--face-color); box-shadow: var(--well-shade); clip-path: var(--cut-shape); transition: --face-color 0.2s, box-shadow 0.2s, color 0.2s; }
-/* At rest each card's outline is drawn (--press-rim), so every card can be found at a glance on any glass. */
-.choice-card.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
 .choice-card > :not(.cut-line):not(.choice-input) { position: relative; z-index: 2; }
 .choice-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .choice-card > .ico { flex: none; margin-top: 1px; color: var(--muted); }
@@ -545,10 +542,9 @@ component({
 .choices.is-disabled .choice-card .choice-label, .choices.is-disabled .choice-card > .ico { color: var(--muted); }
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused.cut-carved > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
-   together, their line under their name, with no outline of their own: the well's is drawn (--press-rim), and only the picked one is a slab.
+   together, their line under their name, with no outline of their own: the well is carved, and only the picked one is a slab.
    It scrolls with no fade, so the picked card's orange line always shows in full: its rail and a card cut at its edge say there's more. */
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.choice-list.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 2; }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
 .choice-list-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: 18px; }
@@ -611,8 +607,7 @@ ${TOUCH_ROOM(".toggle")}
 .toggle-label { font: var(--type-words); color: var(--ink); }
 .toggle-hint { font: var(--type-note); color: var(--muted); }
 .toggle-slot { position: relative; flex: none; width: 56px; height: 32px; --face-color: var(--toggle-off); background: var(--face-color); box-shadow: var(--well-shade), inset 0 2px 4px rgba(10,16,28,0.18); clip-path: var(--cut-shape); transition: --face-color 0.3s; }
-/* Off, its outline is drawn (--press-rim), so the slot can be found at a glance on any glass; on, its orange is its edge. */
-.toggle-slot.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
+/* Off, it's carved into the glass, its edges lit and shaded like every carving; on, its orange is its edge. */
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* The slab casts a shadow onto the slot it rests in: the shadow is the holder's, so it follows the slab's cut. */

@@ -118,15 +118,16 @@ component({
    to its edge, so they sit outside it), so nothing hangs into what's below: the marks are part of the picture's footprint. It's as tall as
    the frame and that room, never stretched by a row round it, so the marks stay under the picture. */
 .frame-presence { position: relative; display: inline-flex; flex: none; height: fit-content;
-  --presence-gap: 3px; --presence-line: 3px; --presence-tab-width: 20px; --presence-tab-height: 13px;
+  --presence-gap: 3px; --presence-line: 3px; --presence-tab-width: 22px; --presence-tab-height: 14px;
   padding-bottom: calc(var(--presence-gap) + var(--presence-line)); }
-.frame-presence.xs { --presence-gap: 2px; --presence-line: 2px; --presence-tab-width: 14px; --presence-tab-height: 10px; }
+.frame-presence.xs { --presence-gap: 2px; --presence-line: 2px; --presence-tab-width: 16px; --presence-tab-height: 11px; }
 .frame-presence.lg { --presence-gap: 4px; --presence-line: 4px; --presence-tab-width: 32px; --presence-tab-height: 20px; }
 .presence-line { position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; height: var(--presence-line); background: var(--online);
   clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%); }
 .presence-play { position: absolute; z-index: 5; right: 0; bottom: 0; display: grid; place-items: center; width: var(--presence-tab-width); height: var(--presence-tab-height); color: #fff; background: var(--online);
   box-shadow: 0 1px 3px var(--picture-shadow); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
-.presence-play > .play { width: calc(var(--presence-tab-height) * 0.46); height: calc(var(--presence-tab-height) * 0.54); transform: translateX(0.5px); }
+/* The play mark is small in its tab, with green all round it, so it reads as a mark and not a cut in the tab. */
+.presence-play > .play { width: calc(var(--presence-tab-height) * 0.36); height: calc(var(--presence-tab-height) * 0.42); transform: translateX(0.5px); }
 /* A cut frame (your picture at the header's end) holds its presence inside, along its foot, under its rim. */
 .frame.is-cut > .presence-line { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 3px; clip-path: none; }
 .frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 0; right: auto; bottom: 0; }
@@ -164,6 +165,9 @@ component({
 .picture-row-place + .picture-row-place { margin-left: calc(var(--frame-overlap) * -1); }
 /* Behind the first, a picture's initials (or the +N) center in the part that shows, never under the one in front. */
 .picture-row-place + .picture-row-place .av, .picture-row-place + .picture-row-place > .frame.more { padding-inline-start: var(--frame-overlap); }
+/* A picture behind another shows only its first letter, so its part that shows holds it with room round it, as a whole picture does. */
+.picture-row-place + .picture-row-place .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
+.picture-row-place + .picture-row-place .av::first-letter { font-size: calc(var(--frame) * 0.38); }
 .picture-row.lg { --frame-overlap: 24px; }
 .picture-row.md { --frame-overlap: 12px; }
 .picture-row.sm { --frame-overlap: 9px; }
@@ -502,7 +506,7 @@ export function table(options: TableOptions): Raw {
     ? html`<tr><td class="table-placeholder" colspan="${String(options.columns.length)}"><div class="table-placeholder-in">${options.rowsPlaceholder}</div></td></tr>`
     : options.rows.map((row) => html`<tr>${row.map(cell)}</tr>`);
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll${options.shownRowCount ? " is-capped" : ""}"${cap} data-fades-sideways data-side-rail${options.shownRowCount ? "" : raw(" data-scroll-box")} data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col" class="glass${column.isNumeric ? " num" : ""}${column.isActions ? " actions" : ""}">${column.isActions ? html`<span><span class="sr">${column.label}</span></span>` : column.label}</th>`,
   )}</tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
@@ -541,6 +545,14 @@ component({
 .table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(640px, 75dvh); }
 /* Capped: its rows down to the given count show, half the next peeking in under them. */
 .table-scroll[data-fades-sideways].is-capped { max-height: calc(var(--table-head-height) + (var(--shown-row-count) + 0.5) * var(--table-row-height)); }
+/* A capped table's rows fade out under its head and over its foot while there's more that way (SCROLL_FADE_SCRIPT, from its head's height,
+   --fade-from), as well as at its sides: both masks at once. */
+.table-scroll.is-capped.scroll-fades.is-fading {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+    linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%),
+    linear-gradient(to bottom, #000 var(--fade-from, 0px), transparent var(--fade-from, 0px), #000 calc(var(--fade-from, 0px) + var(--fade-top)), #000 calc(100% - var(--fade-bottom)), transparent);
+  -webkit-mask-composite: source-in; mask-composite: intersect; }
 /* The rows' heads stay put as it scrolls sideways, so it never fades out under them. */
 .table-scroll.more-left:has(> .has-row-heads) { --fade-left: 0px; }
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -749,11 +761,13 @@ export function chart(options: ChartOptions): Raw {
   // The first and last stop at the plot's ends, so nothing reaches past it to make it scroll.
   const hitWidthPct = isBars ? (slotNumber / widthNumber) * 100 : 100 / Math.max(pointCount - 1, 1);
   const hits = points.map((point, pointIndex) => {
-    // Its number opens toward the middle of the chart, so it stays inside it.
-    const place = pointIndex >= pointCount / 2 ? " is-end" : "";
+    // Its number opens toward the middle of the chart, so it stays inside it: a line's from its point, a bar's centered on it but for the
+    // first and last, which line up with their bar's outer edge. Near the top, it opens below the point, so it's never cut off there.
+    const place = isBars ? (pointIndex === 0 ? " is-start" : pointIndex === pointCount - 1 ? " is-end" : " is-middle") : pointIndex >= pointCount / 2 ? " is-end" : "";
+    const height = downNumber(point.amountNumber) / heightNumber < 0.35 ? " is-high" : "";
     const pointed = pointIndex === options.pointedIndex ? " is-pointed" : "";
     const centerPct = (acrossNumber(pointIndex) / widthNumber) * 100, leftPct = Math.max(0, centerPct - hitWidthPct / 2), rightPct = Math.min(100, centerPct + hitWidthPct / 2);
-    return html`<span class="chart-hit${place}${pointed}" style="left:${leftPct.toFixed(2)}%;width:${(rightPct - leftPct).toFixed(2)}%;--point-left:${(((centerPct - leftPct) / Math.max(rightPct - leftPct, 0.01)) * 100).toFixed(2)}%;--point-top:${downPct(point.amountNumber)}%"><span class="chart-dot"></span><span class="chart-tip"><b>${chartWords(point.amountNumber)} ${options.unit}</b><span>${point.label}</span></span></span>`;
+    return html`<span class="chart-hit${place}${height}${pointed}" style="left:${leftPct.toFixed(2)}%;width:${(rightPct - leftPct).toFixed(2)}%;--point-left:${(((centerPct - leftPct) / Math.max(rightPct - leftPct, 0.01)) * 100).toFixed(2)}%;--point-top:${downPct(point.amountNumber)}%"><span class="chart-dot"></span><span class="chart-tip"><b>${chartWords(point.amountNumber)} ${options.unit}</b><span>${point.label}</span></span></span>`;
   });
   // Under the plot, the first and last points' labels: at a line's ends; under a few bars, centered on them (the first only when there's room
   // beside the last); under many, at the bars' outer edges.
@@ -888,6 +902,10 @@ component({
   font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .chart-tip b { font-weight: 600; color: var(--ink); }
 .chart-hit.is-end .chart-tip { transform: translateX(calc(-100% + 12px)); }
+.chart-hit.is-high .chart-tip { bottom: auto; top: calc(var(--point-top) + 12px); }
+.chart-inner.is-bars .chart-hit.is-middle .chart-tip { transform: translateX(-50%); }
+.chart-inner.is-bars .chart-hit.is-start .chart-tip { left: 0; transform: none; }
+.chart-inner.is-bars .chart-hit.is-end .chart-tip { left: auto; right: 0; transform: none; }
 .chart-hit:is(:hover, .is-pointed) :is(.chart-dot, .chart-tip), .chart:focus-visible .chart-hit.is-focused :is(.chart-dot, .chart-tip) { opacity: 1; }
 /* While any point's number shows, the last point's steps aside, so the two never meet. */
 .chart-plot:has(.chart-hit:is(:hover, .is-pointed)) .chart-last-words, .chart:focus-visible .chart-plot:has(.chart-hit.is-focused) .chart-last-words { opacity: 0; }

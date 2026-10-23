@@ -9,8 +9,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   var failures = [];
   var root = getComputedStyle(document.documentElement);
   var slantOverlapPx = Math.abs(parseFloat(root.getPropertyValue("--control-slant")) - parseFloat(root.getPropertyValue("--gap-control-row"))) || 6;
-  // A text button is words alone, whatever outline it draws for focus; a person is framed by their picture; code in reading text by its well.
-  var FRAMED = "[data-cut-line]:not(.text-btn, .text-btn *), [data-glass], .cover, .list-rows, .person, .reading pre";
+  // A person is framed by their picture, and code in reading text by its well.
+  var FRAMED = "[data-cut-line], [data-glass], .cover, .list-rows, .person, .reading pre";
   // Pieces made to lie over each other: a row of pictures, each over the next.
   var OVERLAPPING = ".picture-row";
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
@@ -286,6 +286,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       extendPx = Math.max(extendPx, Math.max(0, -parseFloat(css.top) || 0) + Math.max(0, -parseFloat(css.bottom) || 0) + Math.max(0, (parseFloat(css.height) || 0) - r.height));
     });
     if (r.height + extendPx < 44 - 0.5) report("a touch target under 44px", el, round(r.height + extendPx) + "px tall");
+  });
+  // A box that scrolls up and down scrolls by more than a few pixels: one that scrolls by a sliver (a row of covers made a little taller by
+  // what lifts in it) only bounces under a finger.
+  document.querySelectorAll("body *").forEach(function (box) {
+    var css = getComputedStyle(box), extraPx = box.scrollHeight - box.clientHeight;
+    if (/^(auto|scroll)$/.test(css.overflowY) && extraPx > 1 && extraPx < 12 && isShown(box)) report("a box that scrolls up and down by a sliver", box, round(extraPx) + "px to scroll");
   });
   // Nothing empty takes a place in a stack: a thing with no height still gets a gap on each side.
   document.querySelectorAll(".pane-in, .sheet-in, .tray, form, .layout-stack, .pane-stack, .stack-cell").forEach(function (holder) {

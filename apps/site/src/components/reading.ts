@@ -233,6 +233,7 @@ component({
 /* A folded part: its title a pressable line of words with a chevron that turns as it opens, and its count's Tag; what's in it under the title,
    a block's gap below. The title keeps the pane's margin like words, and is a control's height to press. */
 .folded { min-width: 0; }
+/* It's words, keeping the pane's margin at its edges (layout.ts's edge words), and a control's height to press. */
 .folded-head { display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--control-height-regular); padding-inline: var(--pad-words); cursor: pointer; list-style: none;
   font: var(--type-label); color: var(--ink-2); transition: color 0.15s; -webkit-tap-highlight-color: transparent; }
 .folded-head::-webkit-details-marker { display: none; }

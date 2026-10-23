@@ -123,23 +123,17 @@ const HEADER_STYLES = `
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
 }
-/* Compact, once the page scrolls: its controls are small ones, and it's as tall as they are inside its inset. */
-.top.is-compact { height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); top: 8px; }
+/* Compact, once the page scrolls: it rises and its inset above and below its controls closes to the frame gap. Its controls keep their size,
+   so only the slab moves and changes height: nothing in it is laid out again or redrawn as it slims, and it stays smooth. */
+.top.is-compact { height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); top: var(--pad-frame); }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .find, .top .find input, .top .run { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
-/* Your picture is glass, so its changes start with the glass's. */
-.top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
-.top.is-compact .nav { --switch-height: var(--control-height-small); }
-.top.is-compact :is(.find, .run, .end > .cut-btn) { --control-height: var(--control-height-small); }
-.top.is-compact .run { font-size: 15px; }
-.top.is-compact .me { --frame: var(--control-height-small); }
+.top .find, .top .find input { transition: width 0.45s cubic-bezier(.2,.8,.2,1); }
 
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
 .top > .logo { margin-right: var(--gap-block-block); }
 /* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
 .top .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
-.top.is-compact .logo { --logo-height: 23px; }
 
 /* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
@@ -303,7 +297,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   // phones too, whose own sideways scrollbars hide.
   document.querySelectorAll("[data-side-rail]").forEach(function (box) {
     if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
-    box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+    // Cut by the edge rule like anything near a pane's corner, so along a pane's foot its ends follow the corners.
+    box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" data-cut-line="0" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
@@ -466,6 +461,9 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function sync(box) {
     var top = Math.min(FADE_PX, box.scrollTop), bottom = Math.min(FADE_PX, box.scrollHeight - box.clientHeight - box.scrollTop);
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
+    var head = box.querySelector(":scope > table > thead");
+    if (head) box.style.setProperty("--fade-from", head.offsetHeight + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", box.scrollHeight > box.clientHeight + 1);
     held(box);
@@ -501,10 +499,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       });
     }
     // More that way is something shown running past that edge.
+    // Or words running on past it inside one block (a line of text that doesn't wrap): the row's own scroll says so.
     function shownSpan() {
       var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity;
       shown().forEach(function (el) { var r = el.getBoundingClientRect(); left = Math.min(left, r.left); right = Math.max(right, r.right); });
-      return left === Infinity ? { before: 0, after: 0 } : { before: box.left - left, after: right - box.right };
+      var scrolledBefore = row.scrollLeft, scrolledAfter = row.scrollWidth - row.clientWidth - row.scrollLeft;
+      return left === Infinity ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(box.left - left, scrolledBefore), after: Math.max(right - box.right, scrolledAfter) };
     }
     function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
@@ -705,7 +705,7 @@ component({
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* Sideways (a table, a chart): the same rail laid on its side, under the box. */
-.rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; }
+.rail.sideways { position: relative; inset: auto; width: auto; height: 14px; user-select: none; -webkit-user-select: none; clip-path: var(--cut-shape); }
 .rail.sideways .rail-line { background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
 .rail.sideways .rail-thumb { top: 4px; left: 0; width: auto; height: 5px; box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18); transition: var(--glass-transition), top 0.2s, height 0.2s; }
 .rail.sideways:hover .rail-thumb, .rail.sideways.dragging .rail-thumb { top: 2px; left: 0; width: auto; height: 9px; }

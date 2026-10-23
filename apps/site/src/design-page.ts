@@ -227,7 +227,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .dropdown-frame { height: 420px; }
   .dropdown-frame > .cut-btn { right: 8px; }
   /* The stand-in rows scroll sideways, as the home's do on a phone. */
-  .stand-in-row { display: flex; overflow-x: auto; scrollbar-width: none; }
+  /* A row of covers scrolls only sideways: never up and down, so it never bounces under a finger. */
+  .stand-in-row { display: flex; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
   .stand-in-row::-webkit-scrollbar { display: none; }
   .stand-in-row > .cover { flex: 0 0 64vw; }
   .stand-in-page { padding-top: 140px; }

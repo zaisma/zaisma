@@ -246,8 +246,8 @@ const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, inp
  * Components whose own words sit at their top (a field's label, a table's caption) or their foot (a field's hint), as [the component,
  * its words, or nothing when its words are all of it]: at a pane's edge, those words keep its margin.
  */
-const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".numbers", ""]];
-const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".numbers", ""]];
+const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""]];
+const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""]];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
