@@ -15,7 +15,7 @@ const SHORT = new Set(
 /** Words that say nothing on their own (rule 3); fine with a subject, like joinData. */
 const VAGUE = new Set(["data", "info", "value", "result", "context", "time", "size", "length", "rate", "count", "at", "since", "max", "min", "t", "item", "thing", "stuff"]);
 /** How a number's name ends: a count, a unit, an index or a number (docs/NAMING.md). */
-const NUMBER_ENDINGS = new Set(["count", "ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct", "cents", "index", "number", "code", "byte"]);
+const NUMBER_ENDINGS = new Set(["count", "ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct", "cents", "index", "number", "code", "byte", "level"]);
 const UNITS = new Set(["ms", "sec", "min", "hour", "day"]);
 /** Platform names kept as the platform spells them. */
 const PLATFORM = new Set(["env", "ctx"]);
@@ -151,7 +151,7 @@ export function sourceProblems(root: string): Problem[] {
       const text = name.text;
       for (const problem of wordProblems(text)) report(text, problem);
       if (/_/.test(text) && /[a-z]/.test(text) && text !== "_") report(text, "variables and functions are camelCase");
-      if (isNumber(name) && !isNumberShaped(text)) report(text, "a number's name ends in Count, a unit, Index or Number");
+      if (isNumber(name) && !isNumberShaped(text)) report(text, "a number's name ends in Count, a unit, Index, Level or Number");
     };
     const visit = (node: ts.Node): void => {
       if (ts.isImportDeclaration(node)) return;
@@ -177,7 +177,7 @@ export function sourceProblems(root: string): Problem[] {
             const name = (field.name as ts.Identifier | ts.StringLiteral).text;
             if (/[^A-Za-z0-9_]/.test(name) || STANDARD_FIELDS.has(name) || (isMessage && name === "data") || keptAsTheyAre.includes(name)) continue;
             for (const problem of wordProblems(name)) report(name, problem);
-            if (field.type && isNumber(field.name) && !isNumberShaped(name)) report(name, "a number's name ends in a count, a unit, index or number");
+            if (field.type && isNumber(field.name) && !isNumberShaped(name)) report(name, "a number's name ends in a count, a unit, index, level or number");
             if (field.type && isBoolean(field.name) && !isBooleanShaped(name)) report(name, "a yes/no field starts with is, has or can, or ends in enabled");
           }
         }

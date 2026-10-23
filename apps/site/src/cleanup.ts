@@ -1,4 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
+import { deleteOldShaderChecks } from "./shader-check.ts";
 import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
@@ -157,6 +158,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await env.DB.prepare("DELETE FROM checked_files WHERE checked_at_ms <= ?").bind(nowMs - CHECKED_FILE_KEPT_DURATION_DAYS * DAY_MS).run();
   // VirusTotal's answers past their week: looked up again when the file next comes up (scan.ts, virusTotal).
   await env.DB.prepare("DELETE FROM antivirus_lookups WHERE looked_up_at_ms <= ?").bind(nowMs - ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS * DAY_MS).run();
+  // Shader checks before sending: their sheets keep a day, and so do their counts (shader-check.ts).
+  await deleteOldShaderChecks(env, nowMs);
   // Images uploaded for a forum post that was never posted.
   const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };

@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -54,6 +54,34 @@ const slug = { type: "string", description: "The game's link name, as in zaisma.
 /** An ID input: its kind is in its value, like version_8f3k2m9q1x7c4v6b0n5z (docs/NAMING.md, IDs). */
 const idInput = (kind: IdKind, description: string) => ({ type: "string", pattern: `^${kind}_[a-z0-9]+$`, description, examples: [`${kind}_8f3k2m9q1x7c4v6b0n5z`] });
 const versionId = idInput("version", "A version's id from get_game or upload_files");
+/** One of a shader pass's channels, for add_shader and check_shader. */
+const SHADER_CHANNEL_INPUT = {
+  type: "object",
+  properties: {
+    channel_index: { type: "integer", minimum: 0, maximum: 3, description: "0 to 3: the pass reads it as iChannel0 to iChannel3" },
+    input_kind: { enum: ["buffer", "texture"], description: "buffer: one of this shader's buffers (buffer_name), its picture from this frame if it's drawn before this pass, else its last frame (its own last frame for itself). texture: one of the game's approved shader textures (image_id)" },
+    buffer_name: { enum: ["a", "b", "c", "d"], description: "With input_kind buffer: which buffer" },
+    image_id: idInput("image", "With input_kind texture: an approved shader_texture's id from add_image or get_game"),
+    filter: { enum: ["linear", "nearest"], description: "linear (the default): smooth, a texture's with mipmaps. nearest: each texel as it is, for data" },
+    wrap: { enum: ["clamp", "repeat"], description: "Past the edge: clamp, the edge goes on (a buffer's default), or repeat, it tiles (a texture's default)" },
+  },
+  required: ["channel_index", "input_kind"],
+  additionalProperties: false,
+};
+const SHADER_CHANNELS_INPUT = { type: "array", maxItems: 4, items: SHADER_CHANNEL_INPUT, description: "What its iChannel0 to iChannel3 read, each channel_index once; leave out for none" };
+const SHADER_PASS_SOURCE_INPUT = { type: "string", minLength: 1, maxLength: 65536, description: "The pass's GLSL (WebGL2's, GLSL ES 3.00): helper functions, then void mainImage(out vec4 fragColor, in vec2 fragCoord); up to 64 KB" };
+/** A shader as add_shader and check_shader take it: its screen, its image pass and its buffers. */
+const SHADER_INPUTS = {
+  slug,
+  screen: { enum: ["wide", "phone"], description: "wide: desktops and tablets. phone: composed for a tall screen." },
+  image: { type: "object", properties: { source: SHADER_PASS_SOURCE_INPUT, channels: SHADER_CHANNELS_INPUT }, required: ["source"], additionalProperties: false, description: "The image pass (Shadertoy's Image tab): draws the background each frame, after the buffers" },
+  buffers: {
+    type: "array",
+    maxItems: 4,
+    items: { type: "object", properties: { buffer_name: { enum: ["a", "b", "c", "d"], description: "Which buffer, each once: drawn in order a to d" }, source: SHADER_PASS_SOURCE_INPUT, channels: SHADER_CHANNELS_INPUT }, required: ["buffer_name", "source"], additionalProperties: false },
+    description: "Up to 4 buffers (Shadertoy's Buffers A to D), each drawn to a picture of the canvas's size kept between frames, for trails, simulations and anything built up over time; leave out for none",
+  },
+};
 /** What a tester link opens and until when, for add_tester_link and update_tester_link. */
 const TESTER_CHOICES = {
   version_choice: { enum: ["live", "newest_passed", "picked"], description: "live: the version players get (the default). newest_passed: the newest version that passed the scan, published or not. picked: the version in picked_version_id" },
@@ -463,9 +491,9 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "add_image",
-    title: "Add a cover, screenshot or background",
-    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8), or a share picture (optional: what shared game and room links show instead of the cover in chats, social sites and search; landscape, 1200 by 630 shows best), or a background picture: the game's world behind Zaisma's glass on the home and the game page, with no title, logo or words on it (those go on the cover). A background (kind background) is landscape, 1.3 to 2.4 times as wide as tall, at least 1600 px wide, like 2560 by 1440, with room for the glass on the left; a phone background (kind phone_background) is portrait, 1.6 to 2.4 times as tall as wide, at least 1600 px tall, with room for the glass on the bottom half. Once one passes, set_background shows it. A new cover, share picture or background replaces the old one of its kind once approved, and a background showing on a screen is replaced there too. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. An AI check approves images in about a minute (get_game shows the result). Zaisma's lists only show games whose covers keep five lines: no text but the game's name, a subtitle and the studio's logo; nothing laid over the picture (buttons, menus, shop panels, badges, stickers, arrows); no fake rewards like free Robux (that holds the game); no famous characters, logos or names you don't own (Mario, Naruto, a club's crest); and the cover's main subject appears in a screenshot. Screenshots are real captures: the game's own interface is fine, but nothing added afterwards (captions, arrows, stickers). Style is free, but the best covers show one subject from the game, the name big enough to read on a phone, in the game's own art and colors on a simple background: zaisma.com/developers/covers has examples. No lifelike gore on covers, share pictures or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
-    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot", "share", "background", "phone_background"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
+    title: "Add a cover, screenshot, background or shader texture",
+    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8), or a share picture (optional: what shared game and room links show instead of the cover in chats, social sites and search; landscape, 1200 by 630 shows best), or a background picture: the game's world behind Zaisma's glass on the home and the game page, with no title, logo or words on it (those go on the cover). A background (kind background) is landscape, 1.3 to 2.4 times as wide as tall, at least 1600 px wide, like 2560 by 1440, with room for the glass on the left; a phone background (kind phone_background) is portrait, 1.6 to 2.4 times as tall as wide, at least 1600 px tall, with room for the glass on the bottom half. Once one passes, set_background shows it. A new cover, share picture or background replaces the old one of its kind once approved, and a background showing on a screen is replaced there too. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. An AI check approves images in about a minute (get_game shows the result). A shader texture (kind shader_texture) is a picture a background shader reads through a channel (add_shader): noise, a painted sky, a lookup table; up to 8 MB and 4096 px a side, any size below that, up to 16 a game; image matching approves it at once, and what the shader draws with it is checked in the shader's frames. Zaisma's lists only show games whose covers keep five lines: no text but the game's name, a subtitle and the studio's logo; nothing laid over the picture (buttons, menus, shop panels, badges, stickers, arrows); no fake rewards like free Robux (that holds the game); no famous characters, logos or names you don't own (Mario, Naruto, a club's crest); and the cover's main subject appears in a screenshot. Screenshots are real captures: the game's own interface is fine, but nothing added afterwards (captions, arrows, stickers). Style is free, but the best covers show one subject from the game, the name big enough to read on a phone, in the game's own art and colors on a simple background: zaisma.com/developers/covers has examples. No lifelike gore on covers, share pictures or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
+    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot", "share", "background", "phone_background", "shader_texture"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
     outputSchema: answer({ image: IMAGE, review_message: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/images?kind=${pathPart(toolArguments.kind)}`, decode(String(toolArguments.image_base64 ?? ""), "base64", "image_base64")),
@@ -473,7 +501,7 @@ export const TOOLS: Tool[] = [
   {
     name: "remove_image",
     title: "Remove an image",
-    description: "Remove a cover or screenshot by its id from get_game.",
+    description: "Remove a cover, screenshot, background or shader texture by its id from get_game. A shader texture a kept shader reads can't go (shader_texture_in_use): remove that shader first.",
     inputSchema: object({ slug, image_id: idInput("image", "An image's id from get_game") }, ["slug", "image_id"]),
     outputSchema: answer({ removed_image_id: idOf("image"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
@@ -483,32 +511,60 @@ export const TOOLS: Tool[] = [
     name: "add_shader",
     title: "Add a background shader",
     description:
-      "Send a shader for the game's background: a small program that paints the background live behind Zaisma's glass, on the home and the game page, and loads almost at once. It's Shadertoy's form: one function, void mainImage(out vec4 fragColor, in vec2 fragCoord), that gives each pixel its color, reading iResolution (the screen's size in pixels, a vec3) and iTime (seconds, a float) only: no textures, mouse, audio or #extension lines, and no #version line or main() (Zaisma adds them). Write any helper functions you need above mainImage. Up to 16 KB. screen wide is for desktops and tablets; phone is composed for a tall screen (without one, phones show the wide background). Like any picture, no title, logo or words in it.\n\n" +
-      "Before anyone sees it, Zaisma draws it on a software renderer: it must compile, take at most a set time a frame (get_game's check_frame_ms against the limit in the error), and not flash more than 3 times a second. Its still and sampled frames go through the same safety checks as pictures. Players' browsers draw it at about half resolution and at most 30 frames a second, with less detail, then a still frame, on devices that can't keep up, and the still alone under reduced motion. Once it passes (get_game, about a minute), show the developer its still_url and frame_urls (or the live preview in the dashboard's Background section), then set_background shows it.\n\n" +
+      "Send a shader for the game's background: a program that paints the background live behind Zaisma's glass, on the home and the game page, and loads almost at once. It's Shadertoy's form in WebGL2's GLSL (GLSL ES 3.00), so most Shadertoy shaders paste in: image is the Image tab, buffers are Buffers A to D (each drawn to a picture kept between frames, in order a to d, then image), and channels are iChannel0 to iChannel3 (a buffer, or a texture sent first with add_image kind shader_texture). Each pass is void mainImage(out vec4 fragColor, in vec2 fragCoord) with any helpers above it, up to 64 KB, with no main(), #version or #extension lines. It reads iResolution (pixels, vec3), iTime and iTimeDelta (seconds), iFrame (int), iChannel0 to iChannel3 with iChannelResolution, iQuality (0 for phones and slow devices, 1, 2 for desktops: do less where it's lower, and one shader serves every device) and iGlassPanes with iGlassPaneCount (where Zaisma's glass sits: left, bottom, right, top in its pixels; none in the check). No mouse, sound or video. screen wide is for desktops and tablets; phone is composed for a tall screen (without one, phones show the wide background). Like any picture, no title, logo or words in it. check_shader draws it first and answers a picture of it under Zaisma's glass: zaisma.com/developers/backgrounds has examples.\n\n" +
+      "Before anyone sees it, Zaisma draws it on a software renderer: every pass must compile, a frame must take at most each quality level's time (quality_checks: 75 ms at level 0, 150 at 1, 300 at 2; a shader that never reads iQuality is timed once against 75), and it mustn't flash more than 3 times a second. Its still and sampled frames go through the same safety checks as pictures. Players' browsers draw it at fewer pixels and at most 30 frames a second, stepping down a level, then to fewer pixels, then a still frame, on devices that can't keep up, and the still alone under reduced motion. Once it passes (get_game, a minute or two), show the developer its still_url and frame_urls (or the live preview in the dashboard's Background section), then set_background shows it.\n\n" +
+      'Not: { "source": "void mainImage(…)" } (the image pass goes in image: { "source": … })\n' +
+      "Not: texture2D(iChannel0, uv) (WebGL2's GLSL: texture(iChannel0, uv))\n" +
       "Not: a full program with void main() and gl_FragColor (send mainImage only)\n" +
-      "Not: a video or GIF (a shader, or a picture with add_image kind background)\n" +
-      "Not: texture2D(iChannel0, uv) (no textures: draw everything in the shader)",
+      'Not: { "channel_index": 1, "input_kind": "texture", "image_id": "image_…" } naming a cover (send the picture with add_image kind shader_texture, and use that id)\n' +
+      "Not: a video or GIF (a shader, or a picture with add_image kind background)",
     inputSchema: {
-      ...object(
-        {
-          slug,
-          screen: { enum: ["wide", "phone"], description: "wide: desktops and tablets. phone: composed for a tall screen." },
-          source: { type: "string", minLength: 1, maxLength: 16384, description: "The GLSL text: helper functions, then void mainImage(out vec4 fragColor, in vec2 fragCoord)." },
-        },
-        ["slug", "screen", "source"],
-      ),
+      ...object(SHADER_INPUTS, ["slug", "screen", "image"]),
       examples: [
         {
           slug: "sky-hopper",
           screen: "wide",
-          source:
-            "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  float horizon = uv.y + 0.05 * sin(iTime * 0.3 + uv.x * 4.0);\n  vec3 color = mix(vec3(0.98, 0.55, 0.3), vec3(0.1, 0.12, 0.35), smoothstep(0.0, 1.0, horizon));\n  fragColor = vec4(color, 1.0);\n}",
+          image: {
+            source:
+              "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  float horizon = uv.y + 0.05 * sin(iTime * 0.3 + uv.x * 4.0);\n  vec3 color = mix(vec3(0.98, 0.55, 0.3), vec3(0.1, 0.12, 0.35), smoothstep(0.0, 1.0, horizon));\n  fragColor = vec4(color, 1.0);\n}",
+            channels: [],
+          },
+        },
+        {
+          slug: "comet-run",
+          screen: "wide",
+          image: {
+            source:
+              "// The comet's trail from buffer a over a nebula texture; fewer stars on phones.\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  vec3 sky = texture(iChannel1, uv * 1.5 + vec2(iTime * 0.01, 0.0)).rgb * 0.6;\n  float stars = iQuality > 0.5 ? step(0.998, fract(sin(dot(floor(fragCoord), vec2(12.9898, 78.233))) * 43758.5453)) : 0.0;\n  fragColor = vec4(sky + texture(iChannel0, uv).rgb + stars, 1.0);\n}",
+            channels: [
+              { channel_index: 0, input_kind: "buffer", buffer_name: "a" },
+              { channel_index: 1, input_kind: "texture", image_id: "image_8f3k2m9q1x7c4v6b0n5z", filter: "linear", wrap: "repeat" },
+            ],
+          },
+          buffers: [
+            {
+              buffer_name: "a",
+              source:
+                "// A comet leaves a glowing trail that fades by half each second: the buffer reads its own last frame.\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy, aspect = vec2(iResolution.x / iResolution.y, 1.0);\n  vec2 comet = vec2(0.5 + 0.35 * cos(iTime * 0.7), 0.5 + 0.25 * sin(iTime * 1.1));\n  float glow = smoothstep(0.03, 0.0, distance(uv * aspect, comet * aspect));\n  fragColor = vec4(texture(iChannel0, uv).rgb * pow(0.5, iTimeDelta) + glow * vec3(1.0, 0.6, 0.3), 1.0);\n}",
+              channels: [{ channel_index: 0, input_kind: "buffer", buffer_name: "a" }],
+            },
+          ],
         },
       ],
     },
     outputSchema: answer({ shader: SHADER, review_message: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/shaders?screen=${pathPart(toolArguments.screen)}`, decode(String(toolArguments.source ?? ""), "text", "source")),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/shaders`, pick(toolArguments, ["screen", "image", "buffers"])),
+  },
+  {
+    name: "check_shader",
+    title: "Check a background shader before sending it",
+    description:
+      "Draw a shader as add_shader's check would, without sending it: the same arguments as add_shader. It answers what the check would say (compile_error with the pass's own line numbers, each quality level's check_frame_ms against its most, flash_count over 3 is refused) and a sheet_url: a picture of it under Zaisma's glass on wide and phone, small, what changes between two frames and its pixels close up, kept a day for anyone with the link. Look at the sheet, then fix and check again until it reads well. notes never hold a shader: shimmers_when_small (fine detail that flickers when drawn small, as on phones) and forces_thick_glass (contrast that makes Zaisma's glass tint 70% or more, hiding most of it). It keeps nothing of the shader, and safety's other half, the listing check, runs when it's sent. Up to 100 checks a day per account (remaining_shader_check_count); npx @zaisma/cli check on the shader's folder draws it in the developer's own Chrome with no limit.",
+    inputSchema: { ...object(SHADER_INPUTS, ["slug", "screen", "image"]) },
+    outputSchema: answer({ shader_check: SHADER_CHECK, remaining_shader_check_count: countOf("Checks before sending the account has left in the last day, of 100."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/shader-checks`, pick(toolArguments, ["screen", "image", "buffers"])),
   },
   {
     name: "remove_shader",
@@ -1743,6 +1799,8 @@ const MEANT: Record<string, string> = {
   product_id: "item_name",
   quantity: "item_count",
   give_item: "grant_item",
+  // add_shader's shape before buffers: the whole shader was one source.
+  source: "image",
   // Tools of their own, for names an AI might try on update_game.
   background_video: "add_shader",
   set_background_image: "set_background",

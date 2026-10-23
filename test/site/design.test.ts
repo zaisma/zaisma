@@ -15,6 +15,7 @@ import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
+import { SHADER_HEAD } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
@@ -464,7 +465,7 @@ describe("components", () => {
     expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
     expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
     expect(BACKDROP_SCRIPT).toContain('window.zaismaCorners(el, "pane")');
-    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];`);
+    expect(SHADER_HEAD).toContain(`uniform vec4 iGlassPanes[${MOST_GLASS_PANE_COUNT}];`);
     expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
     // Every shader keeps its own mainImage: the pass calls it once a pixel.
     expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);

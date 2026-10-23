@@ -776,11 +776,12 @@ async function seed() {
   const shaders = await import(`data:text/javascript;base64,${Buffer.from(buildSync({ entryPoints: [join(ROOT, "apps/site/src/components/shaders.ts")], bundle: true, format: "esm", platform: "neutral", mainFields: ["module", "main"], write: false, logLevel: "error" }).outputFiles[0].text).toString("base64")}`);
   const standInShader = (slug) => {
     const background = shaders.STAND_IN_BACKGROUNDS.find((each) => each.slug === slug);
-    return new TextEncoder().encode(`// ${background.title}: ${background.summary}\n${shaders.SHADER_HELPERS}${background.shader}`);
+    return `// ${background.title}: ${background.summary}\n${shaders.SHADER_HELPERS}${background.shader}`;
   };
-  const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders?screen=${screen}`, source);
+  // A one-pass shader: its source is the image pass.
+  const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
-  await sendShader("arena", "wide", new Uint8Array(readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"))));
+  await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
   const isChecked = async () => (await api("GET", "/games/shard-dodge")).shaders.find((shader) => shader.id === neonDrift.id)?.review_status !== "pending";
   for (let tryIndex = 0; tryIndex < 45 && !(await isChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
   // Without a local browser, a person approves it, as on /admin (it then has no still or frames).

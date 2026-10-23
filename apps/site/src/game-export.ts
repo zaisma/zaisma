@@ -1,3 +1,4 @@
+import { shaderManifestOf } from "./shader-check.ts";
 import { ApiError, gameSaves, imagesForGame, iso, shaderKey, shadersForGame, versionsForGame, type Game, type GameImage, type GameShader, type Version } from "@zaisma/core";
 import type { Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -133,6 +134,9 @@ async function* exportSources(env: Env, game: Game, read: ApiRead, exportedAtMs:
     const object = await env.GAMES.get(shaderKey(shader.game_id, shader.id));
     if (object) yield file(shaderPath(shader), object.body, shader.created_at_ms);
     else missingPaths.push(shaderPath(shader));
+    // Its buffers, each a file beside it; what every pass's channels read is in game.json.
+    if (!shader.buffer_count) continue;
+    for (const buffer of (await shaderManifestOf(env, shader))?.buffers ?? []) yield file(shaderPath(shader).replace(/\.glsl$/, `.buffer-${buffer.buffer_name}.glsl`), new TextEncoder().encode(buffer.source), shader.created_at_ms);
   }
 
   yield file("database.sql", databaseDump(env, game));
@@ -192,8 +196,10 @@ game.json        The game's details, its images, backgrounds, tester links and t
 versions.json    Every version Zaisma keeps, with its patch notes and review status. folder_path
                  is where its files are, or null for a version that hasn't passed review.
 versions/        Each version's files, by version ID, as they were uploaded.
-images/          The cover, screenshots and background pictures that passed review.
-shaders/         The background shaders that passed their check, as .glsl files.
+images/          The cover, screenshots, background pictures and shader textures that passed review.
+shaders/         The background shaders that passed their check: each image pass as a .glsl file, and its
+                 buffers beside it (.buffer-a.glsl to .buffer-d.glsl). game.json says what each pass's
+                 channels read; their textures are in images/.
 database.sql     The game's own database, as SQLite's SQL dump. Make it a database file with
                  sqlite3 database.sqlite < database.sql (zaisma export does this for you).
 saves.jsonl      Every player's cloud save, one JSON line each, as get_save answers it.

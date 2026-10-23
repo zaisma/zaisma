@@ -367,3 +367,28 @@ describe("migration 0123", () => {
     expect(database.prepare("SELECT display_name, bio FROM accounts").get()).toEqual({ display_name: "Zaisma", bio: "Hi there" });
   });
 });
+
+describe("migration 0134", () => {
+  const database = migratedFrom(
+    "0134_",
+    `INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_one', 'one', 'One', 'live', 1, 1);
+     INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms, listing_reason, cleared_at_ms, average_color, is_glass_smoked, glass_tint_pct)
+       VALUES ('image_world', 'game_one', 'background', 'image/webp', 2560, 1440, 300, 'approved', 5, NULL, 9, '#0E0A28', 1, 62);
+     INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, check_frame_ms, flash_count, checked_at_ms, created_at_ms) VALUES ('shader_checked', 'game_one', 'wide', 120, 'approved', 42.5, 0, 7, 6), ('shader_waiting', 'game_one', 'phone', 90, 'pending', NULL, NULL, NULL, 8);`,
+  );
+
+  it("keeps each shader's measured frame as level 0's quality check, and none for one not yet checked", () => {
+    expect(database.prepare("SELECT id, quality_checks, buffer_count, texture_count FROM game_shaders ORDER BY id").all().map((row) => ({ ...row, quality_checks: row.quality_checks === null ? null : JSON.parse(row.quality_checks as string) }))).toEqual([
+      { id: "shader_checked", quality_checks: [{ quality_level: 0, check_frame_ms: 42.5, maximum_check_frame_ms: 75 }], buffer_count: 0, texture_count: 0 },
+      { id: "shader_waiting", quality_checks: null, buffer_count: 0, texture_count: 0 },
+    ]);
+  });
+
+  it("keeps every picture through the rebuild, with its tone, and takes shader textures", () => {
+    expect(database.prepare("SELECT id, kind, cleared_at_ms, average_color, is_glass_smoked, glass_tint_pct FROM game_images").all()).toEqual([{ id: "image_world", kind: "background", cleared_at_ms: 9, average_color: "#0E0A28", is_glass_smoked: 1, glass_tint_pct: 62 }]);
+    database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_noise', 'game_one', 'shader_texture', 'image/png', 256, 256, 40, 9)");
+    expect(() => database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_video', 'game_one', 'video', 'video/mp4', 256, 256, 40, 9)")).toThrow();
+    // Nothing was deleted: the old table is kept under another name.
+    expect(database.prepare("SELECT COUNT(*) AS image_count FROM game_images_before_0134").get()).toEqual({ image_count: 1 });
+  });
+});

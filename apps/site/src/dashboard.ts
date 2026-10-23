@@ -80,11 +80,11 @@ interface ShaderJson {
   screen: "wide" | "phone";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
-  check_frame_ms: number | null;
+  quality_checks: { quality_level: number; check_frame_ms: number; maximum_check_frame_ms: number }[];
   flash_count: number | null;
   still_url: string | null;
   frame_urls: string[];
-  source_url: string;
+  image: { source_url: string };
   created_at: string;
 }
 interface BackgroundJson {
@@ -284,7 +284,8 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const screen = field("screen") === "phone" ? "phone" : "wide";
       const bytes = new Uint8Array(await file.arrayBuffer());
       // A shader is text; anything else is sent as a picture, and the API says what it isn't.
-      if (/\.(glsl|frag|txt)$/i.test(file.name) || file.type.startsWith("text/")) await call("POST", `/games/${slug}/shaders?screen=${screen}`, bytes);
+      // A one-pass shader file is its image pass.
+      if (/\.(glsl|frag|txt)$/i.test(file.name) || file.type.startsWith("text/")) await call("POST", `/games/${slug}/shaders`, { screen, image: { source: new TextDecoder().decode(bytes) } });
       else await call("POST", `/games/${slug}/images?kind=${screen === "phone" ? "phone_background" : "background"}`, bytes);
       return back("details", "background-sent", "#background");
     }
@@ -1152,8 +1153,8 @@ ${image.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug
       }),
       ...screenShaders.map((shader) => {
         const isShown = background.source === "shader" && background.shader_id === shader.id;
-        return html`<figure><button class="bg-thumb" type="button" data-preview-source="${shader.source_url}" aria-label="Preview this shader live">${shader.still_url ? html`<img class="bevel-s" src="${shader.still_url}" alt="" loading="lazy">` : html`<span class="bevel-s"></span>`}</button>
-<figcaption><span>Shader${status(shader.review_status, isShown)}${shader.check_frame_ms !== null ? html` <span class="muted">${shader.check_frame_ms} ms a frame</span>` : ""}</span><span class="row">${shader.review_status === "approved" && !isShown ? choose("shader", { shader_id: shader.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/shaders/${shader.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
+        return html`<figure><button class="bg-thumb" type="button" data-preview-source="${shader.image.source_url}" aria-label="Preview this shader live">${shader.still_url ? html`<img class="bevel-s" src="${shader.still_url}" alt="" loading="lazy">` : html`<span class="bevel-s"></span>`}</button>
+<figcaption><span>Shader${status(shader.review_status, isShown)}${shader.quality_checks.length ? html` <span class="muted">${shader.quality_checks.map((qualityCheck) => `${qualityCheck.check_frame_ms} ms`).join(", ")} a frame</span>` : ""}</span><span class="row">${shader.review_status === "approved" && !isShown ? choose("shader", { shader_id: shader.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/shaders/${shader.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
 ${shader.frame_urls.length ? html`<p class="bg-frames">${shader.frame_urls.map((frameUrl, frameIndex) => html`<a href="${frameUrl}" target="_blank" rel="noopener"><img src="${frameUrl}" alt="Frame ${frameIndex + 1} of the check" loading="lazy"></a>`)}</p>` : ""}
 ${shader.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug, shader.review_reason)}</div>` : ""}</figure>`;
       }),
