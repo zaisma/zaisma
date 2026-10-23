@@ -138,6 +138,8 @@ async function listingBrief(env: Env, game: Game, images: GameImage[], title: st
   // Backgrounds last: the size cap drops them before a cover or screenshot.
   const order = (image: GameImage) => (image.kind === "screenshot" ? 1 : image.kind === "background" || image.kind === "phone_background" ? 2 : 0);
   const candidates = images
+    // A shader's texture isn't shown as itself: image matching checks it, and what a shader draws with it is checked in its frames.
+    .filter((image) => image.kind !== "shader_texture")
     .filter((image) => image.kind === "screenshot" || image.cleared_at_ms === null)
     .filter((image) => Math.max(image.width_px, image.height_px) <= LISTING_CHECK_LIMITS.maximumSidePx)
     .sort((first, second) => order(first) - order(second) || (first.review_status === "pending" ? -1 : 0) - (second.review_status === "pending" ? -1 : 0) || second.created_at_ms - first.created_at_ms);

@@ -117,8 +117,16 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `no_image` | 404 | The game has no image with that ID. |
 | `no_file` | 400 | A form on Zaisma's pages was sent without its image. |
 | `bad_background_shape` | 400 | A wide background is landscape (1.3 to 2.4 times as wide as tall), a phone background portrait (1.6 to 2.4 times as tall as wide), and its long side at least 1600 px. |
-| `not_a_shader` | 415 | A shader is UTF-8 text with a mainImage function, no #extension lines, no textures and no #version line. |
-| `shader_too_big` | 413 | The shader is over 16 KB. |
+| `not_a_shader` | 400 | A shader's pass isn't GLSL text with a mainImage function, or has its own main(), a #version or #extension line, texture2D, iMouse or sound. |
+| `shader_too_big` | 413 | A shader's pass is over 64 KB. |
+| `bad_buffers` | 400 | buffers isn't a list of { buffer_name, source, channels } with buffer_name a, b, c or d, each once. |
+| `too_many_buffers` | 400 | A shader has more than 4 buffers. |
+| `bad_shader_channel` | 400 | A channel isn't { channel_index 0 to 3, input_kind, buffer_name or image_id, filter, wrap }, names a buffer the shader doesn't have, or a texture that isn't an approved shader_texture of the game. |
+| `shader_texture_too_big` | 413 | A shader texture is over 8 MB, or over 4,096 px on a side. |
+| `too_many_shader_textures` | 400 | The game has 16 shader textures already, or a shader's channels name more than 4. |
+| `shader_texture_in_use` | 409 | A shader the game keeps reads this texture. |
+| `daily_shader_checks_used` | 429 | The account has run 100 shader checks in the last day. |
+| `shader_check_unavailable` | 503 | Zaisma can't draw shaders here right now, so it can't check one. |
 | `no_shader` | 404 | The game has no shader with that ID. |
 | `bad_screen` | 400 | screen isn't wide or phone. |
 | `bad_background_source` | 400 | source isn't zaisma, image or shader, or wide (which only phone takes). |
@@ -444,7 +452,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `screenshot_not_from_game` | none | The screenshot has something added after it was captured, like a caption, an arrow or circle, a sticker, a pasted logo or a device frame, so it doesn't show. The game's own interface is fine. |
 | `text_on_background` | none | A background has no title, logo or text on it; those go on the cover. The message quotes what it found. |
 | `shader_does_not_compile` | none | The shader didn't compile; the message gives the first compiler error. |
-| `shader_too_slow` | none | The shader took too long to draw a frame in the check; the message says how long, and the most it can take. |
+| `shader_too_slow` | none | The shader took too long to draw a frame in the check, at one of its quality levels; the message says which, how long, and the most it can take. |
 | `shader_flashes` | none | The shader flashes more than 3 times a second, which can cause seizures. |
 
 | Rule | What it says |
