@@ -37,6 +37,7 @@ import {
   type GameShader,
   type ShaderManifest,
 } from "@zaisma/core";
+import { isShaderCheckPassing } from "../../../packages/cli/shader-check.mjs";
 import type { Caller, CheckedCall, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { logCallerEvent } from "./security-log.ts";
@@ -186,7 +187,7 @@ async function checkShaderRoute(env: Env, game: Game, caller: Caller, checked: C
   if (!deps) throw new ApiError("shader_check_unavailable", { message: "Zaisma can't draw shaders here right now.", fix: "Run npx @zaisma/cli check on the shader's folder, which draws it in your own Chrome; or send it with add_shader, which waits for its check." });
   await countShaderCheck(env, caller.ownerId);
   const shaderCheck = await runShaderDraft(env, game, screen, manifest, deps);
-  const isPassing = !shaderCheck.compile_error && shaderCheck.quality_checks.length > 0 && shaderCheck.quality_checks.every((qualityCheck) => qualityCheck.check_frame_ms <= qualityCheck.maximum_check_frame_ms) && (shaderCheck.flash_count ?? 0) <= SHADER_LIMITS.maximumFlashCountPerSec;
+  const isPassing = isShaderCheckPassing(shaderCheck);
   return [
     {
       shader_check: shaderCheck,
