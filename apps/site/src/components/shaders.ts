@@ -220,64 +220,100 @@ export const NEON_DRIFT_SHADER = `
 const float CAM = 0.55;  // camera height over the road (a lane is 0.5 wide)
 float hs1(float n) { n = fract(n * 0.1031); n *= n + 33.33; return fract(n * (n + n)); }
 
-// The city at q (from the vanishing point), drawn front to back so hidden layers cost nothing; full = 0 for reflections.
+// Neon fog along the skyline: magenta and violet with pockets of cyan, drifting.
+vec3 fogc(float x, float t) {
+  float a = sin(x * 2.3 + 1.0 - t * 0.02);
+  return mix(mix(vec3(1.0, 0.24, 0.6), vec3(0.6, 0.2, 1.0), 0.5 + 0.5 * sin(x * 5.0 + a * 2.0)), vec3(0.25, 0.8, 1.0), smoothstep(0.75, 1.0, a) * 0.5);
+}
+
+// The city at q, drawn front to back so hidden layers cost nothing; full = 0 for reflections.
 vec3 city(vec2 q, float px, float t, float full) {
-  vec3 glow = vec3(1.0, 0.26, 0.58), acc = vec3(0.0), add = vec3(0.0);
-  float T = 1.0, xs = abs(q.x);
+  vec3 glow = vec3(1.0, 0.26, 0.58), fog = fogc(q.x, t), acc = vec3(0.0), add = vec3(0.0);
+  float T = 1.0, xs = abs(q.x), low = exp(-q.y * 9.0);
   for (int j = 0; j < 4; j++) {
     if (T < 0.003) break;
     if (j == 2) {
       // The arcology at the road's end: tiers, a needle, a holo ring, a beacon
-      if (xs > 0.17) continue;
+      if (xs > 0.17 || q.y > 0.72) continue;
       float d = min(min(max(xs - 0.07, q.y - 0.17), max(xs - 0.048, q.y - 0.36)), min(max(xs - 0.03, q.y - 0.5), max(xs - 0.004, q.y - 0.6)));
       float m = smoothstep(px, -px, d), w = q.y < 0.17 ? 0.07 : (q.y < 0.36 ? 0.048 : 0.03), fade = smoothstep(0.17, 0.11, xs);
       vec3 tc = vec3(0.07, 0.02, 0.14) + vec3(0.25, 0.9, 1.0) * smoothstep(0.005, 0.0, abs(xs - w + 0.005)) * 0.9;
       tc += vec3(1.0, 0.3, 0.75) * smoothstep(0.55, 0.8, abs(fract(q.y * 24.0) - 0.5) * 2.0) * 0.25 * (1.0 - xs / w * 0.6);
       tc += vec3(1.0, 0.75, 0.95) * smoothstep(0.01, 0.0, min(min(abs(q.y - 0.166), abs(q.y - 0.356)), abs(q.y - 0.496))) * 0.7;
-      vec2 e = vec2(q.x / 0.12, (q.y - 0.41) / 0.024);
-      float rd = abs(length(e) - 1.0) * 0.024, arc = full > 0.5 ? 0.35 + 0.65 * smoothstep(0.3, 1.0, sin(atan(e.y, e.x) * 3.0 - t * 0.9)) : 0.8;
-      add += T * (vec3(0.9, 0.3, 0.8) * exp(-abs(d) / 0.03) * 0.12 * fade + vec3(1.0, 0.1, 0.2) * smoothstep(0.006, 0.0, length(q - vec2(0.0, 0.605))) * (0.6 + 0.4 * sin(t * 3.0))
-        + vec3(0.3, 1.0, 0.95) * (smoothstep(px * 2.0, 0.0, rd) * arc * (e.y < 0.0 ? 1.0 : 1.0 - m * 0.8) + exp(-rd / 0.012) * 0.12 * fade));
-      acc += T * m * mix(tc, glow * 0.8, smoothstep(0.15, 0.0, q.y) * 0.6); T *= 1.0 - m;
+      add += T * vec3(0.9, 0.3, 0.8) * exp(-abs(d) / 0.03) * 0.15 * fade;
+      if (full > 0.5 && abs(q.y - 0.41) < 0.08) {
+        // The ring, only ever seen directly: bright arcs circling (sin 3x angle from the unit vector, no atan)
+        vec2 e = vec2(q.x / 0.12, (q.y - 0.41) / 0.024), n = e / max(length(e), 0.001);
+        float rd = abs(length(e) - 1.0) * 0.024, arc = 0.35 + 0.65 * smoothstep(0.3, 1.0, n.y * (3.0 - 4.0 * n.y * n.y) * cos(t * 0.9) - n.x * (4.0 * n.x * n.x - 3.0) * sin(t * 0.9));
+        add += T * vec3(0.3, 1.0, 0.95) * (smoothstep(px * 2.0, 0.0, rd) * arc * (e.y < 0.0 ? 1.0 : 1.0 - m * 0.8) + exp(-rd / 0.012) * 0.12 * fade);
+      }
+      if (q.y > 0.58) add += T * vec3(1.0, 0.1, 0.2) * smoothstep(0.006, 0.0, length(q - vec2(0.0, 0.605))) * (0.6 + 0.4 * sin(t * 3.0));  // beacon
+      acc += T * m * mix(tc, fog * 0.7, low * 0.6); T *= 1.0 - m;
       continue;
     }
-    // Towers, near to far, rising toward the edges like a canyon (reflections skip the farthest)
-    float fi = j == 0 ? 2.0 : (j == 1 ? 1.0 : 0.0);
-    if (q.y > 0.33 + fi * 0.14 + xs * (0.06 + fi * 0.22) || (full < 0.5 && j == 3)) continue;
-    float sc = 16.0 - fi * 5.0, off = fi * 7.31, cx = q.x * sc + off, id = floor(cx), fx = fract(cx) - 0.5;
-    float r = hs1(id + fi * 13.7), r2 = fract(r * 13.1 + 0.3), wid = 0.3 + 0.14 * r2;
-    float top = 0.04 + fi * 0.04 + (0.07 + fi * 0.06) * r + abs(id + 0.5 - off) / sc * (0.06 + fi * 0.22);
-    float m = smoothstep(px, -px, min(max((abs(fx) - wid) / sc, q.y - top), max((abs(fx) - wid * 0.6) / sc, q.y - top - (0.015 + 0.03 * r) * step(0.5, r2))));
-    vec3 bc = mix(mix(vec3(0.42, 0.1, 0.42), vec3(0.03, 0.01, 0.07), 0.4 + fi * 0.28), glow * 0.75, smoothstep(0.14, 0.0, q.y) * (0.75 - fi * 0.2));
+    // Towers in three layers, near (fi = 3) to far (fi = 1): far ones melt into the fog, near ones are dark and crisp
+    float fi = j < 2 ? 3.0 - float(j) : 1.0;
+    float sc = 20.0 - fi * 4.7;
+    if (q.y > 0.18 + fi * 0.047 + step(1.5, fi) * 0.075 + (xs + 0.5 / sc) * (0.05 + fi * 0.17) || (full < 0.5 && j == 3)) continue;
+    float off = fi * 7.31, cx = q.x * sc + off, id = floor(cx), fx = fract(cx) - 0.5;
+    float r = hs1(id + fi * 13.7), r2 = fract(r * 13.1 + 0.3), r3 = fract(r * 7.7 + 0.6), wid = 0.28 + 0.16 * r2;
+    if (fi > 2.5 && r < 0.4 && xs < 0.75) continue;  // gaps in the nearest row open views deep into the city
+    float top = 0.06 + fi * 0.012 + (0.07 + fi * 0.035) * r + abs(id + 0.5 - off) / sc * (0.05 + fi * 0.17);
+    // Body, a setback crown on some, a mast on others
+    float sb = (0.012 + 0.03 * r) * step(0.5, r2), mx = (r3 - 0.5) * wid * 0.8, mh = (sb + 0.03 + 0.04 * r) * step(0.45, r3) * step(1.5, fi) * full;
+    float d = min(min(max((abs(fx) - wid) / sc, q.y - top), max((abs(fx) - wid * 0.6) / sc, q.y - top - sb)), max(abs(fx - mx) / sc - 0.0012, q.y - top - mh));
+    if (d > 0.05) continue;  // open sky well clear of this tower and its glows
+    float m = smoothstep(px, -px, d);
+    vec3 bc = mix(fog * (0.5 + 0.35 * low), vec3(0.022, 0.008, 0.05), (0.18 + fi * 0.26) * (1.0 - low * (0.85 - fi * 0.2)));
     vec3 nc = mix(vec3(1.0, 0.2, 0.7), vec3(0.2, 0.95, 1.0), step(0.7, r));
+    // Aircraft warning lamp on each mast, pulsing slowly
+    float ld = length(vec2((fx - mx) / sc, q.y - top - mh));
+    if (mh > 0.0 && ld < 0.03 && full > 0.5) add += T * vec3(1.0, 0.12, 0.15) * (smoothstep(0.0045, 0.0, ld) + exp(-ld * 160.0) * 0.3) * (0.3 + 0.7 * smoothstep(0.25, 0.0, abs(fract(t * 0.4 + r * 5.0) - 0.15)));
     // Neon signs: strips or bands, tubes brightest at the rim
-    float band = step(0.8, r2), on = step(0.45, r) * step(0.5, fi);
+    float band = step(0.8, r2), on = step(0.45, r) * step(1.5, fi) * (1.0 - step(0.72, r2) * step(2.5, fi));
     float sd = max((abs(fx - (r - 0.5) * wid * (1.0 - band)) - mix(0.05, 0.3, band)) / sc, abs(q.y - top * (0.35 + 0.3 * r2)) - top * mix(0.18, 0.05, band));
-    if (fi > 0.5 && m > 0.0) {
-      bc += mix(glow, nc, 0.5) * smoothstep(px * 2.0, 0.0, (fx * sign(-q.x) + wid) / sc) * 0.35 + nc * smoothstep(px, -px, sd) * (0.45 + 0.55 * smoothstep(-0.006, -0.001, sd)) * on;
-      if (full > 0.5) {
-        // Strips of lit windows; crown lights on the roof
-        vec2 wc = vec2(fx * 6.0, q.y * sc * 8.0); float wh = h2(floor(wc) + id * 3.1);
-        float lit = step(0.62, wh) * smoothstep(0.5, 0.3, abs(fract(wc.y) - 0.5)) * smoothstep(0.5, 0.42, abs(fract(wc.x) - 0.5)) * step(abs(fx), wid - 0.04);
-        bc += mix(vec3(1.0, 0.55, 0.8), vec3(0.4, 0.85, 1.0), step(0.85, wh)) * lit * (0.04 + fi * 0.06) + nc * smoothstep(0.005, 0.0, abs(q.y - top + 0.004)) * step(abs(fx), wid) * 0.5;
-      }
+    // Holo panels: big blocks and bars of colour, cycling slowly, glowing into the haze
+    float hp = step(0.72, r2) * step(2.5, fi), pw = wid * 0.85, pcy = top * (0.5 + 0.2 * r), phh = top * 0.13 + 0.015, pd = 1.0, blk = 0.0;
+    vec2 pu = vec2(fx / pw, (q.y - pcy) / phh); vec3 pc = vec3(0.0);
+    if (hp > 0.5) {
+      pd = max((abs(fx) - pw) / sc, abs(q.y - pcy) - phh); blk = floor((pu.x + 1.0) * 1.5);
+      pc = mix(mix(vec3(1.0, 0.15, 0.6), vec3(0.15, 0.9, 1.0), 0.5 + 0.5 * sin(t * 0.25 + blk * 2.1 + r * 6.0)), vec3(1.0, 0.6, 0.2), step(0.8, fract(blk * 0.37 + r * 3.0)));
+      add += T * pc * exp(-max(pd, 0.0) * 50.0) * 0.28;
     }
-    add += T * nc * exp(-max(sd, 0.0) * 160.0) * on * 0.25 * (1.0 - m * 0.5);
+    if (fi > 1.5 && m > 0.0) {
+      bc += mix(glow, nc, 0.5) * smoothstep(px * 2.0, 0.0, (fx * sign(-q.x) + wid) / sc) * 0.12 * fi + nc * smoothstep(px, -px, sd) * (0.45 + 0.55 * smoothstep(-0.006, -0.001, sd)) * on;
+      if (full > 0.5 && fi > 1.5) {
+        // Windows: floors of varied height lit as bands, scattered or dark; warm and cool, a few flickering
+        float fy = q.y * (55.0 + 55.0 * r2) * (1.0 + (3.0 - fi) * 0.3), fl = floor(fy), fh = hs1(fl + id * 7.7);
+        float wx = (fx + 0.5) * (8.0 + floor(r * 5.0) * 2.0), wh = hs1(floor(wx) * 3.3 + fl * 1.7 + id * 5.1);
+        float lit = fh > 0.8 ? 1.0 : (fh > 0.5 ? step(0.6, wh) : step(0.96, wh));
+        if (lit > 0.0) {
+          float shape = smoothstep(0.5, 0.3, abs(fract(fy) - 0.5)) * mix(smoothstep(0.5, 0.28, abs(fract(wx) - 0.5)), 1.0, step(0.8, fh) * step(0.45, r3));
+          vec3 wc = mix(mix(vec3(1.0, 0.62, 0.38), vec3(0.45, 0.8, 1.0), step(0.5, fract(wh * 7.0 + r))), vec3(1.0, 0.4, 0.85), step(0.86, fract(wh * 13.0)));
+          bc += wc * shape * step(abs(fx), wid - 0.03) * (fi - 0.6) * 0.06 * (1.0 - 0.7 * step(0.975, wh) * abs(fract(t * (0.1 + wh * 0.3) + wh * 7.0) * 2.0 - 1.0));
+        }
+      }
+      float inP = smoothstep(px, -px, pd) * hp;
+      if (inP > 0.0) bc = mix(bc, pc * (full > 0.5 ? (0.55 + 0.45 * step(0.35, fract(pu.y * 1.5 + blk * 0.43))) * smoothstep(1.0, 0.86, abs(fract((pu.x + 1.0) * 1.5) - 0.5) * 2.0) * (0.85 + 0.15 * sin(q.y * 900.0)) : 0.8), inP * 0.85);
+    }
+    if (on > 0.5) add += T * nc * exp(-max(sd, 0.0) * 160.0) * 0.25 * (1.0 - m * 0.5);
     acc += T * m * bc; T *= 1.0 - m;
   }
   if (T > 0.003) {
-    // Sky: the city's glow under violet night, smog lit from below
-    vec3 col = mix(mix(glow, vec3(0.3, 0.06, 0.44), smoothstep(0.0, 0.28, q.y)), vec3(0.035, 0.012, 0.09), smoothstep(0.22, 0.85, q.y));
-    col += vec3(1.0, 0.55, 0.8) * exp(-length(vec2(q.x * 0.5, q.y)) * 8.0) * 0.45;
-    float c = noise(vec2(q.x * 2.0 + t * 0.012, q.y * 6.0)) * 0.65 + 0.17;
-    if (full > 0.5) c += noise(vec2(q.x * 5.5 - t * 0.03, q.y * 15.0)) * 0.35 - 0.17;
+    // Sky: the fog's glow under violet night, smog lit from below
+    vec3 col = mix(mix(fog, vec3(0.3, 0.06, 0.44), smoothstep(0.0, 0.28, q.y)), vec3(0.035, 0.012, 0.09), smoothstep(0.22, 0.85, q.y));
+    col += vec3(1.0, 0.55, 0.8) * exp(-length(vec2(q.x * 0.5, q.y)) * 8.0) * 0.4;
+    float c = 0.5;
+    if (full > 0.5) c = noise(vec2(q.x * 2.0 + t * 0.012, q.y * 6.0)) * 0.8 + 0.1 * sin(q.x * 9.0 - q.y * 20.0 + t * 0.1);
     acc += T * (col + mix(vec3(0.85, 0.18, 0.6), vec3(0.35, 0.1, 0.55), smoothstep(0.0, 0.5, q.y)) * smoothstep(0.35, 0.85, c) * (smoothstep(1.1, 0.05, q.y) * 0.75 + 0.12));
   }
-  return acc + add;
+  // Street-level neon fog blooming along the foot of the city
+  return acc + add + fog * exp(-q.y * 16.0) * 0.55;
 }
 
 // Street lamps along both barriers; reflections pass the mirrored point.
 float lamps(vec2 q, float px) {
+  if (abs(q.y - 0.463 * abs(q.x)) > 0.12) return 0.0;  // lamps sit on one line per side
   float dx = abs(q.x), zn = max(floor(0.36 / max(dx, 0.001) + 0.5), 1.0) * 3.0;
   float d = length(vec2(dx, q.y) - vec2(1.08, 1.05 - CAM) / zn), size = max(0.05 / zn, px);
   return (smoothstep(size, 0.0, d) + exp(-d / (size * 3.0)) * 0.35) * smoothstep(60.0, 20.0, zn);
@@ -287,15 +323,16 @@ void mainImage(out vec4 color, in vec2 pixel) {
   vec2 uv = pixel / iResolution.xy; float ar = iResolution.x / iResolution.y, t = iTime, wide = clamp((ar - 0.6) / 1.0, 0.0, 1.0);
   float hz = mix(0.5, 0.4, wide), s = mix(0.8, 1.0, wide), px = 1.5 / iResolution.y / s;
   vec2 q = (vec2(uv.x * ar, uv.y) - vec2(ar * mix(0.5, 0.6, wide), hz)) / s;  // scene units from the vanishing point
-  vec3 col;
-  if (q.y > 0.0) col = city(q, px, t, 1.0);
-  else {
-    // The deck (depth z, lateral X) and the bay beyond mirror the city, stretched and rippled by rain
-    float z = CAM / -q.y, X = q.x * z, bay = step(1.08, abs(X));
-    float rip = (noise(vec2(mix(X * 3.0, q.x * 40.0, bay), z * 1.5 - t * 0.6)) - 0.5) * mix(0.012 / (1.0 + z * 0.1), 0.007, bay);
-    vec2 m = vec2(q.x + rip, -q.y * mix(0.4, 0.9, bay));
-    vec3 refl = city(m, px * 2.0, t, 0.0) + vec3(0.9, 0.85, 1.0) * lamps(m, px * 3.0);
-    vec3 road = vec3(0.02, 0.01, 0.04) + refl * (0.3 + 0.45 * smoothstep(1.5, 12.0, z));
+  // Below the horizon the deck (depth z, lateral X) and the bay mirror the city, stretched and rippled; one city per pixel
+  float down = step(q.y, 0.0), z = CAM / max(-q.y, 0.0001), X = q.x * z, bay = step(1.08, abs(X));
+  vec2 m = q;
+  if (down > 0.5) {
+    float rw = mix(X * 3.0, q.x * 40.0, bay);
+    m = vec2(q.x + sin(rw * 2.1 + z * 1.3 - t * 0.6) * sin(rw * 1.3 - z * 2.2 + t * 0.45) * 0.5 * mix(0.012 / (1.0 + z * 0.1), 0.007, bay), -q.y * mix(0.4, 0.5, bay));
+  }
+  vec3 col = city(m, px * (1.0 + down), t, 1.0 - down) + vec3(0.85, 0.8, 1.0) * lamps(m, px * (1.0 + down * 2.0));
+  if (down > 0.5) {
+    vec3 refl = col, road = vec3(0.02, 0.01, 0.04) + refl * (0.3 + 0.45 * smoothstep(1.5, 12.0, z));
     if (bay < 0.5) {
       // Lane dashes, fading with distance
       road += vec3(0.6, 0.5, 0.7) * smoothstep(px + 0.01 / z, 0.01 / z - px, abs(fract(X * 2.0 + 0.5) - 0.5) / 2.0 / z) * step(0.55, fract(z * 0.35)) * step(abs(X), 0.75) * 0.3 * smoothstep(25.0, 4.0, z);
@@ -303,7 +340,8 @@ void mainImage(out vec4 color, in vec2 pixel) {
       for (int k = 0; k < 4; k++) {
         float fk = float(k), xc = -0.75 + fk * 0.5, away = step(1.5, fk), w = 0.022 / z, wd = max(w, px * 0.5), dl = abs(abs(X - xc) - 0.07) / z;
         float u = z * 0.11 + (1.0 - 2.0 * away) * t * (0.3 + 0.06 * fk) + fk * 0.37, ph = mix(fract(u), 1.0 - fract(u), away);
-        float comet = smoothstep(0.0, 0.025, ph) * pow(max(1.0 - ph / (0.25 + 0.5 * hs1(floor(u) + fk * 7.0)), 0.0), 1.5);
+        float comet = smoothstep(0.0, 0.025, ph) * max(1.0 - ph / (0.25 + 0.5 * hs1(floor(u) + fk * 7.0)), 0.0);
+        comet *= sqrt(comet);
         vec3 tc = mix(vec3(0.7, 0.97, 1.0), vec3(1.0, 0.12, 0.42), away);
         road += tc * (0.1 + 2.4 * comet) * min(1.0, w / wd) * (smoothstep(wd + px, wd - px, dl) + exp(-dl / (wd * 4.0 + 0.003)) * 0.3);
         road += mix(tc, vec3(1.0), 0.4) * smoothstep(0.0, 0.05, ph) * exp(-ph * 10.0) * exp(-abs(X - xc) / z / (w * 8.0 + 0.008)) * 0.25;
@@ -311,12 +349,11 @@ void mainImage(out vec4 color, in vec2 pixel) {
     } else {
       // Barriers with an LED strip, the drop to the bay beyond
       float zb = 1.08 / max(abs(q.x), 0.001);
-      road = q.y > -CAM / zb ? vec3(0.06, 0.025, 0.1) + refl * 0.06 : vec3(0.008, 0.004, 0.025) + refl * 0.8;
+      road = q.y > -CAM / zb && q.y < (0.14 - CAM) / zb ? vec3(0.06, 0.025, 0.1) + refl * 0.06 : vec3(0.008, 0.004, 0.025) + refl * (0.6 + 0.4 * noise(vec2(q.x * 60.0, q.y * 3.0)));
       road += vec3(0.3, 0.95, 1.0) * smoothstep(px * 1.5 + 0.008 / zb, 0.0, abs(q.y + (CAM - 0.14) / zb)) * 0.9;
     }
-    col = mix(road, vec3(0.85, 0.25, 0.55), mix((1.0 - exp(-z * 0.035)) * 0.8, exp(q.y * 40.0) * 0.5, bay));
+    col = mix(road, vec3(0.85, 0.25, 0.55), mix((1.0 - exp(-z * 0.035)) * 0.8, exp(q.y * 60.0) * 0.3, bay));
   }
-  col += vec3(0.85, 0.8, 1.0) * lamps(q, px);
   // Rain: two layers of long slanted streaks
   for (int j = 0; j < 2; j++) {
     float fj = float(j), sc = 22.0 + fj * 16.0;
@@ -334,88 +371,132 @@ void mainImage(out vec4 color, in vec2 pixel) {
 export const HOLLOW_TIDE_SHADER = `
 float sat(float x) { return clamp(x, 0.0, 1.0); }
 float fill(float d, float e) { return smoothstep(e, -e, d); }
-// Distance to a capsule from a to b.
-float seg(vec2 p, vec2 a, vec2 b, float r) {
-  vec2 pa = p - a, ba = b - a;
-  return length(pa - ba * sat(dot(pa, ba) / dot(ba, ba))) - r;
-}
+float smin(float a, float b, float k) { float h = sat(0.5 + 0.5 * (b - a) / k); return mix(b, a, h) - k * h * (1.0 - h); }
+float seg(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; return length(pa - ba * sat(dot(pa, ba) / dot(ba, ba))) - r; }
+// A limb: two capsules, a to b to c.
+float limb(vec2 u, vec2 a, vec2 b, vec2 c, float r) { return min(seg(u, a, b, r), seg(u, b, c, r * 0.8)); }
 // A lamp beam at angle a around the tower (0 = right, pi/2 = toward us).
 float beam(vec2 q, float a) {
   float c = cos(a), u = q.x * sign(c), w = 0.005 + max(u, 0.0) * (0.48 - 0.4 * abs(c)), y = q.y + u * 0.035;
   return exp(-y * y / (w * w) - max(u, 0.0) / (0.06 + 1.4 * abs(c))) * smoothstep(-0.004, 0.012, u) * (0.5 + 0.4 * sin(a));
 }
+// Glitter on the far swells: rows of slow-twinkling dashes; rows under ~3 px melt into a soft line.
+float dashes(vec2 p, float d, float t) {
+  float v = sqrt(d + 0.004) * 60.0, row = floor(v), rc = (row + 0.5) / 60.0;
+  float x = (p.x + h1(row) * 7.0 + t * 0.003) / (0.06 * rc + 0.003), hr = h2(vec2(floor(x), row)), len = 0.15 + 0.25 * hr;
+  float dash = smoothstep(len, len - 0.12, abs(fract(x) - 0.5 - (hr - 0.5) * 0.4)) * smoothstep(0.5, 0.1, abs(fract(v) - 0.5)) * step(0.35, fract(hr * 13.7));
+  return mix(0.35, dash * sat(sin(t * (0.5 + hr) + hr * 40.0) * 1.4 + 0.4), smoothstep(2.5, 5.0, rc / 30.0 * iResolution.y));
+}
+// The drowned body (feet 0, crown 1): limp, arms drifting up, torn shirt and hair streaming.
+float body(vec2 u, float t) {
+  float l = 0.03 * sin(t * 0.45), m = 0.03 * sin(t * 0.37 + 1.0), cy = sat((0.66 - u.y) / 0.3);
+  float d = smin(length((u - vec2(0.075, 0.79)) / vec2(0.85, 1.1)) - 0.06, seg(u, vec2(0.03, 0.7), vec2(-0.02, 0.45), 0.072), 0.05);
+  d = smin(d, limb(u, vec2(-0.05, 0.69), vec2(-0.14, 0.83 + l), vec2(-0.1 + l, 0.97 + l), 0.032), 0.04);
+  d = smin(d, limb(u, vec2(0.09, 0.68), vec2(0.2, 0.76 - m), vec2(0.26 + m, 0.9), 0.032), 0.04);
+  d = smin(d, limb(u, vec2(-0.03, 0.46), vec2(-0.08, 0.23), vec2(-0.05 + m, 0.03), 0.042), 0.04);
+  d = smin(d, limb(u, vec2(0.04, 0.46), vec2(0.11, 0.26), vec2(0.17 + l, 0.11), 0.042), 0.04);
+  float hem = 0.34 + 0.04 * sin(u.x * 30.0 - t * 1.1) + 0.025 * sin(u.x * 61.0 + t * 0.7);
+  d = smin(d, max(abs(u.x - 0.02 - 0.07 * cy * cy - 0.02 * sin(t * 0.5)) - mix(0.075, 0.16, cy), max(u.y - 0.7, hem - u.y)), 0.02);
+  vec2 dir = vec2(-0.682, 0.732), e = u - vec2(0.07, 0.82);
+  for (int i = 0; i < 6; i++) {                                                       // hair: a fan of slow, wavering strands
+    float fi = float(i), al = dot(e, dir), ac = dot(e, vec2(dir.y, -dir.x)) - 0.7 * al * al - 0.16 * al * sin(al * 15.0 - t * 0.9 + fi * 1.3);
+    d = min(d, max(abs(ac) - mix(0.017, 0.006, sat(al / 0.3)), max(-al, al - 0.24 - 0.08 * fract(fi * 0.618))));
+    dir = mat2(0.964, -0.267, 0.267, 0.964) * dir;
+  }
+  return d;
+}
 void mainImage(out vec4 color, in vec2 pixel) {
   float ar = iResolution.x / iResolution.y, wide = smoothstep(0.7, 1.5, ar), px = 1.5 / iResolution.y, t = iTime;
   vec2 p = pixel / iResolution.y;
-  float wl0 = mix(0.6, 0.46, wide);                                 // the waterline, rolling
+  float wl0 = mix(0.6, 0.46, wide), hz = wl0 + 0.05, sc = mix(0.72, 1.0, wide);
   float wl = wl0 + 0.011 * sin(p.x * 5.0 - t * 0.9) + 0.005 * sin(p.x * 13.0 + t * 1.3) + 0.0025 * sin(p.x * 29.0 - t * 2.1);
   vec2 moon = vec2(mix(0.26, 0.42, wide) * ar, mix(0.91, 0.69, wide));
-  float lx = mix(0.68, 0.7, wide) * ar, rx = p.x - lx, dm = length(p - moon), top = wl0 + mix(0.21, 0.22, wide);
+  float lx = mix(0.68, 0.7, wide) * ar, rx = p.x - lx, dm = length(p - moon), top = wl0 + mix(0.23, 0.24, wide), a = mod(t, 32.0) * 0.19635;
   vec2 lamp = vec2(lx, top + 0.016);
+  // Where the two beams (one turn in 32 s) fall on the water.
+  float onSea = 0.0;
+  for (int b = 0; b < 2; b++) {
+    float ab = a + float(b) * 3.1416, u = rx * sign(cos(ab));
+    onSea += exp(-max(u, 0.0) / (0.05 + 1.2 * abs(cos(ab)))) * smoothstep(-0.02, 0.03, u) * (0.5 + 0.4 * sin(ab));
+  }
   float fogN = noise(vec2(p.x * 2.2 - t * 0.045, p.y * 6.0 + sin(p.x * 1.3 + t * 0.03))) * 0.6 + noise(vec2(p.x * 5.0 - t * 0.085, p.y * 13.0)) * 0.4;
   vec3 col;
   if (p.y > wl) {
-    // Sky: teal haze into green-black, halo, slow stars, cloud streaks, the moon.
-    float k = sat((p.y - wl0) / (1.0 - wl0));
-    col = mix(vec3(0.08, 0.27, 0.27), vec3(0.008, 0.035, 0.045), pow(k, 0.6)) + vec3(0.12, 0.22, 0.21) * exp(-dm * 3.5) + vec3(0.36, 0.42, 0.4) * (exp(-dm * 16.0) + exp(-dm * 45.0));
-    vec2 sg = p * 70.0;
-    col += vec3(0.8, 0.95, 0.95) * motes(sg, 0.13, 0.08, 3.0) * (0.6 + 0.4 * sin(t * 1.1 + h2(floor(sg)) * 40.0)) * smoothstep(0.2, 0.5, k) * smoothstep(0.12, 0.3, dm);
-    col = mix(col, vec3(0.08, 0.17, 0.18) + vec3(0.6, 0.72, 0.68) * exp(-dm * 4.5), smoothstep(0.5, 0.8, fogN) * smoothstep(1.0, 0.7, p.y) * smoothstep(wl0 + 0.1, wl0 + 0.2, p.y) * 0.6);
-    vec2 mq = (p - moon) / 0.046;
-    col = mix(col, vec3(0.95, 0.97, 0.9) - 0.09 * smoothstep(0.45, 0.75, noise(mq * 2.2 + 3.0)) - 0.05 * dot(mq, mq), fill(dm - 0.046, px));
-    // The crag, moon-rimmed; the banded tower, gallery, roof and lamp.
-    float sh = sat(1.0 - pow(rx / (0.115 * mix(0.8, 1.0, wide)), 2.0)), rockTop = wl0 + sh * (0.045 + 0.022 * abs(sin(rx * 30.0 + 1.0)) + 0.006 * sin(rx * 97.0));
+    if (p.y > hz) {
+      // Sky: haze, halo, stars, cloud streaks, a far headland.
+      float k = sat((p.y - hz) / (1.0 - hz)), hx = sat(1.0 - p.x / ar * 1.75);
+      col = mix(vec3(0.08, 0.27, 0.27), vec3(0.008, 0.035, 0.045), pow(k, 0.6)) + vec3(0.1, 0.2, 0.19) * exp(-dm * 2.2) + vec3(0.2, 0.28, 0.26) * exp(-dm * 7.0) + vec3(0.4, 0.45, 0.42) * exp(-dm * 30.0);
+      vec2 sg = p * 70.0;
+      col += vec3(0.8, 0.95, 0.95) * motes(sg, 0.13, 0.08, 3.0) * (0.6 + 0.4 * sin(t * 1.1 + h2(floor(sg)) * 40.0)) * smoothstep(0.2, 0.5, k) * smoothstep(0.12, 0.3, dm);
+      col = mix(col, vec3(0.08, 0.17, 0.18) + vec3(0.6, 0.72, 0.68) * exp(-dm * 4.0), smoothstep(0.5, 0.8, fogN) * smoothstep(1.0, 0.7, p.y) * smoothstep(hz + 0.08, hz + 0.18, p.y) * 0.6);
+      col = mix(col, vec3(0.05, 0.18, 0.19), fill(p.y - hz - (0.028 * hx + 0.007 * sin(p.x * 11.0) + 0.004 * sin(p.x * 23.0 + 1.0)) * hx, px) * 0.8);
+      // The moon, mottled, veiled by passing mist.
+      vec2 mq = (p - moon) / 0.046;
+      vec3 mc = vec3(0.95, 0.97, 0.9) - vec3(0.17, 0.15, 0.12) * smoothstep(0.42, 0.72, noise(mq * 1.7 + 3.0) * 0.65 + noise(mq * 4.3 + 9.0) * 0.35) - 0.1 * dot(mq, mq);
+      col = mix(col, mix(mc, vec3(0.5, 0.62, 0.6), smoothstep(0.55, 0.85, fogN) * 0.35), fill(dm - 0.046, px));
+    } else {
+      // The far sea: swells, the moon's glitter path, beam light.
+      float d = hz - p.y, gw = (p.x - moon.x) / (0.02 + d * 1.6), swl = 0.5 + 0.5 * sin(0.15 / (d + 0.004) + t * 0.6 + sin(p.x * 3.0) * 1.5);
+      col = mix(vec3(0.08, 0.26, 0.26), vec3(0.015, 0.06, 0.07), sat(d * 25.0)) + vec3(0.03, 0.1, 0.1) * swl * smoothstep(0.004, 0.018, d);
+      col += vec3(0.85, 0.96, 0.92) * (exp(-gw * gw) * dashes(p, d, t) * (0.6 + 0.6 * swl) + exp(-gw * gw * 0.15) * 0.08) + vec3(0.8, 0.92, 0.85) * onSea * (0.25 + 0.5 * swl) * smoothstep(0.0, 0.02, d);
+    }
+    // The crag; the banded tower, gallery, roof and lamp.
+    float sh = sat(1.0 - pow(rx / (0.115 * mix(0.8, 1.0, wide)), 2.0)), rockTop = wl0 + sh * (0.062 + 0.022 * abs(sin(rx * 30.0 + 1.0)) + 0.006 * sin(rx * 97.0));
     col = mix(col, vec3(0.01, 0.022, 0.026) + vec3(0.12, 0.2, 0.19) * smoothstep(0.012, 0.0, rockTop - p.y) * sat(0.5 - rx * 8.0), fill(p.y - rockTop, px) * step(0.001, sh));
-    float ty = (p.y - wl0 - 0.048) / (top - wl0 - 0.048), hw = mix(0.018, 0.011, ty);
+    float ty = (p.y - wl0 - 0.066) / (top - wl0 - 0.066), hw = mix(0.018, 0.011, ty);
     col = mix(col, mix(vec3(0.07, 0.11, 0.11), vec3(0.015, 0.03, 0.035), sat((rx + hw) / hw)) * (0.75 + 0.25 * step(0.5, fract(ty * 3.0))), fill(abs(rx) - hw, px) * step(0.0, ty) * step(ty, 1.0));
     float roof = max(fill(abs(rx) - 0.02, px) * fill(abs(p.y - top - 0.003) - 0.003, px), fill(abs(rx) - 0.012 * sat((top + 0.04 - p.y) / 0.015), px) * step(top + 0.025, p.y) * step(p.y, top + 0.04));
     col = mix(mix(col, vec3(0.02, 0.035, 0.04), roof), vec3(1.0, 0.96, 0.82), fill(abs(rx) - 0.01, px) * fill(abs(p.y - top - 0.016) - 0.009, px));
-    // A fog bank with a billowing, moonlit top, and a thinner layer at lamp height.
-    float bankTop = wl0 + 0.05 + 0.035 * noise(vec2(p.x * 2.4 - t * 0.035, 4.0)) + 0.03 * (fogN - 0.5);
-    float fog = sat(smoothstep(-0.02, 0.05, bankTop - p.y) * (0.2 + 0.8 * fogN) + exp(-pow((p.y - lamp.y) / 0.08, 2.0)) * smoothstep(0.35, 0.85, fogN) * 0.55);
+    // A fog bank on the horizon and a thin layer at lamp height; the beams and the glare.
+    float bankTop = hz + 0.03 + 0.035 * noise(vec2(p.x * 2.4 - t * 0.035, 4.0)) + 0.03 * (fogN - 0.5);
+    float fog = sat(smoothstep(-0.02, 0.05, bankTop - p.y) * (0.2 + 0.8 * fogN) * smoothstep(wl0 - 0.01, hz, p.y) + exp(-pow((p.y - lamp.y) / 0.08, 2.0)) * smoothstep(0.35, 0.85, fogN) * 0.55);
     col = mix(col, vec3(0.16, 0.27, 0.27) + vec3(0.3, 0.36, 0.33) * exp(-dm * 2.2) + vec3(0.1, 0.14, 0.13) * smoothstep(0.03, 0.0, abs(bankTop - p.y)), fog * 0.6);
-    // Two beams turning once in 32 s, bright in the fog; the glare swells slowly as one faces us.
-    float a = mod(t, 32.0) * 0.19635;
     vec2 q = p - lamp;
     float dl = length(q * vec2(1.0, 1.6));
     col += vec3(0.85, 0.95, 0.88) * (beam(q, a) + beam(q, a + 3.1416)) * (0.35 + 1.3 * fog + 0.3 * fogN) + vec3(1.0, 0.95, 0.82) * (exp(-dl * 60.0) * 0.8 + exp(-dl * 14.0) * (0.12 + 0.35 * pow(abs(sin(a)), 6.0)));
   } else {
-    // Under water: green-teal into black, the moon's window, slanting shafts.
-    float dd = wl - p.y, sx = p.x - dd * 0.32;
+    // Under water: green-teal into black, moon shafts, far stacks, a glow in the deep, marine snow.
+    float dd = wl - p.y, sx = p.x - dd * 0.32, bx = p.x / ar;
     vec3 water = mix(vec3(0.05, 0.21, 0.2), vec3(0.002, 0.012, 0.015), sat(pow(dd / wl0, 0.6)));
     float rays = smoothstep(0.5, 0.85, noise(vec2(sx * 9.0, t * 0.12)) * 0.6 + noise(vec2(sx * 21.0, t * 0.2 + 4.0)) * 0.4) * exp(-dd * 3.5) * (0.35 + 0.65 * exp(-pow((sx - moon.x) / 0.55, 2.0)));
     col = water + vec3(0.14, 0.25, 0.22) * exp(-pow((sx - moon.x) / (0.14 + dd * 0.3), 2.0) - dd * 3.0) + vec3(0.16, 0.34, 0.3) * rays;
-    // Far sea stacks in the gloom, marine snow.
-    col = mix(col, vec3(0.01, 0.04, 0.045), fill(p.y - 0.16 - 0.09 * sat(sin(p.x * 3.1 + 0.6)) - 0.012 * sin(p.x * 17.0) + 0.12 * smoothstep(0.35, 0.6, p.x / ar), px) * 0.6);
-    col += vec3(0.16, 0.23, 0.21) * motes(p * 42.0 + vec2(sin(t * 0.2) * 0.5, t * 0.12), 0.13, 0.15, 7.0) * exp(-dd * 1.5);
-    // The leviathan behind the rock: ridged, rim-lit back, a slow wave running through its green lights.
-    float bx = p.x / ar, dy = p.y - mix(0.36, 0.125, wide) - 0.045 * sin(bx * 5.0 + t * 0.12) - 0.02 * sin(bx * 11.0 - t * 0.09);
-    float thick = 0.014 + 0.075 * smoothstep(0.0, 0.9, bx), ridge = 0.02 * pow(abs(sin(p.x * 24.0)), 5.0) * smoothstep(0.05, 0.3, bx);
-    float body = fill(max(-dy - thick, dy - thick - ridge), px * 2.0);
-    col = mix(col, mix(vec3(0.005, 0.018, 0.02) + vec3(0.1, 0.24, 0.22) * smoothstep(thick * 0.4, thick + ridge, dy) * (0.35 + rays * 1.5) * exp(-dd * 1.5), water, 0.4), body);
-    vec2 lc = vec2(fract(p.x * 17.0) - 0.5, (dy + thick * 0.25) / (thick * 0.15 + 0.002));
-    col += vec3(0.005, 0.03, 0.017) * exp(-abs(dy) / (thick * 2.5)) + vec3(0.32, 0.8, 0.5) * exp(-lc.x * lc.x * 40.0 - lc.y * lc.y) * body * (0.3 + 0.7 * pow(0.5 + 0.5 * sin(p.x * 5.0 - t * 0.7), 3.0));
-    // The drowned one: head bowed, hair and coat drifting, arms afloat.
-    float fs = mix(0.15, 0.155, wide);
-    vec2 fq = (p - vec2(mix(0.3, 0.44, wide) * ar + 0.004 * sin(t * 0.4), wl0 - 0.03 - fs)) / fs;
-    fq.x += (fq.y - 0.5) * 0.05 * sin(t * 0.33);
-    if (abs(fq.x) < 0.4 && fq.y > -0.1 && fq.y < 1.12) {
-      float l = 0.025 * sin(t * 0.5), cy = sat((0.62 - fq.y) / 0.34);
-      float fd = min(length(fq - vec2(0.045, 0.85)) - 0.068, length((fq - vec2(0.02 + l * 0.5, 0.92)) / vec2(1.3, 0.8)) - 0.06);
-      fd = min(fd, max(abs(fq.x - 0.03 * cy * sin(t * 0.4)) - mix(0.075, 0.15, cy), max(fq.y - 0.77, 0.28 + 0.025 * sin(fq.x * 40.0 + t * 0.8) - fq.y)));
-      fd = min(fd, min(seg(fq, vec2(-0.07, 0.72), vec2(-0.2, 0.52 + l), 0.027), seg(fq, vec2(0.07, 0.72), vec2(0.19, 0.5 - l), 0.027)));
-      fd = min(fd, min(seg(fq, vec2(-0.035, 0.32), vec2(-0.045, 0.02), 0.034), seg(fq, vec2(0.035, 0.32), vec2(0.07, 0.05 + l), 0.034)));
-      col = mix(col, mix(vec3(0.008, 0.025, 0.03) + vec3(0.14, 0.3, 0.27) * smoothstep(0.55, 1.05, fq.y) * (0.5 + rays), water, 0.18), fill(fd, px / fs));
+    col = mix(col, vec3(0.01, 0.04, 0.045), fill(p.y - 0.16 - 0.09 * sat(sin(p.x * 3.1 + 0.6)) - 0.012 * sin(p.x * 17.0) + 0.12 * smoothstep(0.35, 0.6, bx), px) * 0.6);
+    float dy = p.y - mix(0.34, 0.14, wide) - 0.045 * sin(bx * 5.0 + t * 0.12) - 0.02 * sin(bx * 11.0 - t * 0.09);
+    col += vec3(0.03, 0.15, 0.1) * exp(-pow((dy - 0.06) / 0.2, 2.0)) * smoothstep(0.0, 0.5, bx) + vec3(0.16, 0.23, 0.21) * motes(p * 42.0 + vec2(sin(t * 0.2) * 0.5, t * 0.12), 0.13, 0.15, 7.0) * exp(-dd * 1.5);
+    // The leviathan: a vast ridged back blotting out the glow, a slow wave through its lights.
+    float thick = 0.015 + 0.12 * smoothstep(0.0, 1.0, bx), ridge = 0.022 * pow(abs(sin(p.x * 21.0)), 5.0) * smoothstep(0.05, 0.3, bx);
+    float lev = fill(max(-dy - thick, dy - thick - ridge), px * 2.0 + 0.004 * smoothstep(0.0, -thick, dy));
+    col = mix(col, mix(vec3(0.003, 0.012, 0.014) + vec3(0.1, 0.24, 0.22) * smoothstep(thick * 0.5, thick + ridge, dy) * (0.3 + rays * 1.5) * exp(-dd * 1.5), water * 0.5, 0.25), lev);
+    vec2 lc = vec2(fract(p.x * 17.0) - 0.5, (dy + thick * 0.15) / (thick * 0.1 + 0.002));
+    col += vec3(0.32, 0.8, 0.5) * exp(-lc.x * lc.x * 40.0 - lc.y * lc.y) * lev * (0.3 + 0.7 * pow(0.5 + 0.5 * sin(p.x * 5.0 - t * 0.7), 3.0));
+    // The drowned one at a slant, lit only from above, its lower half lost in the murk.
+    float fs = mix(0.16, 0.17, wide);
+    vec2 fq = mat2(0.94, 0.34, -0.34, 0.94) * ((p - vec2(mix(0.3, 0.44, wide) * ar + 0.005 * sin(t * 0.3), wl0 - 0.04 - fs)) / fs - vec2(0.0, 0.5)) + vec2(0.0, 0.5);
+    fq.x += 0.025 * sin(t * 0.33 + fq.y * 2.0);
+    if (abs(fq.x - 0.05) < 0.45 && fq.y > -0.15 && fq.y < 1.25) {
+      float fd = body(fq, t), murk = sat((0.55 - fq.y) * 1.6), lit = smoothstep(-0.015, 0.0, fd) * smoothstep(0.35, 0.95, fq.y) * 0.7;   // upper edges catch the light
+      vec3 fc = vec3(0.006, 0.02, 0.024) + vec3(0.45, 0.7, 0.62) * lit * (0.4 + 1.5 * rays) * (1.0 - murk);
+      col = mix(col, mix(fc, water, 0.1 + 0.5 * murk), fill(fd, px / fs * (1.0 + 7.0 * murk)));
     }
-    // The rock as a sea stack of ledges, moonlit on its left.
-    float lv = p.y * 9.0 + 0.3, ls = lv + step(p.x, lx) * 0.5, cx = lx + 0.012 * sin(p.y * 7.0), strata = noise(vec2(p.x * 16.0, p.y * 42.0));
-    float ex = abs(p.x - cx) - (0.085 + 0.05 * smoothstep(wl0, 0.0, p.y) + 0.028 * abs(fract(ls) - 0.5) * 2.0 + 0.012 * (h1(floor(ls)) - 0.5) + 0.006 * sin(p.y * 57.0)) * mix(0.72, 1.0, wide);
-    float face = smoothstep(0.035, 0.0, -ex) * step(p.x, cx) * (0.6 + 0.6 * strata) + 0.5 * smoothstep(0.45, 0.6, fract(lv)) * strata;
-    col = mix(col, mix(vec3(0.005, 0.016, 0.02) + vec3(0.1, 0.24, 0.21) * face * (0.5 + rays) * exp(-dd * 2.0), water, sat(dd * 0.9) * 0.55), fill(ex, px));
-    col += vec3(0.16, 0.28, 0.26) * exp(-dd * 60.0) * smoothstep(0.0, px * 2.0, dd);
+    // The sea stack: slanted strata, lit ledges, greener and darker with depth.
+    float side = step(p.x, lx), sk = p.y * 9.0 + side * 0.45, L = floor(sk), f = fract(sk), hr = h1(L + side * 7.0);
+    float strata = noise(vec2(p.x * 10.0, p.y * 46.0)), crack = noise(vec2(p.x * 34.0, p.y * 9.0));
+    float ex = abs(p.x - lx - 0.01 * sin(p.y * 6.0)) - 0.008 * (crack - 0.5) - sc * (0.1 + 0.07 * smoothstep(wl0, 0.0, p.y) + 0.055 * (hr - 0.5)
+             + 0.05 * (h1(L + 11.0 + side) - 0.5) * (f - 0.5) + 0.02 * smoothstep(0.12, 0.0, f) * (h1(L - 1.0 + side * 7.0) - hr));
+    float shade = 0.4 + 0.8 * smoothstep(0.55, 0.8, strata) - 0.35 * smoothstep(0.35, 0.15, strata) + 0.4 * smoothstep(0.8, 1.0, f) - 0.3 * smoothstep(0.25, 0.1, crack) + 0.6 * smoothstep(0.035, 0.0, -ex) * side;
+    col = mix(col, mix(mix(vec3(0.1, 0.22, 0.21), vec3(0.01, 0.05, 0.035), sat(dd * 2.2)) * shade * (0.55 + rays * 1.4), water, sat(dd * 0.9) * 0.5), fill(ex, px));
+    // Kelp swaying.
+    if (abs(rx) < 0.4 * sc && p.y < wl0 * 0.75) {
+      for (int i = 0; i < 4; i++) {
+        float fi = float(i), kt = wl0 * (0.5 + 0.08 * fi - 0.15 * step(1.5, fi)), s = sat(p.y / kt), lf = sin(p.y * 31.0 + fi * 2.0);
+        float kd = abs(rx - (fi < 1.5 ? -0.15 - fi * 0.07 : 0.1 + fi * 0.045) * sc - 0.035 * sin(p.y * 7.0 - t * 0.5 + fi * 1.7) * s) - (0.004 + 0.009 * lf * lf) * (1.3 - s);
+        col = mix(col, mix(vec3(0.03, 0.1, 0.06) + vec3(0.1, 0.24, 0.13) * (0.3 + rays * 2.0) * s, water, 0.2 + 0.4 * sat(0.6 - s)), fill(kd, px * 1.2) * step(p.y, kt));
+      }
+    }
+    col += vec3(0.16, 0.28, 0.26) * (1.0 + 1.5 * onSea) * exp(-dd * 60.0) * smoothstep(0.0, px * 2.0, dd);
   }
-  // The meniscus, brightest under the moon; vignette.
-  col += vec3(0.6, 0.85, 0.8) * smoothstep(px * 3.0, 0.0, abs(p.y - wl)) * (0.3 + 0.5 * exp(-pow((p.x - moon.x) / 0.15, 2.0)));
+  // The meniscus, brightest under the moon and the beams; vignette.
+  col += vec3(0.6, 0.85, 0.8) * smoothstep(px * 3.0, 0.0, abs(p.y - wl)) * (0.3 + 0.5 * exp(-pow((p.x - moon.x) / 0.15, 2.0)) + 0.7 * onSea);
   vec2 v = pixel / iResolution.xy - 0.5;
   col *= 1.0 - 0.45 * dot(v, v);
   color = vec4(col / (1.0 + col * 0.25), 1.0);
@@ -426,99 +507,117 @@ void mainImage(out vec4 color, in vec2 pixel) {
 export const VERDANT_SHADER = `
 float sat(float x) { return clamp(x, 0.0, 1.0); }
 float fill(float d, float e) { return smoothstep(e, -e, d); }
-float seg(vec2 p, vec2 a, vec2 b, float r) {
-  vec2 pa = p - a, ba = b - a;
-  return length(pa - ba * sat(dot(pa, ba) / dot(ba, ba))) - r;
-}
-float crest(float x) { return 0.12 + 0.03 * sin(x * 2.3 + 1.0) + 0.01 * sin(x * 7.0); }
-// A row of tiered pines on ground at h. x: distance (about), y: side of the pine (-1 left, 1 right).
-vec2 pines(vec2 p, float h, float s, float seed) {
-  float r = h1(floor(p.x / s) + seed), ox = fract(p.x / s) - 0.5 + (r - 0.5) * 0.15;
-  float th = s * (1.3 + 1.9 * r) * step(0.15, r), v = (p.y - h) / max(th, 0.0001), tier = fract(v * 3.5 + 0.3);
-  float hw = s * 0.5 * (1.0 - v) * (0.74 + 0.26 * smoothstep(0.0, 0.25, tier) * (1.0 - tier));
-  float pine = th > 0.0 ? max(abs(ox) * s - hw, max(-v, v - 1.0) * th) : 1.0;
-  return vec2(min(p.y - h, pine), pine < p.y - h ? ox * s / max(hw, 0.0001) : 0.0);
-}
-// One leafy dome of the crown: keeps the nearest edge, blends in its normal (the highest dome weighs most).
-void dome(vec2 q, vec2 c, float rad, float lift, inout float sd, inout vec3 nsum) {
-  vec2 e = q - c;
-  float z = rad * rad - dot(e, e), w = z / (rad * rad);
-  sd = min(sd, -z / (2.0 * rad));
-  if (z > 0.0) nsum += w * w * lift * vec3(e, sqrt(z)) / rad;
-}
-// One ridge (fi 0 far .. 3 near): two staggered pine rows on a rolling hill, faded into haze, mist at its foot.
-vec3 ridge(vec3 col, vec2 p, float fi, float gy, float wide, float px, float mistN) {
-  float depth = fi / 3.0, base = gy + 0.01 - fi * mix(0.095, 0.075, wide), s = (0.011 + fi * 0.012) * mix(0.75, 1.0, wide);
-  float h = base + (0.02 + fi * 0.013) * (sin(p.x * 1.7 + fi * 7.3) * 0.6 + sin(p.x * 4.3 + fi * 14.6) * 0.4);
-  vec2 ra = pines(p, h, s, fi * 7.3 + 1.0), rb = pines(p, h - s * 0.9, s * 0.83, fi * 7.3 + 4.2);
-  if (rb.x < ra.x) ra = rb;
-  vec3 haze = vec3(0.97, 0.93, 0.72), lc = mix(vec3(0.85, 0.89, 0.68), vec3(0.54, 0.73, 0.37), depth);
-  lc = mix(lc, lc * vec3(0.82, 0.92, 0.95), smoothstep(0.2, -0.8, ra.y) * depth);   // far side in shade
-  lc += vec3(1.0, 0.82, 0.4) * (smoothstep(0.3, 0.95, ra.y) * 0.25 * depth + smoothstep(0.003 + fi * 0.002, 0.0, -ra.x) * (0.06 + 0.1 * depth) * (0.4 + mistN));
-  lc = mix(lc, haze, smoothstep(0.02, 0.14, -ra.x) * (0.35 + 0.3 * mistN) * (1.0 - depth * 0.7));
-  col = mix(col, lc, fill(ra.x, px));
-  return mix(col, haze, smoothstep(0.09, 0.0, abs(p.y - base + 0.04)) * smoothstep(0.3, 0.8, mistN) * 0.35 * (1.0 - depth * 0.6));
+float smin(float a, float b, float k) { float h = sat(0.5 + 0.5 * (b - a) / k); return mix(b, a, h) - k * h * (1.0 - h); }
+float seg(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; return length(pa - ba * sat(dot(pa, ba) / dot(ba, ba))) - r; }
+// A limb or root bending once: a to b to c, tapering.
+float limb(vec2 q, vec2 a, vec2 b, vec2 c, float r) { return min(seg(q, a, b, r), seg(q, b, c, r * 0.6)); }
+float crest(float x) { return 0.11 + 0.03 * sin(x * 2.3 + 1.0) + 0.01 * sin(x * 7.0); }
+// A forested ridge (fi 0 far .. 3 near): a rolling hill under an irregular canopy line of rounded crowns with a spire here
+// and there; clumps dappled in sun and cool shade, gold along the tops, sinking into valley mist and, far off, into haze.
+vec3 forest(vec3 col, vec2 p, float fi, float gy, float wide, float px, float mistN) {
+  float depth = fi / 3.0, w = (0.006 + 0.007 * fi) * mix(0.75, 1.0, wide), x = p.x / w;
+  float top = gy + 0.02 - fi * mix(0.085, 0.07, wide) + (0.015 + 0.012 * fi) * (sin(p.x * 1.6 + fi * 2.0) * 0.6 + sin(p.x * 3.7 + fi * 5.0) * 0.4);
+  top += w * (0.5 * abs(sin(x * 1.3 + fi)) + 0.3 * abs(sin(x * 0.81 + 2.0 * fi)) + 0.2 * abs(sin(x * 2.1)));
+  float r = h1(floor(x * 0.4) + fi * 13.0);
+  top += step(0.7, r) * max(0.0, 1.0 - abs(fract(x * 0.4) - 0.5) * (2.6 + r)) * w * (1.8 + 1.5 * r);
+  float d = p.y - top, dapple = noise(mat2(0.8, -0.6, 0.6, 0.8) * vec2(p.x, p.y * 1.4) / (w * 2.2) + fi * 7.0);
+  vec3 moss = mix(vec3(0.77, 0.85, 0.65), vec3(0.5, 0.69, 0.4), depth), haze = vec3(0.96, 0.91, 0.7);
+  vec3 c = mix(moss * mix(vec3(0.9, 0.96, 0.99), vec3(0.74, 0.88, 0.97), depth), moss, smoothstep(0.3, 0.72, dapple));   // cool shade, sunlit clumps
+  c += vec3(0.95, 0.8, 0.42) * smoothstep(w * 0.9, 0.0, -d) * (0.18 + 0.12 * depth) * (0.6 + 0.6 * mistN);   // gold on the tops
+  c = mix(c, haze, smoothstep(0.0, 0.07 + 0.04 * fi, -d) * (0.35 + 0.35 * mistN) * (1.0 - 0.4 * depth));  // valley mist
+  return mix(col, mix(c, haze, (1.0 - depth) * 0.4), fill(d, px));
 }
 void mainImage(out vec4 color, in vec2 pixel) {
   float ar = iResolution.x / iResolution.y, wide = smoothstep(0.7, 1.5, ar), px = 1.5 / iResolution.y, t = iTime;
   vec2 p = pixel / iResolution.y;
-  float S = min(0.7, ar * 1.15), tx = mix(0.5, 0.64, wide) * ar, gy = mix(0.5, 0.345, wide);   // tree size, place, ground
-  vec2 q = (p - vec2(tx, gy)) / S, ds = p - vec2(tx + 0.05 * S, gy + 0.37 * S);
+  float S = min(0.77, ar * 1.3), tx = mix(0.5, 0.65, wide) * ar, gy = mix(0.48, 0.28, wide);   // the tree's size, place, ground
+  vec2 q = (p - vec2(tx, gy)) / S, ds = p - vec2(tx + 0.07 * S, gy + 0.42 * S);
   float r = length(ds), tree = 0.0;
-  // Sky: jade into gold, a bloom behind the crown, god rays sampled on the circle of directions (no seam).
-  vec3 col = mix(vec3(1.0, 0.9, 0.62), vec3(0.64, 0.83, 0.7), smoothstep(gy - 0.1, 1.0, p.y)) + vec3(1.0, 0.82, 0.45) * exp(-r * 2.6) * 0.35 + vec3(1.0, 0.95, 0.8) * exp(-r * 8.0) * 0.35;
+  // Sky: cool jade overhead into warm gold at the haze line, a great bloom behind the crown.
+  vec3 col = mix(vec3(1.0, 0.86, 0.56), vec3(0.83, 0.88, 0.66), smoothstep(gy - 0.05, gy + 0.3, p.y));
+  col = mix(col, vec3(0.52, 0.75, 0.72), smoothstep(gy + 0.25, 1.1, p.y)) + vec3(1.0, 0.82, 0.5) * exp(-r * 2.4) * 0.35 + vec3(1.0, 0.96, 0.82) * exp(-r * 7.0) * 0.4;
+  // God rays fanning from the sun, sampled on the circle of directions so they have no seam.
   vec2 dir = ds / (r + 0.0001);
-  float rays = smoothstep(0.4, 0.85, noise(dir * 7.0 + t * 0.012) * (0.8 + 0.2 * sin(dir.x * 37.0 - dir.y * 23.0))) * exp(-r * 1.3);
+  float rays = smoothstep(0.42, 0.85, noise(dir * 7.0 + t * 0.012) * (0.8 + 0.2 * sin(dir.x * 37.0 - dir.y * 23.0))) * exp(-r * 1.2);
   float mistN = noise(vec2(p.x * 3.0 - t * 0.03, p.y * 12.0 + sin(p.x * 2.0 + t * 0.05)));
-  vec3 haze = vec3(0.97, 0.93, 0.72);
-  // Ridges far to near; the tree stands between the second and third.
-  if (p.y < gy + 0.12) for (int i = 0; i < 2; i++) col = ridge(col, p, float(i), gy, wide, px, mistN);
-  if (abs(q.x) < 0.9 && q.y < 0.02) {
-    // The tree's own hill.
-    float hill = gy - 0.13 * S * (1.0 - exp(-q.x * q.x * 5.0)) + 0.004 * sin(q.x * 40.0) - p.y;
-    col = mix(col, vec3(0.69, 0.81, 0.51) + vec3(1.0, 0.85, 0.45) * smoothstep(0.006, 0.0, hill) * 0.3, fill(-hill, px));
+  // A far blue-green range lost in the haze, then the far forests.
+  col = mix(col, vec3(0.78, 0.86, 0.72), fill(p.y - gy - 0.035 - 0.025 * sin(p.x * 2.1 + 0.5) - 0.012 * sin(p.x * 5.3), px) * 0.6);
+  if (p.y < gy + 0.08) for (int i = 0; i < 2; i++) col = forest(col, p, float(i), gy, wide, px, mistN);
+  // The tree's hill, a broad meadow mound in warm light.
+  float hill = gy - 0.24 * S * (1.0 - exp(-q.x * q.x * 2.2)) + 0.003 * sin(q.x * 50.0) - p.y;
+  if (hill > -0.02) col = mix(col, mix(vec3(0.66, 0.78, 0.47), vec3(0.82, 0.84, 0.55), smoothstep(-0.12, 0.0, -hill)) * (0.94 + 0.1 * mistN) + vec3(0.3, 0.25, 0.12) * smoothstep(0.008, 0.0, hill), fill(-hill, px));
+  if (abs(q.x) < 0.44 && q.y > -0.08 && q.y < 0.66) {
+    // Roots gripping the hill, a massive gnarled trunk, great limbs splaying into the crown.
+    float yy = max(q.y, 0.0);
+    float td = abs(q.x - 0.015 * sin(q.y * 9.0) + 0.02 * q.y) - (0.038 + 0.055 * exp(-yy * 14.0) + 0.006 * sin(q.y * 40.0 + 1.0) + 0.004 * sin(q.y * 97.0));
+    td = max(td, q.y - 0.22);
+    td = smin(td, limb(q, vec2(-0.03, 0.02), vec2(-0.1, -0.01), vec2(-0.2, -0.05), 0.022), 0.02);
+    td = smin(td, limb(q, vec2(0.03, 0.02), vec2(0.11, -0.005), vec2(0.21, -0.048), 0.022), 0.02);
+    td = smin(td, limb(q, vec2(-0.01, 0.01), vec2(-0.05, -0.03), vec2(-0.09, -0.07), 0.016), 0.02);
+    td = smin(td, limb(q, vec2(0.0, 0.18), vec2(-0.12, 0.26), vec2(-0.24, 0.31), 0.028), 0.03);
+    td = smin(td, limb(q, vec2(0.0, 0.19), vec2(-0.04, 0.3), vec2(-0.09, 0.42), 0.02), 0.03);
+    td = smin(td, limb(q, vec2(0.01, 0.19), vec2(0.08, 0.3), vec2(0.07, 0.43), 0.02), 0.03);
+    td = smin(td, limb(q, vec2(0.01, 0.18), vec2(0.14, 0.24), vec2(0.27, 0.29), 0.028), 0.03);
+    td = max(td, -0.24 * (1.0 - exp(-q.x * q.x * 2.2)) - 0.012 - q.y);                              // roots sink into the hill
+    float side = smoothstep(-0.04, 0.04, q.x - 0.015 * sin(q.y * 9.0) + 0.02 * q.y);
+    vec3 bark = mix(vec3(0.36, 0.41, 0.39), vec3(0.56, 0.52, 0.38), side) * (0.6 + 0.55 * smoothstep(0.25, 0.65, noise(vec2(q.x * 80.0, q.y * 8.0 + q.x * 25.0))));   // furrowed bark
+    bark += vec3(0.5, 0.38, 0.18) * smoothstep(0.012, 0.0, abs(td)) * side;                                // warm rim on the sun side
+    col = mix(col, mix(bark, vec3(0.96, 0.91, 0.7), 0.15 + 0.1 * (1.0 - wide)), fill(td, px / S));
+    // The crown: layered leaf clumps from back to front, edges torn by leaf noise; hazier at the back, mossy in front,
+    // cool in shade, glowing gold where the low sun shines through the thin edges.
+    vec2 c = q + vec2(0.004 * sin(t * 0.5 + q.y * 5.0) * smoothstep(0.2, 0.45, q.y), 0.0);
+    float leaf = noise(c * 30.0) * 0.45 + noise(mat2(0.8, -0.6, 0.6, 0.8) * c * 90.0) * 0.55;
+    for (int row = 0; row < 4; row++) {
+      float fr = float(row), n = 7.0 + 2.0 * step(0.5, fr) * step(fr, 2.5);
+      float spread = fr < 0.5 ? 0.17 : (fr < 1.5 ? 0.26 : (fr < 2.5 ? 0.3 : 0.25));
+      vec3 tone = mix(vec3(0.55, 0.7, 0.56), vec3(0.5, 0.68, 0.37), fr / 3.0);
+      for (int k = 0; k < 10; k++) {
+        float fk = float(k), u = fk / (n - 1.0) * 2.0 - 1.0, hk = fract(fk * 0.618 + fr * 0.37);
+        if (fk < n) {
+          vec2 cc = vec2(u * spread + (hk - 0.5) * 0.03, 0.51 - fr * 0.06 + (0.045 - fr * 0.018) * (1.0 - u * u) + (hk - 0.5) * 0.04);   // rows arch into a dome
+          float rad = 0.058 + 0.026 * hk + 0.006 * fr;
+          vec2 e = (c - cc) / vec2(1.25, 1.0);
+          float d = length(e) / rad - 1.0 + (leaf - 0.5) * 0.7;
+          vec2 nrm = e / rad;
+          float facing = sat(0.35 + dot(nrm, vec2(0.5, 0.85)));
+          vec3 lc = mix(tone * vec3(0.76, 0.9, 0.99), tone, sat(0.55 + 0.6 * nrm.y + 0.4 * (leaf - 0.5)));
+          lc += vec3(1.0, 0.86, 0.45) * smoothstep(-0.4, 0.0, d) * facing * facing * (0.5 + 0.15 * fr);
+          lc = mix(lc, vec3(0.96, 0.91, 0.7), 0.28 - fr * 0.09 + 0.1 * (1.0 - wide));
+          float cov = fill(d, px / S / rad * 1.5);
+          col = mix(col, lc, cov);
+          tree = max(tree, cov);
+        }
+      }
+    }
+    // Sun breaking through gaps near the heart of the crown.
+    col += vec3(1.0, 0.9, 0.55) * smoothstep(0.78, 0.9, leaf) * tree * exp(-length(c - vec2(0.07, 0.42)) * 6.0) * 1.2;
   }
-  if (abs(q.x) < 0.45 && q.y > -0.03 && q.y < 0.57) {
-    // Flared roots, a gnarled trunk and great limbs.
-    float td = max(abs(q.x - 0.012 * sin(q.y * 14.0)) - 0.032 - 0.075 * exp(-q.y * 16.0) + 0.004 * sin(q.y * 70.0 + q.x * 30.0), q.y - 0.3);
-    td = min(min(td, seg(q, vec2(0.0, 0.16), vec2(-0.16, 0.29), 0.02)), seg(q, vec2(0.005, 0.18), vec2(0.15, 0.3), 0.018));
-    td = max(min(td, seg(vec2(abs(q.x), q.y), vec2(0.02, 0.02), vec2(0.145, -0.012), 0.012)), -q.y - 0.008);
-    vec3 bark = mix(vec3(0.36, 0.4, 0.26), vec3(0.5, 0.52, 0.34), 0.5 + 0.5 * sin(q.x * 160.0 + q.y * 20.0)) + vec3(0.35, 0.28, 0.14) * smoothstep(0.02, 0.0, abs(td)) * step(0.0, q.x);
-    col = mix(col, mix(bark, haze, 0.2), fill(td, px / S));
-    // The crown, swaying: leafy domes (outer arc, middle row, heart), backlit, glowing at thin edges, sun breaking through.
-    vec2 c = q + vec2(0.003 * sin(t * 0.6 + q.y * 4.0) * smoothstep(0.15, 0.4, q.y), 0.0), cs = vec2(1.0, 0.0);
-    float leafN = noise(mat2(0.8, -0.6, 0.6, 0.8) * c * 30.0 + 5.0) * 0.6 + noise(mat2(0.6, 0.8, -0.8, 0.6) * c * 66.0) * 0.4, sd = 1.0;
-    vec3 nsum = vec3(0.0, 0.0, 0.000001);
-    for (int k = 0; k < 7; k++) { dome(c, vec2(cs.x * 0.29, 0.31 + cs.y * 0.12), 0.09 + 0.025 * fract(float(k) * 0.618 + 0.3), 1.0, sd, nsum); cs = mat2(0.866, 0.5, -0.5, 0.866) * cs; }
-    cs = vec2(0.866, 0.5);
-    for (int k = 0; k < 3; k++) { dome(c, vec2(cs.x * 0.19, 0.27 + cs.y * 0.08), 0.11 + 0.02 * float(k - 1) * float(k - 1), 3.0, sd, nsum); cs = mat2(0.5, 0.866, -0.866, 0.5) * cs; }
-    dome(c, vec2(0.0, 0.28), 0.12, 9.0, sd, nsum);
-    vec3 nrm = normalize(nsum);
-    float rim = smoothstep(-0.035, 0.0, sd), toSun = sat(dot(normalize(nrm.xy + 0.0001), vec2(0.45, 0.9)));
-    vec3 lv = mix(vec3(0.47, 0.64, 0.44), vec3(0.72, 0.84, 0.4), sat(0.4 + 0.6 * nrm.y) * smoothstep(0.15, 0.95, leafN)) * (0.8 + 0.2 * smoothstep(0.05, 0.6, nrm.z));
-    lv += vec3(1.0, 0.85, 0.4) * (rim * rim * (0.32 + 0.48 * toSun) + toSun * toSun * (1.0 - nrm.z) * smoothstep(0.4, 0.7, leafN) * 0.5);
-    lv += vec3(1.2, 1.08, 0.66) * smoothstep(0.66, 0.8, leafN) * exp(-length(c - vec2(0.05, 0.36)) * 5.0);
-    tree = fill(sd + (leafN - 0.5) * 0.03, px / S);
-    col = mix(col, mix(lv, haze, 0.1), tree);
-  }
-  if (p.y < gy + 0.02) for (int i = 2; i < 4; i++) col = ridge(col, p, float(i), gy, wide, px, mistN);
-  // The near crest, and the wanderer on it, cloak stirring.
+  // Nearer forests, in front of the hill's foot.
+  if (p.y < gy - 0.02) for (int i = 2; i < 4; i++) col = forest(col, p, float(i), gy, wide, px, mistN);
+  // The near meadow with grass tips, and the wanderer on it, cloak stirring.
   float nd = p.y - crest(p.x) - 0.007 * (1.0 - abs(fract(p.x * 110.0) * 2.0 - 1.0)) * h1(floor(p.x * 110.0));
-  col = mix(col, mix(vec3(0.6, 0.75, 0.4), vec3(0.55, 0.71, 0.37), smoothstep(0.1, 0.0, p.y)) + vec3(0.18, 0.16, 0.08) * smoothstep(0.01, 0.0, -nd), fill(nd, px));
+  col = mix(col, mix(vec3(0.66, 0.8, 0.46), vec3(0.6, 0.75, 0.44), smoothstep(0.1, 0.0, p.y)) * (0.93 + 0.12 * mistN) + vec3(0.25, 0.2, 0.08) * smoothstep(0.012, 0.0, -nd), fill(nd, px));
   float wx = mix(0.3, 0.4, wide) * ar;
   vec2 w = (p - vec2(wx, crest(wx) - 0.004)) / 0.08;
   float fig = min(length(w - vec2(0.0, 0.86)) - 0.1, max(abs(w.x + 0.1 * (w.y - 0.8) + 0.04 * sin(t * 1.2 + w.y * 6.0) * (0.8 - w.y)) - 0.05 - 0.2 * (0.8 - w.y), max(w.y - 0.8, -w.y)));
   fig = min(fig, max(abs(w.x - 0.3 + w.y * 0.06) - 0.025, max(w.y - 1.1, -w.y)));
-  col = mix(col, vec3(0.13, 0.2, 0.12) + vec3(0.24, 0.21, 0.1) * smoothstep(-0.05, 0.0, fig) * step(0.0, w.x), fill(fig, px / 0.08));
-  // Tall grass framing the lower corners, swaying.
-  float gx = p.x * 32.0, gc = floor(gx), hb = (0.04 + 0.08 * h1(gc)) * (smoothstep(0.3, 0.0, p.x / ar) + smoothstep(0.72, 1.0, p.x / ar)), yb = p.y / max(hb, 0.001);
-  col = mix(col, vec3(0.47, 0.64, 0.32) + vec3(0.25, 0.21, 0.1) * smoothstep(0.6, 1.0, yb), fill((abs(fract(gx) - 0.5 - (0.25 + 0.12 * sin(t * 0.7 + gc * 0.9)) * yb * yb) - 0.32 * (1.0 - yb)) / 32.0, px) * step(yb, 1.0));
-  // God rays (not over the crown), pollen, fireflies.
-  col += vec3(1.0, 0.9, 0.6) * rays * (1.0 - tree) * 0.32;
-  col += vec3(1.0, 0.93, 0.62) * motes(p * 18.0 + vec2(t * 0.05, -t * 0.1), 0.13, 0.12, 1.0) * (0.32 + 0.28 * exp(-r * 2.0));
-  col += vec3(0.85, 1.0, 0.4) * motes(p * 26.0 + vec2(sin(t * 0.3) * 0.6, t * 0.04), 0.13, 0.12, 9.0) * (0.5 + 0.5 * sin(t * 1.3 + h2(floor(p * 26.0)) * 30.0)) * smoothstep(0.32, 0.08, p.y);
+  col = mix(col, vec3(0.16, 0.22, 0.17) + vec3(0.32, 0.26, 0.12) * smoothstep(-0.06, 0.0, fig) * step(0.0, w.x), fill(fig, px / 0.08));
+  // Tall grass framing the lower corners, swaying, its tips in the light.
+  float gx = p.x * 32.0, gc = floor(gx), hb = (0.04 + 0.08 * h1(gc)) * mix(0.55, 1.0, wide) * (smoothstep(0.3, 0.0, p.x / ar) + smoothstep(0.72, 1.0, p.x / ar)), yb = p.y / max(hb, 0.001);
+  col = mix(col, vec3(0.47, 0.65, 0.39) + vec3(0.4, 0.32, 0.12) * smoothstep(0.6, 1.0, yb), fill((abs(fract(gx) - 0.5 - (0.25 + 0.12 * sin(t * 0.7 + gc * 0.9)) * yb * yb) - 0.32 * (1.0 - yb)) / 32.0, px) * step(yb, 1.0));
+  // Birds wheeling slowly around the crown, tiny against it.
+  if (abs(q.x) < 0.46 && q.y > 0.42 && q.y < 0.72) for (int i = 0; i < 5; i++) {
+    float fi = float(i), an = t * 0.07 + fi * 1.26;
+    vec2 b = (p - vec2(tx + cos(an) * 0.4 * S, gy + (0.5 + 0.06 * sin(an * 2.0 + fi)) * S + 0.03 * fi * S)) / (0.006 + 0.002 * sin(an));
+    float flap = 0.35 * sin(t * 5.0 + fi * 2.0);
+    col = mix(col, vec3(0.34, 0.4, 0.33), fill(abs(b.y - abs(b.x) * (0.5 + flap)) - 0.22 + abs(b.x) * 0.12, 0.25) * step(abs(b.x), 1.0) * mix(1.0 - tree, 1.0, step(0.0, sin(an))));   // behind the crown when passing round it
+  }
+  // God rays (not over the crown), sparse pollen, fireflies over the meadow.
+  col += vec3(1.0, 0.9, 0.6) * rays * (1.0 - tree) * 0.3;
+  col += vec3(1.0, 0.93, 0.62) * motes(p * 18.0 + vec2(t * 0.05, -t * 0.1), 0.12, 0.08, 1.0) * (0.3 + 0.3 * exp(-r * 2.0));
+  col += vec3(0.85, 1.0, 0.4) * motes(p * 26.0 + vec2(sin(t * 0.3) * 0.6, t * 0.04), 0.13, 0.08, 9.0) * (0.5 + 0.5 * sin(t * 1.3 + h2(floor(p * 26.0)) * 30.0)) * smoothstep(0.3, 0.06, p.y);
   vec2 v = pixel / iResolution.xy - 0.5;
-  color = vec4(col * (1.0 - 0.3 * dot(v, v)), 1.0);
+  color = vec4(col * (1.0 - 0.28 * dot(v, v)), 1.0);
 }
 `;
 
@@ -526,6 +625,25 @@ void mainImage(out vec4 color, in vec2 pixel) {
 export const IRON_VIGIL_SHADER = `
 float box(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
 float seg(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - r; }
+// Outward distance from the edge a to b of a counter-clockwise polygon.
+float edge(vec2 p, vec2 a, vec2 b) { vec2 e = normalize(b - a); return dot(p - a, vec2(e.y, -e.x)); }
+// A small human in a long coat, 1 tall, feet at 0: head, collar, a coat flaring and blowing right, legs below, a rifle on the back.
+float person(vec2 p, float t) {
+  float hem = 0.22 + 0.04 * sin(t * 1.6);
+  float coat = max(max(edge(p, vec2(-0.1, 0.8), vec2(-0.15, 0.2)), edge(p, vec2(-0.15, 0.2), vec2(hem, 0.17))), max(edge(p, vec2(hem, 0.17), vec2(0.11, 0.8)), p.y - 0.8));
+  float d = min(coat - 0.02, length(p - vec2(0.0, 0.9)) - 0.075);
+  d = min(d, min(seg(p, vec2(-0.04, 0.2), vec2(-0.05, 0.0), 0.035), seg(p, vec2(0.05, 0.2), vec2(0.07, 0.0), 0.035)));
+  return min(min(d, seg(p, vec2(-0.13, 1.02), vec2(0.07, 0.45), 0.018)), box(p - vec2(0.0, 0.79), vec2(0.13, 0.04)) - 0.02);
+}
+// The fallen walker, in its own units: an armoured torso on its side with its pod, a leg jutting up, a snapped gun.
+float wreck(vec2 p) {
+  vec2 r = vec2(p.x * 0.9 - p.y * 0.44, p.x * 0.44 + p.y * 0.9);
+  float d = min(box(r, vec2(0.36, 0.15)) - 0.04, box(r - vec2(-0.1, 0.21), vec2(0.17, 0.07)) - 0.03);
+  d = min(d, min(seg(p, vec2(0.15, 0.22), vec2(0.22, 0.52), 0.065), length(p - vec2(0.22, 0.52)) - 0.078));
+  d = min(d, min(seg(p, vec2(0.22, 0.52), vec2(0.43, 0.68), 0.045), seg(p, vec2(0.43, 0.68), vec2(0.5, 0.6), 0.03)));
+  d = min(d, seg(p, vec2(0.45, 0.52), vec2(0.58, 0.68), 0.022));
+  return min(d, min(seg(p, vec2(-0.3, 0.04), vec2(-0.72, 0.2), 0.022), box(p - vec2(-0.74, 0.21), vec2(0.045, 0.032))));
+}
 // A digitigrade leg from hip h to ankle a: thigh, knee plate, shin, foot.
 float leg(vec2 q, vec2 h, vec2 a) {
   vec2 d = a - h, n = normalize(d); float L = min(length(d), 0.53);
@@ -570,16 +688,18 @@ void mainImage(out vec4 color, in vec2 pixel) {
   float mesa = hz + 0.022 + 0.03 * smoothstep(0.35, 0.65, noise(vec2(q.x * 2.4, 3.0)));
   col = mix(col, mix(vec3(0.66, 0.34, 0.33), vec3(0.95, 0.58, 0.4), exp(-abs(q.x - sc.x) * 3.0) * 0.6), smoothstep(px, -px, q.y - mesa) * 0.85);
   // Walkers far off, marching left along the horizon
-  float wx = q.x + t * 0.006, wid = floor(wx / 0.55);
-  vec2 wq = vec2(wx - wid * 0.55 - 0.275, y - 0.005) / 0.065;
-  if (abs(wq.x) < 0.6 && abs(wq.y - 0.5) < 0.56) col = mix(col, vec3(0.52, 0.26, 0.3), smoothstep(px, -px, mech(wq, t * 1.2 + wid * 2.0, 1.0) * 0.065) * 0.85);
+  float wx = q.x + t * 0.006, wid = floor(wx / 0.45), wh = h1(wid + 3.0), ws = 0.042 + 0.032 * wh;
+  vec2 wq = vec2(wx - wid * 0.45 - 0.225 - (fract(wh * 7.0) - 0.5) * 0.18, y - 0.003 - (1.0 - wh) * 0.012) / ws;
+  if (wh > 0.2 && abs(wq.x) < 0.6 && abs(wq.y - 0.5) < 0.56) col = mix(col, mix(vec3(0.62, 0.34, 0.34), vec3(0.42, 0.2, 0.25), wh), smoothstep(px, -px, mech(wq, t * 1.2 + wid * 2.0, 1.0) * ws) * (0.5 + 0.35 * wh));
   // The colossus, rim-lit against the sun and hazed at its feet; visor, warning lamp, searchlight, kicked-up dust
   vec2 base = vec2(mx, hz - 0.05), mq = (q - base) / ms;
   if (abs(mq.x + 0.1) < 0.48 && mq.y < 1.06 && mq.y > -0.02) {
     float md = mech(mq, 0.0, 0.0) * ms, rim = 0.0;
-    if (md < px && md > -0.02) rim = smoothstep(-0.2, 1.0, mech(mq + normalize(sc - q) * 0.02, 0.0, 0.0) * ms / (px * 2.0)) * exp(-sd * 2.5);
+    if (md < px && md > -0.02) rim = smoothstep(-0.2, 1.0, mech(mq + normalize(sc - q) * 0.025, 0.0, 0.0) * ms / (px * 2.0)) * (0.35 + exp(-sd * 2.5));
     vec3 mc = mix(vec3(0.13, 0.065, 0.08), vec3(0.78, 0.45, 0.38), smoothstep(0.4, 0.0, mq.y) * 0.85) + vec3(0.12, 0.06, 0.1) * smoothstep(0.7, 0.95, mq.y);
-    mc += vec3(1.0, 0.68, 0.42) * (rim * 1.4 + smoothstep(-0.008, 0.0, md) * 0.25) + vec3(1.0, 0.72, 0.35) * smoothstep(0.012, 0.0, seg(mq, vec2(-0.29, 0.73), vec2(-0.15, 0.82), 0.0)) * 0.9;
+    float seam = min(abs(mq.y - 0.7) + step(0.22, abs(mq.x + 0.03)), min(abs(mq.y - 0.635) + step(0.16, abs(mq.x - 0.03)), abs(mq.y - 0.86) + step(0.07, abs(mq.x - 0.12))));
+    mc += vec3(0.2, 0.1, 0.08) * smoothstep(0.005, 0.0015, seam);
+    mc += vec3(1.0, 0.68, 0.42) * (rim * 1.6 + smoothstep(-0.008, 0.0, md) * 0.25) + vec3(1.0, 0.72, 0.35) * smoothstep(0.012, 0.0, seg(mq, vec2(-0.29, 0.73), vec2(-0.15, 0.82), 0.0)) * 0.9;
     col = mix(col, mc, smoothstep(px, -px, md));
   }
   vec2 lamp = base + vec2(-0.03, 1.045) * ms, eye = base + vec2(-0.3, 0.7) * ms;
@@ -587,23 +707,28 @@ void mainImage(out vec4 color, in vec2 pixel) {
   float ba = -2.45 + 0.2 * sin(t * 0.21), bl = dot(q - eye, vec2(cos(ba), sin(ba))), bx = abs(dot(q - eye, vec2(-sin(ba), cos(ba))));
   float beam = smoothstep(0.012 + bl * 0.14, 0.0, bx) * step(0.0, bl) * exp(-bl * 2.4);
   col += vec3(1.0, 0.92, 0.8) * smoothstep(0.012, 0.0, length(q - eye));
-  col = mix(col, vec3(0.85, 0.52, 0.4), exp(-length((q - base - vec2(0.03, 0.03) * ms) * vec2(3.0, 9.0) / ms)) * 0.7);
-  // Mid dunes, with a fallen walker half sunk, a leg raised, its gun snapped
+  vec2 kq = (q - base - vec2(0.03, 0.03) * ms) / ms;
+  col = mix(col, vec3(0.85, 0.52, 0.4), exp(-length(kq * vec2(2.6, 8.0))) * (0.45 + 0.4 * noise(kq * vec2(6.0, 14.0) - vec2(t * 0.25, 0.0))));
+  // Mid dunes
   float mid = hz - 0.04 + 0.022 * sin(q.x * 2.6 + 0.4) + 0.012 * sin(q.x * 6.3);
-  vec2 fw = (q - vec2(ar * mix(0.3, 0.45, wide), mid)) / mix(0.17, 0.22, wide);
-  float wreck = min(box(vec2(fw.x * 0.96 + fw.y * 0.28, fw.y * 0.96 - fw.x * 0.28), vec2(0.28, 0.12)) - 0.02, min(seg(fw, vec2(0.1, 0.1), vec2(0.3, 0.32), 0.06), seg(fw, vec2(0.3, 0.32), vec2(0.38, 0.12), 0.045)));
-  wreck = min(wreck, seg(fw, vec2(-0.2, 0.1), vec2(-0.36, 0.42), 0.02));
-  col = mix(col, vec3(0.2, 0.1, 0.11), smoothstep(px, -px, wreck * mix(0.17, 0.22, wide)));
   col = mix(col, mix(vec3(0.33, 0.15, 0.16), vec3(0.78, 0.44, 0.33), exp(-max(mid - q.y, 0.0) * 32.0) * 0.8), smoothstep(px, -px, q.y - mid));
-  // Near dunes with a sun-grazed crest and wind ripples; the figure on the ridge, coat blowing
-  float nx = mx - mix(0.2, 0.36, wide);
-  float near = hz - mix(0.11, 0.14, wide) + 0.035 * sin(q.x * 1.9 - 1.0) + 0.012 * sin(q.x * 5.1 + 2.0) + 0.015 * exp(-pow((q.x - nx) * 6.0, 2.0));
-  vec2 fq = (q - vec2(nx, near - 0.004)) / 0.062;
-  float fig = min(min(seg(fq, vec2(0.0), vec2(0.0, 0.62), 0.12), length(fq - vec2(0.0, 0.8)) - 0.11), max(seg(fq, vec2(0.02, 0.62), vec2(0.42 + 0.05 * sin(t * 1.7), 0.08), 0.1), -fq.y));
-  fig = min(fig, seg(fq, vec2(-0.09, 0.5), vec2(-0.13, 1.18), 0.03)) * 0.062;
+  // Near dunes: a fallen walker half sunk in sand drifted over it, one leg jutting up, its gun snapped; the figure on the crest
+  float wcx = ar * mix(0.2, 0.37, wide), nx = ar * mix(0.64, 0.52, wide), sz = mix(0.22, 0.3, wide);
+  float near = hz - mix(0.11, 0.14, wide) + 0.035 * sin(q.x * 1.9 - 1.0) + 0.012 * sin(q.x * 5.1 + 2.0) + 0.012 * exp(-pow((q.x - nx) * 6.0, 2.0)) + 0.03 * exp(-pow((q.x - wcx) / sz * 2.2, 2.0));
+  vec2 fw = (q - vec2(wcx, near - 0.035)) / sz, L = normalize(sc - q);
+  float wd = wreck(fw) * sz;
+  if (wd < 0.01) {
+    float wr = smoothstep(-0.2, 1.0, wreck(fw + L * 0.03) * sz / (px * 2.0));
+    col = mix(col, vec3(0.07, 0.035, 0.04) + vec3(1.0, 0.62, 0.4) * wr * 0.5, smoothstep(px, -px, wd));
+  }
   float rip = smoothstep(0.55, 0.9, noise(vec2(q.x * 5.0, (near - q.y) * 60.0 + q.x * 8.0)));
   col = mix(col, mix(vec3(0.08, 0.035, 0.05), vec3(0.7, 0.38, 0.29), exp(-max(near - q.y, 0.0) * 70.0) * 0.8) + vec3(0.2, 0.09, 0.07) * rip * exp(-(near - q.y) * 6.0), smoothstep(px, -px, q.y - near));
-  col = mix(col, vec3(0.06, 0.03, 0.04), smoothstep(px, -px, fig));
+  vec2 fq = (q - vec2(nx, near - 0.003)) / 0.085;
+  float fig = person(fq, t) * 0.085;
+  if (fig < 0.01) {
+    float frim = smoothstep(-0.2, 1.0, person(fq + L * 0.06, t) * 0.085 / (px * 1.5));
+    col = mix(col, vec3(0.05, 0.025, 0.03) + vec3(1.0, 0.66, 0.42) * frim * 0.9, smoothstep(px, -px, fig));
+  }
   // Dust: sunlit veils, the searchlight through them, grains blowing across
   float dust = noise(vec2(q.x * 2.5 - t * 0.12, y * 9.0)) * 0.6 + noise(vec2(q.x * 6.0 - t * 0.3, y * 20.0)) * 0.4;
   col = mix(col, mix(vec3(0.75, 0.42, 0.36), vec3(1.0, 0.7, 0.48), exp(-sd * 3.0)), smoothstep(0.2, 0.85, dust) * exp(-abs(y + 0.03) * 7.0) * 0.7);
@@ -623,12 +748,14 @@ export const GLASSWING_SHADER = `
 float tri(float x) { return 1.0 - abs(2.0 * fract(x) - 1.0); }
 // Frame-wide values, set once in mainImage.
 float ar, wide, px, lake, tw; vec2 mc;
+// A cheap hash without sine, for the wing cells and stars.
+vec2 cell(vec2 p) { vec3 q = fract(p.xyx * vec3(0.1031, 0.103, 0.0973)); q += dot(q, q.yzx + 33.33); return fract((q.xx + q.yz) * q.zy); }
 vec3 spectrum(float x) { return 0.5 + 0.5 * cos(6.283 * (x + vec3(0.0, 0.33, 0.67))); }
-// Behind the glass: dusk sky and clouds, the moon, faceted peaks, the old tower, the wanderer.
-vec3 world(vec2 p) {
-  vec3 col = mix(vec3(0.84, 0.56, 0.6), vec3(0.66, 0.38, 0.58), smoothstep(0.28, 0.6, p.y));
+// Behind the glass: dusk sky, clouds, moon, faceted peaks, the old tower, the wanderer.
+vec3 world(vec2 p, bool clouds) {
+  vec3 col = mix(vec3(0.76, 0.49, 0.56), vec3(0.6, 0.34, 0.54), smoothstep(0.28, 0.6, p.y));
   col = mix(col, vec3(0.24, 0.16, 0.4), smoothstep(0.58, 1.15, p.y));
-  col += vec3(0.22, 0.12, 0.16) * smoothstep(0.45, 0.85, noise(vec2(p.x * 1.6 + sin(tw * 0.1) * 0.3, p.y * 13.0))) * smoothstep(0.48, 0.62, p.y) * smoothstep(1.0, 0.7, p.y);
+  if (clouds) col += vec3(0.22, 0.12, 0.16) * smoothstep(0.45, 0.85, noise(vec2(p.x * 1.6 + sin(tw * 0.1) * 0.3, p.y * 13.0))) * smoothstep(0.48, 0.62, p.y) * smoothstep(1.0, 0.7, p.y);
   vec2 md = p - mc; float mr = length(md);
   col += vec3(1.0, 0.88, 0.94) * 0.09 / (1.0 + mr * 9.0);
   col = mix(col, vec3(1.0, 0.96, 0.92), smoothstep(0.06 + px, 0.06 - px, mr));
@@ -636,14 +763,14 @@ vec3 world(vec2 p) {
     float fi = float(i), k = fi / 3.0, f = p.x * (1.0 + fi * 0.5) + fi * 3.7;
     float h = mix(0.47, 0.29, k) + (tri(f * 0.8) * 0.62 + tri(f * 1.9 + 0.3) * 0.26 + tri(f * 4.3 + 1.1) * 0.12) * mix(0.13, 0.1, k);
     // Facets lit toward the moon, a rim on the crest, mist at the foot.
-    float face = smoothstep(5.0 * px, -5.0 * px, sin(6.283 * (f * 0.8 + (h - p.y) * 0.9)));
-    vec3 lc = mix(vec3(0.8, 0.52, 0.66), vec3(0.27, 0.14, 0.3), pow(k, 0.8)) * mix(0.84, 1.1, face);
+    float face = smoothstep(3.2 * px, -3.2 * px, 1.0 - 4.0 * abs(fract(f * 0.8 + (h - p.y) * 0.9 + 0.25) - 0.5));
+    vec3 lc = mix(vec3(0.72, 0.46, 0.61), vec3(0.27, 0.14, 0.3), pow(k, 0.8)) * mix(0.84, 1.1, face);
     lc += vec3(0.25, 0.16, 0.2) * exp(-max(h - p.y, 0.0) * 120.0) * face;
-    lc = mix(lc, vec3(0.84, 0.56, 0.66), smoothstep(h - 0.03, h - 0.2, p.y) * mix(0.55, 0.28, k));
+    lc = mix(lc, vec3(0.76, 0.49, 0.6), smoothstep(h - 0.03, h - 0.2, p.y) * mix(0.55, 0.28, k));
     col = mix(col, lc, smoothstep(h + px, h - px, p.y));
     if (i == 2) {
       float tx = mix(ar * 0.28, ar * 0.48, wide);
-      float d = max(abs(p.x - tx) - mix(0.014, 0.009, clamp((p.y - 0.25) / 0.32, 0.0, 1.0)), p.y - 0.57);
+      float d = max(abs(p.x - tx) - (0.017 - 0.014 * p.y), p.y - 0.57);
       vec2 pq = p - vec2(tx + 0.026, 0.57);
       d = min(d, max(abs(length(pq) - 0.026) - 0.005, -min(pq.y, -pq.x)));
       col = mix(col, lc * 0.85, smoothstep(px, -px, d));
@@ -659,14 +786,42 @@ vec4 wing(vec2 q, float root, float sweep, float width) {
   float span = width * sqrt(max(0.0, 1.0 - q.x * q.x * q.x)) * smoothstep(0.0, 0.12, q.x) + 0.012, a = (lead - q.y) / span;
   return vec4(max(max(-a, a - 1.0) * span, q.x - 1.0), a, q.x, span);
 }
+// Distance to a segment; a unit dome's normal.
+float segment(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
+vec3 dome(vec2 e) { return vec3(e, sqrt(max(0.0, 1.0 - dot(e, e)))); }
+// Metallic thin film: violet at grazing angles to teal facing us, a glint, a pearl rim.
+vec3 metal(vec3 n, float film, float glint) {
+  vec3 L = normalize(vec3(0.55, 0.35, 0.75)), c = spectrum(film);
+  float spec = pow(max(2.0 * n.z * dot(n, L) - L.z, 0.0), glint);
+  return c * (0.08 + 0.36 * max(dot(n, L), 0.0)) + mix(c, vec3(1.0), 0.55) * spec + vec3(0.8, 0.75, 0.9) * pow(1.0 - n.z, 3.0) * 0.45;
+}
+// The body (y toward the head): tucked legs, segmented abdomen, thorax, glossy eyes.
+vec4 body(vec2 q, float pu) {
+  vec2 aq = vec2(abs(q.x), q.y), k1 = vec2(0.068, 0.1), k2 = vec2(0.085, 0.0);
+  float lg = min(min(segment(aq, vec2(0.02, 0.07), k1), segment(aq, k1, vec2(0.04, 0.16))), min(segment(aq, vec2(0.025, 0.0), k2), segment(aq, k2, vec2(0.06, 0.1)))) - max(0.0045, pu * 0.6);
+  // Abdomen: ten segments pinched at the joints, a narrow waist, a tapered tip.
+  float t = (-q.y - 0.06) / 0.7, sg = fract(t * 10.0);
+  float w = 0.03 * (1.0 - 0.42 * smoothstep(0.0, 0.2, t)) * (0.88 + 0.12 * sin(sg * 3.1416)) * sqrt(clamp((1.0 - t) * 14.0, 0.0, 1.0));
+  float ab = max(aq.x - w, max(-t, t - 1.0) * 0.7);
+  // Thorax and compound eyes, blended into one normal, film and gloss.
+  vec2 tc = (q - vec2(0.0, 0.025)) / vec2(0.062, 0.1), ec = (aq - vec2(0.034, 0.142)) / 0.046;
+  float wt = smoothstep(pu, -pu, (length(tc) - 1.0) * 0.062), we = smoothstep(pu, -pu, (length(ec) - 1.0) * 0.046);
+  vec3 n = dome(mix(mix(vec2(clamp(q.x / max(w, 0.001), -1.0, 1.0), 0.0), tc, wt), ec * sign(vec2(q.x, 1.0)), we));
+  float film = mix(mix(0.22 + 0.1 * t + 0.06 * sin(tw * 0.2 + t * 6.0), 0.3, wt), 0.36, we) + mix(0.2, 0.1, we) * n.z;
+  vec3 c = metal(n, film, mix(mix(14.0, 10.0, wt), 40.0, we)) * mix(1.0 - 0.6 * (1.0 - smoothstep(0.0, 0.07 + pu * 9.0, min(sg, 1.0 - sg))), mix(1.0, 0.8, we), max(wt, we));
+  c += vec3(0.4, 0.5, 0.45) * smoothstep(0.012 + pu, 0.004, abs(aq.x * 0.9 + (q.y - 0.02) * 0.45 - 0.038)) * n.z * wt * (1.0 - we);
+  c += vec3(0.7) * smoothstep(0.22, 0.08, length(n.xy - vec2(0.35, 0.35))) * we;
+  float a = mix(mix(0.72 + 0.25 * n.z, 0.95, wt), 1.0, we) * max(smoothstep(pu, -pu, ab), max(wt, we));
+  return mix(vec4(0.2, 0.1, 0.24, smoothstep(pu, -pu, lg) * 0.85), vec4(c, 1.0), a);
+}
 vec3 scene(vec2 p) {
-  vec3 col = world(p);
+  vec3 col = world(p, true);
   // Early stars.
-  vec2 sg = floor(p * 40.0), sf = fract(p * 40.0) - h22(sg) * 0.6 - 0.2;
-  col += vec3(1.0, 0.92, 0.96) * step(0.93, h2(sg)) * smoothstep(0.75, 0.95, p.y) * exp(-dot(sf, sf) / (px * px * 1600.0));
+  vec2 sg = floor(p * 40.0), sh = cell(sg + 50.0), sf = fract(p * 40.0) - fract(sh * 7.0) * 0.6 - 0.2;
+  col += vec3(1.0, 0.92, 0.96) * step(0.93, sh.x) * smoothstep(0.75, 0.95, p.y) * exp(-dot(sf, sf) / (px * px * 1600.0));
   // The great dragonfly, right of centre, angled to the upper left.
   vec2 c = mix(vec2(ar * 0.5, 0.74), vec2(ar * 0.64, 0.7), wide) + vec2(sin(tw * 0.1), sin(tw * 0.2)) * vec2(0.03, 0.015);
-  float s = mix(0.26, 0.5, wide), ang = 0.32 + 0.05 * sin(tw * 0.1), pu = px / s, flex = 0.015 * sin(tw * 0.5);
+  float s = mix(0.26, 0.5, wide), ang = 0.32 + 0.05 * sin(tw * 0.1), pu = px / s, flex = 0.025 * sin(tw * 0.5);
   vec2 q = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * (p - c) / s, aq = vec2(abs(q.x), q.y);
   if (aq.x > 1.05 || abs(q.y) > 1.0) return col;
   vec4 fw = wing(aq, 0.08, flex - 0.03, 0.13), hw = wing(aq, -0.04, flex + 0.14, 0.16), wg = fw.x < hw.x ? fw : hw;
@@ -676,29 +831,26 @@ vec3 scene(vec2 p) {
     vec2 g = vec2(wg.z * 16.0, wg.y * 4.0), id = floor(g), fr = fract(g), cid = id;
     float f1 = 9.0, f2 = 9.0;
     for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-      vec2 o = vec2(float(i), float(j)), pt = o + 0.2 + 0.6 * h22(id + o + sign(q.x) * 7.0) - fr; float dd = dot(pt, pt);
+      vec2 o = vec2(float(i), float(j)), pt = o + 0.2 + 0.6 * cell(id + o + sign(q.x) * 7.0) - fr; float dd = dot(pt, pt);
       if (dd < f1) { f2 = f1; f1 = dd; cid = id + o; } else if (dd < f2) f2 = dd;
     }
-    float aa = pu * 16.0 / max(wg.w * 4.0, 0.3), edge = sqrt(f2) - sqrt(f1), hc = h2(cid + sign(q.x));
+    float aa = pu * 16.0 / max(wg.w * 4.0, 0.3), edge = sqrt(f2) - sqrt(f1);
+    vec2 hh = cell(cid * 1.3 + sign(q.x) * 3.0); float hc = hh.x;
     float vein = max(smoothstep(0.06 + aa, 0.06 - aa, edge) * 0.35, smoothstep(0.012 + pu, -pu, wg.y * wg.w));
     vein = max(vein, smoothstep(0.004 + pu, 0.004 - pu, abs(fract(wg.y * 3.0 + 0.5) - 0.5) * wg.w / 3.0) * 0.8 * step(0.05, wg.y));
-    // Each cell a faint lens: the world bends behind it, colours pulled apart.
-    vec2 o = ((h22(cid * 1.3) - 0.5) * 0.03 + (fr - 0.5) * vec2(0.01, 0.02)) * s;
-    vec3 ra = world(p + o), film = spectrum(hc * 0.3 + wg.z * 0.8 + wg.y * 0.3 + tw * 0.02);
-    vec3 pane = vec3(ra.r, ra.g * 0.6 + col.g * 0.4, col.b) * (0.97 + 0.06 * hc) * mix(vec3(1.0), film, 0.1) + film * 0.03;
-    pane += vec3(1.0, 0.95, 0.98) * exp(-pow((wg.z - 0.5 - 0.35 * sin(tw * 0.1)) * 4.0, 2.0)) * 0.12;
+    // Each cell a faint lens: the world bends behind it, colours apart.
+    vec2 o = ((fract(hh * 5.0) - 0.5) * 0.03 + (fr - 0.5) * vec2(0.01, 0.02)) * s;
+    vec3 ra = world(p + o, false), film = spectrum(hc * 0.3 + wg.z * 0.8 + wg.y * 0.3 + 0.08 * sin(wg.z * 5.0 - tw * 0.5));
+    vec3 pane = vec3(ra.r, ra.g * 0.6 + col.g * 0.4, col.b) * (0.92 + 0.14 * hc) * mix(vec3(1.0), film, 0.12) + film * 0.03;
+    // Cells catch the moon unevenly, each in its own slow turn.
+    pane += mix(film, vec3(1.0), 0.6) * pow(max(sin(hc * 40.0 + tw * 0.3 + wg.z * 4.0), 0.0), 8.0) * 0.16;
     pane = mix(pane, vec3(1.0, 0.92, 0.96), vein);
-    pane = mix(pane, vec3(0.6, 0.22, 0.42), smoothstep(0.06, 0.03, length(vec2(wg.z - 0.84, wg.y * wg.w * 2.0))) * 0.85);
     pane += spectrum(wg.y * 2.0 + 0.3) * exp(-abs(wg.y - 1.0) * wg.w * 300.0) * 0.3;
     col = mix(col, pane, m);
   }
-  // Body: segmented tail, thorax, eyes; plum turning iridescent teal on the moon side.
-  float tail = max(abs(q.x) - 0.03 * (1.0 - smoothstep(-0.1, -0.72, q.y) * 0.45), max(-q.y - 0.72, q.y + 0.05));
-  float bd = min(min(tail, (length(q / vec2(0.05, 0.1)) - 1.0) * 0.05), length(vec2(aq.x - 0.032, q.y - 0.12)) - 0.042);
-  vec3 bc = mix(vec3(0.16, 0.08, 0.2), vec3(0.42, 0.62, 0.74), clamp(q.x * 18.0 + 0.35, 0.0, 1.0) * 0.75);
-  bc *= 1.0 - 0.35 * smoothstep(0.35, 0.5, abs(fract(q.y * 11.0) - 0.5)) * step(q.y, -0.1);
-  bc += vec3(1.0, 0.95, 1.0) * (smoothstep(-0.01, 0.0, bd) * 0.2 + smoothstep(0.014, 0.0, length(vec2(aq.x - 0.045, q.y - 0.137))) * 0.5);
-  return mix(col, bc, smoothstep(pu, -pu, bd));
+  if (aq.x > 0.12) return col;
+  vec4 b = body(q, pu);
+  return mix(col, b.rgb + col * 0.2, b.a);
 }
 void mainImage(out vec4 color, in vec2 pixel) {
   vec2 uv = pixel / iResolution.xy; ar = iResolution.x / iResolution.y; px = 1.5 / iResolution.y;
@@ -707,216 +859,236 @@ void mainImage(out vec4 color, in vec2 pixel) {
   float dz = lake - p.y;
   vec3 col;
   if (dz > 0.0) {
-    // The lake mirrors the scene: ripples fading toward the shore, a glitter path under the moon.
-    float rip = sin(3.0 / (dz + 0.02) + sin(p.x * 7.0) * 0.6 + tw * 0.5) * (0.003 + dz * 0.015) * smoothstep(0.0, 0.06, dz);
-    col = scene(vec2(p.x + rip, lake + dz)) * vec3(0.88, 0.8, 0.94) * (0.82 + 0.18 * smoothstep(0.0, lake, p.y));
-    col += vec3(0.14, 0.13, 0.13) * exp(-abs(p.x - mc.x + rip * 3.0) * 25.0) * (0.5 + 0.5 * sin(dz * 200.0 + tw * 2.0 + p.x * 40.0)) * smoothstep(0.0, 0.03, dz);
-    col += vec3(0.18, 0.15, 0.17) * smoothstep(0.006, 0.0, dz);
+    // The lake: the scene mirrored a little lower, broken by ripples, glitter under the moon.
+    float fade = smoothstep(0.0, 0.05, dz), n = noise(vec2(p.x * 2.5, 2.5 / (dz + 0.08) + tw * 0.5));
+    float rip = (n - 0.5) * (0.014 + dz * 0.08) * fade;
+    vec3 refl = scene(vec2(p.x + rip, lake + dz * 1.1 + 0.012 + rip * 1.6)) * vec3(0.9, 0.82, 0.96);
+    col = mix(vec3(0.15, 0.08, 0.19), refl, mix(0.68, 0.32, smoothstep(0.0, lake, dz)));
+    col += vec3(0.12, 0.08, 0.12) * smoothstep(0.6, 0.9, n) * fade;
+    col += vec3(0.3, 0.27, 0.3) * exp(-abs(p.x - mc.x + rip * 3.0) * 22.0) * smoothstep(0.55, 0.8, n) * fade;
   } else col = scene(p);
+  // A soft mist band along the shore.
+  col += vec3(0.16, 0.1, 0.15) * exp(-abs(dz + 0.004) * 45.0);
   // Falling motes, some prismatic.
   float fall = mod(iTime, 600.0);
-  col += vec3(0.4, 0.38, 0.4) * motes(p * 9.0 + vec2(sin(p.y * 3.0 + tw * 0.1) * 0.6, fall * 0.18), 0.14, 0.12, 3.0);
-  col += spectrum(p.x * 2.0 + p.y) * motes(p * 4.5 + vec2(0.0, fall * 0.12), 0.12, 0.06, 9.0) * 0.35;
+  vec2 mp = p * 7.0 + vec2(sin(p.y * 3.0 + tw * 0.1) * 0.6, fall * 0.15);
+  col += mix(vec3(0.42), spectrum(p.x * 2.0 + p.y) * 0.45, step(0.65, fract(dot(floor(mp), vec2(0.37, 0.71))))) * motes(mp, 0.14, 0.12, 3.0);
   col *= 1.0 - 0.2 * pow(length(uv - 0.5) * 1.2, 2.5);
   color = vec4(col, 1.0);
 }
 `;
 
-/** Frostline: A lone climber on a knife-edge ridge in a blizzard, ice peaks fading into whiteout under a pale sun. */
+/** Frostline: Polar dusk over jagged peaks, the last light burning pink on the summits, spindrift streaming off the crests and snow gusting in. */
 export const FROSTLINE_SHADER = `
-// Peaks from the three nearest triangles. x: skyline, y: across the face of the nearest peak covering y, z: its depth,
-// w: the skyline upwind (spindrift's source).
-vec4 peaks(float x, float y, float seed, float lean) {
+// 1D value noise, and a ridged octave of it (sharp crests).
+float vn(float x) { float i = floor(x), f = fract(x); return mix(h1(i), h1(i + 1.0), f * f * (3.0 - 2.0 * f)); }
+float rdg(float x) { return 1.0 - abs(vn(x) * 2.0 - 1.0); }
+// Lopsided summits (the three nearest, plus a spire), crests broken by ridged noise. x: skyline, y: across the ridge of the
+// nearest summit covering y (positive on its sunward face), z: that face's steepness, w: the skyline upwind (spindrift).
+vec4 peaks(float x, float y, float seed, float spireX, float tall, float lean) {
   float c = floor(x);
-  vec3 r = vec3(h1(c - 1.0 + seed), h1(c + seed), h1(c + 1.0 + seed)), z = fract(r * 31.7);
-  vec3 xi = c + vec3(-1.0, 0.0, 1.0) + 0.15 + 0.7 * r, hi = 0.45 + 0.55 * fract(r * 13.3 + 0.37);
-  vec3 dx = x - xi, v = hi - abs(dx) * mix(1.7 - 0.6 * r, 1.1 + 0.7 * r, step(0.0, dx));
-  float best = max(max(max(v.x, v.y), v.z), 0.0);
-  vec3 key = z + step(v, vec3(y)) * 9.0, side = dx + (hi - y) * (0.4 * r - 0.12);
-  float k = min(key.x, key.y), s = mix(mix(side.x, side.y, step(key.y, key.x)), side.z, step(key.z, k));
-  vec3 du = dx + max(y - best, 0.0) * lean, vu = hi - abs(du) * mix(1.7 - 0.6 * r, 1.1 + 0.7 * r, step(0.0, du));
-  float jag = abs(fract(x * 3.3) - 0.5) + abs(fract(x * 7.9 + 0.3) - 0.5) * 0.5;
-  return vec4(best - jag * 0.1, s, min(min(k, key.z), 1.0), max(max(vu.x, vu.y), vu.z));
+  vec3 r = vec3(h1(c - 1.0 + seed), h1(c + seed), h1(c + 1.0 + seed)), r2 = fract(r * 13.3 + 0.37);
+  vec3 xi = c + vec3(-1.0, 0.0, 1.0) + 0.15 + 0.7 * r, hi = 0.35 + 0.65 * r2;
+  vec3 dx = x - xi, sl = mix(1.9 - 0.9 * r2, 1.0 + 0.9 * r, step(0.0, dx)), v = hi - abs(dx) * sl;
+  float ds = x - spireX, vs = tall - abs(ds) * (ds < 0.0 ? 1.0 : 1.7);
+  float jag = rdg(x * 3.1 + seed) * 0.14 + rdg(x * 7.3 + seed) * 0.06;
+  float best = max(max(max(v.x, v.y), max(v.z, vs)), 0.0);
+  vec3 key = fract(r * 31.7) + step(v, vec3(y)) * 9.0, side = dx + (hi - y) * (0.55 * r - 0.2);
+  float k = min(key.x, key.y), pick = step(key.y, key.x), pz = step(key.z, k);
+  float sd = mix(mix(side.x, side.y, pick), side.z, pz), st = mix(mix(sl.x, sl.y, pick), sl.z, pz);
+  float onSpire = step(y, vs);
+  sd = mix(sd, ds + (tall - y) * 0.18, onSpire); st = mix(st, 1.4, onSpire);
+  float upwind = max(y - best + jag, 0.0) * lean;
+  vec3 du = dx + upwind; vec3 vu = hi - abs(du) * mix(1.9 - 0.9 * r2, 1.0 + 0.9 * r, step(0.0, du));
+  float dsu = ds + upwind;
+  return vec4(best - jag, sd, st, max(max(max(vu.x, vu.y), vu.z), tall - abs(dsu) * (dsu < 0.0 ? 1.0 : 1.7)));
 }
-// Range fi (0 far .. 3 near): far ones lost in the white, near ones ice-blue.
-vec3 range(vec3 col, vec2 p, float fi, float wide, float toward, float glow, vec3 haze, float veil, float px) {
-  float sc = 1.7 + fi * 0.75, amp = 0.32 - fi * 0.045, base = mix(0.42, 0.36, wide) - fi * mix(0.075, 0.08, wide);
-  vec4 pk = peaks(p.x * sc + fi * 7.3 + 2.0, (p.y - base) / amp, fi * 13.0 + 5.0, amp * 1.8 * sc);
-  float depth = base + amp * pk.x - p.y, inside = max(depth, 0.0);
-  float lit = mix(0.42, smoothstep(-0.025, 0.025, pk.y * toward + 0.01), exp(-inside / amp * 1.2));
-  vec3 face = mix(mix(vec3(0.42, 0.53, 0.68), vec3(0.26, 0.37, 0.54), fi / 3.0), vec3(0.9, 0.94, 0.98) + vec3(0.08, 0.05, 0.0) * glow, lit);
-  face = mix(face, vec3(0.62, 0.72, 0.84), smoothstep(0.0, 0.3, depth) * 0.35);
-  if (fi > 2.5) { // gullies
-    float g = p.x * sc * 9.0 + depth * 14.0 * sign(pk.y);
-    face *= 1.0 - smoothstep(0.5, 0.95, sin(g) * sin(g * 0.37 + 1.3)) * 0.18 * smoothstep(0.0, 0.04, depth);
+// One range over col. glow: dusk light it catches, fog: how far it ghosts into the sky.
+vec3 range(vec3 col, vec2 p, float fi, float sc, float amp, float base, float fog, float tall, float glow, float fx, float sunX, vec3 sky, float px) {
+  float y = (p.y - base) / amp;
+  vec4 pk = peaks(p.x * sc + fi * 7.3, y, fi * 13.0 + 5.0, fx * sc + fi * 7.3, tall, amp * 1.3 * sc);
+  float d = (pk.x - y) * amp, below = max(d, 0.0);
+  float near = exp(-abs(p.x - sunX) * 0.7), alpen = smoothstep(base - 0.05, base + amp * 0.9, p.y) * near * glow;
+  float lit = smoothstep(-0.02, 0.02, pk.y + (vn(y * 9.0 + fi * 5.0) - 0.5) * 0.07);  // jagged ridge line
+  vec3 shade = mix(vec3(0.09, 0.13, 0.27), vec3(0.2, 0.26, 0.46), smoothstep(0.25, 0.0, below));
+  vec3 sunlit = mix(vec3(0.38, 0.44, 0.64), vec3(1.0, 0.66, 0.52), alpen);
+  vec3 face = mix(shade, sunlit, lit);
+  // Bare rock streaks down the faces where snow can't hold.
+  if (fi > 0.5) {
+    float streak = noise(vec2(pk.y * 9.0 * sc, p.y * sc * 3.0 + fi * 3.0)) * (0.6 + 0.5 * vn(p.y * sc * 1.5 + pk.y * 3.0 * sc));
+    float rock = smoothstep(0.62 - pk.z * 0.08, 0.76 - pk.z * 0.08, streak) * smoothstep(0.0, 0.02, below);
+    face *= 0.92 + 0.16 * streak;
+    face = mix(face, mix(vec3(0.04, 0.05, 0.09), vec3(0.3, 0.2, 0.21), lit * (0.3 + alpen)), rock * 0.9);
   }
-  face += vec3(1.0, 0.97, 0.9) * exp(-inside * 160.0) * glow * 0.45;
-  col = mix(col, mix(face, haze, clamp(mix(0.8, 0.1, fi / 3.0) * (0.85 + 0.3 * veil) + pk.z * 0.12, 0.0, 1.0)), smoothstep(px, -px, -depth));
-  if (fi > 0.5 && fi < 2.5) { // spindrift
-    float above = max(-depth, 0.0);
-    float plume = smoothstep(0.45, 0.9, pk.w) * exp(-above * 16.0) * step(0.0, -depth);
-    plume *= 0.25 + 0.75 * noise(vec2((p.x + iTime * 0.35) * 8.0, above * 26.0 - iTime * 0.6));
-    col = mix(col, vec3(1.0, 0.99, 0.97), plume * (0.45 + fi * 0.15) * (0.6 + 0.4 * glow));
+  face += vec3(1.0, 0.76, 0.62) * exp(-below * 260.0) * (0.1 + lit * alpen * 0.7);
+  // Mist pools low; far ranges ghost into the sky.
+  face = mix(face, mix(sky, vec3(0.3, 0.32, 0.5), 0.3), clamp(fog + smoothstep(0.04, 0.3, d) * (0.4 - fog * 0.2 - step(2.5, fi) * 0.15), 0.0, 1.0));
+  col = mix(col, face, smoothstep(-px, px, d));
+  if (fi > 0.5 && fi < 2.5) { // spindrift off the crests
+    float above = max(-d, 0.0);
+    float plume = smoothstep(0.5, 0.95, pk.w) * exp(-above * 12.0) * step(0.0, -d);
+    plume *= smoothstep(0.2, 0.8, noise(vec2((p.x + iTime * 0.5) * 4.0 + above * 6.0, above * 30.0 - iTime * 0.7)));
+    col = mix(col, mix(vec3(0.6, 0.66, 0.86), vec3(1.0, 0.78, 0.65), near), plume * 0.75);
   }
   return col;
 }
-float seg(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
-// The climber, feet at the origin, one unit tall, with an ice axe.
-float climber(vec2 c) {
-  float d = seg(c, vec2(-0.12, -0.04), vec2(0.04, 0.44)) - 0.075;
-  d = min(d, min(seg(c, vec2(0.26, 0.1), vec2(0.22, 0.28)), seg(c, vec2(0.22, 0.28), vec2(0.07, 0.44))) - 0.075);
-  d = min(d, seg(c, vec2(0.06, 0.44), vec2(0.2, 0.78)) - 0.12);
-  d = min(d, length(c - vec2(0.26, 0.9)) - 0.1);
-  d = min(d, seg(c, vec2(-0.01, 0.56), vec2(0.07, 0.82)) - 0.13);
-  d = min(d, seg(c, vec2(0.17, 0.72), vec2(0.42, 0.58)) - 0.045);
-  return min(d, seg(c, vec2(0.44, 0.66), vec2(0.5, 0.1)) - 0.035);
-}
-// One depth of snow, stretched along the wind.
-vec3 snow(vec3 col, vec2 p, float fj, float gust) {
-  vec2 wd = vec2(-0.958, -0.287), q = vec2(dot(p, wd) * (0.32 - fj * 0.06), dot(p, vec2(-wd.y, wd.x))) * (46.0 - fj * 16.0);
-  q += vec2(-gust * (1.0 + fj * 0.8), sin(q.x * 0.5 + iTime * 0.7 + fj) * 0.3);
-  return mix(col, vec3(1.0), motes(q, 0.2 - fj * 0.02, 0.5 - fj * 0.1, fj * 7.0) * (0.7 + fj * 0.1));
+// Flakes of varied size and brightness, one per cell at most; q is stretched along the wind.
+float flakes(vec2 q, float chance, float smin, float smax, float seed) {
+  vec2 id = floor(q), r = h22(id + seed); float k = h2(id + seed + 7.3), s = mix(smin, smax, fract(k * 7.7));
+  return step(1.0 - chance, k) * smoothstep(s, s * 0.25, length(fract(q) - 0.5 - (r - 0.5) * 0.4)) * (0.5 + 0.5 * fract(k * 13.1));
 }
 void mainImage(out vec4 color, in vec2 pixel) {
   vec2 uv = pixel / iResolution.xy; float ar = iResolution.x / iResolution.y; vec2 p = vec2(uv.x * ar, uv.y);
-  float px = 1.5 / iResolution.y, t = iTime, wide = clamp((ar - 0.6) / 0.9, 0.0, 1.0);
-  vec2 sun = vec2(ar * mix(0.62, 0.7, wide), mix(0.8, 0.74, wide));
-  float r = length(p - sun), glow = exp(-abs(p.x - sun.x) * 1.6);
-  vec3 haze = mix(vec3(0.8, 0.86, 0.92), vec3(0.98, 0.95, 0.9), exp(-r * 1.8));
-  float storm = noise(vec2(p.x * 0.7 + p.y * 0.5 + t * 0.32, t * 0.04)); // squalls
-  // The arete, rising right; what it hides is skipped.
-  float cx = ar * mix(0.6, 0.64, wide), cy = mix(0.42, 0.27, wide);
-  float de = uv.y - cy - (p.x - cx) * 0.32 - 0.008 * sin(p.x * 23.0) * sin(p.x * 5.3 + 1.0);
-  vec3 col = haze;
-  if (de > -0.02) {
-    // Sky: steel blue, a slate ceiling torn open around the sun.
-    col = mix(vec3(0.84, 0.88, 0.92), vec3(0.46, 0.56, 0.68), smoothstep(0.3, 1.1, uv.y));
-    float deck = noise(vec2(p.x * 1.3 + t * 0.06, p.y * 2.6));
-    col = mix(col, vec3(0.46, 0.53, 0.63), smoothstep(0.35, 0.8, deck) * smoothstep(0.55, 1.0, uv.y) * smoothstep(0.12, 0.45, r) * 0.85);
-    col += vec3(1.0, 0.95, 0.86) * (exp(-r * 1.6) * 0.18 + exp(-r * 6.0) * 0.32 + exp(-r * 22.0) * 0.4) * (0.75 + 0.25 * storm);
-    col = mix(col, vec3(1.0, 0.99, 0.96), smoothstep(0.042 + px, 0.042 - px, r) * (0.8 - 0.4 * storm));
-    float toward = clamp((sun.x - p.x) * 3.0, -1.0, 1.0);
-    col = range(col, p, 0.0, wide, toward, glow, haze, storm, px);
-    col = range(col, p, 1.0, wide, toward, glow, haze, storm, px);
-    col = range(col, p, 2.0, wide, toward, glow, haze, storm, px);
-    col = range(col, p, 3.0, wide, toward, glow, haze, storm, px);
-  }
-  if (de < 0.01) {
-    // The arete's lit face over its shadow face.
-    float fall = de + 0.1 + (p.x - cx) * 0.12 + 0.02 * sin(p.x * 5.0 + 2.0) * sin(p.x * 2.1);
-    vec3 ice = mix(vec3(0.52, 0.62, 0.76), vec3(0.93, 0.96, 0.99), smoothstep(-0.006, 0.006, fall));
-    ice -= 0.03 * (1.0 + sin(p.x * 9.0 + de * 40.0) * sin(p.x * 3.7 - de * 23.0));
-    ice += vec3(1.0, 0.95, 0.85) * exp(min(de, 0.0) * 200.0) * 0.12;
-    col = mix(col, ice, smoothstep(px, -px, de));
-  }
-  // The climber: red jacket, gold rim.
-  float hc = mix(0.065, 0.07, wide); vec2 c = (p - vec2(cx, cy - 0.004)) / hc;
-  if (abs(c.x - 0.2) < 0.8 && c.y > -0.3 && c.y < 1.2) {
-    float d = climber(c), aa = px / hc;
-    float rim = smoothstep(-0.07, -0.01, d) * smoothstep(0.3, 0.9, c.x * 1.2 + c.y * 0.6);
-    vec3 suit = mix(vec3(0.08, 0.1, 0.14), vec3(0.7, 0.13, 0.08), smoothstep(0.4, 0.47, c.y) * step(c.y, 0.83));
-    col = mix(col, suit + vec3(1.0, 0.88, 0.7) * rim * 0.55, smoothstep(aa, -aa, d));
-  }
-  // Ground blizzard over the crest, whiteout veils.
-  if (de > -0.02 && de < 0.25) {
-    float drift = noise(vec2((p.x + t * 0.9) * 5.0, de * 24.0)) * exp(-max(de, 0.0) * 16.0) * smoothstep(-0.015, 0.01, de);
-    col = mix(col, vec3(0.98, 0.99, 1.0), drift * 0.6);
-  }
-  float sheet = noise(vec2(p.x * 1.8 + t * 0.6, p.y * 9.0 + 3.0)); sheet *= sheet;
-  col = mix(col, haze, clamp(smoothstep(0.15, 0.6, sheet) * (0.5 - uv.y * 0.3) + smoothstep(0.45, 0.85, storm) * 0.35 * (1.0 - uv.y * 0.5), 0.0, 1.0));
-  // Snow in three depths, gusting.
-  float gust = t * 1.5 + 0.9 * sin(t * 0.45) + 0.5 * sin(t * 1.1);
-  col = snow(snow(snow(col, p, 0.0, gust), p, 1.0, gust), p, 2.0, gust);
+  float px = 1.5 / iResolution.y, t = iTime, wide = clamp((ar - 0.6) / 0.9, 0.0, 1.0), lift = (1.0 - wide) * 0.12;
+  // Sky: indigo, mauve, the afterglow low on the right.
+  vec2 sun = vec2(ar * mix(0.8, 0.84, wide), 0.3 + lift);
+  float g = length((p - sun) * vec2(0.45, 1.5));
+  vec3 sky = mix(vec3(0.36, 0.32, 0.5), vec3(0.04, 0.06, 0.17), smoothstep(0.3 + lift, 1.0, uv.y));
+  sky += vec3(1.0, 0.45, 0.25) * exp(-g * 2.4) * 0.8 + vec3(1.0, 0.78, 0.5) * exp(-g * 7.0) * 0.7;
+  vec3 col = sky;
+  // Four ranges; the second carries the summit, right of centre.
+  float fx = ar * mix(0.6, 0.66, wide);
+  col = range(col, p, 0.0, 3.2, 0.2, 0.4 + lift, 0.7, 0.0, 1.0, fx, sun.x, sky, px);
+  col = range(col, p, 1.0, 2.0, 0.26, 0.27 + lift, 0.34, 1.45, 1.0, fx, sun.x, sky, px);
+  col = range(col, p, 2.0, 2.6, 0.22, 0.17 + lift * 0.7, 0.14, 0.0, 0.6, fx, sun.x, sky, px);
+  col = range(col, p, 3.0, 3.4, 0.16, 0.04 + lift * 0.5, 0.0, 0.0, 0.35, fx, sun.x, sky, px);
+  // Gust fronts sweep through, then ease.
+  float front = smoothstep(0.35, 0.8, noise(vec2(p.x * 0.6 + p.y * 0.3 + t * 0.45, t * 0.07)));
+  float stream = noise(vec2((p.x + t * 0.9) * 3.0, p.y * 18.0)); stream *= stream;
+  col = mix(col, vec3(0.34, 0.38, 0.56), smoothstep(0.12, 0.5, stream) * (0.15 + 0.5 * front) * (1.0 - uv.y * 0.7));
+  // Snow: many small far flakes, gust streaks, big near ones, a few soft out-of-focus ones.
+  vec2 wd = vec2(-0.96, -0.28), wn = vec2(0.28, -0.96);
+  float gust = t * 1.3 + 0.8 * sin(t * 0.37) + 0.4 * sin(t * 0.9 + 1.0);
+  vec3 sc = mix(vec3(0.62, 0.68, 0.88), vec3(1.0, 0.8, 0.68), exp(-g * 1.5));
+  vec2 q = vec2(dot(p, wd) * 0.45, dot(p, wn)) * 70.0 + vec2(-gust, 0.0);
+  col = mix(col, sc, flakes(q, 0.3, 0.14, 0.2, 1.0) * (0.15 + 0.35 * front));
+  q = vec2(dot(p, wd) * 0.32, dot(p, wn)) * 36.0 + vec2(-gust * 1.6, sin(t * 0.7) * 0.3);
+  col = mix(col, sc, flakes(q, 0.3, 0.09, 0.24, 2.0) * (0.2 + 0.6 * front));
+  q = vec2(dot(p, wd) * 0.12, dot(p, wn)) * 30.0 + vec2(-gust * 1.2, 0.0);
+  col = mix(col, sc, flakes(q, 0.3, 0.07, 0.12, 5.0) * front * 0.6);
+  q = vec2(dot(p, wd) * 0.3, dot(p, wn)) * 14.0 + vec2(-gust * 2.3, sin(t * 0.5 + 1.0) * 0.4);
+  col = mix(col, sc, flakes(q, 0.2, 0.08, 0.22, 3.0) * (0.55 + 0.45 * front));
+  q = vec2(dot(p, wd) * 0.45, dot(p, wn)) * 5.0 + vec2(-gust * 3.2, 0.0);
+  col = mix(col, sc * 1.05, smoothstep(0.0, 0.6, flakes(q, 0.14, 0.08, 0.18, 4.0)) * 0.28);
   color = vec4(col, 1.0);
 }
 `;
 
-/** Kestrel: A fighter high over a sea of cloud, gold-rimmed against the sun's glare, peaks breaking through below. */
+/** Kestrel: Chasing a fighter high over a sea of cloud rushing in from a curved horizon, thunderheads towering in the sun's glare. */
 export const KESTREL_SHADER = `
-// Distance to a convex quad (corners counter-clockwise).
 float edge(vec2 p, vec2 a, vec2 b) { vec2 e = b - a; return (e.y * (p.x - a.x) - e.x * (p.y - a.y)) / length(e); }
 float quad(vec2 p, vec2 a, vec2 b, vec2 c, vec2 d) { return max(max(edge(p, a, b), edge(p, b, c)), max(edge(p, c, d), edge(p, d, a))); }
-// The fighter, nose right, one unit long.
-float jet(vec2 q) {
-  float h = clamp(q.x + 0.5, 0.0, 1.0);
-  float body = length(q - vec2(h - 0.5, 0.0)) - 0.042 * (1.0 - smoothstep(0.55, 1.0, h) * 0.95) * (0.75 + 0.25 * smoothstep(0.0, 0.3, h));
-  float canopy = length((q - vec2(0.2, 0.03)) * vec2(1.0, 2.8)) - 0.09;
-  float wing = quad(q, vec2(0.14, -0.012), vec2(-0.26, -0.02), vec2(-0.36, -0.2), vec2(-0.27, -0.205));
-  float farw = quad(q, vec2(0.06, 0.015), vec2(-0.2, 0.11), vec2(-0.27, 0.11), vec2(-0.2, 0.015));
-  float fin = quad(q, vec2(-0.3, 0.02), vec2(-0.45, 0.02), vec2(-0.53, 0.16), vec2(-0.46, 0.165));
-  float stab = quad(q, vec2(-0.36, -0.01), vec2(-0.5, -0.06), vec2(-0.56, -0.065), vec2(-0.52, -0.01));
-  return min(min(min(body, canopy), min(wing, farw)), min(fin, stab));
+// The fighter from behind and above. x: distance, y: 1 on the tails.
+vec2 jet(vec2 q) {
+  vec2 m = vec2(abs(q.x), q.y);
+  float body = length(vec2(q.x, q.y - clamp(q.y, -0.45, 0.5))) - 0.05 * (1.0 - smoothstep(0.03, 0.5, q.y) * 0.92);
+  float wing = quad(m, vec2(0.05, 0.14), vec2(0.05, -0.2), vec2(0.46, -0.22), vec2(0.46, -0.16));
+  float tail = quad(m, vec2(0.04, -0.36), vec2(0.04, -0.48), vec2(0.2, -0.5), vec2(0.2, -0.45));
+  float fin = quad(m, vec2(0.06, -0.3), vec2(0.07, -0.47), vec2(0.105, -0.44), vec2(0.14, -0.3));
+  return vec2(min(min(body, wing), min(tail, fin)), step(fin, min(body, min(wing, tail)) + 0.004));
 }
-// Cloud row fi (0 far .. 4 near): puffs lit as spheres with a silver rim, over a shadowed body; faster and bigger near.
-vec3 cloudRow(vec3 col, vec2 w, float fi, float hz, float wide, vec2 toSun, float px, float glow) {
-  float f = 26.0 / (1.0 + fi * 1.3), x = w.x * f + iTime * 0.026 * (1.0 + fi * 1.8) * f + fi * 17.0, c = floor(x), seed = fi * 5.3;
-  float y = (w.y - hz + 0.015 + fi * mix(0.07, 0.06, wide) + fi * fi * 0.015) * f - 0.45 * sin(x * 0.29 + seed) - 0.3 * sin(x * 0.71 + seed * 1.7);
-  vec3 r = vec3(h1(c - 1.0 + seed), h1(c + seed), h1(c + 1.0 + seed));
-  vec3 dx = x - (c + vec3(-0.5, 0.5, 1.5) + 0.4 * (r - 0.5)), rad = 0.5 + 0.5 * fract(r * 13.7);
-  vec3 yc = -rad * (0.2 + 0.4 * fract(r * 7.3)), top = yc + sqrt(max(rad * rad - dx * dx, 0.0));
-  float b = step(top.x, top.y), z = step(max(top.x, top.y), top.z);
-  float R = mix(mix(rad.x, rad.y, b), rad.z, z), under = max(max(max(top.x, top.y), top.z), 0.0) + 0.06 * abs(sin(x * 4.1 + seed)) - y;
-  vec2 o = clamp(vec2(mix(mix(dx.x, dx.y, b), dx.z, z), y - mix(mix(yc.x, yc.y, b), yc.z, z)) / R, -1.0, 1.0);
-  vec3 n = normalize(mix(vec3(o, sqrt(max(1.0 - dot(o, o), 0.0))), vec3(0.0, -0.3, 0.95), smoothstep(0.0, 0.28, under)));
-  float e = 1.0 - n.z, rim = e * e * e * clamp(dot(n.xy, toSun) + 0.2, 0.0, 1.0);
-  vec3 cc = mix(vec3(0.52, 0.62, 0.84), vec3(1.0, 0.97, 0.92), clamp(dot(n, normalize(vec3(toSun, 0.45))) * 0.75 + 0.35, 0.0, 1.0));
-  cc = (cc + vec3(1.0, 0.86, 0.6) * rim * 0.7) * (1.0 + (mix(mix(r.x, r.y, b), r.z, z) - 0.5) * 0.14 * smoothstep(0.3, 0.0, under));
-  cc = mix(cc, vec3(0.5, 0.6, 0.83), smoothstep(0.3, 1.8, under) * 0.75) + vec3(1.0, 0.82, 0.55) * glow * 0.1;
-  cc = mix(cc, mix(vec3(0.82, 0.9, 0.98), vec3(1.0, 0.95, 0.86), glow * 0.5), mix(0.65, 0.0, fi / 4.0));
-  float soft = px * f * 1.5 + 0.035;
-  return mix(col, cc, smoothstep(-soft, soft, under));
+// One cloud dome from cell g + o, soft-blended into acc.
+void dome(vec2 g, vec2 f, vec2 o, inout vec4 acc) {
+  vec2 r = h22(g + o), c = f - o - 0.2 - 0.6 * r;
+  float R = 0.6 + 0.4 * fract(r.x * 7.3 + r.y), up = sqrt(max(R * R - dot(c, c), 0.0)), k = up * up * up * (1.0 + 2.0 * fract(r.y * 5.1));
+  acc += vec4(k * c * (0.6 + up), k * (up + 0.1), k * up);
+}
+// Value noise with its gradient.
+vec3 noised(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f), du = 6.0 * f * (1.0 - f);
+  float a = h2(i), b = h2(i + vec2(1.0, 0.0)), c = h2(i + vec2(0.0, 1.0)), d = h2(i + 1.0), k = a - b - c + d;
+  return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * (vec2(b - a, c - a) + k * u.yx));
+}
+// Thunderhead density at q (> 0 inside): an outline with a crown and turret, cauliflower bulges of many sizes (fine: the
+// small ones too), the foot thinning to wisps.
+vec3 towerA, towerB; float horizon;
+float cloud(vec2 q, float fine) {
+  vec2 ya = (q.y - horizon) / vec2(towerA.z, towerB.z);
+  vec2 xa = (q.x - vec2(towerA.x, towerB.x)) / (vec2(towerA.y, towerB.y) * (1.0 - 0.15 * clamp(ya, 0.0, 1.0)));
+  vec2 top = max(ya - 0.62, 0.0) / 0.38, e = 1.0 - xa * xa - top * top - smoothstep(0.12, -0.04, ya) * 0.9 - step(ya, vec2(-0.04)) * 9.0;
+  vec2 tu = (q - vec2(towerA.x + towerA.y * 0.7, horizon + towerA.z * 0.62)) / (towerA.y * vec2(0.6, 1.05));
+  float env = max(max(e.x, e.y), 1.0 - dot(tu, tu));
+  vec2 b = q * 13.0 + vec2(0.0, -iTime * 0.015);
+  float n = abs(noise(b) * 2.0 - 1.0) * 0.45 + abs(noise(b * 2.3 + 3.1) * 2.0 - 1.0) * 0.28
+          + (abs(noise(b * 5.1 + 1.7) * 2.0 - 1.0) * 0.15 + abs(noise(b * 10.7 + 5.3) * 2.0 - 1.0) * 0.06) * fine;
+  return env + (n - 0.32 - 0.1 * (1.0 - fine)) * 1.5 - smoothstep(0.1, -0.4, env);
 }
 void mainImage(out vec4 color, in vec2 pixel) {
   vec2 uv = pixel / iResolution.xy; float ar = iResolution.x / iResolution.y; vec2 p = vec2(uv.x * ar, uv.y);
   float px = 1.5 / iResolution.y, t = iTime, wide = clamp((ar - 0.6) / 0.9, 0.0, 1.0);
   // Bank: w is the rolled point.
-  float bank = 0.07 + 0.05 * sin(t * 0.13);
+  float bank = 0.06 + 0.05 * sin(t * 0.13);
   mat2 roll = mat2(cos(bank), -sin(bank), sin(bank), cos(bank));
   vec2 cen = vec2(ar * 0.5, 0.5), w = roll * (p - cen) + cen;
-  vec2 sunP = vec2(ar * mix(0.66, 0.74, wide), mix(0.8, 0.76, wide)), sun = roll * (sunP - cen) + cen;
-  float hz = mix(0.5, 0.42, wide), r = length(w - sun), glow = exp(-abs(w.x - sun.x) * 1.4), sy = w.y - hz;
-  // Sky: pale horizon, cerulean, cobalt overhead.
-  vec3 col = mix(mix(vec3(0.82, 0.9, 0.98), vec3(0.36, 0.6, 0.96), smoothstep(0.0, 0.22, sy)), vec3(0.1, 0.3, 0.78), smoothstep(0.25, 0.62, sy));
-  // A far fighter's curling contrail.
-  float behind = fract(t * 0.016) * (ar + 2.0) - 1.0 - w.x, cd = (w.y - 0.86 - 0.05 * sin(w.x * 3.0 + 1.0)) / (px * 0.8 + max(behind, 0.0) * 0.012);
-  col = mix(col, vec3(0.96, 0.98, 1.0), exp(-cd * cd) * smoothstep(0.0, 0.02, behind) * smoothstep(1.2, 0.1, behind) * 0.8);
-  // Peaks breaking through: rock, snow, a bright crest near the sun.
-  float xs = w.x * 2.6 + t * 0.01 + 3.0, pc = floor(xs);
-  vec3 pr = vec3(h1(pc - 1.0), h1(pc), h1(pc + 1.0)), pdx = xs - (pc + vec3(-0.5, 0.5, 1.5) + 0.5 * (pr - 0.5));
-  vec3 ph = (0.35 + 0.65 * fract(pr * 9.1)) * step(0.25, pr) - abs(pdx) * mix(vec3(1.6), vec3(1.2), step(0.0, pdx));
-  float pk = max(max(max(ph.x, ph.y), ph.z), 0.0) - (abs(fract(xs * 3.1) - 0.5) + abs(fract(xs * 6.7) - 0.5) * 0.5) * 0.08;
-  float dp = hz - 0.04 + pk * 0.24 - w.y;
-  float lit = smoothstep(-0.02, 0.02, mix(mix(pdx.x, pdx.y, step(ph.x, ph.y)), pdx.z, step(max(ph.x, ph.y), ph.z)) + dp * 3.0);
-  vec3 rock = mix(mix(vec3(0.3, 0.37, 0.5), vec3(0.6, 0.6, 0.64), lit), mix(vec3(0.62, 0.71, 0.88), vec3(1.0, 0.96, 0.9), lit), smoothstep(0.045, 0.025, dp + 0.01 * sin(w.x * 60.0)));
-  rock += vec3(1.0, 0.9, 0.75) * exp(-max(dp, 0.0) * 300.0) * glow * 0.6;
-  col = mix(col, mix(rock, vec3(0.8, 0.87, 0.97), 0.15 + smoothstep(0.0, 0.1, dp) * 0.6), smoothstep(-px, px, dp));
-  // Five cloud rows, far to near.
-  vec2 toSun = normalize(sun - vec2(w.x, hz));
-  col = cloudRow(col, w, 0.0, hz, wide, toSun, px, glow);
-  col = cloudRow(col, w, 1.0, hz, wide, toSun, px, glow);
-  col = cloudRow(col, w, 2.0, hz, wide, toSun, px, glow);
-  col = cloudRow(col, w, 3.0, hz, wide, toSun, px, glow);
-  col = cloudRow(col, w, 4.0, hz, wide, toSun, px, glow);
+  vec2 sunP = vec2(ar * mix(0.6, 0.64, wide), mix(0.84, 0.8, wide)), sun = roll * (sunP - cen) + cen;
+  float xn = (w.x - cen.x) / max(ar, 1.0), hz = mix(0.54, 0.46, wide) - 0.06 * xn * xn;
+  float r = length(w - sun), glow = exp(-abs(w.x - sun.x) * 1.3), sy = w.y - hz;
+  // Sky: pale horizon, cerulean, cobalt.
+  vec3 col = mix(mix(vec3(0.84, 0.91, 0.98), vec3(0.36, 0.6, 0.96), smoothstep(0.0, 0.2, sy)), vec3(0.1, 0.3, 0.78), smoothstep(0.24, 0.6, sy));
+  vec3 haze = mix(vec3(0.84, 0.9, 0.98), vec3(1.0, 0.95, 0.86), glow * 0.7);
+  // The deck: a plane below rushing toward us.
+  if (sy < 0.0) {
+    float v = -sy, z = 0.1 / (v + 0.004), fp = 0.8 / ((v + 0.004) * (v + 0.004)) * px;
+    vec2 wp = vec2((w.x - cen.x) * z, z) * 8.0 + vec2(0.0, t * 1.8);
+    vec3 m1 = noised(wp * 0.1 + 3.0), m2 = noised(wp * 0.26 + 7.0);  // big masses
+    float mass = m1.x * 0.65 + m2.x * 0.35;
+    vec2 mg = (m1.yz * 0.065 + m2.yz * 0.091) * 7.0;
+    wp += vec2(noise(wp * 0.3), noise(wp * 0.3 + 5.2)) * 1.4;  // warp
+    vec2 g = floor(wp), f = fract(wp); vec4 a = vec4(0.0);
+    dome(g, f, vec2(-1.0), a); dome(g, f, vec2(0.0, -1.0), a); dome(g, f, vec2(1.0, -1.0), a);
+    dome(g, f, vec2(-1.0, 0.0), a); dome(g, f, vec2(0.0), a); dome(g, f, vec2(1.0, 0.0), a);
+    dome(g, f, vec2(-1.0, 1.0), a); dome(g, f, vec2(0.0, 1.0), a); dome(g, f, vec2(1.0), a);
+    vec4 dm = vec4(a.w / (a.z + 0.001) * 1.6, normalize(a.xyz + vec3(0.0, 0.0, 0.001)));
+    vec3 n = normalize(vec3(-mg * 1.3, 1.0) + (dm.yzw - vec3(0.0, 0.0, 1.0)) * 0.95);
+    float diff = dot(n, vec3(0.3, 0.81, 0.51)) * 0.5 + 0.5, e = 1.0 - n.z, rim = e * e * max(dot(n.xy, vec2(0.35, 0.94)), 0.0);
+    vec3 cc = vec3(0.52, 0.62, 0.84) * (0.7 + 0.3 * n.z) + vec3(1.0, 0.95, 0.86) * diff * diff * 0.45 + vec3(1.0, 0.86, 0.62) * rim * (0.3 + 0.4 * glow);
+    cc *= (0.78 + 0.22 * smoothstep(0.2, 1.1, dm.x)) * (1.0 + (noise(wp * 3.1) - 0.5) * 0.14 * smoothstep(0.3, 0.05, fp));
+    cc = mix(cc, vec3(0.3, 0.42, 0.64), smoothstep(0.35, 0.05, dm.x) * 0.5);
+    cc *= 0.84 + 0.26 * smoothstep(0.3, 0.75, mass);
+    // Gaps onto a hazier layer below where the masses thin.
+    vec3 low = mix(vec3(0.3, 0.4, 0.6), haze, 0.3) * (0.92 + 0.16 * noise(wp * 0.7));
+    cc = mix(low, cc, smoothstep(0.41, 0.5, mass + (dm.x - 0.5) * 0.15));
+    cc = mix(cc, vec3(0.84, 0.89, 0.97), smoothstep(0.12, 0.45, fp));
+    col = mix(cc, haze, 1.0 - exp(-z * 0.2));
+    col = mix(col, haze, smoothstep(0.015, 0.0, v));
+  }
+  // Thunderheads, lit by how little cloud lies toward the sun; feet in haze.
+  towerA = vec3(cen.x + 0.36 * ar, mix(0.11, 0.12, wide), 0.35); towerB = vec3(cen.x - 0.24 * ar, 0.06, 0.18); horizon = hz;
+  if (sy > -0.05 && ((abs(w.x - towerA.x) < 0.3 && sy < 0.5) || (abs(w.x - towerB.x) < 0.14 && sy < 0.26))) {
+    float D = cloud(w, 1.0), yy = sy / 0.4;
+    vec2 L = normalize(sun - w);
+    float D1 = cloud(w + L * 0.015, 0.0), T = exp(-max(D1, 0.0) * 1.3 - max(cloud(w + L * 0.06, 0.0), 0.0) * 0.9);
+    float lobe = clamp((cloud(w, 0.0) - D1) * 3.0 + 0.4, 0.0, 1.0);
+    vec3 tc = mix(mix(vec3(0.42, 0.49, 0.68), vec3(0.6, 0.66, 0.84), smoothstep(0.0, 0.7, yy)), vec3(1.0, 0.97, 0.92), max(T, lobe * 0.5));
+    tc += vec3(1.0, 0.95, 0.85) * smoothstep(0.6, 1.0, yy) * T * 0.15;
+    tc += vec3(1.0, 0.88, 0.66) * T * smoothstep(0.25, 0.0, D) * 0.35;
+    tc = mix(tc, haze, smoothstep(0.3, 0.0, yy) * 0.75 + 0.1 + 0.3 * step(w.x, cen.x));
+    col = mix(col, tc, smoothstep(0.0, mix(0.45, 0.07, smoothstep(0.0, 0.35, yy)), D));
+  }
   // Sun: disc, glare, ice halo, streak.
   vec2 ds = w - sun; float rr = (r - 0.24) / 0.014;
   vec3 glare = vec3(1.0, 0.92, 0.74) * (exp(-r * 2.6) * 0.32 + exp(-r * 10.0) * 0.55 + exp(-r * 36.0) * 0.8);
   col += glare + mix(vec3(0.9, 0.55, 0.35), vec3(0.55, 0.75, 1.0), smoothstep(0.23, 0.255, r)) * exp(-rr * rr) * 0.12;
   col += vec3(1.0, 0.9, 0.75) * exp(-abs(ds.y) * 90.0) * exp(-abs(ds.x) * 1.8) * 0.28;
   col = mix(col, vec3(1.0, 0.99, 0.95), smoothstep(0.028 + px, 0.028 - px, r));
-  // The fighter: wingtip vapour, lit belly, gold rim, canopy glint.
-  vec2 jc = vec2(ar * mix(0.5, 0.62, wide), mix(0.66, 0.6, wide) + 0.005 * sin(t * 0.9));
-  float js = mix(ar * 0.58, 0.3, wide); vec2 q = (p - jc) / js;
-  float va = (q.y + 0.2) / (0.006 + max(-q.x - 0.36, 0.0) * 0.025), vb = (q.y - 0.11) / (0.005 + max(-q.x - 0.27, 0.0) * 0.025);
-  float vap = exp(-va * va) * smoothstep(-0.34, -0.38, q.x) + 0.6 * exp(-vb * vb) * smoothstep(-0.25, -0.29, q.x);
-  col = mix(col, vec3(1.0), clamp(vap * (0.65 + 0.35 * noise(vec2(q.x * 7.0 + t * 3.0, 0.5))) * smoothstep(-2.4, -0.6, q.x), 0.0, 1.0) * 0.85);
-  if (abs(q.x) < 0.62 && abs(q.y) < 0.26) {
-    float d = jet(q), aa = px / js; vec2 ld = normalize(sunP - jc);
-    vec3 hull = mix(vec3(0.24, 0.29, 0.38), vec3(0.1, 0.12, 0.17), smoothstep(-0.05, 0.03, q.y));
-    hull += vec3(1.0, 0.82, 0.52) * smoothstep(-0.024, -0.004, d) * smoothstep(-0.03, 0.05, q.y * ld.y + q.x * ld.x * 0.3 + 0.02) * 1.2;
-    hull += vec3(0.75, 0.88, 1.0) * smoothstep(0.015, 0.0, length((q - vec2(0.24, 0.045)) * vec2(1.0, 3.0)) - 0.025) * 0.7;
+  // The fighter and its contrails.
+  vec2 jc = vec2(ar * mix(0.5, 0.61, wide), mix(0.66, 0.62, wide) + 0.004 * sin(t * 0.8));
+  float js = mix(0.13, 0.15, wide);
+  vec2 q = (p - jc) / js; q.y /= 0.55;
+  float back = max(-q.y - 0.47, 0.0), trail = abs(abs(q.x) - 0.035 - back * 0.11) / (px / js + back * 0.012);
+  float lane = step(0.0, -q.y - 0.47) * exp(-back * 0.3);
+  col = mix(col * (1.0 - 0.12 * exp(-trail * trail * 0.25) * lane), vec3(1.0), exp(-trail * trail) * lane * 0.95);
+  if (abs(q.x) < 0.6 && abs(q.y) < 0.6) {
+    vec2 jd = jet(q); float d = jd.x, aa = px / js * 1.4;
+    vec3 hull = mix(vec3(0.2, 0.23, 0.28), vec3(0.4, 0.44, 0.5), smoothstep(-0.3, 0.4, q.x + q.y * 0.3));
+    hull = mix(hull, mix(vec3(0.14, 0.16, 0.2), vec3(0.62, 0.64, 0.66), step(0.0, q.x)), jd.y);
+    hull += vec3(1.0, 0.9, 0.7) * smoothstep(-0.02, 0.0, d) * 0.45 * step(0.0, q.y + 0.1);
+    float can = length((q - vec2(0.0, 0.2)) * vec2(1.9, 0.75)) - 0.06;
+    hull = mix(hull, vec3(0.08, 0.1, 0.16), smoothstep(0.01, -0.01, can));
+    hull += vec3(1.0, 0.95, 0.85) * smoothstep(0.035, 0.0, length(q - vec2(0.015, 0.23))) * 0.9;
     col = mix(col, hull, smoothstep(aa, -aa, d));
   }
-  color = vec4(col + glare * 0.22, 1.0);
+  color = vec4(col + glare * 0.2, 1.0);
 }
 `;
 
@@ -1159,8 +1331,8 @@ export const STAND_IN_BACKGROUNDS: StandInBackground[] = [
   { slug: "verdant", title: "Verdant", genre: "Exploration", summary: "A colossal tree on its hill, the sun behind its crown pouring light over forests fading into golden haze.", shader: VERDANT_SHADER },
   { slug: "iron-vigil", title: "Iron Vigil", genre: "Mech war", summary: "A colossal walker stands guard against a hazy sun under a planet's ring, dust blowing over the dunes.", shader: IRON_VIGIL_SHADER },
   { slug: "glasswing", title: "Glasswing", genre: "Dreamlike adventure", summary: "A glass dragonfly the size of a mountain glides over a rose twilight lake, its wings bending the moon into prisms.", shader: GLASSWING_SHADER },
-  { slug: "frostline", title: "Frostline", genre: "Survival", summary: "A lone climber on a knife-edge ridge in a blizzard, ice peaks fading into whiteout under a pale sun.", shader: FROSTLINE_SHADER },
-  { slug: "kestrel", title: "Kestrel", genre: "Flight", summary: "A fighter high over a sea of cloud, gold-rimmed against the sun's glare, peaks breaking through below.", shader: KESTREL_SHADER },
+  { slug: "frostline", title: "Frostline", genre: "Survival", summary: "Polar dusk over jagged peaks, the last light burning pink on the summits, spindrift streaming off the crests and snow gusting in.", shader: FROSTLINE_SHADER },
+  { slug: "kestrel", title: "Kestrel", genre: "Flight", summary: "Chasing a fighter high over a sea of cloud rushing in from a curved horizon, thunderheads towering in the sun's glare.", shader: KESTREL_SHADER },
   { slug: "starward", title: "Starward", genre: "Space", summary: "A ringed gas giant in crescent, its sun blazing past the edge, rays fanning over a vivid nebula.", shader: STARWARD_SHADER },
   { slug: "emberfall", title: "Emberfall", genre: "Survival", summary: "A field of black crust cracked over molten rock, a lava river running from an erupting volcano, sparks rising.", shader: EMBERFALL_SHADER },
 ];
