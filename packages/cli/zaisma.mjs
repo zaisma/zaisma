@@ -6,11 +6,13 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, extname, join, posix, relative, sep } from "node:path";
+import { dirname, extname, join, posix, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createBrotliDecompress, createGunzip } from "node:zlib";
 import { CHECKED_TEXT_EXTENSIONS, GAME_FILE_EXTENSIONS, PRECOMPRESSED_EXTENSIONS, checkGameFiles, extensionOf, findOutsideReferences } from "./check.mjs";
 import { assetHeadSizes } from "./performance.mjs";
+import { findChrome, openChrome } from "./chrome.mjs";
+import { SHADER_CHECK_PAGE, SHADER_LIMITS, isShaderCheckPassing, shaderCheckPageExpressions, shaderDraftAnswer, shaderRenderFromPage, shaderRenderInputOf } from "./shader-check.mjs";
 
 const API = (process.env.ZAISMA_API || "https://zaisma.com").replace(/\/+$/, "");
 const KEY = process.env.ZAISMA_KEY || "";
@@ -38,8 +40,30 @@ const OUTSIDE_FOLDER = "zaisma-outside";
 /** Files database export and import read and write as SQLite databases; any other name is SQL text. */
 const SQLITE_EXTENSIONS = [".sqlite", ".sqlite3", ".db"];
 
+/**
+ * A shader's folder (zaisma shader, and zaisma check on a folder with image.glsl): its passes, by file name (null is the image pass,
+ * otherwise the buffer's name), channels.json wiring each pass's iChannel0 to iChannel3, and the textures channels.json names. Nothing else.
+ */
+const SHADER_PASS_FILES = { "image.glsl": null, "buffer-a.glsl": "a", "buffer-b.glsl": "b", "buffer-c.glsl": "c", "buffer-d.glsl": "d" };
+const CHANNELS_FILE = "channels.json";
+const TEXTURE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
+/** A channel in channels.json: the API's channel, with the texture named by its file in the folder (texture_file) instead of an image_id. */
+const CHANNEL_FIELDS = ["channel_index", "input_kind", "buffer_name", "texture_file", "filter", "wrap"];
+const CHANNELS_FILE_EXAMPLE = {
+  image: [
+    { channel_index: 0, input_kind: "buffer", buffer_name: "a" },
+    { channel_index: 1, input_kind: "texture", texture_file: "noise.png", filter: "linear", wrap: "repeat" },
+  ],
+  "buffer-a": [{ channel_index: 0, input_kind: "buffer", buffer_name: "a" }],
+};
+const CHANNELS_FIX = `Give channels.json as an object of passes ("image", "buffer-a" to "buffer-d"), each a list of up to 4 channels, like ${JSON.stringify(CHANNELS_FILE_EXAMPLE)}; filter linear or nearest, wrap clamp or repeat. zaisma help shows it.`;
+/** How long shader and check wait for a texture image a person has to approve (image matching couldn't answer): 20 checks, 3 seconds apart; ZAISMA_SCAN_CHECK_INTERVAL_MS speeds it up in tests. */
+const TEXTURE_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 3000;
+const TEXTURE_CHECK_COUNT = 20;
+
 /** The choices the API takes, checked before anything is sent (test/node/cli.test.ts holds them to the API's lists). */
 const VISIBILITIES = ["listed", "unlisted", "private", "draft"];
+const SCREENS = ["wide", "phone"];
 const TOPIC_KINDS = ["bug", "gap", "feature", "question", "talk"];
 const MESSAGE_KINDS = ["bug", "gap", "feature", "question"];
 const FORUM_CATEGORIES = ["publishing", "scans", "pages", "rooms", "servers", "passes", "sdk", "saves", "stats", "mcp", "api", "cli", "accounts", "dashboard", "reports", "rules", "docs", "other"];
@@ -52,7 +76,7 @@ const EXIT_CODES = {
   held: { exitCode: 3, meaning: "upload: the version is held for a person at Zaisma to look at, usually within a day." },
   rejected: { exitCode: 4, meaning: "upload: the version was rejected. Its review_reason and findings say why and how to fix it." },
   still_scanning: { exitCode: 5, meaning: "upload: the version was still being scanned after 10 minutes. Check it later with zaisma versions <slug>." },
-  problems_found: { exitCode: 6, meaning: "check: something in the game won't work on Zaisma as it is, and the upload command doesn't fix it. The problems say what and how to fix it." },
+  problems_found: { exitCode: 6, meaning: "check: something in the game won't work on Zaisma as it is, and the upload command doesn't fix it; or the shader doesn't compile, is too slow or flashes. The problems say what and how to fix it." },
 };
 
 /** The errors only the command itself answers with; every other code is the API's (ERROR_CODES in packages/core/src/errors.ts). */
@@ -68,12 +92,18 @@ const COMMAND_ERROR_CODES = {
   not_a_file: "The file given (of statements, a dump to import, or a save) can't be read.",
   file_exists: "database export won't write over a file that's already there.",
   folder_not_empty: "export saves only into a new or empty folder.",
-  needs_newer_node: "Reading or writing a .sqlite file needs Node 22.13 or newer.",
+  needs_newer_node: "Reading or writing a .sqlite file needs Node 22.13 or newer, and drawing a shader in a local Chrome Node 22.",
   not_a_database: "The .sqlite file to import isn't a SQLite database.",
   unknown_link: "links remove: the game has no link by that name.",
   outside_file_unreachable: "upload: a file the game loads from an outside site couldn't be downloaded, so nothing was sent.",
   too_many_outside_files: "upload: the game loads more than 500 files from outside sites, so nothing was sent.",
   unpack_failed: "upload: a pre-compressed file couldn't be unpacked, so nothing was sent.",
+  no_image_pass: "shader: the folder has no image.glsl, the shader's image pass.",
+  unknown_shader_file: "A file in a shader's folder isn't one the command reads, or no channel in channels.json names it.",
+  bad_channels_file: "A shader's channels.json isn't JSON, or isn't an object of the folder's passes, each a list of channels.",
+  shader_texture_not_approved: "shader, check: a texture sent for the shader was rejected, or still waits for a person, so the shader wasn't sent.",
+  no_chrome: "check: there's no Chrome on this computer to draw the shader in, and no --game with ZAISMA_KEY to draw it on Zaisma.",
+  local_chrome_failed: "check: the Chrome on this computer couldn't draw the shader.",
   server_unreachable: "Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API.",
   unexpected_answer: "Zaisma answered without JSON, like a page from a network in between.",
 };
@@ -91,9 +121,16 @@ const COMMANDS = {
   games: { about: "List your games", arguments: [], flags: {} },
   new: { about: "Make a game (it starts as a draft)", arguments: [{ name: "title", isRest: true }], flags: { slug: { hasValue: true, placeholder: "<slug>", about: "Its link name, as in zaisma.com/g/<slug>; made from the title if left out" } } },
   check: {
-    about: "Check a game's folder for anything Zaisma refuses or that won't work on Zaisma, with how to fix each, before anything is sent; needs no key",
+    about:
+      "Check a game's folder for anything Zaisma refuses or that won't work on Zaisma, with how to fix each, before anything is sent; needs no key. " +
+      "On a shader's folder (one with image.glsl, below), draw it as Zaisma's check does, in the Chrome on this computer (CHROME_PATH, the system's, or one Playwright or @puppeteer/browsers downloaded), " +
+      "saving its sheet picture beside the folder; with no Chrome, on Zaisma with --game and ZAISMA_KEY (up to 100 a day)",
     arguments: [{ name: "folder" }],
-    flags: { game: { hasValue: true, placeholder: "<slug>", about: "The game it's for, so the fixes name it (and, with ZAISMA_KEY set, so its own servers count)" } },
+    flags: {
+      game: { hasValue: true, placeholder: "<slug>", about: "The game it's for, so the fixes name it (and, with ZAISMA_KEY set, so its own servers count); for a shader's folder with no Chrome here, the game to draw it on Zaisma for" },
+      screen: { hasValue: true, choices: SCREENS, about: "A shader's folder only: the screen to draw it for, wide (desktops and tablets; the default) or phone" },
+      "draw-on-zaisma": { hasValue: false, about: "A shader's folder only: draw it on Zaisma's own renderer, with --game and ZAISMA_KEY, even when there's a Chrome here" },
+    },
   },
   upload: {
     about: "Upload a version; only changed files are sent. It runs the check first, and downloads files the game loads from outside sites and unpacks pre-compressed builds in what it sends, never in the folder",
@@ -103,6 +140,16 @@ const COMMANDS = {
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
       "match-update-mode": { hasValue: true, placeholder: "<next_match|now>", about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
+    },
+  },
+  shader: {
+    about:
+      "Send a shader for a game's background from its folder (below): each texture goes as an image of kind shader_texture (one the game has already, byte for byte, is used again) and is waited for, " +
+      "then the shader; Zaisma checks it in a minute or two, then set_background or the dashboard shows it",
+    arguments: [{ name: "folder" }],
+    flags: {
+      game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game it's for" },
+      screen: { hasValue: true, isRequired: true, choices: SCREENS, about: "wide (desktops and tablets) or phone (composed for a tall screen)" },
     },
   },
   versions: { about: "List a game's versions and preview links", arguments: [{ name: "slug" }], flags: {} },
@@ -380,6 +427,20 @@ function parseCommandLine(argv) {
   return { command, values, flags, globalFlags, rest };
 }
 
+/** A shader's folder, as zaisma shader and zaisma check read it. */
+const SHADER_FOLDER_HELP = [
+  "A shader's folder (zaisma shader, zaisma check):",
+  "  image.glsl                 The image pass, Shadertoy's form in WebGL2's GLSL: void mainImage(out vec4 fragColor, in vec2 fragCoord) { … }.",
+  "  buffer-a.glsl … buffer-d.glsl  Buffers, if any: each drawn to a picture kept between frames, a to d, before the image pass.",
+  "  channels.json              If any pass reads a channel: what each pass's iChannel0 to iChannel3 read, by pass (image, buffer-a … buffer-d).",
+  "                             Each channel is the API's, with the texture named by its file in the folder (texture_file) instead of an image_id:",
+  `                             ${JSON.stringify(CHANNELS_FILE_EXAMPLE)}`,
+  "                             channel_index 0 to 3, each once in a pass; input_kind buffer (with buffer_name a to d, a buffer file in the folder) or texture (with texture_file);",
+  "                             filter linear (the default; a texture's with mipmaps) or nearest; wrap clamp (a buffer's default) or repeat (a texture's).",
+  `  *.png, *.jpg, *.webp       The textures channels.json names: up to ${SHADER_LIMITS.maximumShaderTextureCount}, each up to ${SHADER_LIMITS.maximumTextureSizeBytes / 1048576} MB and ${SHADER_LIMITS.maximumTextureSidePx} px a side.`,
+  "  Any other file, a texture no channel names, or a field channels.json doesn't take is refused before anything is sent; hidden files are left out.",
+];
+
 function helpText() {
   const lines = ["Usage:"];
   for (const command of Object.keys(COMMANDS)) {
@@ -391,6 +452,8 @@ function helpText() {
     "",
     "Every command takes --json: it prints the API's answer as-is (on failure, its { error }) and nothing else.",
     "Categories: " + FORUM_CATEGORIES.join(", ") + ".",
+    "",
+    ...SHADER_FOLDER_HELP,
     "",
     "Exit codes:",
     ...Object.values(EXIT_CODES).map((exit) => `  ${exit.exitCode}  ${exit.meaning}`),
@@ -413,6 +476,13 @@ function helpAnswer() {
       flags: Object.entries(spec.flags).map(flagAnswer),
     })),
     global_flags: Object.entries(GLOBAL_FLAGS).map(flagAnswer),
+    shader_folder: {
+      pass_files: Object.keys(SHADER_PASS_FILES),
+      channels_file: CHANNELS_FILE,
+      channel_fields: CHANNEL_FIELDS,
+      channels_file_example: CHANNELS_FILE_EXAMPLE,
+      texture_extensions: TEXTURE_EXTENSIONS,
+    },
     exit_codes: Object.entries(EXIT_CODES).map(([name, exit]) => ({ exit_code: exit.exitCode, name, meaning: exit.meaning })),
     error_codes: Object.entries(COMMAND_ERROR_CODES).map(([code, meaning]) => ({ code, meaning })),
   };
@@ -525,6 +595,10 @@ function printSmallerNotes(notes) {
 
 /** zaisma check: the problems, or the answer with --json. Ends with problems_found when one isn't fixed by the upload command. */
 async function checkFolder({ folder }, flags) {
+  if ((await stat(join(folder, "image.glsl")).catch(() => null))?.isFile()) return checkShaderFolder(folder, flags);
+  for (const name of ["screen", "draw-on-zaisma"]) {
+    if (flags[name]) refuse("unknown_field", { message: `--${name} is only for a shader's folder, and ${folder} has no image.glsl.`, field: `--${name}`, fix: `Leave --${name} out to check a game's folder, or give a shader's folder (zaisma help shows one).` });
+  }
   const answer = await checkGame(await readGameFolder(folder), flags.game ?? null);
   const hasProblems = answer.problems.some((problem) => !problem.is_fixed_by_upload_command);
   if (isJson) printJson(answer);
@@ -539,6 +613,297 @@ async function checkFolder({ folder }, flags) {
     );
   }
   return hasProblems ? EXIT_CODES.problems_found : EXIT_CODES.done;
+}
+
+// --- Shaders ------------------------------------------------------------------------------------------------------------------
+
+const isPlainObject = (given) => typeof given === "object" && given !== null && !Array.isArray(given);
+/** A texture's kind by its first bytes: PNG, JPEG or WebP, or null. */
+const textureTypeOf = (bytes) =>
+  bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+    ? "png"
+    : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      ? "jpeg"
+      : String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" && String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP"
+        ? "webp"
+        : null;
+
+/**
+ * A shader's folder, read and checked closed before anything is sent or drawn: { manifest, textures }. The manifest is the API's shape
+ * with each texture channel naming its file (texture_file); textures are the files channels.json names, each { textureFile, bytes }.
+ */
+async function readShaderFolder(folder) {
+  if (!(await stat(folder).catch(() => null))?.isDirectory()) refuse("not_a_folder", { message: `${folder} isn't a folder.`, field: "folder", fix: "Give the shader's folder, with its image.glsl at the top." });
+  const fileFix = (name) => `A shader's folder holds ${Object.keys(SHADER_PASS_FILES).join(", ")}, ${CHANNELS_FILE} and the textures it names (${TEXTURE_EXTENSIONS.map((extension) => `.${extension}`).join(", ")}); move ${name} out of it. zaisma help shows the folder.`;
+  const passSources = new Map();
+  const textureFiles = new Map();
+  let channelsText = null;
+  for (const entry of (await readdir(folder, { withFileTypes: true })).sort((first, second) => first.name.localeCompare(second.name))) {
+    if (JUNK.has(entry.name) || entry.name.startsWith(".")) continue;
+    const full = join(folder, entry.name);
+    if (!entry.isFile()) refuse("unknown_shader_file", { message: `${entry.name} is a folder; a shader's folder holds only its files.`, field: entry.name, fix: fileFix(entry.name) });
+    if (entry.name in SHADER_PASS_FILES) passSources.set(entry.name, await readFile(full, "utf8"));
+    else if (entry.name === CHANNELS_FILE) channelsText = await readFile(full, "utf8");
+    else if (TEXTURE_EXTENSIONS.includes(extensionOf(entry.name))) textureFiles.set(entry.name, full);
+    else refuse("unknown_shader_file", { message: `${entry.name} isn't a file a shader's folder holds.`, field: entry.name, fix: fileFix(entry.name) });
+  }
+  if (!passSources.has("image.glsl")) refuse("no_image_pass", { message: `${folder} has no image.glsl, the shader's image pass.`, field: "folder", fix: "Put the image pass in image.glsl: void mainImage(out vec4 fragColor, in vec2 fragCoord) { … }, Shadertoy's form in WebGL2's GLSL." });
+  for (const [fileName, source] of passSources) {
+    if (Buffer.byteLength(source) > SHADER_LIMITS.maximumPassSizeBytes) refuse("shader_too_big", { message: `${fileName} is over ${SHADER_LIMITS.maximumPassSizeBytes / 1024} KB.`, field: fileName, fix: "Take out unused functions and long comments, or move work into a buffer of its own (each pass gets 64 KB)." });
+  }
+
+  const bufferNames = Object.entries(SHADER_PASS_FILES).filter(([fileName, bufferName]) => bufferName && passSources.has(fileName)).map(([, bufferName]) => bufferName);
+  const passNames = ["image", ...bufferNames.map((bufferName) => `buffer-${bufferName}`)];
+  const channelsByPass = Object.fromEntries(passNames.map((passName) => [passName, []]));
+  if (channelsText !== null) {
+    let given;
+    try {
+      given = JSON.parse(channelsText);
+    } catch (error) {
+      refuse("bad_channels_file", { message: `${CHANNELS_FILE} isn't JSON: ${error.message}.`, field: CHANNELS_FILE, fix: CHANNELS_FIX });
+    }
+    if (!isPlainObject(given)) refuse("bad_channels_file", { message: `${CHANNELS_FILE} isn't a JSON object of passes.`, field: CHANNELS_FILE, fix: CHANNELS_FIX });
+    for (const [passName, givenChannels] of Object.entries(given)) {
+      const place = `${CHANNELS_FILE}: ${passName}`;
+      if (!passNames.includes(passName)) {
+        const isBufferName = /^buffer-[a-d]$/.test(passName);
+        refuse(isBufferName ? "bad_channels_file" : "unknown_field", {
+          message: isBufferName ? `${CHANNELS_FILE} wires ${passName}, and ${folder} has no ${passName}.glsl.` : `${JSON.stringify(passName)} in ${CHANNELS_FILE} isn't a pass.`,
+          field: place,
+          fix: `${CHANNELS_FILE} takes the folder's passes: ${passNames.join(", ")}.${isBufferName ? ` Add ${passName}.glsl, or take ${passName} out of ${CHANNELS_FILE}.` : ""}`,
+        });
+      }
+      if (!Array.isArray(givenChannels) || givenChannels.length > SHADER_LIMITS.maximumChannelCount) refuse("bad_channels_file", { message: `${place} isn't a list of up to ${SHADER_LIMITS.maximumChannelCount} channels.`, field: place, fix: CHANNELS_FIX });
+      for (const [channelIndex, givenChannel] of givenChannels.entries()) channelsByPass[passName].push(readChannel(givenChannel, `${place}[${channelIndex}]`, channelsByPass[passName], bufferNames, textureFiles));
+    }
+  }
+
+  const namedFiles = [...new Set(Object.values(channelsByPass).flatMap((channels) => channels.map((channel) => channel.texture_file).filter(Boolean)))];
+  const unnamedFile = [...textureFiles.keys()].find((name) => !namedFiles.includes(name));
+  if (unnamedFile) refuse("unknown_shader_file", { message: `No channel in ${CHANNELS_FILE} reads ${unnamedFile}.`, field: unnamedFile, fix: `Name it as a channel's texture_file in ${CHANNELS_FILE}, or move it out of the folder.` });
+  if (namedFiles.length > SHADER_LIMITS.maximumShaderTextureCount) {
+    refuse("too_many_shader_textures", { message: `${CHANNELS_FILE} names ${namedFiles.length} textures; a shader reads up to ${SHADER_LIMITS.maximumShaderTextureCount}.`, field: CHANNELS_FILE, fix: "Name at most 4 different textures across the image pass and its buffers; several channels can read the same one." });
+  }
+  const textures = [];
+  for (const textureFile of namedFiles) {
+    const bytes = new Uint8Array(await readFile(textureFiles.get(textureFile)));
+    if (bytes.length > SHADER_LIMITS.maximumTextureSizeBytes) refuse("shader_texture_too_big", { message: `${textureFile} is over ${SHADER_LIMITS.maximumTextureSizeBytes / 1048576} MB.`, field: textureFile, fix: "Save it smaller (a JPEG or WebP, or fewer pixels; a shader samples it with mipmaps)." });
+    if (!textureTypeOf(bytes)) refuse("not_an_image", { message: `${textureFile} isn't a PNG, JPEG or WebP image.`, field: textureFile, fix: "Save it as a PNG, JPEG or WebP file." });
+    textures.push({ textureFile, bytes });
+  }
+  const passOf = (passName, fileName) => ({ source: passSources.get(fileName), channels: channelsByPass[passName] });
+  return {
+    manifest: { image: passOf("image", "image.glsl"), buffers: bufferNames.map((bufferName) => ({ buffer_name: bufferName, ...passOf(`buffer-${bufferName}`, `buffer-${bufferName}.glsl`) })) },
+    textures,
+  };
+}
+
+/** One channel of channels.json, checked closed, with the API's defaults filled in: filter linear, wrap repeat for a texture and clamp for a buffer. */
+function readChannel(given, place, earlier, bufferNames, textureFiles) {
+  const bad = (field, message) => refuse("bad_shader_channel", { message, field, fix: CHANNELS_FIX });
+  if (!isPlainObject(given)) bad(place, `${place} isn't an object.`);
+  const unknown = Object.keys(given).find((key) => !CHANNEL_FIELDS.includes(key));
+  if (unknown !== undefined) {
+    refuse("unknown_field", { message: `${unknown} isn't a field of a channel in ${CHANNELS_FILE}.`, field: `${place}.${unknown}`, fix: `${unknown === "image_id" ? "In a folder, a texture channel names its file: texture_file. " : ""}Leave it out. A channel takes: ${CHANNEL_FIELDS.join(", ")}.` });
+  }
+  const { channel_index: channelIndex, input_kind: inputKind } = given;
+  if (!Number.isInteger(channelIndex) || channelIndex < 0 || channelIndex >= SHADER_LIMITS.maximumChannelCount) bad(`${place}.channel_index`, `${place}.channel_index isn't 0, 1, 2 or 3.`);
+  if (earlier.some((channel) => channel.channel_index === channelIndex)) bad(`${place}.channel_index`, `${place.replace(/\[\d+\]$/, "")} has channel_index ${channelIndex} twice.`);
+  if (inputKind !== "buffer" && inputKind !== "texture") bad(`${place}.input_kind`, `${place}.input_kind ${JSON.stringify(inputKind ?? null)} isn't buffer or texture.`);
+  const bufferName = given.buffer_name ?? null;
+  const textureFile = given.texture_file ?? null;
+  if (inputKind === "buffer") {
+    if (!bufferNames.includes(bufferName)) {
+      bad(`${place}.buffer_name`, bufferName === null ? `${place} reads a buffer but names none.` : `${place} reads buffer ${JSON.stringify(bufferName)}, and the folder has no buffer-${bufferName}.glsl${bufferNames.length ? ` (it has ${bufferNames.map((name) => `buffer-${name}.glsl`).join(", ")})` : ""}.`);
+    }
+    if (textureFile !== null) bad(`${place}.texture_file`, `${place} reads a buffer, so it takes no texture_file.`);
+  } else {
+    if (typeof textureFile !== "string" || !textureFiles.has(textureFile)) bad(`${place}.texture_file`, textureFile === null ? `${place} reads a texture but names no texture_file.` : `${place} reads ${JSON.stringify(textureFile)}, which isn't a texture in the folder.`);
+    if (bufferName !== null) bad(`${place}.buffer_name`, `${place} reads a texture, so it takes no buffer_name.`);
+  }
+  const filter = given.filter ?? "linear";
+  if (filter !== "linear" && filter !== "nearest") bad(`${place}.filter`, `${place}.filter ${JSON.stringify(filter)} isn't linear or nearest.`);
+  const wrap = given.wrap ?? (inputKind === "texture" ? "repeat" : "clamp");
+  if (wrap !== "clamp" && wrap !== "repeat") bad(`${place}.wrap`, `${place}.wrap ${JSON.stringify(wrap)} isn't clamp or repeat.`);
+  return { channel_index: channelIndex, input_kind: inputKind, buffer_name: inputKind === "buffer" ? bufferName : null, texture_file: inputKind === "texture" ? textureFile : null, filter, wrap };
+}
+
+/** The folder's manifest as the API takes it: each texture channel naming its image (imageIdOf its file) instead of its file. */
+function manifestWithImageIds(manifest, imageIdOf) {
+  const passWith = (pass) => ({ ...pass, channels: pass.channels.map(({ texture_file: textureFile, ...channel }) => ({ ...channel, image_id: textureFile === null ? null : imageIdOf(textureFile) })) });
+  return { image: passWith(manifest.image), buffers: manifest.buffers.map(passWith) };
+}
+
+/**
+ * Sends each texture as an image of kind shader_texture, or uses an approved one the game has with the same bytes, and waits until each
+ * is approved (at once, unless image matching couldn't check it and a person looks). Answers each { texture_file, image_id, added_image },
+ * added_image being the API's answer as-is, or null for one used again.
+ */
+async function sendTextures(slug, textures) {
+  if (!textures.length) return [];
+  const { images } = await api("GET", `/games/${slug}`);
+  const textureImages = [];
+  for (const texture of textures) {
+    const textureHash = sha256Of(texture.bytes);
+    let imageId = null;
+    for (const image of images.filter((candidate) => candidate.kind === "shader_texture" && candidate.review_status === "approved" && candidate.size_bytes === texture.bytes.length)) {
+      const stored = await fetch(image.image_url).then((response) => (response.ok ? response.arrayBuffer() : null)).catch(() => null);
+      if (stored && sha256Of(new Uint8Array(stored)) === textureHash) {
+        imageId = image.id;
+        break;
+      }
+    }
+    if (imageId) {
+      say(`Using ${texture.textureFile}: the game has it already (${imageId}).`);
+      textureImages.push({ texture_file: texture.textureFile, image_id: imageId, added_image: null });
+      continue;
+    }
+    say(`Sending ${texture.textureFile} (${readableSize(texture.bytes.length)})…`);
+    const added = await api("POST", `/games/${slug}/images?kind=shader_texture`, texture.bytes);
+    textureImages.push({ texture_file: texture.textureFile, image_id: added.image.id, added_image: added });
+  }
+  let waiting = textureImages.filter((textureImage) => textureImage.added_image && textureImage.added_image.image.review_status !== "approved");
+  if (waiting.length) say("Image matching couldn't check a texture just now, so a person at Zaisma looks; waiting a minute…");
+  for (let i = 0; i < TEXTURE_CHECK_COUNT && waiting.length; i++) {
+    await sleep(TEXTURE_CHECK_INTERVAL_MS);
+    const { images: checked } = await api("GET", `/games/${slug}`);
+    const statusOf = (textureImage) => checked.find((image) => image.id === textureImage.image_id)?.review_status ?? "rejected";
+    const rejected = waiting.find((textureImage) => statusOf(textureImage) === "rejected");
+    if (rejected) refuse("shader_texture_not_approved", { message: `${rejected.texture_file} (${rejected.image_id}) was rejected, so the shader wasn't sent.`, field: rejected.texture_file, fix: "The game's images (get_game) give its review_reason; use another texture." }, EXIT_CODES.failed);
+    waiting = waiting.filter((textureImage) => statusOf(textureImage) !== "approved");
+  }
+  if (waiting.length) {
+    refuse(
+      "shader_texture_not_approved",
+      { message: `${waiting[0].texture_file} (${waiting[0].image_id}) waits for a person at Zaisma, usually within a day, so the shader wasn't sent.`, field: waiting[0].texture_file, fix: "Run the same command again once the game's images (get_game) show it approved: it's used then, not sent again." },
+      EXIT_CODES.failed,
+    );
+  }
+  return textureImages;
+}
+
+/** zaisma shader: sends the folder's textures, then the shader. With --json, { texture_images, added_shader }: the API's answers as-is. */
+async function sendShader({ folder }, flags) {
+  const { manifest, textures } = await readShaderFolder(folder);
+  const textureImages = await sendTextures(flags.game, textures);
+  const imageIds = new Map(textureImages.map((textureImage) => [textureImage.texture_file, textureImage.image_id]));
+  const answer = await api("POST", `/games/${flags.game}/shaders`, { screen: flags.screen, ...manifestWithImageIds(manifest, (textureFile) => imageIds.get(textureFile)) });
+  if (isJson) return printAnswer({ texture_images: textureImages, added_shader: answer });
+  console.log(`Sent ${answer.shader.id} for ${answer.shader.screen}: ${answer.shader.review_status}.`);
+  if (answer.review_message) console.log(answer.review_message);
+  return EXIT_CODES.done;
+}
+
+/** Draws the shader as Zaisma's check does, in a headless Chrome on this computer, from the check's own page (shader-check.mjs). */
+async function drawInChrome(chromePath, manifest, textures, screen) {
+  const input = shaderRenderInputOf(manifestWithImageIds(manifest, (textureFile) => textureFile), screen, textures.map((texture) => ({ imageId: texture.textureFile, bytes: texture.bytes })), true);
+  const { textureExpressions, checkExpression } = shaderCheckPageExpressions(input);
+  const failed = (error) => refuse("local_chrome_failed", { message: `Chrome on this computer couldn't draw the shader: ${error.message}`, field: process.env.CHROME_PATH ? "CHROME_PATH" : null, fix: "Set CHROME_PATH to another Chrome or Chromium; or give --game <slug> with ZAISMA_KEY set, and it's drawn on Zaisma instead." }, EXIT_CODES.failed);
+  say(`Drawing it for ${screen} as Zaisma's check does, in Chrome on this computer; this takes a minute or two…`);
+  let chrome;
+  try {
+    chrome = await openChrome(chromePath, "zaisma-shader-check-");
+  } catch (error) {
+    failed(error);
+  }
+  let timer;
+  try {
+    const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+    const send = (method, parameters) => chrome.send(method, parameters, sessionId);
+    // Nothing the check page asks for leaves it.
+    chrome.listen(sessionId, (method, parameters) => method === "Fetch.requestPaused" && send("Fetch.failRequest", { requestId: parameters.requestId, errorReason: "BlockedByClient" }).catch(() => {}));
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+    const { frameTree } = await send("Page.getFrameTree");
+    await send("Page.setDocumentContent", { frameId: frameTree.frame.id, html: SHADER_CHECK_PAGE });
+    const evaluate = async (expression) => {
+      const { result: evaluated, exceptionDetails } = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+      if (exceptionDetails) throw new Error(exceptionDetails.exception?.description?.split("\n")[0] ?? exceptionDetails.text);
+      return evaluated.value;
+    };
+    for (const expression of textureExpressions) await evaluate(expression);
+    const outOfTime = new Promise((resolve) => (timer = setTimeout(() => resolve(null), SHADER_LIMITS.checkTimeoutSec * 1000)));
+    const render = shaderRenderFromPage(await Promise.race([evaluate(checkExpression), outOfTime]), input);
+    return { rendererKind: "local_chrome", shaderCheck: await shaderDraftAnswer(render, screen), remainingShaderCheckCount: null, sheetPng: render.sheetPng, textureImages: [] };
+  } catch (error) {
+    if (error instanceof CommandError) throw error;
+    failed(error);
+  } finally {
+    clearTimeout(timer);
+    await chrome.close();
+  }
+}
+
+/** Draws the shader on Zaisma, as a check before sending (POST /games/:slug/shader-checks), after sending its textures; downloads its sheet. */
+async function drawOnZaisma(slug, manifest, textures, screen) {
+  const textureImages = await sendTextures(slug, textures);
+  const imageIds = new Map(textureImages.map((textureImage) => [textureImage.texture_file, textureImage.image_id]));
+  say(`Drawing it for ${screen} on Zaisma; this takes a minute or two…`);
+  const answer = await api("POST", `/games/${slug}/shader-checks`, { screen, ...manifestWithImageIds(manifest, (textureFile) => imageIds.get(textureFile)) });
+  let sheetPng = null;
+  if (answer.shader_check.sheet_url) {
+    const response = await fetch(answer.shader_check.sheet_url).catch(() => null);
+    if (response?.ok) sheetPng = new Uint8Array(await response.arrayBuffer());
+  }
+  return { rendererKind: "zaisma", shaderCheck: answer.shader_check, remainingShaderCheckCount: answer.remaining_shader_check_count, sheetPng, textureImages };
+}
+
+/**
+ * zaisma check on a shader's folder: drawn in Chrome on this computer when there is one, otherwise on Zaisma (--game and ZAISMA_KEY),
+ * with its sheet saved beside the folder. Ends with problems_found when it doesn't compile, is too slow at a level or flashes; its notes
+ * never change the exit code. --json prints { renderer_kind, shader_check, remaining_shader_check_count, sheet_file, texture_images }.
+ */
+async function checkShaderFolder(folder, flags) {
+  if (flags["draw-on-zaisma"] && !flags.game) refuse("missing_field", { message: "--draw-on-zaisma needs --game: the game to draw it for.", field: "--game", fix: `Run it as: zaisma check ${folder} --game <slug> --draw-on-zaisma, with ZAISMA_KEY set.` });
+  const { manifest, textures } = await readShaderFolder(folder);
+  const screen = flags.screen ?? "wide";
+  const canDrawOnZaisma = Boolean(flags.game && KEY);
+  const hasWebSocket = typeof globalThis.WebSocket === "function";
+  const chromePath = flags["draw-on-zaisma"] ? null : findChrome([join(process.cwd(), ".wrangler/chrome"), join(process.cwd(), "chrome")]);
+  let drawn = null;
+  if (chromePath && hasWebSocket) {
+    try {
+      drawn = await drawInChrome(chromePath, manifest, textures, screen);
+    } catch (error) {
+      if (!(error instanceof CommandError && error.error.code === "local_chrome_failed" && canDrawOnZaisma)) throw error;
+      say(`${error.error.message} Drawing it on Zaisma instead.`);
+    }
+  } else if (!canDrawOnZaisma && !flags["draw-on-zaisma"]) {
+    if (chromePath) refuse("needs_newer_node", { message: `Drawing a shader in Chrome on this computer needs Node 22 or newer; this is ${process.version}.`, field: null, fix: "Run it with Node 22 or newer; or give --game <slug> with ZAISMA_KEY set to draw it on Zaisma." }, EXIT_CODES.failed);
+    refuse("no_chrome", { message: "There's no Chrome on this computer to draw the shader in.", field: "--game", fix: "Install Chrome, or set CHROME_PATH to a Chrome or Chromium; or give --game <slug> with ZAISMA_KEY set to draw it on Zaisma (up to 100 checks a day)." }, EXIT_CODES.failed);
+  }
+  drawn ??= await drawOnZaisma(flags.game, manifest, textures, screen);
+  const sheetPath = drawn.sheetPng ? `${resolve(folder)}-${screen}-check.png` : null;
+  if (sheetPath) await writeFile(sheetPath, drawn.sheetPng);
+  const sheetFile = sheetPath ? relative(process.cwd(), sheetPath) || sheetPath : null;
+  const isPassing = isShaderCheckPassing(drawn.shaderCheck);
+  if (isJson) printJson({ renderer_kind: drawn.rendererKind, shader_check: drawn.shaderCheck, remaining_shader_check_count: drawn.remainingShaderCheckCount, sheet_file: sheetFile, texture_images: drawn.textureImages });
+  else printShaderCheck(drawn, { folder, screen, sheetFile, slug: flags.game ?? null, isPassing });
+  return isPassing ? EXIT_CODES.done : EXIT_CODES.problems_found;
+}
+
+/** A shader check for people: what it measured against each limit, the glass, the notes and where its sheet is. */
+function printShaderCheck({ rendererKind, shaderCheck, remainingShaderCheckCount }, { folder, screen, sheetFile, slug, isPassing }) {
+  console.log(rendererKind === "local_chrome" ? `Drawn for ${screen} in Chrome on this computer, in software, as Zaisma's check draws it.` : `Drawn for ${screen} on Zaisma (${remainingShaderCheckCount} checks left today).`);
+  if (shaderCheck.compile_error) {
+    console.log(`  ${shaderCheck.compile_error} [shader_does_not_compile]\n  Line numbers are the pass's own.`);
+  } else {
+    const levelCount = shaderCheck.quality_checks.length;
+    for (const qualityCheck of shaderCheck.quality_checks) {
+      const isTooSlow = qualityCheck.check_frame_ms > qualityCheck.maximum_check_frame_ms;
+      console.log(`  ${levelCount > 1 ? `Quality ${qualityCheck.quality_level}` : "A frame"}: ${qualityCheck.check_frame_ms} ms in the check; the most is ${qualityCheck.maximum_check_frame_ms}${isTooSlow ? ". Too slow [shader_too_slow]" : "."}`);
+    }
+    if (shaderCheck.quality_checks.some((qualityCheck) => qualityCheck.check_frame_ms > qualityCheck.maximum_check_frame_ms)) console.log("  Fix: draw less (fewer steps, octaves or lights), or less where iQuality is lower.");
+    if (shaderCheck.flash_count !== null) {
+      const isFlashing = shaderCheck.flash_count > SHADER_LIMITS.maximumFlashCountPerSec;
+      console.log(`  Flashes: at most ${shaderCheck.flash_count} in a second; the most is ${SHADER_LIMITS.maximumFlashCountPerSec}${isFlashing ? ". Too many [shader_flashes]: flashing can cause seizures; change brightness slowly." : "."}`);
+    }
+    if (shaderCheck.is_glass_smoked !== null) console.log(`  The glass over it: ${shaderCheck.is_glass_smoked ? "smoked" : "light"}, tinted ${shaderCheck.glass_tint_pct}%.`);
+  }
+  for (const note of shaderCheck.notes) console.log(`  · ${note.message} Fix: ${note.fix} [${note.code}]`);
+  if (sheetFile) console.log(`The sheet (wide and phone under Zaisma's glass, small, what changes between frames, and its pixels close up): ${sheetFile}`);
+  else if (shaderCheck.sheet_url) console.log(`The sheet, for a day: ${shaderCheck.sheet_url}`);
+  console.log(isPassing ? `Ready to send: zaisma shader ${folder} --game ${slug ?? "<slug>"} --screen ${screen}` : "Fix what's above, then check again.");
 }
 
 const sha256Of = (text) => createHash("sha256").update(text).digest("hex");
@@ -1734,6 +2099,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
   if (command === "check") return checkFolder(values, flags);
   if (command === "export") return exportGame(values, flags);
   if (command === "upload") return upload(values, flags);
+  if (command === "shader") return sendShader(values, flags);
   if (command === "versions") {
     const answer = await api("GET", `/games/${values.slug}`);
     if (isJson) return printAnswer(answer);

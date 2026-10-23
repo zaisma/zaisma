@@ -5,7 +5,22 @@ import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
 import { checkShownText } from "./shown-text.ts";
 import { randomKey } from "./game-access.ts";
-import { BUFFER_PASS, GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "./glass-light.ts";
+// The shader drawing the check, `zaisma check` and every runner share, kept with the upload command so it can draw a shader locally.
+import {
+  SHADER_BUFFER_NAMES,
+  SHADER_HEAD,
+  SHADER_LIMITS,
+  SHADER_TEXTURE_BITMAP_OPTIONS,
+  SHADER_VERTEX_SOURCE,
+  shaderChannelSampling,
+  shaderPassesInDrawOrder,
+  shaderReadsQuality,
+  shaderWithoutComments,
+  wrapShader,
+  wrapShaderBuffer,
+  wrapShaderPass,
+} from "../../cli/shader-check.mjs";
+export { SHADER_BUFFER_NAMES, SHADER_HEAD, SHADER_LIMITS, SHADER_TEXTURE_BITMAP_OPTIONS, SHADER_VERTEX_SOURCE, shaderChannelSampling, shaderPassesInDrawOrder, shaderReadsQuality, shaderWithoutComments, wrapShader, wrapShaderBuffer, wrapShaderPass };
 import { ACCOUNT_REQUIREMENTS, MINIMUM_PLAYER_AGES, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type MinimumPlayerAge, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -1120,81 +1135,9 @@ export interface GameBackground {
  * to D) and up to four textures the developer sends, read through iChannel0 to iChannel3 (ShaderManifest). One shader serves every
  * device: it reads iQuality (0 for phones and slow devices, 1, 2 for desktops), and the check holds each level to its own time.
  * The check draws it before anyone sees it; players' browsers draw it at fewer pixels and at most 30 frames a second, stepping down a
- * level, then to fewer pixels, then holding a still frame, on a device that can't keep up.
+ * level, then to fewer pixels, then holding a still frame, on a device that can't keep up. SHADER_LIMITS and the drawing live in
+ * packages/cli/shader-check.mjs, shared with `zaisma check`.
  */
-export const SHADER_LIMITS = {
-  /** Each pass's source, the image pass's and each buffer's: storage costs nothing, and the check's time is what protects devices. */
-  maximumPassSizeBytes: 65_536,
-  /** Buffers A to D. */
-  maximumBufferCount: 4,
-  /** iChannel0 to iChannel3, on each pass. */
-  maximumChannelCount: 4,
-  /** Textures one shader's channels name, all its passes together. */
-  maximumShaderTextureCount: 4,
-  /** Pictures of kind shader_texture a game keeps. */
-  maximumGameTextureCount: 16,
-  /** A texture's size: PNG, JPEG or WebP. */
-  maximumTextureSidePx: 4096,
-  maximumTextureSizeBytes: 8 * 1024 * 1024,
-  checkWidthPx: 640,
-  checkHeightPx: 360,
-  /** Frames the check draws and times at each quality level, in order from iTime 0 (buffers need their history), each frameStepSec on. */
-  checkFrameCount: 90,
-  checkFrameStepSec: 1 / 30,
-  /**
-   * Software rendering's speed varies up to twice over from one browser to the next, so the check first times Zaisma's own
-   * background as it was when the levels were set (CHECK_REFERENCE_SHADER in shader-check.ts) in the same browser, and scales the
-   * shader's median frame to it: check_frame_ms is what a frame takes on a renderer that draws that reference in referenceFrameMs.
-   */
-  referenceFrameMs: 25,
-  /**
-   * Each quality level's most check_frame_ms. A shader that never reads iQuality is timed once, against level 0's. Level 0 is phones'
-   * and keeps the limit set Oct 21, 2026 on Cloudflare Browser Rendering (SwiftShader) at 640 × 360, scaled: the looks drafts' shaders
-   * took 11–47 ms (frostline the slowest, 43–47) and a 256-step ray-march 90–109 ms; the slowest × 1.5, rounded up to 5 ms. Desktops are
-   * four times and more faster than phones, so level 1 gets twice that and level 2 four times (Oct 23, 2026).
-   */
-  qualityLevels: [
-    { qualityLevel: 0, maximumCheckFrameMs: 75 },
-    { qualityLevel: 1, maximumCheckFrameMs: 150 },
-    { qualityLevel: 2, maximumCheckFrameMs: 300 },
-  ],
-  /** The level each screen's still is drawn at: wide screens are desktops' and tablets', phone is phones'. */
-  stillQualityLevelByScreen: { wide: 2, phone: 0 } as Record<BackgroundScreen, number>,
-  /** WCAG 2.3.1: no more than three flashes in any one second. */
-  maximumFlashCountPerSec: 3,
-  /** When the still frame is drawn. */
-  stillTimeSec: 2,
-  /** The still's size, wide (phone turns it round): a single pass draws it at once at full size. */
-  stillWidthPx: 1920,
-  stillHeightPx: 1080,
-  /** A shader with buffers draws its whole history again for the still and the sampled frames, so at this size. */
-  bufferedStillWidthPx: 960,
-  bufferedStillHeightPx: 540,
-  /** After the still, a shader with buffers steps its history this far a frame to reach its sampled frames, so the check keeps to its time. */
-  sampledHistoryStepSec: 0.5,
-  /** Frames saved for the developer and the safety checks, spread over the first 30 seconds. */
-  sampledFrameCount: 6,
-  sampledFramesOverSec: 30,
-  /** How long one shader may take on the renderer altogether before it's called too slow. */
-  checkTimeoutSec: 240,
-  /** Checks before sending (POST /games/:slug/shader-checks) a developer can run in a day; the upload command's local check has no limit. */
-  maximumShaderChecksPerDay: 100,
-  /** How long a check before sending keeps its sheet picture. */
-  checkSheetKeptDurationSec: 24 * 3600,
-  /** Shaders kept per screen besides the chosen one: older pending and unchosen ones go. */
-  keptShaderCount: 4,
-  runtimeMaximumFps: 30,
-  runtimeResolutionScale: 0.5,
-  /**
-   * Upscaling (SHADER_UPSCALE_SOURCE): every pass draws at this share of runtimeResolutionScale (0.7 a side, half the pixels), and
-   * the sharpening upscale writes the canvas at runtimeUpscaleNumber times that, so it's as sharp as before for half the work.
-   */
-  runtimeDrawShareNumber: 0.7,
-  runtimeUpscaleNumber: 1.4,
-  /** After this long with no input on the page, a background draws at runtimeIdleFramesPerSec, and at runtimeMaximumFps again on the first input. */
-  runtimeIdleTimeoutSec: 60,
-  runtimeIdleFramesPerSec: 15,
-};
 
 /** What the check measured at one quality level: its median frame, scaled to the renderer's speed, against that level's most. */
 export interface ShaderQualityCheck {
@@ -1216,7 +1159,6 @@ export function readQualityChecks(stored: string | null): ShaderQualityCheck[] {
 
 /** Buffers A to D, as a shader names them. */
 export type ShaderBufferName = "a" | "b" | "c" | "d";
-export const SHADER_BUFFER_NAMES: readonly ShaderBufferName[] = ["a", "b", "c", "d"];
 /** What a channel reads: one of the shader's buffers, or one of the game's pictures of kind shader_texture. */
 export type ShaderChannelInputKind = "buffer" | "texture";
 export const SHADER_CHANNEL_INPUT_KINDS: readonly ShaderChannelInputKind[] = ["buffer", "texture"];
@@ -1267,43 +1209,12 @@ export interface ShaderDrawPass {
   channels: ShaderChannel[];
 }
 
-/** The passes a runner draws each frame, in order: the buffers, a to d, then the image pass. */
-export function shaderPassesInDrawOrder(manifest: ShaderManifest): ShaderDrawPass[] {
-  const buffers = [...manifest.buffers].sort((first, second) => SHADER_BUFFER_NAMES.indexOf(first.buffer_name) - SHADER_BUFFER_NAMES.indexOf(second.buffer_name));
-  return [...buffers.map((buffer) => ({ bufferName: buffer.buffer_name, source: buffer.source, channels: buffer.channels })), { bufferName: null, source: manifest.image.source, channels: manifest.image.channels }];
-}
-
-/** The whole fragment shader a pass compiles: the image pass with the glass round it, a buffer pass without. */
-export const wrapShaderPass = (pass: Pick<ShaderDrawPass, "bufferName" | "source">): string => (pass.bufferName === null ? wrapShader(pass.source) : wrapShaderBuffer(pass.source));
-
 /** The pictures a shader's channels read, each once, in the order they first come. */
 export function shaderTextureImageIds(manifest: ShaderManifest): string[] {
   const ids: string[] = [];
   for (const pass of shaderPassesInDrawOrder(manifest)) for (const channel of pass.channels) if (channel.image_id && !ids.includes(channel.image_id)) ids.push(channel.image_id);
   return ids;
 }
-
-/** A shader's text without its comments, so what a comment says is never taken for code. */
-const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, "");
-
-/** Whether a shader reads iQuality, so the check times each level and runners pick one; one that doesn't is timed once. */
-export const shaderReadsQuality = (manifest: ShaderManifest): boolean => shaderPassesInDrawOrder(manifest).some((pass) => /\biQuality\b/.test(withoutComments(pass.source)));
-
-/**
- * How a runner samples a channel, in WebGL2's names (gl[name]): a texture has mipmaps, so linear is trilinear; a buffer has none.
- * The check (shader-check.ts) and every runner sample the same way, so a shader looks the same wherever it runs.
- */
-export function shaderChannelSampling(channel: Pick<ShaderChannel, "input_kind" | "filter" | "wrap">): { minificationFilterName: string; magnificationFilterName: string; wrapName: string; hasMipmaps: boolean } {
-  const hasMipmaps = channel.input_kind === "texture";
-  const minificationFilterName = channel.filter === "nearest" ? "NEAREST" : hasMipmaps ? "LINEAR_MIPMAP_LINEAR" : "LINEAR";
-  return { minificationFilterName, magnificationFilterName: channel.filter === "nearest" ? "NEAREST" : "LINEAR", wrapName: channel.wrap === "repeat" ? "REPEAT" : "CLAMP_TO_EDGE", hasMipmaps };
-}
-
-/**
- * What runners pass to createImageBitmap for a texture: flipped, so it's upright with fragCoord's bottom left (Shadertoy's way), and
- * its colors as they are, unpremultiplied, since shaders read textures as data too.
- */
-export const SHADER_TEXTURE_BITMAP_OPTIONS = { imageOrientation: "flipY", premultiplyAlpha: "none", colorSpaceConversion: "none" } as const;
 
 /** A buffer's picture: half floats where the browser can draw to them (EXT_color_buffer_float), else 8 bits a channel. */
 export const SHADER_BUFFER_FORMATS = {
@@ -1321,7 +1232,7 @@ export const shaderKeys = (gameId: string, id: string) => [shaderKey(gameId, id)
 
 /** What's wrong with one pass's text before it's drawn, or null: Shadertoy's mainImage, with nothing a runner doesn't give it. */
 export function shaderSourceProblem(source: string): string | null {
-  const code = withoutComments(source);
+  const code = shaderWithoutComments(source);
   if (!/\bvoid\s+mainImage\s*\(/.test(code)) return "It has no mainImage function: void mainImage(out vec4 fragColor, in vec2 fragCoord).";
   if (/^\s*#\s*version\b/m.test(code)) return "It has a #version line; Zaisma gives the shader its own (WebGL2's #version 300 es).";
   if (/^\s*#\s*extension\b/m.test(code)) return "It has an #extension line; shaders get no extensions.";
@@ -1434,47 +1345,6 @@ function checkShaderChannel(given: unknown, field: string, bufferNames: ShaderBu
   if (!SHADER_CHANNEL_WRAPS.includes(wrap)) return refuse(`${field}.wrap`, `${field}.wrap ${JSON.stringify(given.wrap)} isn't clamp or repeat.`);
   return { channel_index: channelIndex, input_kind: inputKind, buffer_name: inputKind === "buffer" ? (bufferName as ShaderBufferName) : null, image_id: inputKind === "texture" ? (imageId as string) : null, filter, wrap };
 }
-
-/**
- * What comes before every pass's own source: WebGL2's GLSL, full precision (buffers often keep positions and speeds, not colors), and
- * every input a pass reads. Shadertoy's names (docs/NAMING.md, shader): iResolution (pixels), iTime and iTimeDelta (seconds), iFrame
- * (frames since the runner started), iChannel0 to iChannel3 with each one's iChannelResolution. Zaisma's own: iQuality (0 for phones and
- * slow devices, 1, 2 for desktops), and where Zaisma's glass sits, iGlassPanes (left, bottom, right, top, in the shader's pixels from its
- * bottom left, smallest first) and iGlassPaneCount (none in the check). `#line 1` makes a compiler's line numbers the developer's own.
- */
-export const SHADER_HEAD = `#version 300 es
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-uniform vec3 iResolution;
-uniform float iTime;
-uniform float iTimeDelta;
-uniform int iFrame;
-uniform float iQuality;
-uniform sampler2D iChannel0;
-uniform sampler2D iChannel1;
-uniform sampler2D iChannel2;
-uniform sampler2D iChannel3;
-uniform vec3 iChannelResolution[4];
-uniform vec4 iGlassPanes[${MOST_GLASS_PANE_COUNT}];
-uniform int iGlassPaneCount;
-#line 1
-`;
-
-/**
- * The whole fragment shader an image pass compiles: the head, the developer's mainImage, and the glass pass round it
- * (GLASS_LIGHT_PASS). The check, the game domain's runner and the dashboard's preview all compile this, so a shader that passed the
- * check runs the same everywhere.
- */
-export function wrapShader(source: string): string {
-  return SHADER_HEAD + source + "\n" + GLASS_LIGHT_PASS;
-}
-/** The whole fragment shader a buffer pass compiles: the head and the developer's mainImage, drawn to the buffer with no glass. */
-export function wrapShaderBuffer(source: string): string {
-  return SHADER_HEAD + source + "\n" + BUFFER_PASS;
-}
-/** The vertex shader every pass draws with: one triangle over the whole canvas, from the corners [-1, -1, 3, -1, -1, 3]. */
-export const SHADER_VERTEX_SOURCE = "#version 300 es\nin vec2 corner;\nvoid main() { gl_Position = vec4(corner, 0.0, 1.0); }";
 
 /**
  * The sharpening upscale every runner draws last (the game site's runner and Zaisma's own pages' backdrop): the passes' picture,
