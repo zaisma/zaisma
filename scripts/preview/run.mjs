@@ -820,10 +820,17 @@ async function seed() {
   const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
   await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
-  const isChecked = async () => (await api("GET", "/games/shard-dodge")).shaders.find((shader) => shader.id === neonDrift.id)?.review_status !== "pending";
-  for (let tryIndex = 0; tryIndex < 45 && !(await isChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
-  // Without a local browser, a person approves it, as on /admin (it then has no still or frames).
-  if (!(await isChecked())) await go(`/admin/shaders/${neonDrift.id}/approve`, form({ reason: "Preview test data" }));
+  // A test game's shader once its check has run. Without a local browser a person approves it, as on /admin (it then has no still or
+  // frames); one the check refused on a slower or busier machine is approved the same way, saying why, so the test data is always whole.
+  const settleTestShader = async (slug, shaderId) => {
+    const shaderNow = async () => (await api("GET", `/games/${slug}`)).shaders.find((shader) => shader.id === shaderId);
+    for (let tryIndex = 0; tryIndex < 45 && (await shaderNow())?.review_status === "pending"; tryIndex++) await new Promise((done) => setTimeout(done, 2000));
+    const settled = await shaderNow();
+    if (settled?.review_status === "approved") return;
+    if (settled?.review_status === "rejected") console.log(`  ${slug}'s shader was refused by the check here (${JSON.stringify(settled.review_reason ?? null)}); approving it as test data.`);
+    await go(`/admin/shaders/${shaderId}/approve`, form({ reason: "Preview test data" }));
+  };
+  await settleTestShader("shard-dodge", neonDrift.id);
   await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
   // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
@@ -847,9 +854,7 @@ async function seed() {
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
   sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
   for (const [slug, screen, shader] of sentShaders) {
-    const isShaderChecked = async () => (await api("GET", `/games/${slug}`)).shaders.find((each) => each.id === shader.id)?.review_status !== "pending";
-    for (let tryIndex = 0; tryIndex < 45 && !(await isShaderChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
-    if (!(await isShaderChecked())) await go(`/admin/shaders/${shader.id}/approve`, form({ reason: "Preview test data" }));
+    await settleTestShader(slug, shader.id);
     await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
   }
   stepDone("backgrounds and shaders");
