@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { memoryCap, nextTurn, placeText, sizeText, waitingInOrder } from "../../scripts/preview/memory.mjs";
+import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitingInOrder } from "../../scripts/preview/memory.mjs";
 
 /**
- * The memory cap on every preview on a machine and its line (scripts/preview/memory.mjs): where the cap comes from, whose
- * turn comes when, and the one lock holding when several processes change the line at once.
+ * The memory cap on every preview and test run on a machine and its line (scripts/preview/memory.mjs): where the cap comes from,
+ * whose turn comes when and with how many test files at once, and the one lock holding when several processes change the line at once.
  */
 
 const GB = 1024 ** 3;
@@ -72,6 +72,43 @@ describe("whose turn it is", () => {
   it("has no cap at 0", () => {
     const turn = nextTurn({ entries: [entry(11, 100)], previews: [awake(0, 9 * GB)], capBytes: 0, awakeSizeBytes: GB, nowMs: 1000 });
     expect(turn.turnPid).toBe(11);
+  });
+});
+
+describe("a test run's turn", () => {
+  const awake = (offset: number, sizeBytes: number) => ({ offset, sizeBytes, isAwake: true });
+  const testEntry = (pid: number, requestedWorkerCount: number, { askedAtMs = pid, turnGivenAtMs = null as number | null, workerCount = null as number | null, isNodeOnly = false } = {}) => ({ pid, folder: `/checkouts/${pid}`, offset: null, kind: "test", asked_at_ms: askedAtMs, turn_given_at_ms: turnGivenAtMs, requested_worker_count: requestedWorkerCount, is_node_only: isNodeOnly, worker_count: workerCount });
+  const turnFor = (entries: unknown[], previews: unknown[], capBytes = 3 * GB, testRuns: unknown[] = []) => nextTurn({ entries, previews, testRuns, capBytes, awakeSizeBytes: GB, nowMs: 1000 });
+
+  it("runs as many files at once as fit, up to what it asked for", () => {
+    // 0.6 GB for vitest, 0.9 GB for each Workers file: 3 GB left takes 2, beside a 1 GB preview 1.
+    expect(turnFor([testEntry(21, 4)], [])).toMatchObject({ turnPid: 21, turnWorkerCount: 2 });
+    expect(turnFor([testEntry(21, 4)], [awake(0, GB)])).toMatchObject({ turnPid: 21, turnWorkerCount: 1 });
+    expect(turnFor([testEntry(21, 1)], [])).toMatchObject({ turnPid: 21, turnWorkerCount: 1 });
+    expect(testRunSizeBytes(2)).toBe(2400 * MB);
+  });
+  it("waits when not even one file fits, saying what one needs", () => {
+    const turn = turnFor([testEntry(21, 4)], [awake(0, GB), awake(100, GB)]);
+    expect(turn).toMatchObject({ turnPid: null, turnWorkerCount: null, neededBytes: testRunSizeBytes(1) });
+  });
+  it("counts node files as lighter", () => {
+    expect(turnFor([testEntry(21, 4, { isNodeOnly: true })], [awake(0, GB), awake(100, GB)])).toMatchObject({ turnPid: 21, turnWorkerCount: 2 });
+  });
+  it("runs alone over the cap, one file at a time", () => {
+    expect(turnFor([testEntry(21, 4)], [], GB)).toMatchObject({ turnPid: 21, turnWorkerCount: 1, isAlone: true });
+  });
+  it("keeps memory for a run that's still growing until its vitest ends, and holds a start back for it", () => {
+    // A run of 2 Workers files (2.4 GB) measured at 0.8 GB so far: 1.6 GB kept, so a 1 GB preview doesn't fit in 3 GB.
+    const running = testEntry(21, 2, { turnGivenAtMs: 0, workerCount: 2 });
+    const turn = nextTurn({ entries: [running, entry(22, 100)], previews: [], testRuns: [{ pid: 21, sizeBytes: 800 * MB }], capBytes: 3 * GB, awakeSizeBytes: GB, nowMs: 60 * 60_000 });
+    expect(turn).toMatchObject({ turnPid: null, usedBytes: 800 * MB, keptBytes: testRunSizeBytes(2) - 800 * MB });
+  });
+  it("waits its turn behind wakes, and with starts by when each asked", () => {
+    const order = waitingInOrder([testEntry(31, 2, { askedAtMs: 1 }), entry(32, 100, "start", 2), entry(33, 200, "wake", 5), testEntry(34, 2, { askedAtMs: 3 })]);
+    expect(order.map((each: { pid: number }) => each.pid)).toEqual([33, 31, 32, 34]);
+  });
+  it("gets every file it asked for with no cap", () => {
+    expect(turnFor([testEntry(21, 4)], [awake(0, 9 * GB)], 0)).toMatchObject({ turnPid: 21, turnWorkerCount: 4 });
   });
 });
 

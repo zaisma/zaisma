@@ -3,6 +3,26 @@ import { build } from "esbuild";
 import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
 import { ALONE_TEST_FILES, BalancedShardSequencer } from "./test/shards.ts";
+// @ts-expect-error: a Node script with no types of its own.
+import { memoryCap, waitForTestTurn } from "./scripts/preview/memory.mjs";
+
+// A test run's turn in the line for memory, before any file runs (scripts/preview/memory.mjs): on a Mac, test runs and previews share
+// one memory budget across every checkout, and a run that doesn't fit waits in line and starts by itself (npm run test:list shows the
+// line). It runs as many files at once as fit, up to TEST_WORKER_COUNT (4 without it): a Workers file's runtime takes about 0.9 GB.
+// On GitHub's runners there's no line, and TEST_WORKER_COUNT is the count (2 without it). Listing tests never waits. Vitest reads this
+// file once for each project, in the same process, so the run asks once.
+const turns = globalThis as { zaismaTestTurn?: Promise<{ workerCount: number }> };
+turns.zaismaTestTurn ??= process.argv.includes("list") ? Promise.resolve({ workerCount: 1 }) : waitForTestTurn({ requestedWorkerCount: Number(process.env.TEST_WORKER_COUNT) || (memoryCap().capBytes ? 4 : 2), isNodeOnly: isNodeOnlyRun(process.argv) });
+const { workerCount } = await turns.zaismaTestTurn!;
+
+/** Whether this run names only node files (test/node, test/layout) or only those projects, which take far less memory than Workers files. */
+function isNodeOnlyRun(argv: string[]): boolean {
+  const args = argv.slice(Math.max(0, argv.indexOf("run")) + 1);
+  const projects = args.flatMap((arg, i) => (arg.startsWith("--project=") ? [arg.slice("--project=".length)] : args[i - 1] === "--project" ? [arg] : []));
+  const files = args.filter((arg, i) => !arg.startsWith("-") && args[i - 1] !== "--project");
+  if (projects.length) return projects.every((project) => project === "node" || project === "layout");
+  return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout)\//.test(file));
+}
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
@@ -148,9 +168,8 @@ export default defineConfig({
   test: {
     // GitHub's check runs the tests in four shards: dealt out by each file's cost, not by a hash of its path (test/shards.ts).
     sequence: { sequencer: BalancedShardSequencer },
-    // Files at once, across every project: a Workers file's runtime takes about half a gigabyte, so TEST_WORKER_COUNT sets it
-    // for the machine (GitHub's runners have 4 cores and 16 GB), and it's 2 without it.
-    maxWorkers: Number(process.env.TEST_WORKER_COUNT) || 2,
+    // Files at once, across every project: what this run's turn in the line gave it (above). GitHub's runners have 4 cores and 16 GB.
+    maxWorkers: workerCount,
     projects: [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
