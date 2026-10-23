@@ -318,6 +318,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float since = -1.0, hit = 0.0, hold = 0.0, pass = 0.0, carvedMask = 0.0; vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
     "  if (uWave.y > 0.0) { since = uWave.x - waveDistance(kind >= 8 ? vWorld.xz : vOrigin);\n" +
     "   if (since >= 0.0) { hit = exp(-since / 50.0) * uWave.y; hold = exp(-since / 600.0) * uWave.y; pass = exp(-since / 40.0) * uWave.y; } }\n" +
+    // Before it fires, a front runs in along the arms to the dais (uWave.z, uWave.w): armPass is the moment it passes this row's origin.
+    "  float armSince = max(abs(vOrigin.x), abs(vOrigin.y)) - uWave.z, armPass = uWave.w > 0.0 && armSince >= 0.0 ? exp(-armSince / 40.0) * uWave.w : 0.0;\n" +
     // The carvings: thin grooves up the middle of two opposite faces, and a band round the top, a faint warm line by day that glows at night.
     "  if (isWall && kind >= 1 && kind <= 3) {\n" +
     "   float upUnits = vLocal.y * vSize.y, fromTop = vSize.y - upUnits, across = abs(abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x) * (abs(vFace.x) > 0.5 ? vSize.z : vSize.x);\n" +
@@ -334,7 +336,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  if (kind >= 5 && kind <= 7) {\n" +
     "   float up = vLocal.y * vSize.y, upPx = fwidth(up), paint = 0.0, light = 0.0; bool isOwn = kind == 5 || (kind == 6 && vMaterial.y < 0.5);\n" +
     "   vec3 tone = isOwn ? mix(carve, vec3(1.0, 0.86, 0.56), uRelayGlow.x) : carve;\n" +
-    "   if (kind == 6) { paint = 0.7; light = (isOwn ? 0.5 + 0.2 * uPulse + 2.0 * uRelay.w : 1.0 + 2.0 * pass) * mix(0.3, 1.6, uNight); }\n" +
+    "   if (kind == 6) { paint = 0.7; light = (isOwn ? 0.5 + 0.2 * uPulse + 2.0 * uRelay.w : 1.0 + 2.0 * max(pass, armPass)) * mix(0.3, 1.6, uNight); }\n" +
     "   else if (isWall) {\n" +
     "    float seamAt = (0.5 - vLocal.x) * widthX - 1.0, seam = abs(vFace.z) > 0.5 ? lineAt(seamAt, 0.35, fwidth(seamAt)) : 0.0;\n" +
     "    paint += seam * 0.85; light += seam * mix(0.5, 1.6, uNight);\n" +
@@ -351,6 +353,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "    } else { float band = lineAt(vSize.y - up - 3.0, 0.2, upPx); paint += band * 0.75; light = (light + band * mix(0.35, 1.6, uNight)) * (1.0 + 1.5 * pass); }\n" +
     "   }\n" +
     "   carvedMask = clamp(paint, 0.0, 1.0); col = mix(col, tone * 0.9, carvedMask * (1.0 - uNight)); glow += tone * light; }\n" +
+    // The arms: the circuit's lines down the two middle streets, from the dais out to the coast, faint orange paint by day and glowing at
+    // night. Before a firing a bright front runs in along them from beyond the coast to the dais, with a lit trail behind it.
+    "  if ((kind == 4 || kind == 8) && vFace.y > 0.5) { float off = min(abs(vWorld.x), abs(vWorld.z)), reach = max(abs(vWorld.x), abs(vWorld.z));\n" +
+    "   float arm = lineAt(off, 0.3, fwidth(off)) * step(0.0, max(abs(vWorld.x) - 27.0, abs(vWorld.z) - 41.0));\n" +
+    "   if (arm > 0.0) { float ahead = reach - uWave.z, gather = uWave.w * (3.0 * exp(-ahead * ahead / 100.0) + 0.6 * step(0.0, ahead) * exp(-ahead / 80.0));\n" +
+    "    col = mix(col, carve * 0.9, min(1.0, arm * (0.35 + gather)) * (1.0 - uNight)); glow += carve * arm * (1.2 * uNight + gather * mix(0.3, 1.0, uNight)); carvedMask = max(carvedMask, arm); } }\n" +
+    // The roofs and plates along the arms light whole as the front passes them, so the charge running in shows from a low view too,
+    // where the buildings beside an arm hide its line.
+    "  if (armPass > 0.0 && vFace.y > 0.5 && isBuilt && min(abs(vOrigin.x), abs(vOrigin.y)) < 10.0) { col = mix(col, carve * mix(0.95, 1.15, uNight), armPass * mix(0.85, 0.75, uNight)); glow += carve * armPass * 0.6 * uNight; }\n" +
     // The wave: roofs and plates light whole as it passes (walls never flash, so silhouettes stay clean), the ground's mesh shows a thin
     // line at its front, and the carvings flare and keep a warm glow behind it (orange paint by day, so the answer reads in daylight).
     // Roofs and the line turn orange rather than take orange light, which would turn white roofs peach and navy ones pink; the band of
@@ -565,38 +576,26 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     g.count++;
   }
 
-  /* Build the city: the one city, on land in an endless sea. A downtown of towers, then dense lower districts out to a ragged coast. Every level sits at its own height, so nothing flickers. */
-  var CORE = 20, LAND = 54, C = 14, BLOCK = 10, HALF = CORE * C / 2;
+  /* Build the city: the one city, on land in an endless sea, every building turned to the Relay at its middle. Round the Relay's court
+     a low inner terrace, then a crown of the tallest towers, terraces stepping down from it, a calm low field out to the edge, and a
+     valley of low plinths opening from the first view to the Relay's feet. Every level sits at its own height, so nothing flickers. */
+  var LAND = 54, C = 14, BLOCK = 10;
   var STREET_Y = 0, PAVE_H = 0.25, WATER_Y = -1.2;
   var city = group(18000);
-  function white() { var v = 0.84 + rand() * 0.16; return [v, v + 0.004, v + 0.012]; }
   // A steady number from 0 to 1 for a place, so details can vary from building to building without drawing on the seeded random.
   function hashAt(x, z, salt) { var h = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453; return h - Math.floor(h); }
   function coastAt(x, z) { var a = Math.atan2(z, x); return 300 + 26 * Math.sin(3 * a + 0.7) + 18 * Math.sin(5 * a + 2.1) + 9 * Math.sin(9 * a + 4); }
   var downtown = [], allBuildings = [];
-  var carvedCount = 0, CARVED_LIMIT = 0;
-  function building(x, z, w, d, h, roofy) {
-    var col = white();
-    // A few of the tallest are carved: glowing grooves up two faces and a band round the top.
-    var kind = h > 44 && roofy < 0.3 && carvedCount < CARVED_LIMIT ? (carvedCount++, KIND_CARVED) : KIND_PLAIN;
-    put(city, x, PAVE_H, z, w, h, d, col[0], col[1], col[2], 1, kind);
-    var top = PAVE_H + h;
-    if (h > 40 && roofy < 0.3) { // a setback crown on some of the tallest
-      var w2 = w * 0.7, d2 = d * 0.7, h2 = h * 0.14;
-      put(city, x, top, z, w2, h2, d2, col[0], col[1], col[2], 1);
-      top += h2;
-    } else if (h > 26 && roofy < 0.55) { // a slanted top: one face leaning in, cut one of four ways
-      var h3 = Math.min(10, h * 0.16), isAcross = roofy < 0.42, isTurned = hashAt(x, z, 7) < 0.5;
-      put(city, x, top, z, w, h3, d, col[0], col[1], col[2], 1, KIND_PLAIN, 0, isAcross ? -0.9 : 0, isAcross ? 0 : -0.9, isTurned ? Math.PI : 0);
-      top += h3 * 0.5;
-    } else if (roofy < 0.06) { // the odd box on a roof
-      put(city, x + (rand() - 0.5) * w * 0.4, top, z + (rand() - 0.5) * d * 0.4, 1.6 + rand(), 0.9 + rand() * 0.8, 1.6 + rand(), 0.88, 0.89, 0.9, 1);
-    }
-    var record = { x: x, z: z, w: w, d: d, top: top };
+  // What the roof maps, loops, pads and bays know of a building: one record per stacked column, with its tone for the bays.
+  function addRecord(x, z, w, d, top, tone) {
+    var record = { x: x, z: z, w: w, d: d, top: top, tone: tone };
     allBuildings.push(record);
     if (Math.abs(x) < 152 && Math.abs(z) < 152) downtown.push(record);
-    return top;
+    return record;
   }
+  function putBox(x, y, z, w, h, d, tone, kind, taperDeep, yawRad) { put(city, x, y, z, w, h, d, tone[0], tone[1], tone[2], 1, kind || KIND_PLAIN, 0, 0, taperDeep || 0, yawRad || 0); }
+  function toneOf(value) { return [value, value + 0.004, value + 0.012]; }
+  function floorTo4(value) { return Math.floor(value / 4) * 4; }
   /* The Relay, on its court at the middle of the city: a stepped dais, and on it two graphite blades leaning in over a slit, each floating
      on a band of light over its socket. Their slit faces are straight and their outer faces lean in, so the slit narrows from 28 at the
      feet to 10 at the flat tips; over the tips floats a capstone, and in the slit's foot a glowing core (both move, so they're rows of
@@ -647,51 +646,125 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var record = { x: x, z: z, w: BLOCK + 0.8, d: BLOCK + 0.8, top: h + 1.75, isLandmark: true };
     allBuildings.push(record); downtown.push(record);
   }
-  // Smaller centres in the districts, so the city rises in a few places beyond downtown.
-  var DISTRICTS = [[190, 40], [-150, 160], [-60, -215], [200, -150], [-215, -30]];
+  /* The gates: one astride each arm in the terraces, where it crosses the ring at GATE_RING_UNITS. Two blades whose faces toward the
+     Relay lean, a lintel over the arm with the dais' band, and a strip of light up each blade's inner face, so with the band they draw a
+     Pi of light; a low plinth beside each blade. The arm runs through between the blades. */
+  var GATE_RING_UNITS = 119, GATE_TONE = toneOf(0.92);
+  function isGateBlock(x, z) { return (Math.abs(x) === GATE_RING_UNITS && Math.abs(z) === 7) || (Math.abs(z) === GATE_RING_UNITS && Math.abs(x) === 7); }
+  function buildGates() {
+    var arms = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (var k = 0; k < 4; k++) {
+      // Along the arm (out from the Relay) and across it.
+      var ax = arms[k][0], az = arms[k][1], bx = Math.abs(az), bz = Math.abs(ax), yaw = bowYawRad(ax * GATE_RING_UNITS, az * GATE_RING_UNITS);
+      var x0 = ax * GATE_RING_UNITS, z0 = az * GATE_RING_UNITS, x1 = ax * (GATE_RING_UNITS + 1.5), z1 = az * (GATE_RING_UNITS + 1.5);
+      for (var side = -1; side <= 1; side += 2) {
+        putBox(x0 + side * 3.5 * bx, PAVE_H, z0 + side * 3.5 * bz, 3, 44, 9, GATE_TONE, KIND_PLAIN, -0.3, yaw); // the blade
+        put(city, x1 + side * 1.95 * bx, PAVE_H, z1 + side * 1.95 * bz, ax ? 0.5 : 0.3, 32, ax ? 0.3 : 0.5, LIGHT_TONE[0], LIGHT_TONE[1], LIGHT_TONE[2], 1, KIND_LIGHT, 1); // its strip of light
+        var plinthX = x0 + side * 8.4 * bx, plinthZ = z0 + side * 8.4 * bz, plinthW = ax ? 9 : 6, plinthD = ax ? 6 : 9;
+        putBox(plinthX, PAVE_H, plinthZ, plinthW, 2, plinthD, GATE_TONE);
+        addRecord(plinthX, plinthZ, plinthW, plinthD, PAVE_H + 2, GATE_TONE);
+      }
+      putBox(x1, 32.25, z1, ax ? 6 : 10, 3, ax ? 10 : 6, GATE_TONE, KIND_BANDED); // the lintel, set out a little so it stays inside the leaning blades
+      addRecord(x0, z0, ax ? 9 : 10, ax ? 10 : 9, 44.25, GATE_TONE).isLandmark = true;
+    }
+  }
+  /* The zones, in square rings round the Relay (d, from its middle to a block's, along the longer axis): the inner terrace of low plinths
+     round the court, the crown of the tallest towers, the terraces stepping down, the field and the edge along the coast. The valley runs
+     in from the first view along its bearing to the Relay, low plinths walled by a shoulder held under 20, so the first frame sees the
+     Relay's feet. In the crown and the terraces a block's height is its ring's envelope, or 0.8 or 0.6 of it, so the steps read. */
+  var FIRST_BEARING_RAD = Math.atan2(250, 620), CROWN_ENVELOPES = [52, 48, 44], TERRACE_ENVELOPES = [36, 32, 28, 24], SHOULDER_TOP_UNITS = 20;
+  function offFirstBearingRad(x, z) { var off = Math.atan2(z, x) - FIRST_BEARING_RAD; return Math.abs(Math.atan2(Math.sin(off), Math.cos(off))); }
+  // A height of the envelope: all of it half the time, 0.8 or 0.6 of it otherwise, in steps of 4.
+  function stepHeight(envelope) { var pick = rand(); return floorTo4(envelope * (pick < 0.5 ? 1 : pick < 0.8 ? 0.8 : 0.6)); }
+  function pickOf(values, shares) { var pick = rand(), sum = 0; for (var i = 0; i < values.length; i++) { sum += shares[i]; if (pick < sum) return values[i]; } return values[values.length - 1]; }
+  /* A plinth: one low box over the block, or two lots (long across the way to the Relay) or four, each its own height (heightOf picks
+     one). One whole-block plinth in five has a small step at its corner toward the Relay. */
+  function buildPlinth(cx, cz, tone, heightOf, lotCount) {
+    var inX = cx > 0 ? -1 : 1, inZ = cz > 0 ? -1 : 1, isRadialX = Math.abs(cx) >= Math.abs(cz);
+    if (lotCount === 1) {
+      var h = heightOf();
+      putBox(cx, PAVE_H, cz, 9, h, 9, tone); addRecord(cx, cz, 9, 9, PAVE_H + h, tone);
+      if (rand() < 0.2) { putBox(cx + 2 * inX, PAVE_H + h, cz + 2 * inZ, 5, 2, 5, tone); addRecord(cx + 2 * inX, cz + 2 * inZ, 5, 5, PAVE_H + h + 2, tone); }
+      return;
+    }
+    for (var lot = 0; lot < lotCount; lot++) {
+      var lotH = heightOf(), first = lot % 2 ? 2.5 : -2.5, second = lot < 2 ? -2.5 : 2.5, isPair = lotCount === 2;
+      var x = isPair ? (isRadialX ? cx + first : cx) : cx + first, z = isPair ? (isRadialX ? cz : cz + first) : cz + second;
+      var w = isPair && !isRadialX ? 9 : 4, d = isPair && isRadialX ? 9 : 4;
+      putBox(x, PAVE_H, z, w, lotH, d, tone); addRecord(x, z, w, d, PAVE_H + lotH, tone);
+    }
+  }
+  /* A stepped tower: a podium, then up to three sections, each narrower, all flush with the podium's faces toward the Relay, so the tower
+     is sheer toward it and steps down away from it. Some end in a wedge whose slope faces the Relay. Its records: the podium, and the
+     column of sections at section 1's place and size, as tall as the whole tower (sheerTopUnits: where section 1 ends, for the bays). */
+  var SECTION_WIDTHS = [7.2, 5.6, 4.0];
+  function buildStepped(cx, cz, envelopeH, podiumH, tone) {
+    var inX = cx > 0 ? -1 : 1, inZ = cz > 0 ? -1 : 1, count = envelopeH >= 40 ? 3 : envelopeH >= 24 ? 2 : 1;
+    var shares = count === 3 ? [0.55, 0.3, 0.15] : count === 2 ? [0.65, 0.35] : [1];
+    putBox(cx, PAVE_H, cz, 9, podiumH, 9, tone); addRecord(cx, cz, 9, 9, PAVE_H + podiumH, tone);
+    var y = PAVE_H + podiumH, x = cx, z = cz, size = 9, firstX = cx, firstZ = cz, firstTop = y;
+    for (var i = 0; i < count; i++) {
+      size = SECTION_WIDTHS[i]; x = cx + inX * (4.5 - size / 2); z = cz + inZ * (4.5 - size / 2);
+      var h = Math.max(2, Math.round((envelopeH - podiumH) * shares[i] / 2) * 2);
+      putBox(x, y, z, size, h, size, tone); y += h;
+      if (i === 0) { firstX = x; firstZ = z; firstTop = y; }
+    }
+    if (rand() < 0.35) { putBox(x, y, z, size, 0.8 * size, size, tone, KIND_PLAIN, -0.95, bowYawRad(cx, cz)); y += 0.8 * size; }
+    addRecord(firstX, firstZ, SECTION_WIDTHS[0], SECTION_WIDTHS[0], y, tone).sheerTopUnits = firstTop;
+  }
+  // A blade pair: two thin slabs end on to the Relay, one three quarters of the other's height; half are fins, their faces toward the Relay sloped.
+  function buildBladePair(cx, cz, envelopeH, tone) {
+    var yaw = bowYawRad(cx, cz), tx = Math.cos(yaw), tz = Math.sin(yaw), taperDeep = rand() < 0.5 ? -0.5 : 0, isFirstTall = hashAt(cx, cz, 3) < 0.5;
+    var isAcrossZ = Math.abs(tz) > 0.5;
+    for (var side = -1; side <= 1; side += 2) {
+      var h = (side < 0) === isFirstTall ? envelopeH : floorTo4(0.75 * envelopeH), x = cx + side * 2.5 * tx, z = cz + side * 2.5 * tz;
+      putBox(x, PAVE_H, z, 3, h, 9, tone, KIND_PLAIN, taperDeep, yaw);
+      addRecord(x, z, isAcrossZ ? 9 : 3, isAcrossZ ? 3 : 9, PAVE_H + h, tone);
+    }
+  }
+  var PLATE_TONE = toneOf(0.9);
   // One column of the land's blocks, from one end of the city to the other.
   function buildLandColumn(gx) {
     for (var gz = 0; gz < LAND; gz++) {
       var cx = (gx - LAND / 2 + 0.5) * C, cz = (gz - LAND / 2 + 0.5) * C;
-      var dist = Math.hypot(cx, cz);
-      if (dist > coastAt(cx, cz)) continue;
-      // The court round the Relay is one slab of its own; the pylons stand alone on their blocks.
+      var r = Math.hypot(cx, cz), coast = coastAt(cx, cz), d = Math.max(Math.abs(cx), Math.abs(cz));
+      if (r > coast) continue;
+      // The court round the Relay is one slab of its own; the pylons and the gates stand alone on their blocks.
       if (Math.abs(cx) < COURT_HALF_X && Math.abs(cz) < COURT_HALF_Z) continue;
-      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, 0.93, 0.935, 0.945, 1, KIND_PAVEMENT); // the block's pavement, on the land the shore mesh lays
-      var inCore = Math.max(Math.abs(cx), Math.abs(cz)) < HALF;
+      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, PLATE_TONE[0], PLATE_TONE[1], PLATE_TONE[2], 1, KIND_PAVEMENT); // the block's plate, on the land the shore mesh lays
       var pylon = pylonAt(cx, cz);
       if (pylon) { buildPylon(pylon); continue; }
-      if (dist > 45 && rand() < 0.05) { // a park: a lawn of light stone with a few blocky trees
-        put(city, cx, PAVE_H, cz, BLOCK - 1.5, 0.16, BLOCK - 1.5, 0.9, 0.915, 0.92, 1);
-        for (var tree = 0; tree < 8; tree++) {
-          var ts = 1.2 + rand() * 1.1;
-          put(city, cx + (rand() - 0.5) * 6.5, PAVE_H + 0.16, cz + (rand() - 0.5) * 6.5, ts, ts * (1 + rand() * 0.6), ts, 0.86, 0.88, 0.89, 1);
-        }
-        continue;
-      }
-      var split = inCore ? (rand() < (dist < 50 ? 0.7 : 0.45) ? 1 : (rand() < 0.5 ? 2 : 4)) : (rand() < 0.3 ? 2 : 4);
-      var lots = split === 1 ? [[0, 0, BLOCK, BLOCK]] : split === 2 ? [[-BLOCK / 4, 0, BLOCK / 2, BLOCK], [BLOCK / 4, 0, BLOCK / 2, BLOCK]] :
-        [[-BLOCK / 4, -BLOCK / 4, BLOCK / 2, BLOCK / 2], [BLOCK / 4, -BLOCK / 4, BLOCK / 2, BLOCK / 2], [-BLOCK / 4, BLOCK / 4, BLOCK / 2, BLOCK / 2], [BLOCK / 4, BLOCK / 4, BLOCK / 2, BLOCK / 2]];
-      for (var li = 0; li < lots.length; li++) {
-        var lot = lots[li], w = lot[2] - 0.9 - rand() * 1.2, d = lot[3] - 0.9 - rand() * 1.2, h;
-        if (inCore) {
-          // Downtown rises toward the Relay but stays well under the pylons, so the skyline steps down from them.
-          var core = smooth(150, 0, dist);
-          h = lerp(8, 50, core * core) * (0.55 + rand() * 0.6) + rand() * 3;
-          if (h > 60) h = 60 + (h - 60) * 0.3;
-        } else {
-          h = lerp(10, 3, smooth(HALF, 300, dist)) * (0.6 + rand() * 0.7);
-          var lx = cx + lot[0], lz = cz + lot[1], lift = 0;
-          for (var di = 0; di < DISTRICTS.length; di++) lift = Math.max(lift, smooth(46, 0, Math.hypot(lx - DISTRICTS[di][0], lz - DISTRICTS[di][1])));
-          if (lift > 0) h += lift * (10 + rand() * 26);
-          else if (rand() < 0.025) h = 14 + rand() * 16;
-        }
-        building(cx + lot[0], cz + lot[1], w, d, h, rand());
+      if (isGateBlock(cx, cz)) continue;
+      var off = offFirstBearingRad(cx, cz), isValley = r >= 28 && r < 170 && off < 0.14 + 12 / r, isShoulder = !isValley && r < 170 && off < 0.14 + 26 / r;
+      var jitter = hashAt(cx, cz, 11) * 2 - 1, lotCount = pickOf([1, 2, 4], [0.55, 0.35, 0.1]);
+      if (isValley) {
+        var valleyH = r < 70 ? 2 : r < 120 ? 4 : 6;
+        buildPlinth(cx, cz, toneOf(d < 56 ? 0.9 : d < 98 ? 0.88 : 0.85), function () { return valleyH; }, lotCount);
+      } else if (d < 56) {
+        if (rand() < 0.3) continue; // a bare plate
+        buildPlinth(cx, cz, toneOf(0.9), function () { return rand() < 0.6 ? 2 : 4; }, lotCount);
+      } else if (d < 154) {
+        var isCrown = d < 98, envelope = isCrown ? CROWN_ENVELOPES[Math.round((d - 63) / 14)] : TERRACE_ENVELOPES[Math.round((d - 105) / 14)];
+        var h = stepHeight(envelope), type = rand(), tone = toneOf((isCrown ? 0.88 : 0.85) + 0.01 * jitter);
+        if (isShoulder) h = Math.min(h, SHOULDER_TOP_UNITS);
+        if (type < (isCrown ? 0.65 : 0.6)) buildStepped(cx, cz, h, isCrown ? 6 : 4, tone);
+        else if (type < (isCrown ? 1 : 0.8)) buildBladePair(cx, cz, h, tone);
+        else buildPlinth(cx, cz, tone, function () { return pickOf([2, 4, 6, 8], [0.3, 0.35, 0.25, 0.1]); }, lotCount);
+      } else if (coast - r >= 24) {
+        buildPlinth(cx, cz, toneOf(0.82 + 0.015 * jitter), function () { return pickOf([2, 4, 6, 8], [0.3, 0.35, 0.25, 0.1]); }, lotCount);
+      } else {
+        buildPlinth(cx, cz, toneOf(0.84), function () { return rand() < 0.5 ? 2 : 4; }, 2); // the edge: two lots, long along the coast
       }
     }
   }
-  // Bays in the tall downtown towers: a dark mouth in a white frame, a platform out front and a canopy over it, where low flying cars dock.
-  var bays = [], bayTowers = [];
+  /* Bays in the crown's tallest stepped towers (at most BAY_TOWER_LIMIT of them, spread round it): a dark mouth in a white frame, a
+     platform out front and a canopy over it, where low flying cars dock. They sit on section 1, under sheerTopUnits, where every face
+     goes straight up. */
+  var bays = [], bayTowers = [], BAY_TOWER_LIMIT = 10;
+  function pickBayTowers() {
+    var tall = downtown.filter(function (b) { return b.sheerTopUnits && b.top >= 44; }), every = Math.max(1, Math.ceil(tall.length / BAY_TOWER_LIMIT));
+    return tall.filter(function (b, i) { return i % every === 0; }).slice(0, BAY_TOWER_LIMIT);
+  }
   function tallestNear(x, z) {
     var top = 0;
     for (var i = 0; i < downtown.length; i++) {
@@ -704,7 +777,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var sides = [[1, 0], [-1, 0], [0, 1], [0, -1]], made = 0;
     for (var s = 0; s < 4 && made < 2; s++) {
       var side = sides[(s + Math.floor(rand() * 4)) % 4], nx = side[0], nz = side[1];
-      var y = Math.round(b.top * (0.32 + rand() * 0.4)), along = (rand() - 0.5) * ((nx ? b.d : b.w) - 7.5);
+      var y = Math.round(b.sheerTopUnits * (0.32 + rand() * 0.4)), along = (rand() - 0.5) * Math.max(0, (nx ? b.d : b.w) - 7.5);
       var wx = b.x + nx * b.w / 2 + (nx ? 0 : along), wz = b.z + nz * b.d / 2 + (nz ? 0 : along);
       var clear = true;
       for (var reach = 2.5; reach <= 18 && clear; reach += 1.5) {
@@ -715,7 +788,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       if (!clear || bays.some(function (o) { return Math.abs(o.top - y) < 8 && Math.hypot(o.x - wx, o.z - wz) < 12; })) continue;
       var across = nx ? [0.6, 6.4] : [6.4, 0.6], frame = nx ? [0.3, 7.4] : [7.4, 0.3];
       put(city, wx, y - 0.5, wz, frame[0], 5.9, frame[1], 0.95, 0.955, 0.965, 1);                       // the frame round the mouth
-      put(city, wx + nx * 0.1, y, wz + nz * 0.1, across[0], 4.5, across[1], 0.33, 0.39, 0.5, 1);        // the dark mouth
+      put(city, wx + nx * 0.1, y, wz + nz * 0.1, across[0], 4.5, across[1], b.tone[0] * 0.55, b.tone[1] * 0.55, b.tone[2] * 0.55, 1); // the dark mouth
       var deck = nx ? [5.4, 7.6] : [7.6, 5.4];
       put(city, wx + nx * 2.7, y - 0.6, wz + nz * 2.7, deck[0], 0.6, deck[1], 0.97, 0.975, 0.98, 1);    // the platform
       var lip = nx ? [2.2, 7.8] : [7.8, 2.2];
@@ -728,7 +801,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The land and its edge, as one mesh round the coast: the streets out to a road along the coast, then one pale ledge with a bevelled
      lip that drops straight into the sea. */
   var SHORE_SEGMENTS = 360, SHORE_STRIDE = 14, SHORE_COUNT = SHORE_SEGMENTS * 15, shoreVertices = new Float32Array(SHORE_COUNT * SHORE_STRIDE);
-  var STREET_TONE = [0.85, 0.865, 0.885], LEDGE_TONE = [0.9, 0.91, 0.925];
+  var STREET_TONE = [0.74, 0.754, 0.775], LEDGE_TONE = [0.9, 0.91, 0.925];
   function buildShore() {
     var at = 0;
     function vertex(x, y, z, nx, ny, nz, tone, kind) {
@@ -1544,7 +1617,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     once(buildShore),
     each(LAND, buildLandColumn),
     once(buildRelay),
-    each(function () { bayTowers = downtown.filter(function (b) { return !b.isLandmark && b.top > 50 && Math.min(b.w, b.d) > 6.5; }); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
+    once(buildGates),
+    each(function () { bayTowers = pickBayTowers(); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
     once(sortCityIntoTiles),
     each(function () { return Math.ceil(allBuildings.length / 400); }, function (item) { for (var i = item * 400; i < Math.min(allBuildings.length, (item + 1) * 400); i++) markRoof(allBuildings[i]); }),
     once(function () { bays.forEach(markBayRoof); }),
