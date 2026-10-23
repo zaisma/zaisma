@@ -164,12 +164,14 @@ if (lastShip?.commit_sha && lastShip.commit_sha !== commitSha) {
 function readCheckState(sha) {
   let result;
   try {
-    result = run("gh", ["api", `repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100`, "--jq", "[.check_runs[] | {name, status, conclusion, html_url}]"]);
+    // Every run and attempt (filter=all): the default shows only the newest, which can be main's own push run that steps aside for
+    // the merge queue's (checkState reads each check by its latest run).
+    result = run("gh", ["api", "--paginate", `repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?filter=all&per_page=100`, "--jq", ".check_runs[] | {name, status, conclusion, html_url, completed_at}"]);
   } catch (error) {
     return { problem: error.message };
   }
   if (result.exitCode !== 0) return { problem: result.output.trim().split("\n").at(-1) };
-  return { commitSha: sha, ...checkState(JSON.parse(result.output)) };
+  return { commitSha: sha, ...checkState(result.output.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line))) };
 }
 const runShipCopyGit = (gitArguments) => {
   const result = run("git", ["-C", shipCopy, ...gitArguments]);

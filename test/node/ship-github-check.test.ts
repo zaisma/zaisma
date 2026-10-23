@@ -32,6 +32,22 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain("node scripts/affected-tests.mjs --github");
     expect(workflow).toContain("EVENT_NAME: ${{ github.event_name }}");
   });
+  it("on ship reading every run and attempt of a commit's checks", () => {
+    const ship = readFileSync(join(ROOT, "scripts/ship.mjs"), "utf8");
+    expect(ship).toContain("check-runs?filter=all&per_page=100");
+    expect(ship).toContain('"--paginate"');
+  });
+  it("on checking merge groups, and passing a push to main the queue checked without running it again", () => {
+    expect(workflow).toMatch(/^on:\n {2}pull_request:\n {2}merge_group:\n/m);
+    expect(workflow).toContain("github.event.merge_group.base_sha");
+    expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
+    expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
+    // Every checking job steps aside for it; only the required check and main's caches run.
+    for (const job of ["Tests (", "Typecheck", "Engine exports (", "Preview test data", "Layout check (", "Docs tests"]) {
+      const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
+      expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
+    }
+  });
   it("on running the engine exports on every push to main, and failing the required check when they fail", () => {
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi`);
     // A skip passes only with the engines' own flag false; any other result but success leaves engines_ok false.
@@ -85,6 +101,24 @@ describe("checkState", () => {
     // A matrix job its pull request skipped: one run, under the name before its shares were known.
     expect(full([run(`${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 3)`, "completed", "skipped")]).engines).toBe("skipped");
     expect(full([run("Engine exports soon", "completed", "failure")]).engines).toBe("none");
+  });
+  it("reads each check by its latest run, across runs and attempts", () => {
+    const at = (name: string, status: string, conclusion: string | null, completedAt: string | null) => ({ ...run(name, status, conclusion), completed_at: completedAt });
+    expect(checkState([at(GITHUB_CHECK_NAME, "completed", "failure", "2026-10-23T10:00:00Z"), at(GITHUB_CHECK_NAME, "completed", "success", "2026-10-23T10:05:00Z")]).state).toBe("passed");
+    expect(checkState([at(GITHUB_CHECK_NAME, "completed", "success", "2026-10-23T10:05:00Z"), at(GITHUB_CHECK_NAME, "completed", "failure", "2026-10-23T10:09:00Z")]).state).toBe("failed");
+    expect(checkState([at(GITHUB_CHECK_NAME, "completed", "success", "2026-10-23T10:05:00Z"), at(GITHUB_CHECK_NAME, "in_progress", null, null)]).state).toBe("running");
+    // A merge group that ran only the docs tests, and main's push after it, which ran nothing: still only docs.
+    const docsGroup = [at(GITHUB_CHECK_NAME, "completed", "success", "2026-10-23T10:01:00Z"), at(DOCS_TESTS_CHECK_NAME, "completed", "success", "2026-10-23T10:00:30Z"), at("Tests (${{ matrix.shard }} of 4)", "completed", "skipped", "2026-10-23T10:00:00Z")];
+    const lightPush = [at(GITHUB_CHECK_NAME, "completed", "success", "2026-10-23T10:03:00Z"), at(DOCS_TESTS_CHECK_NAME, "completed", "skipped", "2026-10-23T10:02:00Z")];
+    expect(checkState([...docsGroup, ...lightPush]).state).toBe("docs_passed");
+    expect(checkState([...lightPush, at("Tests (1 of 4)", "completed", "success", "2026-10-23T10:00:40Z")]).state).toBe("passed");
+  });
+  it("reads a merge group's engine exports past main's push run, which skipped them", () => {
+    const full = (engines: ReturnType<typeof run>[]) => checkState([run(GITHUB_CHECK_NAME, "completed", "success"), ...engines]);
+    const share = (index: number, conclusion: string) => run(`${ENGINES_CHECK_NAME} (${index} of 3)`, "completed", conclusion);
+    const skippedOnPush = run(`${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 3)`, "completed", "skipped");
+    expect(full([share(1, "success"), share(2, "success"), share(3, "success"), skippedOnPush]).engines).toBe("passed");
+    expect(full([share(1, "success"), share(2, "failure"), share(3, "success"), skippedOnPush]).engines).toBe("failed");
   });
   it("tells a docs-only run apart", () => {
     expect(checkState([run(GITHUB_CHECK_NAME, "completed", "success"), run(DOCS_TESTS_CHECK_NAME, "completed", "success")]).state).toBe("docs_passed");
