@@ -2137,9 +2137,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10 && performance.now() - start.atMs < 600) play(event.clientX, event.clientY);
   }));
   stage.addEventListener("pointercancel", function () { touchStart = null; });
-  // A mouse over a shape: the pointer, and the shape swells and warms while it's there. Checked at most every 80 ms as the mouse moves.
+  // A mouse over a shape: the shape swells and warms while it's there (the pointer stays as it is, so the play is found, not announced).
+  // Checked at most every 80 ms as the mouse moves.
   var hovered = null, hoverCheckedAtMs = 0;
-  function hover(thing) { if (thing === hovered) return; if (hovered) hovered.isHovered = false; hovered = thing; if (thing) thing.isHovered = true; stage.style.cursor = thing ? "pointer" : ""; }
+  function hover(thing) { if (thing === hovered) return; if (hovered) hovered.isHovered = false; hovered = thing; if (thing) thing.isHovered = true; }
   stage.addEventListener("pointermove", guarded(function (event) {
     if (event.pointerType !== "mouse" || !isShown) return;
     var now = performance.now(); if (now - hoverCheckedAtMs < 80) return; hoverCheckedAtMs = now;
