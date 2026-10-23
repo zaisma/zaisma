@@ -163,6 +163,8 @@ const detailsByApi = (field: string, wrap: (value: string) => unknown = (value) 
   "api:POST /games": (value, mark) => api("/games", { body: { title: field === "title" ? value : `Game ${mark}`, slug: `sv-${mark}`, ...(field === "title" ? {} : { [field]: wrap(value) }) } }),
   "api:PATCH /games/:slug": (value) => api(`/games/${gameSlug}`, { method: "PATCH", body: { [field]: wrap(value) } }),
 });
+/** A whole item that's only granted, for set_item, with its title and description. */
+const ITEM = (title: string, description: string) => ({ title, description, item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] });
 const LINK = (value: string, part: "link_name" | "destination_url") => [{ link_name: part === "link_name" ? value : "store", destination_url: part === "destination_url" ? value : "https://store.example.com/", is_on_game_page: true }];
 
 /** How each door saves each value, keyed "<stored> <door id>". */
@@ -184,6 +186,10 @@ const DOORS: Record<string, Door> = {
   ...Object.fromEntries(Object.entries(detailsByApi("own_server_urls", (value) => [value.replace(/^https:/, "wss:")])).map(([door, save]) => [`games.own_server_urls[] ${door}`, save])),
   "games.own_server_urls[] page:/dashboard/([a-z0-9-]+)(/.*)?": (value) => form(`/dashboard/${gameSlug}/own-servers`, { own_server_url_0: value.replace(/^https:/, "wss:") }, cookie),
   ...Object.fromEntries(Object.entries(detailsByApi("game_server_allowed_hosts", (value) => [`${value}.example.com`])).map(([door, save]) => [`games.game_server_allowed_hosts[] ${door}`, save])),
+  "game_items.item_name api:PUT /games/:slug/items/:item_name": (value) => api(`/games/${gameSlug}/items/${encodeURIComponent(value)}`, { method: "PUT", body: ITEM("Cape", "") }),
+  "game_items.title api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM(value, "") }),
+  "game_items.description api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM("Cape", value) }),
+  "games.refund_policy_text api:PATCH /games/:slug/purchase-settings": (value) => api(`/games/${gameSlug}/purchase-settings`, { method: "PATCH", body: { refund_policy: "own_words", refund_policy_text: value } }),
   "versions.patch_notes api:POST /games/:slug/versions": (value) => api(`/games/${gameSlug}/versions`, { body: { files: [{ path: "index.html", sha256: storedFile.sha256, size_bytes: storedFile.sizeBytes }], patch_notes: value } }),
   "tester_links.name api:POST /games/:slug/testers": (value) => api(`/games/${gameSlug}/testers`, { body: { name: value } }),
   "tester_links.name api:PATCH /games/:slug/testers/:tester_id": (value) => api(`/games/${gameSlug}/testers/${testerId}`, { method: "PATCH", body: { name: value } }),

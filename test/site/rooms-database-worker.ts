@@ -35,6 +35,8 @@ export class GameDatabaseService extends RealGameDatabaseService {
   }
 }
 export { GameSecretsObject, GameSecretsService } from "../../apps/rooms/src/secrets.ts";
+// Receipts are signed with the tests' throwaway pass key (vitest.config.ts), the real code.
+export { ReceiptSigningService } from "../../apps/rooms/src/receipts.ts";
 
 // Game servers can't run here (no sandbox), so webhooks to them (GAME_SERVER_WEBHOOKS) reach a stand-in
 // that keeps what it was sent and answers as the test asks. The real one: test/rooms/webhooks.test.ts.

@@ -1,0 +1,8 @@
+{
+  "title": "Gem Garden",
+  "description": "Grow a garden and decorate it from the gem shop.",
+  "is_honest": false,
+  "content_rule": "purchases",
+  "protection": null,
+  "why": "Gems are bought with real money, and the shop prices its decorations only in gems, so players never see what they cost. Showing the real price beside each gem price, like \"500 gems ($4.99)\", is fine."
+}

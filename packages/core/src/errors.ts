@@ -177,6 +177,26 @@ export const ERROR_CODES = {
   bad_maximum_line_count: { httpStatus: 400, meaning: "maximum_line_count isn't a whole number from 1 to 500." },
   two_log_cursors: { httpStatus: 400, meaning: "get_logs got both cursor and new_lines_cursor." },
 
+  // Items and purchases
+  no_item: { httpStatus: 404, meaning: "The game has no item by that name." },
+  too_many_items: { httpStatus: 400, meaning: "The game has 1,000 items, the most it can have." },
+  bad_item: { httpStatus: 400, meaning: "An item's name, title, description, kind, category, price or local prices isn't one set_item takes; field says which." },
+  unsupported_currency: { httpStatus: 400, meaning: "Zaisma doesn't price in that currency." },
+  price_too_low: { httpStatus: 400, meaning: "The price is under the least Stripe charges in its currency." },
+  refund_policy_needed: { httpStatus: 409, meaning: "A game that sells anything states its refund policy first." },
+  bad_refund_policy: { httpStatus: 400, meaning: "refund_policy isn't no_refunds, unused_within_14_days, within_14_days, own_words or null." },
+  bad_refund_policy_text: { httpStatus: 400, meaning: "refund_policy_text isn't up to 600 characters of plain words, or doesn't go with refund_policy own_words." },
+  bad_own_payment_categories: { httpStatus: 400, meaning: "own_payment_categories isn't a list of cosmetic, gameplay, content and currency." },
+  item_has_owners: { httpStatus: 409, meaning: "Players bought or were granted the item, so it can't be removed; take its price off to stop selling it." },
+  bad_item_count: { httpStatus: 400, meaning: "item_count isn't a whole number from 1 to 1,000, or isn't 1 for a permanent item." },
+  bad_game_account_id: { httpStatus: 400, meaning: "game_account_id isn't text of up to 200 characters, or null." },
+  bad_purchase_source: { httpStatus: 400, meaning: "purchase_source isn't sale or grant." },
+  bad_purchase_status: { httpStatus: 400, meaning: "purchase_status isn't pending, completed, failed, refunded or charged_back." },
+  no_purchase: { httpStatus: 404, meaning: "The game has no purchase with that ID." },
+  already_refunded: { httpStatus: 409, meaning: "The purchase was refunded or charged back already." },
+  stripe_not_connected: { httpStatus: 409, meaning: "Refunding a sale goes through Stripe, which the game's developer hasn't connected." },
+  receipts_unavailable: { httpStatus: 503, meaning: "Zaisma couldn't sign the purchase's receipt just now." },
+
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },
   no_save_copy: { httpStatus: 404, meaning: "The player's save has no earlier version with that ID." },

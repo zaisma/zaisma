@@ -43,6 +43,12 @@ export interface PassClaims {
    * player_tag (hasBlockBetween).
    */
   block_tag_ids?: string[];
+  /**
+   * The permanent items an account owns in this game (bought or granted, not refunded), by item_name, as
+   * they were when the pass was made. Absent for guests and when the player owns nothing here. Consumables
+   * are never listed: they're delivered once and then they're the game's to count.
+   */
+  owned_item_names?: string[];
   iat: number;
   exp: number;
 }
@@ -97,7 +103,7 @@ export function canChat(first: PassClaims, second: PassClaims): boolean {
 
 export type PublicKey = JsonWebKey & { kid: string };
 
-export type PassErrorCode = "malformed" | "unknown_key" | "bad_signature" | "expired" | "wrong_game" | "wrong_issuer";
+export type PassErrorCode = "malformed" | "unknown_key" | "bad_signature" | "expired" | "wrong_game" | "wrong_issuer" | "wrong_kind";
 
 // Plain class fields (no TypeScript-only syntax) so Node can run this file directly.
 export class PassError extends Error {
@@ -148,7 +154,7 @@ export async function loadSigningKey(secret: string): Promise<SigningKey> {
   return { key, publicKey };
 }
 
-export async function signPass(signing: SigningKey, claims: PassClaims): Promise<string> {
+export async function signPass(signing: SigningKey, claims: PassClaims | ReceiptClaims): Promise<string> {
   const header = toBase64Url(encoder.encode(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: signing.publicKey.kid })));
   const body = toBase64Url(encoder.encode(JSON.stringify(claims)));
   const signature = new Uint8Array(await crypto.subtle.sign(ED25519, signing.key, encoder.encode(`${header}.${body}`)));
@@ -159,23 +165,19 @@ export function jwks(keys: PublicKey[]): { keys: PublicKey[] } {
   return { keys };
 }
 
-/** Check a pass. Throws PassError if it's forged, expired or for another game. */
-export async function verifyPass(
-  token: string,
-  keys: PublicKey[],
-  expect: { game: string; issuer: string; nowMs?: number },
-): Promise<PassClaims> {
+/** A token's claims once its signature checks out against one of the keys, for verifyPass and verifyReceipt. */
+async function signedClaims(token: string, keys: PublicKey[]): Promise<Record<string, unknown>> {
   const parts = token.split(".");
   if (parts.length !== 3) throw new PassError("malformed");
   let header: { alg?: string; kid?: string };
-  let claims: PassClaims;
+  let claims: Record<string, unknown>;
   try {
     header = JSON.parse(decoder.decode(fromBase64Url(parts[0]!)));
     claims = JSON.parse(decoder.decode(fromBase64Url(parts[1]!)));
   } catch {
     throw new PassError("malformed");
   }
-  if (header.alg !== "EdDSA") throw new PassError("malformed");
+  if (header.alg !== "EdDSA" || !claims || typeof claims !== "object") throw new PassError("malformed");
   const jwk = keys.find((publicKey) => publicKey.kid === header.kid);
   if (!jwk) throw new PassError("unknown_key");
   const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, ED25519, false, ["verify"]);
@@ -186,6 +188,20 @@ export async function verifyPass(
     throw new PassError("malformed");
   }
   if (!(await crypto.subtle.verify(ED25519, key, signature, encoder.encode(`${parts[0]}.${parts[1]}`)))) throw new PassError("bad_signature");
+  return claims;
+}
+
+const isStringList = (given: unknown) => Array.isArray(given) && given.every((entry) => typeof entry === "string");
+
+/** Check a pass. Throws PassError if it's forged, expired, for another game, or a receipt. */
+export async function verifyPass(
+  token: string,
+  keys: PublicKey[],
+  expect: { game: string; issuer: string; nowMs?: number },
+): Promise<PassClaims> {
+  const claims = (await signedClaims(token, keys)) as unknown as PassClaims;
+  // A receipt is signed with the same key, and never stands in for a pass.
+  if ((claims.kind as string) === "receipt") throw new PassError("wrong_kind");
   const nowSec = Math.floor((expect.nowMs ?? Date.now()) / 1000);
   if (typeof claims.exp !== "number" || claims.exp <= nowSec) throw new PassError("expired");
   if (claims.iss !== expect.issuer) throw new PassError("wrong_issuer");
@@ -195,7 +211,60 @@ export async function verifyPass(
   if (claims.who_can_chat !== undefined && !WHO_CAN_CHAT_CHOICES.includes(claims.who_can_chat)) throw new PassError("malformed");
   if (claims.chat_group !== undefined && typeof claims.chat_group !== "string") throw new PassError("malformed");
   if (claims.player_tag !== undefined && typeof claims.player_tag !== "string") throw new PassError("malformed");
-  if (claims.friend_tag_ids !== undefined && !(Array.isArray(claims.friend_tag_ids) && claims.friend_tag_ids.every((playerTag) => typeof playerTag === "string"))) throw new PassError("malformed");
-  if (claims.block_tag_ids !== undefined && !(Array.isArray(claims.block_tag_ids) && claims.block_tag_ids.every((playerTag) => typeof playerTag === "string"))) throw new PassError("malformed");
+  if (claims.friend_tag_ids !== undefined && !isStringList(claims.friend_tag_ids)) throw new PassError("malformed");
+  if (claims.block_tag_ids !== undefined && !isStringList(claims.block_tag_ids)) throw new PassError("malformed");
+  if (claims.owned_item_names !== undefined && !isStringList(claims.owned_item_names)) throw new PassError("malformed");
+  return claims;
+}
+
+/**
+ * What a receipt proves: that this player bought or was granted this item in this game. Signed with the pass
+ * key, so it's checked against the same public keys (/.well-known/jwks.json). It never expires: a refund is
+ * told apart (the next pass's owned_item_names, the purchase's status through the developer API).
+ */
+export interface ReceiptClaims {
+  /** The player's ID. */
+  sub: string;
+  /** The game's slug: a receipt is for the game it was issued for. */
+  aud: string;
+  iss: string;
+  kind: "receipt";
+  /** The purchase's ID (purchase_…): one receipt per purchase, so keep it to deliver a consumable once. */
+  jti: string;
+  item_name: string;
+  item_kind: "permanent" | "consumable";
+  /** How many of the item: 1 for a permanent item. */
+  item_count: number;
+  /** sale: paid through the buy sheet. grant: the developer gave it, with no money. */
+  purchase_source: "sale" | "grant";
+  /** The price paid, in the currency's minor units; null for a grant. */
+  price_minor_units: number | null;
+  currency_code: string | null;
+  /** The game's own ID for the player's account in its own system, as the game gave it; null when it gave none. */
+  game_account_id: string | null;
+  iat: number;
+}
+
+/** Check a receipt. Throws PassError if it's forged, for another game, or a pass (wrong_kind). */
+export async function verifyReceipt(token: string, keys: PublicKey[], expect: { game: string; issuer: string }): Promise<ReceiptClaims> {
+  const claims = (await signedClaims(token, keys)) as unknown as ReceiptClaims;
+  if (claims.kind !== "receipt") throw new PassError("wrong_kind");
+  if (claims.iss !== expect.issuer) throw new PassError("wrong_issuer");
+  if (claims.aud !== expect.game) throw new PassError("wrong_game");
+  const isNullOr = (given: unknown, type: string) => given === null || typeof given === type;
+  if (
+    typeof claims.sub !== "string" ||
+    typeof claims.jti !== "string" ||
+    typeof claims.item_name !== "string" ||
+    (claims.item_kind !== "permanent" && claims.item_kind !== "consumable") ||
+    !Number.isInteger(claims.item_count) ||
+    (claims.purchase_source !== "sale" && claims.purchase_source !== "grant") ||
+    !isNullOr(claims.price_minor_units, "number") ||
+    !isNullOr(claims.currency_code, "string") ||
+    !isNullOr(claims.game_account_id, "string") ||
+    typeof claims.iat !== "number"
+  ) {
+    throw new PassError("malformed");
+  }
   return claims;
 }

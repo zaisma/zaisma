@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dungeon Delve</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#1d1424;color:#eee;text-align:center}button{font:inherit;padding:8px 14px;margin:4px}li{list-style:none;margin:6px}</style>
+</head>
+<body>
+<h1>Dungeon Delve</h1>
+<button id="chest">Open today's free chest</button>
+<p id="loot"></p>
+<h2>Outfits</h2>
+<ul id="shop"></ul>
+<script src="https://zaisma.com/sdk/zaisma.js"></script>
+<script>
+const LOOT = ["10 gold", "a torch", "a health potion", "a rusty key"];
+document.getElementById("chest").onclick = () => {
+  const today = new Date().toDateString();
+  if (localStorage.getItem("chest_day") === today) return (document.getElementById("loot").textContent = "Come back tomorrow for another free chest.");
+  localStorage.setItem("chest_day", today);
+  document.getElementById("loot").textContent = `You found ${LOOT[Math.floor(Math.random() * LOOT.length)]}.`;
+};
+// Each outfit is sold by name, with its real price in the player's currency beside the gem price.
+Zaisma.items.list().then((items) => {
+  for (const item of items) {
+    const row = document.createElement("li");
+    const buy = document.createElement("button");
+    buy.textContent = `${item.title}: ${item.priceMinorUnits} gems (${item.priceText})`;
+    buy.disabled = item.isOwned;
+    buy.onclick = () => Zaisma.items.buy(item.itemName);
+    row.append(buy);
+    document.getElementById("shop").append(row);
+  }
+});
+</script>
+</body>
+</html>

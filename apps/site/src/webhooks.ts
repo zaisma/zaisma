@@ -96,7 +96,7 @@ export async function tellWebhooks(
       id: webhookEventId,
       kind,
       happened_at: iso(Date.now()),
-      game: gameJson(env, game),
+      game: await gameJson(env, game),
       version: version ? await versionAnswer(env, game, version) : null,
       bug_report: parts.bugReport ? bugReportJson(parts.bugReport) : null,
       player_report: parts.playerReport ? playerReportJson(parts.playerReport) : null,
@@ -153,7 +153,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
       const game = await gameById(env.DB, gameId);
       if (!game) continue;
       if (game.deleted_account_erase_enabled) await queuePlayerErase(env.DB, game.id, reach.playerId);
-      if (game.owner_id) await queueEvent(webhooksTaking(await ownerWebhooks(game.owner_id), "account_deleted", game.slug), { game: gameJson(env, game), signInApp: null });
+      if (game.owner_id) await queueEvent(webhooksTaking(await ownerWebhooks(game.owner_id), "account_deleted", game.slug), { game: await gameJson(env, game), signInApp: null });
     } catch (error) {
       console.error("Couldn't tell a game an account was deleted", gameId, error);
     }

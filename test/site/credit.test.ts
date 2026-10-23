@@ -192,7 +192,7 @@ describe("automatic top-up and budgets", () => {
   });
 
   it("are out of reach of a key without credit_access", async () => {
-    const readKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null })).token;
+    const readKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null })).token;
     expect((await api("/credit", { key: readKey })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/credit/top-ups", { key: readKey, body: { amount_cents: 2000 } })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/access", { key: readKey })).answer.credit_balance_cents).toBeNull();

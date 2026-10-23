@@ -2470,7 +2470,7 @@ describe("API keys on the account page", () => {
     expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
 
     // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
-    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
+    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
     const customToken = (await (await makeKey(b, device, custom)).text()).match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
     const customAccess = (await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${customToken}` } })).json()) as { access: { area_access: Record<string, string> } };
     expect(customAccess.access.area_access).toMatchObject({ stats_access: "read", database_access: "none", sign_in_app_access: "none", webhook_access: "none" });

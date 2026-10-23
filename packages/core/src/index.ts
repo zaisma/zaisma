@@ -44,6 +44,8 @@ export * from "./game-deletion.ts";
 export * from "./reach.ts";
 export * from "./own-servers.ts";
 export * from "./links.ts";
+export * from "./items.ts";
+export * from "./receipts.ts";
 export * from "./logs.ts";
 export * from "./qr-code.ts";
 export * from "./health.ts";
