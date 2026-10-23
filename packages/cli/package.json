@@ -29,6 +29,8 @@
     "check.d.mts",
     "performance.mjs",
     "performance.d.mts",
+    "shader-check.mjs",
+    "chrome.mjs",
     "README.md",
     "LICENSE"
   ],
