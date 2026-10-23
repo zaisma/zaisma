@@ -150,10 +150,14 @@ export default defineConfig({
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
         // The pass key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
         TEST_PASS_SIGNING_KEY: passKey,
+        // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).
+        BACKUP_ENDPOINT: "https://backups.zaisma.test",
+        BACKUP_KEY_ID: "test-backup-key-id",
+        BACKUP_KEY_SECRET: "test-backup-key-secret",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
-        // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs to queues nothing reads.
-        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" }, PERFORMANCE_QUEUE: { queueName: "zaisma-performance-in-tests" } },
+        // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs, and the cron its backup parts, to queues nothing reads.
+        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" }, PERFORMANCE_QUEUE: { queueName: "zaisma-performance-in-tests" }, BACKUP_QUEUE: { queueName: "zaisma-backup-in-tests" } },
         workers: [roomsDatabaseWorker, photoDnaWorker],
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),

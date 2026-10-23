@@ -279,6 +279,24 @@ describe("kept rooms", () => {
     b.ws.close(1000);
   });
 
+  it("hand Zaisma's backup everything they keep, a line per key, and only to their own game", async () => {
+    await addSandboxGame("backed-up", WORLD);
+    const a = await join("backed-up", "BACKXX");
+    a.say("chop");
+    a.say("how");
+    await a.next();
+    await until(() => keptRow("backed-up", "BACKXX"));
+    a.ws.close(1000);
+    await until(async () => (await liveRow("backed-up", "BACKXX"))?.player_count === 0);
+    const service = new GameStorageService(createExecutionContext(), e);
+    const world = await service.keptRoomBackup(gameIdOf("backed-up"), "backed-up", "BACKXX");
+    const lines = (await new Response(world).text()).trim().split("\n").map((line) => JSON.parse(line) as { key: string; value: unknown });
+    const stored = await runInDurableObject(roomOf("backed-up", "BACKXX"), async (_room: Room, state) => [...(await state.storage.list()).entries()]);
+    expect(lines.map((line) => [line.key, line.value])).toEqual(JSON.parse(JSON.stringify(stored)));
+    expect(lines.map((line) => line.key)).toEqual(expect.arrayContaining(["meta", "saved"]));
+    expect(await service.keptRoomBackup("gsomeoneelse", "backed-up", "BACKXX")).toBeNull();
+  });
+
   it("go with their game's storage when the game is deleted", async () => {
     await addSandboxGame("deleted-game", WORLD);
     const a = await join("deleted-game", "WPEDXX");
