@@ -7,7 +7,7 @@
  * (blocks.ts) ends their friendship and keeps them from becoming friends again until it's undone.
  */
 
-import { hasBlocked } from "./blocks.ts";
+import { MAXIMUM_OTHER_PLAYER_COUNT, hasBlocked } from "./blocks.ts";
 
 /** Enough for anyone's real friends, and keeps a pass that lists them small (about 6 KB at the most). */
 export const MAXIMUM_FRIEND_COUNT = 200;
@@ -139,7 +139,7 @@ export async function friendsOf(database: D1Database, accountId: string): Promis
  * room asks as a player joins, about the others it remembers.
  */
 export async function friendsAmong(database: D1Database, playerId: string, otherPlayerIds: readonly string[]): Promise<string[]> {
-  const others = [...new Set(otherPlayerIds)].filter((otherPlayerId) => otherPlayerId !== playerId).slice(0, 64);
+  const others = [...new Set(otherPlayerIds)].filter((otherPlayerId) => otherPlayerId !== playerId).slice(0, MAXIMUM_OTHER_PLAYER_COUNT);
   if (!others.length) return [];
   // The others as one JSON list: D1 takes at most 100 values per query.
   const { results } = await database

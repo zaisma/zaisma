@@ -14,6 +14,7 @@ import {
   passkeyById,
   passkeysFor,
   removePasskey,
+  sha256Hex,
   usedPasskey,
 } from "@zaisma/core";
 import { connectionAddressOf, currentSession, readCookie, realEmail, sessionCookies, sessionForUser, setCookie } from "./auth.ts";
@@ -44,12 +45,30 @@ import { confirmationOf, recordProof } from "./session-proofs.ts";
  */
 const CHALLENGE_DURATION_SEC = 300;
 
-/** The challenge lives in a short cookie, for one use, tied to what it's for. */
-const challengeCookie = (env: Env, purpose: string, challenge: string) => setCookie(env, "zaisma_pk", `${purpose}.${challenge}`, { maximumAgeSec: CHALLENGE_DURATION_SEC });
-const takeChallenge = (request: Request, env: Env, purpose: string) => {
-  const [cookiePurpose, cookieChallenge] = (readCookie(request, env, "zaisma_pk") ?? "").split(".");
-  return cookiePurpose === purpose && cookieChallenge ? cookieChallenge : null;
+const CHALLENGE_DURATION_MS = CHALLENGE_DURATION_SEC * 1000;
+const challengeHash = (challenge: string) => sha256Hex(new TextEncoder().encode(challenge));
+
+/**
+ * The challenge lives in a short cookie, which ties it to the browser, and the server keeps its hash (with the
+ * account it's for, when it has one), so it works once and for 5 minutes whatever a client sends back.
+ */
+const challengeCookie = async (env: Env, purpose: string, challenge: string, accountId: string | null = null) => {
+  await env.DB.prepare("INSERT INTO passkey_challenges (challenge_sha256, purpose, account_id, created_at_ms) VALUES (?, ?, ?, ?)").bind(await challengeHash(challenge), purpose, accountId, Date.now()).run();
+  return setCookie(env, "zaisma_pk", `${purpose}.${challenge}`, { maximumAgeSec: CHALLENGE_DURATION_SEC });
 };
+/** The challenge in the cookie when the server issued it for this purpose and account, still has its 5 minutes and wasn't taken: taken here, so it's never accepted twice. */
+const takeChallenge = async (request: Request, env: Env, purpose: string, accountId: string | null = null, nowMs = Date.now()) => {
+  const [cookiePurpose, cookieChallenge] = (readCookie(request, env, "zaisma_pk") ?? "").split(".");
+  if (cookiePurpose !== purpose || !cookieChallenge) return null;
+  const taken = await env.DB.prepare("DELETE FROM passkey_challenges WHERE challenge_sha256 = ? AND purpose = ? AND account_id IS ? AND created_at_ms > ? RETURNING challenge_sha256")
+    .bind(await challengeHash(cookieChallenge), purpose, accountId, nowMs - CHALLENGE_DURATION_MS)
+    .first();
+  return taken ? cookieChallenge : null;
+};
+/** Once a day: challenges past their 5 minutes. */
+export async function deleteOldPasskeyChallenges(env: Env, nowMs = Date.now()): Promise<void> {
+  await env.DB.prepare("DELETE FROM passkey_challenges WHERE created_at_ms <= ?").bind(nowMs - CHALLENGE_DURATION_MS).run();
+}
 /** Clears the challenge cookie once a check has used it. */
 export const usedChallengeCookie = (env: Env) => setCookie(env, "zaisma_pk", "", { maximumAgeSec: 0 });
 
@@ -79,7 +98,7 @@ export function keyRefusal(passkeys: Passkey[], nowMs = Date.now()): string {
  * The caller clears the challenge cookie with usedChallengeCookie.
  */
 export async function checkPasskeyTap(request: Request, env: Env, accountId: string, purpose: PasskeyTapPurpose, tap: PasskeyTap, nowMs = Date.now()): Promise<Passkey | null> {
-  const challenge = takeChallenge(request, env, purpose);
+  const challenge = await takeChallenge(request, env, purpose, accountId);
   if (!challenge || !tap.id) return null;
   const passkey = await passkeyById(env.DB, tap.id);
   if (!passkey || passkey.account_id !== accountId) return null;
@@ -115,12 +134,12 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
 
   if (path === "/api/passkeys/signin/options") {
     const challenge = newChallenge();
-    return json({ challenge, rpId }, 200, [challengeCookie(env, "in", challenge)]);
+    return json({ challenge, rpId }, 200, [await challengeCookie(env, "in", challenge)]);
   }
 
   if (path === "/api/passkeys/signin") {
     if (env.SIGNIN_LIMIT && !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success) return json({ error: "Too many tries. Wait a minute and try again." }, 429);
-    const challenge = takeChallenge(request, env, "in");
+    const challenge = await takeChallenge(request, env, "in");
     const body = await readJson(request);
     const key = challenge && typeof body.id === "string" ? await passkeyById(env.DB, body.id) : null;
     const checked = key ? await checkPasskeyUse({ clientDataJSON: asText(body.clientDataJSON), authenticatorData: asText(body.authenticatorData), signature: asText(body.signature) }, { publicKey: key.public_key, algorithmNumber: key.algorithm_number, signCount: key.sign_count }, want(challenge!)) : null;
@@ -158,7 +177,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
     const allowed = purpose === "key" ? approvingPasskeys(keys) : keys;
     if (!allowed.length) return json({ error: purpose === "key" ? keyRefusal(keys) : "Add a passkey first." }, 400, session.cookies);
     const challenge = newChallenge();
-    return json({ challenge, rpId, allow: allowed.map((passkey) => passkey.id) }, 200, [...session.cookies, challengeCookie(env, purpose, challenge)]);
+    return json({ challenge, rpId, allow: allowed.map((passkey) => passkey.id) }, 200, [...session.cookies, await challengeCookie(env, purpose, challenge, account.id)]);
   }
 
   if (path === "/api/passkeys/confirm") {
@@ -184,12 +203,12 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
         exclude: keys.map((passkey) => passkey.id),
       },
       200,
-      [...session.cookies, challengeCookie(env, "add", challenge)],
+      [...session.cookies, await challengeCookie(env, "add", challenge, account.id)],
     );
   }
 
   if (path === "/api/passkeys/add") {
-    const challenge = takeChallenge(request, env, "add");
+    const challenge = await takeChallenge(request, env, "add", account.id);
     if (!confirmation.isProven || !challenge) return json({ error: "That took too long. Try again." }, 400, [...session.cookies, used]);
     const body = await readJson(request);
     const newPasskey = { id: asText(body.id), clientDataJSON: asText(body.clientDataJSON), authenticatorData: asText(body.authenticatorData), publicKey: asText(body.publicKey), algorithmNumber: Number(body.alg) };

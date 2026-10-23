@@ -79,6 +79,11 @@ export async function checkEmailCode(env: Env, email: string, code: string, kind
   return used?.account_id ?? null;
 }
 
+/** An account's codes still waiting, gone: its address changed or was taken off, so a code sent to the old one opens nothing. */
+export async function deleteEmailCodesOf(env: Env, accountId: string): Promise<void> {
+  await env.DB.prepare("DELETE FROM email_codes WHERE account_id = ?").bind(accountId).run();
+}
+
 /** Once a day: codes past their 10 minutes, and requests older than the day the limits look back. */
 export async function deleteOldEmailCodes(env: Env, nowMs = Date.now()): Promise<void> {
   await env.DB.batch([
