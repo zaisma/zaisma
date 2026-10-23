@@ -37,13 +37,28 @@ const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
 // The same site standing in for claude.ai connecting to the MCP by signing in, as this registered app.
 const MCP_CLIENT_ID = "mcp_client_previewclaude";
 const SIGN_IN_APP_SECRET = "preview-client-secret";
-const SITE = `http://localhost:${PORTS.site}`;
+// On a phone (PREVIEW_PHONE_HOST, set by background.mjs from phone.mjs): the pages a browser opens are this Mac's tailnet name over
+// HTTPS, each on its own port, which Tailscale Serve hands on to the same port here. workers/router.mjs tells the Workers so.
+const PHONE_HOST = process.env.PREVIEW_PHONE_HOST || "";
+// Where the preview listens: this Mac only. Tailscale Serve holds the same ports on the Mac's tailnet address.
+const LOOPBACK = ["127.0.0.1", "::1"];
+const browserOrigin = (localHost, port) => (PHONE_HOST ? `https://${PHONE_HOST}:${port}` : `http://${localHost}:${port}`);
+const SITE = browserOrigin("localhost", PORTS.site);
 // Games on another site than Zaisma's pages, as in production (zaisma.com and the game domain): 127.0.0.1 isn't localhost to a browser, so
 // a game or its background runs in a process of its own, and nothing it does can stall the page round it, here as for players.
-const GAMES = `http://127.0.0.1:${PORTS.games}`;
-const ROOMS = `http://localhost:${PORTS.rooms}`;
+// On a phone they share the tailnet name, another origin on another port but the same site.
+const GAMES = browserOrigin("127.0.0.1", PORTS.games);
+const ROOMS = browserOrigin("localhost", PORTS.rooms);
+// The rooms' own name in the passes they sign, which game servers on this Mac check (isZaismaIssuer): always this Mac's.
+const ROOMS_ISSUER = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
-const MAIL = `http://localhost:${PORTS.mail}`;
+const MAIL = browserOrigin("localhost", PORTS.mail);
+// This script's own calls (test data, waiting for the servers) go straight to the servers here, not round the tailnet: the
+// router sees every request as sent to the phone address anyway.
+if (PHONE_HOST) {
+  const fetchHere = globalThis.fetch;
+  globalThis.fetch = (input, init) => fetchHere(input instanceof Request ? input : String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), init);
+}
 // The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
 const FEEDBACK = `http://localhost:${PORTS.feedback}`;
 const EMAIL = "preview@zaisma.test";
@@ -55,9 +70,13 @@ const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 const ENGINES_ONLY = process.argv.includes("--engines-only");
 const SEEDED_MARKER = join(STATE, "seeded");
 const isEnginesOnlyData = () => existsSync(SEEDED_MARKER) && readFileSync(SEEDED_MARKER, "utf8").startsWith("engines-only");
-if (process.argv.includes("--reset") || (!ENGINES_ONLY && isEnginesOnlyData())) rmSync(STATE, { recursive: true, force: true });
+// The test data names the address it was made for (passkeys, rooms passes), so another address starts it fresh.
+const HOST_MARKER = join(STATE, "phone-host");
+const isOtherHostData = () => existsSync(SEEDED_MARKER) && (existsSync(HOST_MARKER) ? readFileSync(HOST_MARKER, "utf8") : "") !== PHONE_HOST;
+if (process.argv.includes("--reset") || (!ENGINES_ONLY && isEnginesOnlyData()) || isOtherHostData()) rmSync(STATE, { recursive: true, force: true });
 const fresh = !existsSync(SEEDED_MARKER);
 mkdirSync(STATE, { recursive: true });
+writeFileSync(HOST_MARKER, PHONE_HOST);
 
 // Settings for the preview only, written into each Worker's preview config (previewConfig, below), so your own .dev.vars stay out of it.
 // Sign in with Zaisma's RS256 key, kept between runs so test sites' tokens stay valid.
@@ -73,7 +92,7 @@ const siteSettings = {
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC: "30",
   // Email codes go to the stand-in mailbox, never to a real address.
-  EMAIL_OUTBOX_URL: `${MAIL}/`,
+  EMAIL_OUTBOX_URL: `http://localhost:${PORTS.mail}/`,
   // The feedback overlay and its comments (workers/site.mjs, withFeedback): the preview's entry only, never production.
   PREVIEW_FEEDBACK_ORIGIN: FEEDBACK,
   // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
@@ -94,7 +113,7 @@ if (!existsSync(passKeyFile)) {
   const { kty, crv, x, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
   writeFileSync(passKeyFile, JSON.stringify({ kty, crv, x, d }));
 }
-const roomsSettings = { ISSUER: ROOMS, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: readFileSync(passKeyFile, "utf8") };
+const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: readFileSync(passKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
@@ -282,6 +301,10 @@ function noteVisits() {
  * (workers/router.mjs). Asleep, a connection wakes the servers first.
  */
 function forward(port) {
+  return LOOPBACK.map((address) => forwardFrom(port, address));
+}
+
+function forwardFrom(port, address) {
   const onward = (socket) => {
     const servers = net.connect(PORTS.servers, "localhost");
     socket.pipe(servers).pipe(socket);
@@ -302,7 +325,7 @@ function forward(port) {
       awake.then(() => onward(socket), () => socket.destroy());
     });
   });
-  server.listen(port);
+  server.listen(port, address);
   return server;
 }
 
@@ -336,9 +359,9 @@ async function waitFor(url) {
 const { waitedMs } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT) });
 // The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
 if (waitedMs) {
-  const isFree = (port) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, function () { this.close(() => resolve(true)); }));
+  const isFree = (port, address) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, address, function () { this.close(() => resolve(true)); }));
   for (const port of [...Object.values(PORTS), 9340 + OFFSET]) {
-    if (await isFree(port)) continue;
+    if ((await isFree(port, "127.0.0.1")) && (await isFree(port, "::1"))) continue;
     console.log(`Port ${port} was taken while it waited in line (by a preview started without the line, or something else), so it can't start here. npm run preview:start again picks free ports.`);
     process.exit(1);
   }
@@ -375,12 +398,12 @@ const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
   compatibility_date: "2026-10-01",
-  vars: { GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms) },
+  vars: { GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
 writeFileSync(join(STATE, "servers.log"), "");
-const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)];
+const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)].flat();
 process.on("exit", () => forwards.forEach((server) => server.close()));
 await wake();
 await waitFor(SITE);
@@ -505,7 +528,7 @@ runSql(pretendPlaysSql());
 stepDone("pretend plays");
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
 // pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
-await openTestRooms(ROOMS, GAMES, SITE).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
+await openTestRooms(ROOMS_ISSUER, GAMES, SITE).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
 stepDone("test rooms");
 const pretend = () => runSql(pretendRoomsSql());
 pretend();
@@ -518,7 +541,7 @@ const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * *
 setInterval(() => isAwake() && tick(), 20_000);
 tick();
 // The rooms' every-minute job: games' schedules after a publish (Arena tidies its best scores daily).
-const roomsTick = () => fetch(`${ROOMS}/__scheduled?cron=${encodeURIComponent("* * * * *")}`).catch(() => {});
+const roomsTick = () => fetch(`${ROOMS_ISSUER}/__scheduled?cron=${encodeURIComponent("* * * * *")}`).catch(() => {});
 setInterval(() => isAwake() && roomsTick(), 20_000);
 roomsTick();
 
@@ -580,7 +603,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   in the image kinds); ${SITE}/g/arena and ${SITE}/g/cave-crew on a phone: "Needs a keyboard." and
                   "Best in landscape."
   Bar states      ${SITE}/g/arena?play&preview_bar=weak  (the connection beside the game; also =retrying, =lost, and for updates
-                  =coming, =updating and =update; on localhost only, since a room on this computer is never slow)
+                  =coming, =updating and =update; on the preview only, since a room on this computer is never slow)
   Room codes      ${SITE}/g/arena?room=K7PQ2M  (the bar's room control shows "# K7PQ2M": its plate has Copy and Join by code;
                   with Streamer mode on at ${SITE}/account#streamer-mode the code starts hidden, the eye shows it, and
                   Share blurs it under Show; on narrow phones the bar scrolls under the Z)
@@ -766,7 +789,7 @@ async function seed() {
   // The preview's site has no developer rate limit (scripts/preview/workers/site.mjs), so seeding never waits on one. The upload command
   // asks after the scan every half second, not every few seconds, and waits for a run in Chrome only briefly: the seed waits for the
   // runs it needs (waitForRunInChrome).
-  const uploadCommand = (folder, slug, notes) => [[join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], { env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key, ZAISMA_SCAN_CHECK_INTERVAL_MS: "500" }, stdio: "ignore" }];
+  const uploadCommand = (folder, slug, notes) => [[join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], { env: { ...process.env, ZAISMA_API: `http://localhost:${PORTS.site}`, ZAISMA_KEY: key, ZAISMA_SCAN_CHECK_INTERVAL_MS: "500" }, stdio: "ignore" }];
   // Never one that blocks this process: it forwards the games and rooms ports that the runs in Chrome open.
   /** An upload without blocking: answers its exit code. */
   const uploadInBackground = (folder, slug, notes) => new Promise((done) => spawn(process.execPath, ...uploadCommand(folder, slug, notes)).once("exit", (exitCode) => done(exitCode)));

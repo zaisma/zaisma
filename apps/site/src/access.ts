@@ -7,7 +7,8 @@ import type { Env } from "./env.ts";
  */
 export async function adminIdentity(request: Request, env: Env): Promise<string | null> {
   const url = new URL(request.url);
-  if (env.DEV_ADMIN === "1" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) return "dev@localhost";
+  // The local preview only: on this machine, or opened from a phone on its tailnet (a .ts.net name only its own devices reach).
+  if (env.DEV_ADMIN === "1" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname.endsWith(".ts.net"))) return "dev@localhost";
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) return null;
 
   const token = request.headers.get("cf-access-jwt-assertion");
