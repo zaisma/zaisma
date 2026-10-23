@@ -195,7 +195,7 @@ export const ERROR_CODES = {
   no_purchase: { httpStatus: 404, meaning: "The game has no purchase with that ID." },
   already_refunded: { httpStatus: 409, meaning: "The purchase was refunded or charged back already." },
   stripe_not_connected: { httpStatus: 409, meaning: "Refunding a sale goes through Stripe, which the game's developer hasn't connected." },
-  receipts_unavailable: { httpStatus: 503, meaning: "Zaisma couldn't sign the purchase's receipt just now." },
+  receipts_unavailable: { httpStatus: 503, meaning: "Zaisma couldn't sign the purchase's receipt just now. A grant answered with it wasn't made, so trying again grants it once." },
 
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },

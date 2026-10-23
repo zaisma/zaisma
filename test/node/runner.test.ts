@@ -539,6 +539,61 @@ describe("Node runner", () => {
   }, 10_000);
 });
 
+describe("The Node runner, for the fullest pass Zaisma makes", () => {
+  /** An account owning every one of a game's 1,000 items with 40-character names, with 200 friends and 100 blocks. */
+  async function fullestPass() {
+    const now = Math.floor(Date.now() / 1000);
+    const tag = (i: number) => `player_tag_${i.toString(16).padStart(20, "0")}`;
+    return signPass(signing, {
+      sub: "player_collector",
+      aud: "arena",
+      iss: ISS,
+      kind: "account",
+      who_can_chat: "anyone",
+      chat_group: "chat_group_0123456789abcdef0123",
+      player_tag: tag(0),
+      friend_tag_ids: Array.from({ length: 200 }, (_, i) => tag(i + 1)),
+      block_tag_ids: Array.from({ length: 100 }, (_, i) => tag(i + 500)),
+      owned_item_names: Array.from({ length: 1000 }, (_, i) => `skin_${String(i).padStart(4, "0")}_`.padEnd(40, "x")),
+      iat: now,
+      exp: now + 600,
+    });
+  }
+  const wardrobe = defineGameServer({
+    maximumPlayerCount: 4,
+    setup: () => ({}),
+    onJoin: (_state: unknown, player: { id: string; ownedItemNames?: string[] }, room: { send(playerId: string, data: unknown): void }) => room.send(player.id, { ownedItemCount: (player.ownedItemNames ?? []).length }),
+    onRequest: (player: { ownedItemNames?: string[] }) => ({ ownedItemCount: (player.ownedItemNames ?? []).length }),
+  });
+  async function serveWardrobe() {
+    const own = startServer({ server: wardrobe, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles: async (playerId: string) => ({ id: playerId, name: "Emma_Clarke" }) });
+    await new Promise((r) => own.wss.once("listening", r));
+    return { own, at: (own.wss.address() as { port: number }).port };
+  }
+
+  it("answers onRequest with every item it owns", async () => {
+    const { own, at } = await serveWardrobe();
+    const response = await fetch(`http://localhost:${at}/v1/requests/arena`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain" }, body: JSON.stringify({ pass: await fullestPass(), request: { type: "wardrobe" } }) });
+    expect({ httpStatus: response.status, body: await response.json() }).toEqual({ httpStatus: 200, body: { answer: { ownedItemCount: 1000 } } });
+    await own.close();
+  });
+
+  it("lets it into a room as Zaisma rooms do, and answers too_big for joinData over 4 KB with it", async () => {
+    const { own, at } = await serveWardrobe();
+    const pass = await fullestPass();
+    const joining = connect(ORIGIN, "/v1/rooms/arena/WRDRBE", at);
+    await joining.open;
+    joining.say({ type: "hello", pass, joinData: { outfit: "x".repeat(4000) } });
+    expect(await until(joining, "message")).toEqual({ type: "message", data: { ownedItemCount: 1000 } });
+    joining.ws.close();
+    const tooMuch = connect(ORIGIN, "/v1/rooms/arena/WRDRBF", at);
+    await tooMuch.open;
+    tooMuch.say({ type: "hello", pass, joinData: { outfit: "x".repeat(5000) } });
+    expect(await until(tooMuch, "error")).toMatchObject({ code: "too_big" });
+    await own.close();
+  });
+});
+
 describe("Kept rooms on the developer's own server", () => {
   const DAY_MS = 24 * 3600 * 1000;
   const roomStateFile = () => join(mkdtempSync(join(tmpdir(), "zaisma-kept-rooms-")), "rooms.sqlite");
