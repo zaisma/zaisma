@@ -33,14 +33,17 @@ const themeQuery = (theme: GalleryTheme) => (theme === "dark" ? "?theme=dark" : 
 export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "/design" : `/design/${group}`);
 const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
 
+/** Words that name a token (--spring) set as code: Jost draws two hyphens as one dash, and code never breaks a name across lines. */
+const withTokens = (words: string): Raw => html`${words.split(/(--[a-z0-9-]+)/).map((part, partIndex) => (partIndex % 2 ? html`<code>${part}</code>` : part))}`;
+
 function examples(each: Component): Raw {
-  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage" data-on-no-pane${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-name">${example.label}</figcaption></figure>`)}</div>`;
+  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage" data-on-no-pane${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-name">${withTokens(example.label)}</figcaption></figure>`)}</div>`;
 }
 
 function section(each: Component, theme: GalleryTheme): Raw {
   // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it.
   return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${tray({
-    head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${each.summary}</p>`,
+    head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${withTokens(each.summary)}</p>`,
     body: examples(each),
     label: each.name,
   })}</div>`;
@@ -76,7 +79,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
     const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
     return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
   });
-  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : ""}</body></html>`;
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
   return new Response(page.html, { headers: securityHeaders(env) });
 }
 
@@ -164,6 +167,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: var(--under-gallery-bar); }
 .component-name { margin: 0; font: var(--type-section); }
 .component-summary { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
+.component-summary code, .example-name code { font: var(--type-code); white-space: nowrap; }
 /* The examples end in their names, which are words at the tray's foot: they keep its margin there. */
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); padding-bottom: var(--pad-words); }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -189,6 +193,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
+/* A frame as tall as what's in it, the footer's example, which keeps its own margins on the backdrop. */
+.header-frame.is-fitted { height: auto; }
 .header-frame.tall { height: 470px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
@@ -221,7 +227,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .dropdown-frame { height: 420px; }
   .dropdown-frame > .cut-btn { right: 8px; }
   /* The stand-in rows scroll sideways, as the home's do on a phone. */
-  .stand-in-row { display: flex; overflow-x: auto; scrollbar-width: none; }
+  /* A row of covers scrolls only sideways: never up and down, so it never bounces under a finger. */
+  .stand-in-row { display: flex; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
   .stand-in-row::-webkit-scrollbar { display: none; }
   .stand-in-row > .cover { flex: 0 0 64vw; }
   .stand-in-page { padding-top: 140px; }
