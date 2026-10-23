@@ -194,7 +194,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, places Cloudflare names, its own keys and records.
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
   "game_images.average_color", "game_shaders.average_color", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
-  "domains.hostname", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret",
+  "domains.hostname", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "backup_runs.failure_message",
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item.
   "game_items.local_prices", "purchases.item_name",
   // Arrays of counts Zaisma's code adds up (player-performance.ts).
