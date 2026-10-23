@@ -15,7 +15,7 @@ import { relative } from "node:path";
  * the whole runner, so its time counts CI_WORKER_COUNT times.
  */
 export const SHARD_TEST_DURATIONS_MS: Record<string, number> = JSON.parse(readFileSync(new URL("./shard-weights.json", import.meta.url).pathname, "utf8"));
-/** Files that measure how fast something runs (a full room at full speed): beside other files they'd measure the machine's other work, so they run after everything else, one at a time (vitest.config.ts's rooms-alone project). */
+/** Files that measure how fast something runs (a full room at full speed): beside other files they'd measure the machine's other work, so they run before everything else, one at a time (vitest.config.ts's rooms-alone project). */
 export const ALONE_TEST_FILES = ["test/rooms/room-load.test.ts"];
 export const CI_WORKER_COUNT = 4;
 const WORKERS_SETUP_DURATION_MS = 4500;

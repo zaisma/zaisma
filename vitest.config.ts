@@ -146,6 +146,8 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
     testTimeout: 15_000,
     // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
     deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
+    // Vitest runs projects in groups by this, lowest first: rooms-alone (1) before everything else (2).
+    sequence: { groupOrder: 2 },
     ...testOptions,
   },
 });
@@ -176,9 +178,9 @@ export default defineConfig({
     projects: [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
-      { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"] } },
+      { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       // The measuring check in headless Chrome on the preview (scripts/layout-check.mjs): GitHub's check runs it in its own job.
-      { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"] } },
+      { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       worker("site", "apps/site/wrangler.jsonc", {
         SITE_ORIGIN: "https://zaisma.test",
         GAME_ORIGIN: "https://games.zaisma.test",
@@ -223,9 +225,10 @@ export default defineConfig({
       worker("core", "apps/games/wrangler.jsonc"),
       worker("game-server", "apps/games/wrangler.jsonc"),
       worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra),
-      // Files that measure how fast something runs (ALONE_TEST_FILES in test/shards.ts): without file parallelism, vitest runs them
-      // after every other file, one at a time, with the machine to themselves.
-      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra, { name: "rooms-alone", include: ALONE_TEST_FILES, exclude: [], fileParallelism: false }),
+      // Files that measure how fast something runs (ALONE_TEST_FILES in test/shards.ts): a group of their own that vitest runs before
+      // every other file starts, one at a time, so they have the machine to themselves (after the rest, the last files' runtimes were
+      // still winding down, and a full room dropped players).
+      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra, { name: "rooms-alone", include: ALONE_TEST_FILES, exclude: [], fileParallelism: false, sequence: { groupOrder: 1 } }),
     ],
   },
 });
