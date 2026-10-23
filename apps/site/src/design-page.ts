@@ -14,7 +14,6 @@ import { cutField, tabSwitch } from "./components/inputs.ts";
 import { loadMore } from "./components/navigation.ts";
 import { listRows } from "./components/data.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
-import { ZAISMA_CANDIDATE_SHADERS } from "./components/shaders.ts";
 
 /*
  * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
@@ -95,14 +94,11 @@ export function designPage(env: Env, url: URL): Response | null {
   const main = html`<h1 class="group-name">${COMPONENT_GROUPS.find((each) => each.group === group)!.name}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}`;
   // The layout group's Screens example frames the example page.
-  // For this round only, on a local preview: ?backdrop=<name> puts a candidate for Zaisma's own background behind the gallery.
-  const candidateName = url.searchParams.get("backdrop") ?? "";
-  const backdropShader = isLocalSite(env) && Object.hasOwn(ZAISMA_CANDIDATE_SHADERS, candidateName) ? ZAISMA_CANDIDATE_SHADERS[candidateName] : undefined;
-  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main, frames: group === "layout" ? ["'self'"] : [], backdropShader });
+  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main, frames: group === "layout" ? ["'self'"] : [] });
 }
 
 /** A page of the gallery: its bar with light or dark and the groups, the groups down its side, and what it shows. */
-function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean; backdropShader?: string }): Response {
+function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean }): Response {
   const { group, theme } = options;
   const components = COMPONENTS();
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
@@ -113,7 +109,7 @@ function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryT
 ${head(`${options.title} · Design · Zaisma`, group, options.scripts)}
 </head>
 <body class="gallery">
-<div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop({ fragmentShader: options.backdropShader })}
+<div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}${logo("wordmark")}<span class="gallery-title">Design</span>
 ${cutButton("Groups", { type: "button", isSmall: true, controls: "gallery-index", isExpanded: !options.isIndexHidden })}
 ${themeButton(options.path, theme)}
