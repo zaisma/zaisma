@@ -99,6 +99,65 @@ void mainImage(out vec4 o, in vec2 f) {
 }
 `;
 
+/** Round only, removed before the pull request: new directions for Zaisma's own, picked with ?backdrop=shade or ?backdrop=satin on the local preview. */
+export const BACKDROP_CANDIDATES: Record<string, string> = {
+  shade: `
+// Smooth value noise (quintic, so no creases) and three octaves of it.
+float sn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), u.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), u.x), u.y); }
+// Each layer turned its own way and two grids averaged in the first, so no shape lines up with the noise's grid.
+float sf(vec2 p) { mat2 r = mat2(0.80, 0.60, -0.60, 0.80);
+  float v = 0.34 * (sn(p) + sn(r * p * 1.13 + 7.3)); p = r * p * 2.07 + 3.7;
+  v += 0.23 * sn(p); p = r * p * 2.03 + 9.1; return v + 0.09 * sn(p); }
+void mainImage(out vec4 o, in vec2 f) {
+  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
+  vec2 P = vec2((uv.x - 0.5) * ar, uv.y - 0.5);
+  // Broad shading: soft patches drifting slowly across and changing shape as they go, like cloud shadows on a wall.
+  vec2 q = P * 1.35 + vec2(0.024, 0.008) * t;
+  vec2 w = vec2(sf(q * 0.6 + vec2(0.0, 0.012 * t)), sf(q * 0.6 + vec2(5.2, -0.010 * t))) - 0.5;
+  float c = sf(q + w * 1.4), lit = 0.7 * smoothstep(0.36, 0.64, c) + 0.3 * smoothstep(0.2, 0.8, sf(q * 1.9 - w + vec2(-0.011 * t, 0.004 * t)));
+  // Light from above, falling off toward the corners.
+  float top = smoothstep(-0.6, 0.6, P.y);
+  vec2 e = P / vec2(ar * 0.62, 0.78); float corner = clamp(1.0 - 0.45 * dot(e, e), 0.0, 1.0);
+  float l = clamp((0.30 + 0.70 * lit) * (0.72 + 0.28 * top) * (0.55 + 0.45 * corner), 0.0, 1.0);
+  vec3 darkLo = vec3(0.046, 0.044, 0.041), darkHi = vec3(0.190, 0.179, 0.165);
+  vec3 lightLo = vec3(0.780, 0.765, 0.740), lightHi = vec3(0.972, 0.966, 0.952);
+  vec3 col = mix(mix(lightLo, lightHi, l), mix(darkLo, darkHi, l), iDark);
+  // A still dither so the slow gradients never band.
+  col += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
+  o = vec4(col, 1.0);
+}
+`,
+  satin: `
+float sn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), u.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), u.x), u.y); }
+// The cloth's height: long folds running on the diagonal, bent and swaying slowly.
+float cloth(vec2 p, float t) {
+  vec2 d = vec2(0.876, 0.482); float s = dot(p, d), r = dot(p, vec2(-d.y, d.x));
+  float bend = 1.6 * sn(vec2(s * 0.45, t * 0.045)) + 0.9 * sn(vec2(r * 0.6 + 4.0, s * 0.3 - t * 0.035));
+  return 0.55 * sin(r * 2.3 + bend * 1.9 + t * 0.06) + 0.30 * sin(r * 3.9 - s * 0.7 + bend * 1.2 - t * 0.045) + 0.12 * sin(r * 6.1 + s * 0.9 + bend * 2.6 + t * 0.08) + 0.30 * sn(p * 1.1 + vec2(t * 0.02, 0.0));
+}
+void mainImage(out vec4 o, in vec2 f) {
+  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
+  vec2 P = vec2((uv.x - 0.5) * ar, uv.y - 0.5), p = P * 1.6;
+  float e = 0.01, h = cloth(p, t);
+  vec3 n = normalize(vec3(-(cloth(p + vec2(e, 0.0), t) - h) / e * 0.38, -(cloth(p + vec2(0.0, e), t) - h) / e * 0.38, 1.0));
+  // A soft light high on the left, swinging slowly, and the matte sheen it leaves along each fold.
+  float a = 0.9 + 0.35 * sin(t * 0.05);
+  vec3 L = normalize(vec3(-cos(a), 0.55 + 0.25 * sin(a), 1.1)), H = normalize(L + vec3(0.0, 0.0, 1.0));
+  float diffuse = clamp(dot(n, L), 0.0, 1.0), sheen = pow(max(dot(n, H), 0.0), 9.0);
+  float top = smoothstep(-0.6, 0.6, P.y);
+  vec2 q = P / vec2(ar * 0.62, 0.78); float corner = clamp(1.0 - 0.45 * dot(q, q), 0.0, 1.0);
+  float l = clamp((0.18 + 0.48 * diffuse + 0.42 * sheen) * (0.75 + 0.25 * top) * (0.55 + 0.45 * corner), 0.0, 1.0);
+  vec3 darkLo = vec3(0.028, 0.027, 0.026), darkHi = vec3(0.190, 0.179, 0.165);
+  vec3 lightLo = vec3(0.760, 0.745, 0.720), lightHi = vec3(0.975, 0.969, 0.957);
+  vec3 col = mix(mix(lightLo, lightHi, l), mix(darkLo, darkHi, l), iDark);
+  col += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
+  o = vec4(col, 1.0);
+}
+`,
+};
+
 /** The gallery's simplest shader: a dusk gradient whose horizon breathes. Four lines. */
 export const DUSK_SHADER = `
 void mainImage(out vec4 o, in vec2 f) {
