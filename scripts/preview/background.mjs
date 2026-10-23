@@ -158,9 +158,14 @@ function list() {
     const upFor = processes.get(group)?.upFor ?? processes.get(listener.pid)?.upFor ?? "?";
     const isAsleep = /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(folder, ".wrangler/preview-run/preview.log")));
     console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}${isAsleep ? "  asleep: opening a page wakes it" : ""}`);
-    console.log(`    up ${upForText(upFor)}, ${(groupMegabytes / 1024).toFixed(1)} GB in ${members.length} processes. Stop it: npm --prefix "${folder}" run preview:stop`);
+    console.log(`    up ${upForText(upFor)}, ${sizeText(groupMegabytes)} in ${members.length === 1 ? "1 process" : `${members.length} processes`}. Stop it: npm --prefix "${folder}" run preview:stop`);
   }
-  console.log(`\nAll together: ${(totalMegabytes / 1024).toFixed(1)} GB.`);
+  console.log(`\nAll together: ${sizeText(totalMegabytes)}.`);
+}
+
+/** Megabytes in words: "1.2 GB", or "44 MB" under a gigabyte. */
+function sizeText(megabytes) {
+  return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${Math.round(megabytes)} MB`;
 }
 
 /** ps's elapsed time ([[days-]hours:]minutes:seconds) in words: "3 h 12 min". */
