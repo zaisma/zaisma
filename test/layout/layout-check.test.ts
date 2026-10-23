@@ -53,4 +53,14 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(said.some((line) => /size class/.test(line) && /Too short/.test(line)), said.join("\n")).toBe(true);
     expect(said.some((line) => /side by side outside a row/.test(line) && /Drop|Keep/.test(line)), said.join("\n")).toBe(true);
   }, 300_000);
+
+  it("cuts anything with an edge in a pane's corner by itself, and catches one kept square", async () => {
+    // Two panes, each with a filled box at its foot and nothing asking for a cut: the edge rule cuts the first; the second is forced square.
+    const boxPane = (box: string) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<p>Pictures</p>` }, { kind: "block", markup: raw(box) }] }) }).html;
+    const markup = boxPane('<div style="height:60px;background:#4a7"></div>') + boxPane('<div class="kept-square" style="height:60px;background:#47a"></div><style>.kept-square{clip-path:none!important}</style>');
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const square = failures.filter((failure) => /square in a cut corner/.test(failure.check));
+    expect(square.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(1);
+  }, 300_000);
 });

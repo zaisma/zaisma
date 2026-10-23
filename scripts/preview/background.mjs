@@ -8,7 +8,9 @@
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports job) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview, and nothing of another checkout's.
-// Its output goes to .wrangler/preview-run/preview.log; the servers' own logs stay in .wrangler/preview.
+//   npm run preview:list                 every preview running on this machine, from any checkout: its address, folder,
+//                                        how long it's been up, the memory it takes and the command that stops it.
+// Its output goes to .wrangler/preview-run/preview.log; the servers' own log is .wrangler/preview/servers.log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -28,15 +30,16 @@ const READY_LINE = "Zaisma preview is running.";
 const READY_TIMEOUT_MS = 9 * 60_000;
 const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
-const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
+const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
 const siteFor = (offset) => `http://localhost:${8800 + offset}`;
 const show = (path) => relative(process.cwd(), path) || ".";
 
 const [command = "start", ...flags] = process.argv.slice(2);
 if (command === "start") await start();
 else if (command === "stop") console.log((await stop()) ? "Stopped this checkout's preview." : "This checkout's preview wasn't running.");
+else if (command === "list") list();
 else {
-  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], or npm run preview:stop`);
+  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], npm run preview:stop or npm run preview:list`);
   process.exit(1);
 }
 
@@ -54,7 +57,8 @@ async function start() {
     reset = true;
   }
   const state = readState();
-  if (!reset && state && isAlive(state.pid) && (await answers(siteFor(state.offset))) && readLog().includes(READY_LINE)) {
+  // Asleep, it answers once it has woken up (run.mjs): a few seconds, longer on a busy machine.
+  if (!reset && state && isAlive(state.pid) && readLog().includes(READY_LINE) && (await answers(siteFor(state.offset), 120_000))) {
     printReady(state.offset, "already running");
     return;
   }
@@ -70,7 +74,7 @@ async function start() {
   mkdirSync(RUN, { recursive: true });
   const log = openSync(LOG, "w");
   // Its own process group, so stopping it also stops wrangler and workerd under it.
-  const child = spawn(process.execPath, [join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
     cwd: ROOT,
     detached: true,
     stdio: ["ignore", log, log],
@@ -126,6 +130,59 @@ async function stop() {
   return stopped;
 }
 
+/** Prints every preview running on this machine: what listens on a preview's site port, with everything in its process group. */
+function list() {
+  const sitePorts = new Map(OFFSETS.map((offset) => [8800 + offset, offset]));
+  // One per port (lsof lists a port once for each address it listens on).
+  const running = [...new Map(listeners().filter((listener) => sitePorts.has(listener.port)).map((listener) => [listener.port, listener])).values()];
+  if (!running.length) return console.log("No preview is running on this machine.");
+  const processes = new Map();
+  for (const line of (spawnSync("ps", ["-axo", "pid=,pgid=,etime="], { encoding: "utf8" }).stdout ?? "").split("\n")) {
+    const [pid, pgid, upFor] = line.trim().split(/\s+/);
+    if (pid) processes.set(Number(pid), { pgid: Number(pgid), upFor });
+  }
+  // top's memory is what each process takes, swapped and compressed parts too (ps counts only what's in memory now).
+  const megabytes = new Map();
+  for (const line of (spawnSync("top", ["-l", "1", "-stats", "pid,mem"], { encoding: "utf8" }).stdout ?? "").split("\n")) {
+    const match = /^(\d+)\s+([\d.]+)([KMG])/.exec(line.trim());
+    if (match) megabytes.set(Number(match[1]), Number(match[2]) * { K: 1 / 1024, M: 1, G: 1024 }[match[3]]);
+  }
+  let totalMegabytes = 0;
+  console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
+  for (const listener of running.sort((a, b) => a.port - b.port)) {
+    const group = processes.get(listener.pid)?.pgid;
+    const members = [...processes].filter(([, each]) => each.pgid === group).map(([pid]) => pid);
+    const groupMegabytes = members.reduce((sum, pid) => sum + (megabytes.get(pid) ?? 0), 0);
+    totalMegabytes += groupMegabytes;
+    const folder = processFolder(group) ?? processFolder(listener.pid) ?? "(its folder is unknown)";
+    const upFor = processes.get(group)?.upFor ?? processes.get(listener.pid)?.upFor ?? "?";
+    const isAsleep = /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(folder, ".wrangler/preview-run/preview.log")));
+    console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}${isAsleep ? "  asleep: opening a page wakes it" : ""}`);
+    console.log(`    up ${upForText(upFor)}, ${sizeText(groupMegabytes)} in ${members.length === 1 ? "1 process" : `${members.length} processes`}. Stop it: npm --prefix "${folder}" run preview:stop`);
+  }
+  console.log(`\nAll together: ${sizeText(totalMegabytes)}.`);
+}
+
+/** Megabytes in words: "1.2 GB", or "44 MB" under a gigabyte. */
+function sizeText(megabytes) {
+  return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${Math.round(megabytes)} MB`;
+}
+
+/** ps's elapsed time ([[days-]hours:]minutes:seconds) in words: "3 h 12 min". */
+function upForText(elapsed) {
+  const [days, rest] = elapsed.includes("-") ? elapsed.split("-") : ["0", elapsed];
+  const [seconds, minutes, hours = 0] = rest.split(":").map(Number).reverse();
+  const parts = [[Number(days), "days"], [hours, "h"], [minutes, "min"]].filter(([count]) => count > 0).map(([count, unit]) => `${count} ${unit}`);
+  return parts.length ? parts.join(" ") : `${seconds} s`;
+}
+
+/** The folder a process runs in. */
+function processFolder(pid) {
+  if (!pid) return null;
+  const line = (spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).stdout ?? "").split("\n").find((each) => each.startsWith("n"));
+  return line ? line.slice(1) : null;
+}
+
 /** The first offset with none of its ports taken, trying this checkout's last one first so links stay the same. */
 async function freeOffset(last) {
   const taken = new Set(listeners().map((listener) => listener.port));
@@ -179,9 +236,9 @@ function canListen(port) {
   });
 }
 
-async function answers(url) {
+async function answers(url, timeoutMs = 5000) {
   try {
-    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
     return true;
   } catch {
     return false;
@@ -205,8 +262,9 @@ ${SIGN_INS.map((account) => `  ${account.username.padEnd(width)}  ${account.abou
 Admin pages (${site}/admin) need no sign-in here. Email codes: http://localhost:${8795 + offset}
 
 Every test page and state, with what it shows: ${show(PAGES)}
-Log: ${show(LOG)}  (the servers' own: .wrangler/preview/<site|games|rooms>.log)
-Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset`);
+Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
+It sleeps after 30 minutes with nobody looking, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
+Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset   Every preview on this machine: npm run preview:list`);
 }
 
 function fail(message, logText) {
@@ -214,7 +272,7 @@ function fail(message, logText) {
   if (logText) {
     console.error(`\nLast lines of ${show(LOG)}:`);
     console.error(logText.trimEnd().split("\n").slice(-30).map((line) => `  ${line}`).join("\n"));
-    console.error("\nThe servers' own logs: .wrangler/preview/site.log, games.log and rooms.log");
+    console.error("\nThe servers' own log: .wrangler/preview/servers.log");
   }
   process.exit(1);
 }
@@ -233,7 +291,11 @@ function readSeeded() {
 }
 
 function readLog() {
-  return existsSync(LOG) ? readFileSync(LOG, "utf8") : "";
+  return readText(LOG);
+}
+
+function readText(file) {
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
 
 function isAlive(pid) {

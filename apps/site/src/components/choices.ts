@@ -378,10 +378,10 @@ component({
   name: "Check field",
   slug: "check-field",
   group: "inputs",
-  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a white tick. On a page that saves at once, use a Toggle.",
+  summary: "A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.",
   styles: `
 /* A check field: a small carved box of the fields' glass, cut by the edge rule, before its words. Ticked, the whole box turns orange
-   and raised, with a white tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
+   and raised, with a dark tick. The real checkbox lies over the box, unseen, so the keyboard, forms and screen readers get
    the system's own; the whole line is its label, so a press anywhere on it ticks it. */
 .check { position: relative; display: inline-flex; align-items: flex-start; gap: var(--gap-words-control); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 ${TOUCH_ROOM(".check")}
@@ -392,8 +392,8 @@ ${TOUCH_ROOM(".check")}
 .check-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .check-box > .ico { position: relative; z-index: 2; width: 16px; height: 16px; stroke-width: 2.4; transform: scale(0.6); transition: transform 0.3s var(--spring); }
 .check:not(.is-disabled):hover .check-box, .check.is-pointed .check-box { --face-color: var(--field-hover); }
-/* Ticked: the whole box turns orange, lit like the runner, with a white tick. */
-.check-box:has(.check-input:checked) { --face-color: var(--run); color: #fff; box-shadow: none; }
+/* Ticked: the whole box turns orange, lit like the runner, with a dark tick. */
+.check-box:has(.check-input:checked) { --face-color: var(--run); color: var(--on-run); box-shadow: none; }
 .check-box:has(.check-input:checked) > .ico { transform: scale(1); }
 .check-box:has(.check-input:checked) > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .check:not(.is-disabled):hover .check-box:has(.check-input:checked), .check.is-pointed .check-box:has(.check-input:checked) { --face-color: var(--run-hi); }

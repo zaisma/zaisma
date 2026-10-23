@@ -171,5 +171,5 @@ export function startFakeAi(port) {
   });
 }
 
-// Run on its own (node fake-ai.mjs <port>): the preview's set-up blocks while it waits for scans, and they need this to answer.
+// Started inside run.mjs's process; or on its own: node fake-ai.mjs <port>
 if (process.argv[1] === fileURLToPath(import.meta.url)) await startFakeAi(Number(process.argv[2]));

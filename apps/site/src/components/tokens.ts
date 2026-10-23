@@ -151,6 +151,8 @@ html, body { overscroll-behavior-x: none; }
 :root {
   color-scheme: light dark;
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
+  /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
+  --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */
   --danger: #D93A2B; --danger-lo: #A82718;
   --page: #EEF2F7;

@@ -17,6 +17,7 @@ Each rule says what holds it. A rule a check can measure has one, so it holds on
 - **No words cut off, none left alone.** Words wrap rather than being clipped (an ellipsis only where a page says so), and no paragraph or heading leaves one word alone on its last line (`text-wrap`, set once in `tokens.ts`). *Held by* `npm run layout:check` ("words cut off").
 - **Nothing empty takes a place.** A thing with nothing in it (a bot check before it's needed) takes no room and no gap. *Held by* `npm run layout:check` ("an empty thing taking a gap").
 - **The page's panes, the header and the footer share one edge.** *Held by* `npm run layout:check` ("out of line with the header").
+- **Nothing square in a cut corner.** Anything with an edge in a pane's corner takes the corner's cut, with no component asking for it; only words, bare icons and thin lines are left alone. *Held by* `npm run layout:check` ("square in a cut corner").
 - **One runner in view.** The header's Sign in is a cut button on a page with a runner of its own. *Held by* `npm run layout:check` ("two runners in view").
 - **A pane is as wide as what holds it, or as wide as what's in it.** Never a width of its own: one that should take half the screen is a column of Columns. *Held by* the compiler (`paneWidth: "full" | "fit"`) and `test/site/design.test.ts` ("layout").
 - **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat color. *Held by* `test/site/design.test.ts` (one glass, the edge rule).
@@ -71,6 +72,7 @@ The same in both:
 | Token | Value | Use |
 | --- | --- | --- |
 | `--run` / `--run-hi` / `--run-lo` | `#F7931A` / `#FFB24A` / `#A85A06` | The runner, the current tab's line, focus |
+| `--on-run` | `#14171C` | Words and marks on an orange face (the runner, a ticked box), in both themes: 7.8:1 against it |
 | `--focus-on-run` | `#7A4100` | Focus on an orange face (the runner, a toggle that's on): 3.5:1 against it |
 | `--danger` | `#D93A2B` | Only a delete's confirm step |
 | `--display` | Jost (self-hosted) | Headings and everything you press or read at a glance |
@@ -106,7 +108,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
   - **On no pane, it's cut as if it were in one:** 16 and 8.
   - **Never more than a quarter of its short side,** wherever it sits, so a small box near a pane's corner (a check's box) keeps its shape.
 
-  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. Game covers follow the rule too (`data-cut-line` on `.cover-art`): near a pane's corner a cover takes its cut, in the middle of a pane it's square, so no picture is a plain rectangle against a cut corner. **Profile pictures are the one exception: always square, never bevelled or slanted, alone or in a row** (Picture frame and Picture row, `data.ts`); in a row each lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
+  Its outline (a swatch's line, focus) is the cut line's stroke, so it follows the same shape. **Anything with an edge follows it, with nothing to mark:** a picture, a cover, a profile picture, any filled, bordered or shadowed box, and a slab of glass with no corners of its own (a picture's frame) take a pane corner's cut where they sit in one, and are square in the middle (`cutEdged` and `fitCuts` in `glass-script.ts`). Only what has no edge is left alone: words, a bare icon, a line or a mark thinner than 6px (a divider, an underline, a chart's line, a loader), a glow or shadow on its own. In a picture row each picture lies over the next with a small shadow (`--picture-shadow`). The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
 
 ## Spacing
 
@@ -163,7 +165,7 @@ Say what each thing is, since the spacing and margins come from it (`LayoutItem`
 
 - **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
 - **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, and shares.
-- **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome at 320 × 667 and 1440 × 900, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. It must pass for any page change, and GitHub's check runs it.
+- **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome at 320 × 667 and 1440 × 900, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. It opens a few pages at once (`--tabs`, one fewer than the cores, at most 4). It must pass for any page change, and GitHub's check runs it in full on every pull request; while you work, `--only <part of a path>` checks just the pages you changed, and the full run is once before you push.
 
 ### Screens
 
@@ -293,7 +295,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `name: string`, `label: string`, `id?: string`, `text?: string`, `placeholder?: string`, `rowCount: number`, `maximumCharacterCount?: number`, `hint?: string`, `isRequired?: boolean`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused"`
 - **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
   - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `placeholder?: string`, `id?: string`, `icon?: IconName`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused" | "is-open" | "is-open-above"`
-- **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a white tick. On a page that saves at once, use a Toggle.
+- **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.
   - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `isRequired?: boolean`, `error?: string`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
 - **Choice cards** (`choiceCards(options: ChoiceCardsOptions)`, `choices.ts`): One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.
   - `options`: `name: string`, `label: string`, `choices: ChoiceCard[]`, `pickedValue?: string`, `id?: string`, `isCompact?: boolean`, `error?: string`, `isDisabled?: boolean`, `state?: PressState`
