@@ -175,13 +175,10 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
   return `<div class="hit block"><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a>${(game.playing_now_player_count ?? 0) >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? `<span class="players">${PEOPLE_ICON}${game.playing_now_player_count}<span class="sr"> playing now</span></span>` : ""}</div>`;
 }
 
-/** Shown in place of a cover for a game that has none: the home's rows are covers, so a game without one gets Zaisma's mark on glass. */
-const PLACEHOLDER_COVER = "/zaisma-mark-metal.svg";
-
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-export const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
+export const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
 
 /** One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. */
 function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]): LayoutItem {
@@ -246,7 +243,6 @@ ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
-      placeholder_cover: PLACEHOLDER_COVER,
       icons: { people: icon("people").html, clock: icon("clock").html },
       parts: { updated_tag: tag("Updated", "new").html },
     })}${scriptTags(HOME_SCRIPT)}`,

@@ -22,6 +22,8 @@ export interface CheckedPage {
    * nowhere (the page has none, or many, like the gallery).
    */
   mainActionShows: "everywhere" | "desktop" | "nowhere";
+  /** The page is for finding a game (the home): its first cover shows whole without scrolling, on every screen. */
+  isCoverAboveFold?: boolean;
   isOnSignInSite?: boolean;
   /** The test account it's seen signed in as (scripts/preview/sign-ins.mjs). */
   account?: string;
@@ -34,7 +36,8 @@ const GALLERY_GROUPS = ["", "/layout", "/actions", "/inputs", "/navigation", "/p
 
 /** Every page and state the layout check opens (scripts/layout-check.mjs), and the Screens page offers. */
 export const CHECKED_PAGES: CheckedPage[] = [
-  { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere" },
+  { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   // A game online, with rooms to list, and one on its own (Play is the runner on both).
   { name: "Game page, online", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page", area: "Playing", path: "/g/star-haul", mainActionShows: "everywhere" },

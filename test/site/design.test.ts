@@ -35,6 +35,8 @@ import layoutGallerySource from "../../apps/site/src/components/layout-gallery.t
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
+import readingSource from "../../apps/site/src/components/reading.ts?raw";
+import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
@@ -42,8 +44,15 @@ const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
+  "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
+
+/** Every file in components/, so a new one can't be left out of SOURCES (Vite lists them as it builds the test). */
+declare global {
+  interface ImportMeta { glob(pattern: string): Record<string, () => Promise<unknown>> }
+}
+const COMPONENT_FILES = Object.keys(import.meta.glob("../../apps/site/src/components/*.ts")).map((path) => `components/${path.split("/").pop()}`);
 
 /**
  * Every page is built from one gallery of components (docs/DECISIONS.md): zaisma.com/design shows each one,
@@ -58,6 +67,13 @@ const page = async (path: string) => {
 };
 
 describe("the gallery", () => {
+  it("reads every component's source: none is left out of the checks below", () => {
+    // Modules with no markup, styles or pieces of their own to check: plain lists and data.
+    const READ_ELSEWHERE = new Set(["components/index.ts", "components/component.ts", "components/checked-pages.ts", "components/layout-measure.ts", "components/shaders.ts"]);
+    expect(COMPONENT_FILES.length).toBeGreaterThan(20);
+    expect(COMPONENT_FILES.filter((file) => !SOURCES[file] && !READ_ELSEWHERE.has(file))).toEqual([]);
+  });
+
   it("shows every component, by name, with its examples, on its group's page", async () => {
     for (const each of COMPONENTS()) {
       const { response, text } = await page(groupPath(each.group));
@@ -182,7 +198,7 @@ describe("the gallery", () => {
     const isSpacing = (value: string) => !/(\d|\.)(px|em|rem|vw|vh|%)/.test(value.replace(/var\(--(gap|pad)-[a-z-]+\)/g, ""));
     const problems: string[] = [];
     const checkDeclarations = (where: string, declarations: string) => {
-      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s{])((?:row-|column-)?gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?|scroll-padding(?:-[a-z]+)?):\s*([^;}]+)/g)) {
+      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s{])((?:row-|column-)?gap|padding(?:-[a-z]+)*|margin(?:-[a-z]+)*|scroll-padding(?:-[a-z]+)*):\s*([^;}]+)/g)) {
         if (!isSpacing(value) && !NOT_SPACING.has(`${where} | ${property}`)) problems.push(`${where} | ${property}: ${value.trim()}`);
       }
     };
@@ -249,9 +265,9 @@ describe("the gallery", () => {
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
         const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
-        // A row is a .control-row (foundations.ts), or a table's own .table-controls: a gap can't be negative, so its controls overlap by a
-        // margin of --gap-control-row-boxes.
-        if (!isStack && (holder.classes.includes("control-row") || holder.classes.includes("table-controls"))) continue;
+        // A row is a .control-row (foundations.ts), a table's own .table-controls, or choice cards while they fit side by side: a gap can't be
+        // negative, so its controls overlap by a margin of --gap-control-row-boxes (and choice cards stack --gap-control-stack apart once they can't).
+        if (!isStack && (holder.classes.includes("control-row") || holder.classes.includes("table-controls") || holder.classes.includes("choice-cards"))) continue;
         if (!isStack || gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-stack)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
       }
     }
@@ -369,8 +385,9 @@ describe("components", () => {
 
   it("keep a delete quiet until its confirm step, whose button is the one red and no runner", () => {
     const markup = actions.deleteButton("Delete this game", { action: "/dashboard/games/ashen-crown/delete", confirmLabel: "Delete Ashen Crown", confirmText: "It's gone for good." }).html;
-    expect(markup).toContain('<form class="sheet-form" method="post" action="/dashboard/games/ashen-crown/delete">');
-    const confirmForm = markup.slice(markup.indexOf('<form class="sheet-form"'), markup.indexOf("</form>", markup.indexOf('<form class="sheet-form"')));
+    // The sheet is one form, posting the delete; its buttons sit at its foot.
+    expect(markup).toContain('<form class="sheet-in" method="post" action="/dashboard/games/ashen-crown/delete">');
+    const confirmForm = markup.slice(markup.indexOf('<div class="pane-foot"'), markup.indexOf("</form>"));
     expect(confirmForm).toMatch(/<span class="face danger cut-raised"/);
     expect(confirmForm).not.toMatch(/class="[^"]*\brun\b/);
     // Cancel closes the sheet without sending the delete.
@@ -438,10 +455,10 @@ describe("components", () => {
     // negative gaps and took the pane's bottom corners while Continue as guest, last, went square. Against the scrolled content,
     // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
     expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
-    // The box that scrolls is one round the control, never the control itself: a table that scrolls inside itself sits square in its pane.
-    expect(glassScriptSource).toContain('el.parentElement.closest(".own-scroll")');
-    expect(glassScriptSource).toContain("top - scroller.scrollTop");
-    expect(glassScriptSource).toContain("top + scroller.scrollHeight");
+    // The box that scrolls round it, never itself: a table capped in height scrolls inside itself, and sits where it sits.
+    expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll")');
+    expect(glassScriptSource).toContain("top: p.top - scroller.scrollTop");
+    expect(glassScriptSource).toContain("bottom: p.bottom + scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop");
     expect(glassScriptSource).toContain("p = contentRectOf(el, holder)");
     expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
   });
@@ -475,7 +492,7 @@ describe("components", () => {
 // so a new one is a deliberate choice.
 const HAND_CUT = new Set<string>([
   // A pane: cut by its own corners (24 and 20, the header, the footer and the gallery's bar 20 and 14), which the edge rule fits all inside it to.
-  ".top", ".foot", ".header-frame", ".backdrop-frame", ".glass-play", ".cuts .header-cut", ".cuts .pane-cut",
+  ".top", ".foot", ".header-frame", ".backdrop-frame", ".city-frame", ".glass-strip", ".glass-play",
   // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
   ".glass-play .cut",
   // The scroll rail's thumb and the labels its marks open.
@@ -488,6 +505,9 @@ const HAND_CUT = new Set<string>([
   ".tag", ".cover-bar", ".country-flag",
   // The same line under a text button's words, along a list row's foot and across a step flow's top.
   ".text-line", ".step-mark",
+  // The step line's two outer ends, cut by the pane's corners at the frame gap, worked out from the cut tokens (the edge rule's cut, by hand
+  // for a bar four pixels tall).
+  ".step-line > li:first-child .step-mark", ".step-line > li:last-child .step-mark", ".step-line > li:only-child .step-mark",
   // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
   ".presence-line", ".presence-play",
 ]);
@@ -500,7 +520,7 @@ const GALLERY_ONLY = new Set<string>([
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
+  "header-frame", "tall", "is-fitted", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
 ]);
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
@@ -511,6 +531,8 @@ const OWN_SVG = new Map<string, string>([
   ['"arrow-first"', "the icon set's filled arrows, doubled: to the very start"],
   ['"arrow-last"', "the icon set's filled arrows, doubled: to the very end"],
   ['"arrow-on"', "the icon set's filled arrows"],
+  ['"arrow-first"', "the icon set's filled arrows"],
+  ['"arrow-last"', "the icon set's filled arrows"],
   ["play: '<svg", "the icon set's play triangle"],
   ["9988 2820", "Zaisma's wordmark (the Logo)"],
   ["4527 3300", "Zaisma's mark (the Logo)"],
@@ -528,7 +550,8 @@ const OWN_SVG = new Map<string, string>([
 // The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
 const OWN_GLASS = new Map<string, string>([
   ['class="glass glass-pane', "Glass pane itself"],
-  ['class="tray-group"', "Tray itself"],
+  ['class="tray-group ', "Tray itself"],
+  ['class="glass cut-sample', "Cut shapes' own samples: a pane's, the header's and a menu's cut, on glass"],
   ['class="face glass"', "a glass button's face"],
   ['class="frame ${pictureSize} glass', "a picture's frame"],
   ['class="dropdown glass', "a dropdown"],
@@ -549,7 +572,7 @@ const OWN_GLASS = new Map<string, string>([
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a", ".tab-switch.is-tight > a", ".tab-switch.small.is-tight > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a", ".tab-switch.framed > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
@@ -560,10 +583,13 @@ const NOT_TYPE = new Set<string>([
   ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', '.date-time-wheels [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".top .end .run | font-size",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
-  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font", ".field.select.small .select-button | font-size",
+  ".picture-row-place + .picture-row-place .av | font-size", ".picture-row-place + .picture-row-place .av::first-letter | font-size",
+  ".danger | font", ".danger | font-size", ".field.long textarea | font", ".select-button | font",
+  // On a phone what's typed is 16px, the least that keeps a phone from zooming in.
+  '.field input, .find input[type="search"], .bday-field | font-size', ".select-button | font-size",
   // The +N at the back of a row of pictures, sized to the pictures.
   ".frame.more | font",
 ]);
@@ -583,34 +609,46 @@ const NOT_SPACING = new Set<string>([
   ".chart-inner | padding", ".usage-track | padding",
   // A chart's number where you point: a small label's own room round its words.
   ".chart-tip | padding",
-  // A cover with no picture yet: Zaisma's mark, whole, with room round it in the well, a share of the cover's size.
-  ".cover.is-placeholder .cover-art img | padding",
   // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
-  ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
+  ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
-  ".field.with-toggle input | padding-right", '.find input[type="search"] | padding', ".bday-field | gap",
-  ".bday-field | padding", ".bday-chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
-  ".tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-start",
-  ".tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) | padding-inline-end", ".logo | padding", ".top > .logo | margin-left",
+  '.find input[type="search"] | padding', ".bday-field | gap",
+  ".bday-field | padding", ".bday-chev | margin-right",
+  ".logo | padding",
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
-  ".text-btn > .face | padding", ".text-btn.icon-only > .face | padding", ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
-  ".field.select.no-icon .select-button | padding-left", ".field.select.small .select-button | padding", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
-  ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap", ".select-list | gap",
+  ".danger | padding", ".danger | gap", ".field.long textarea | padding", ".select-button | padding",
+  ".field.select.no-icon .select-button | padding-left", ".choice-card | padding", ".list-row | padding", ".select-option | gap", ".select-option | padding",
+  ".choice-list .choice-card | padding", ".choice-list | padding", ".choice-list .choice-words | gap",
+  // A select's list: its inset round its choices, and the choices' own gap, a control's parts.
+  ".select-list | padding", ".select-options | gap",
+  // A select's choice lines its words up with the field's, past the field's icon.
+  ".select-list.after-icon .select-option | padding-inline-start",
+  // Choice cards side by side slant toward each other as a row does, and go one under another (no overlap) once each can't have a card's width.
+  ".choice-cards > .choice-card:not(:last-child) | margin-inline-end",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".color-well | padding", ".table-well | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".dropdown | gap", ".dropdown hr | margin",
-  // Lines words up with the places' words under them.
-  ".dropdown-head | padding",
+  ".dropdown | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
-  ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
+  ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-body.own-scroll:has(+ .rail:not([hidden])) | padding-right",
+  ".select-options.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".text-line | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
   ".check-words | padding-top", ".choice-card > .ico | margin-top",
+  // Lines words beside controls up with the controls' center line: half the tallest control's height less a line's, above the first line and below the last.
+  ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child | padding-top", ".layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child | padding-bottom",
+  ".pane-head[data-control-height] > .pane-head-words > :first-child | padding-top",
+  ".pane-foot[data-control-height] > .pane-foot-start.is-words > :first-child | padding-top", ".pane-foot[data-control-height] > .pane-foot-start.is-words > :last-child | padding-bottom",
+  // A step's name under its line: the words' gap, or more where the pane's margin over it is more (less the line's own 4px).
+  ".step-line | row-gap", ".step-line > li | gap",
+  // A tag's icon and its words: closer than any gap, inside a tag's own small carving.
+  ".tag:has(> .ico) | gap",
+  // A word of code in a line of reading: its own room round it in the well, smaller than any gap.
+  ".reading :not(pre) > code | padding",
   // A header example's stand-in page: room for the header over it, and to scroll the header compact.
   ".stand-in-page | padding", ".stand-in-page | padding-top",
 ]);
@@ -727,6 +765,7 @@ describe("layout", () => {
     expect(cells(row({ widths: "equal", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, true]);
     expect(cells(row({ widths: "fit", alignment: "end", items }).html).map((classes) => classes.includes("fills"))).toEqual([false, false]);
     expect(row({ widths: "fit", alignment: "end", items }).html).toContain('class="layout-row alignment-end"');
+    expect(row({ widths: "equal", items }).html).toContain('class="layout-row widths-equal alignment-start"');
     // Two controls side by side slant toward each other: their boxes overlap by the edge rule's neighbor distance.
     expect(cells(row({ widths: "lead-fills", items }).html)[0]).toContain("gap-end-control-row-boxes");
     expect(ROW_STYLES).toContain(".layout-row > .row-cell.gap-end-control-row-boxes { margin-inline-end: var(--gap-control-row-boxes); }");
@@ -742,10 +781,11 @@ describe("layout", () => {
     expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
   });
 
-  it("puts a pane's corner control in its corner, and keeps a text button's words at the pane's margin", () => {
+  it("puts a pane's corner control in its corner, a text button too", () => {
     const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.textButton("See all") } }).html;
-    expect(markup).toMatch(/<div class="pane-head"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
-    expect(markup).toContain('<div class="pane-foot-end is-words">');
+    expect(markup).toMatch(/<div class="pane-head" data-control-height="regular"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
+    // A text button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
+    expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });
 

@@ -274,10 +274,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .own-scroll),
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
+    // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
     var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
     if (!scroller || scroller === holder || !holder.contains(scroller) || scroller.scrollHeight <= scroller.clientHeight + 1) return p;
-    var s = rectOf(scroller), top = s.top - scroller.scrollTop;
-    return { top: top, bottom: top + scroller.scrollHeight, left: p.left, right: p.right };
+    // The holder's own box, run on by what's scrolled out of view above and below it, so a scroller that's only part of it (a sheet's body,
+    // under its head) measures as one that fills it.
+    return { top: p.top - scroller.scrollTop, bottom: p.bottom + scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, left: p.left, right: p.right };
   }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
@@ -296,9 +298,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
+    // A small box near a corner (a check's box) keeps its shape: never more than a quarter of its short side, as on no pane. A thin bar (a
+    // scrollbar along a pane's foot) follows the corner across its whole height instead.
+    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.25 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
-      return Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's
@@ -331,7 +336,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The outline, clockwise from the top left.
   function controlShape(w, h, slant, cuts, beside) {
     // Always two points a corner, the same one twice where it's square or slanted, so any two shapes blend point for point (a glide).
-    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h / 2); });
+    // A corner's cut takes at most its side's height, shared with the corner above or below it when both are cut.
+    var s = Math.min(slant, w / 3), c = cuts.map(function (cut) { return Math.min(cut, h); });
+    [[0, 3], [1, 2]].forEach(function (pair) { var sum = c[pair[0]] + c[pair[1]]; if (sum > h) { c[pair[0]] *= h / sum; c[pair[1]] *= h / sum; } });
     var corner = function (cut, a, b, sharp) { return cut > 0.5 ? [a, b] : [sharp, sharp]; };
     return [].concat(
       beside.start ? [[s, 0], [s, 0]] : corner(c[0], [0, c[0]], [c[0], 0], [0, 0]),
@@ -341,7 +348,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function controlOutline(el, w, h, as) {
     var beside = besides(el, as), cuts = fitCuts(el, w, h, as);
-    el.cutCorners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h / 2); });
+    var corners = [beside.start ? 0 : cuts[0], beside.end ? 0 : cuts[1], beside.end ? 0 : cuts[2], beside.start ? 0 : cuts[3]].map(function (cut) { return Math.min(cut, h); });
+    [[0, 3], [1, 2]].forEach(function (pair) { var sum = corners[pair[0]] + corners[pair[1]]; if (sum > h) { corners[pair[0]] *= h / sum; corners[pair[1]] *= h / sum; } });
+    el.cutCorners = corners;
     // Which ends slant, for CSS (data-slanted): an icon alone in a control centers in what shows of it, clear of a slant. Not for a glide's step.
     if (!as) { var slanted = ((beside.start ? "start " : "") + (beside.end ? "end" : "")).trim(); if ((el.getAttribute("data-slanted") || "") !== slanted) { if (slanted) el.setAttribute("data-slanted", slanted); else el.removeAttribute("data-slanted"); } }
     // A control's own parts (a switch's slab, data-cut-beside) keep their own slant; controls beside each other share --control-slant.
@@ -414,6 +423,58 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // Where it sits can change without its size changing: once the fonts are in, the layout has settled.
     edgeDraws.set(el, draw); drawEdgeAfterFonts();
   }
+  /*
+   * Everything with an edge of its own follows the edge rule too, not only what's marked [data-cut-line]: a picture, a filled box,
+   * anything bordered or shadowed, in a pane's corner takes the corner's cut at its gap, with no component asking for it. What has no
+   * edge (words, a bare icon, a line or a mark thinner than EDGE_MIN_PX) is left alone, and so is anything already cut: a control
+   * (its own shape), a pane (its own corners), what's inside either (clipped with it), and a shape of its own (a tag's clip-path).
+   */
+  var EDGE_MIN_PX = 6, edgedCuts = new Map();
+  function hasEdge(el, css) {
+    if (/^(IMG|VIDEO|CANVAS|IFRAME)$/.test(el.tagName)) return true;
+    if (css.backgroundImage !== "none" || css.boxShadow !== "none") return true;
+    var fill = css.backgroundColor.match(/[\\d.]+/g);
+    if (fill && (fill.length < 4 || Number(fill[3]) > 0.04)) return true;
+    return ["Top", "Right", "Bottom", "Left"].some(function (side) { return parseFloat(css["border" + side + "Width"]) > 0 && !/rgba\\(.*, 0\\)|transparent/.test(css["border" + side + "Color"]); });
+  }
+  // Edged things in a pane's corners, walking only into what reaches a corner: past the gaps where a corner's cut runs out, nothing is cut.
+  function edgedIn(pane) {
+    var found = [], p = rectOf(pane), reach = Math.max.apply(null, glassCorners(pane)) / (1 - Math.SQRT2 / 2);
+    function nearCorner(r) {
+      return [[r.left - p.left, r.top - p.top], [p.right - r.right, r.top - p.top], [p.right - r.right, p.bottom - r.bottom], [r.left - p.left, p.bottom - r.bottom]]
+        .some(function (gaps) { return Math.max(0, gaps[0]) + Math.max(0, gaps[1]) < reach; });
+    }
+    function walk(el) {
+      Array.prototype.forEach.call(el.children, function (child) {
+        if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return;
+        var r = child.getBoundingClientRect();
+        if (!r.width || !r.height || !nearCorner(r)) return;
+        var css = getComputedStyle(child);
+        if (css.display === "contents" || css.position === "fixed") return walk(child);
+        if (edgedCuts.has(child) || (css.clipPath === "none" && Math.min(r.width, r.height) >= EDGE_MIN_PX && hasEdge(child, css))) found.push(child);
+        else walk(child);
+      });
+    }
+    walk(pane);
+    return found;
+  }
+  function cutEdged(el) {
+    if (edgedCuts.has(el)) return;
+    function draw() { runPass(drawCut); }
+    function drawCut() {
+      var size = sizeOf(el), w = size[0], h = size[1];
+      if (!w || !h || !el.isConnected) return;
+      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false }));
+      if (shape.length > 4) { el.style.setProperty("--cut-shape", cssPolygon(shape)); el.style.clipPath = cssPolygon(shape); }
+      else { el.style.removeProperty("--cut-shape"); el.style.removeProperty("clip-path"); }
+    }
+    edgedCuts.set(el, draw); edgeDraws.set(el, draw);
+    window.zaismaWatch.size(el, draw, runBatch);
+    draw();
+  }
+  function cutEdgedOnPage() {
+    runBatch(function () { document.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (pane) { edgedIn(pane).forEach(cutEdged); }); });
+  }
   // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
   // { theme: "light" | "dark" | null } and { glass: { hueColor: "#rrggbb" | null } }, null going back to the default.
   window.zaismaSettings = {
@@ -440,7 +501,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     slabs.forEach(function (el) {
       if (done.has(el)) return; done.add(el);
       // Read as it's drawn, so a pane whose corners change (the home's pane, a tray's head only while its tray shows) is cut anew when it next changes size.
-      glass(el, function () { return corners(el, "pane"); });
+      // A slab with no corners of its own (all 0: a picture's frame) inside a pane follows the edge rule like anything else with an edge.
+      var draw = glass(el, function () {
+        var own = corners(el, "pane");
+        if (own.some(function (cut) { return cut > 0; }) || !holderOf(el)) return own;
+        var size = sizeOf(el);
+        return fitCuts(el, size[0], size[1]);
+      });
+      if (/^[0\\s]+$/.test(el.getAttribute("data-glass-corners") || "")) { edgeDraws.set(el, draw); drawEdgeAfterFonts(); }
     });
     // A control made of glass is drawn by glass, from the same edge rule.
     lines.forEach(function (el) {
@@ -450,5 +518,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   runBatch(function () { apply(document); });
   window.zaismaWatch.page(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
+  // Edged things are found once the page has laid out, and again whenever it may have moved them into a corner.
+  var edgedTimer = 0;
+  function findEdgedSoon() { clearTimeout(edgedTimer); edgedTimer = setTimeout(cutEdgedOnPage, 50); }
+  findEdgedSoon();
+  window.zaismaWatch.page(findEdgedSoon);
+  window.zaismaWatch.resize(findEdgedSoon);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(findEdgedSoon);
 })();
 `;

@@ -148,13 +148,20 @@ function coverFacts(game, list, at) {
 }
 // The same markup as components/panes.ts's gameCover.
 function coverFor(game, list, at) {
-  const cover = make("div", "cover"), art = make("a", "cover-art"), image = make("img");
+  const cover = make("div", "cover"), art = make("a", "cover-art");
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
   art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
-  image.src = game.cover || DATA.placeholder_cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
-  if (!game.cover) cover.classList.add("is-placeholder");
-  art.append(image);
+  // As Game cover makes it: the picture, or for a game with none, Zaisma's mark in the well with the game's title under it.
+  if (game.cover) {
+    const image = make("img");
+    image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
+    art.append(image);
+  } else {
+    cover.classList.add("is-placeholder");
+    const title = make("span", "cover-title"); title.setAttribute("aria-hidden", "true"); title.textContent = game.title;
+    art.append(title);
+  }
   const bar = make("span", "cover-bar"); bar.setAttribute("aria-hidden", "true");
   cover.append(art, bar, coverFacts(game, list, at));
   if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");
@@ -209,22 +216,26 @@ document.addEventListener("keydown", (event) => {
 });
 
 /* ---- Starting up ---- */
+// One banner at a time, so the games show first even on a phone: Zaisma's news while it's open, then the guest's.
 const guest = $("home-guest");
-if (guest && !isSignedIn) guest.hidden = false;
+const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
 fillContinue();
 // Zaisma's news shows until this device closes it; closing remembers it, so it never comes back here.
 const news = $("home-news");
+let isNewsShown = false;
 if (news) {
   const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
   let closed = [];
   try { closed = JSON.parse(localStorage.getItem(NEWS_KEY) || "[]"); } catch {}
-  if (!closed.includes(id)) news.hidden = false;
-  const close = news.querySelector(".banner-close button");
+  if (!closed.includes(id)) { news.hidden = false; isNewsShown = true; }
+  const close = news.querySelector('button[name="banner_close"]');
   if (close) close.addEventListener("click", () => {
     news.hidden = true;
+    showGuest();
     try { localStorage.setItem(NEWS_KEY, JSON.stringify([id, ...closed.filter((each) => each !== id)].slice(0, 20))); } catch {}
   });
 }
+if (!isNewsShown) showGuest();
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
     if (!answer) return;

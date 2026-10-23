@@ -29,7 +29,9 @@ import { ROOM_PAGE_ROOM_COUNT,
 import { authConfigured } from "./auth.ts";
 import { backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
-import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
+import { glanceFacts, listRows, problemState } from "./components/data.ts";
+import { person } from "./components/people.ts";
+import { facts, type Fact } from "./components/reading.ts";
 import { cutField } from "./components/fields.ts";
 import { glassPane, icon, logo, tag, type IconName } from "./components/foundations.ts";
 import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
@@ -152,8 +154,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     ? describePlayModes(playModes).map((playMode) => ({ text: playMode.label, icon: PLAY_MODE_ICONS[playMode.mode] }))
     : game.multiplayer_mode !== "none" ? [{ text: "Online multiplayer", icon: "globe" as const }] : [];
   const gameFacts: Fact[] = [
-    ...(playItems.length ? [{ label: "Players", items: playItems }] : []),
-    ...(devices.length ? [{ label: "Works on", items: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICONS[device] ?? "computer" })) }] : []),
+    ...(playItems.length ? [{ label: "Players", entries: playItems }] : []),
+    ...(devices.length ? [{ label: "Works on", entries: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICONS[device] ?? "computer" })) }] : []),
   ];
 
   const isSignedInAdult = viewer.account?.age_band === "18+";
@@ -178,14 +180,14 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
         ? [words(paragraph(html`${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.`, { type: "note", id: "account-note" }))]
         : []),
       words(paragraph("", { type: "note", icon: "warning", id: "device-note", isHidden: true })),
-      ...(tester ? [block(banner({ text: testerNote, icon: "warning", tone: "amber" }))] : []),
+      ...(tester ? [block(banner({ text: testerNote, icon: "warning", tone: "warning" }))] : []),
       ...(isClosed
         ? [words(paragraph(html`This game isn't open to your account.`, { type: "words" }), { id: "closed" }), control(cutButton("Find other games", { href: "/", isFullWidth: true }))]
         : [
             block(row({ widths: "lead-fills", items: [control(runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })), control(cutButton("Details", { href: "#about", isBig: true }))] })),
             block(row({ widths: "fit", items: [control(textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })), control(textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } }))] })),
           ]),
-      ...(gameFacts.length ? [block(facts({ facts: gameFacts, label: "About this game" }))] : []),
+      ...(gameFacts.length ? [block(facts({ facts: gameFacts, arrangement: "across", label: "About this game" }))] : []),
     ],
   });
   // The developer's pictures, the one picked large with the rest under it to pick from; the pane's heading is said to screen readers alone.

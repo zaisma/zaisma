@@ -18,12 +18,11 @@ export function examplePage(env: Env): Response {
     body: stack({
       items: [
         { kind: "words", markup: html`<h2>Tell players about your game</h2>` },
-        { kind: "block", markup: html`<p>A page is components in a pane: this one asks for a name, a few words and one setting, and saves nothing.</p>` },
-        { kind: "control", markup: cutField({ id: "example-page-title", name: "title", label: "Title", type: "text", icon: "person", placeholder: "Tiny Farm" }) },
-        { kind: "block", markup: longField({ id: "example-page-description", name: "description", label: "Description", rowCount: 4, maximumCharacterCount: 500, placeholder: "What is it, and who is it for?" }) },
+        { kind: "control", markup: cutField({ id: "example-page-title", name: "title", label: "Title", type: "text", icon: "pencil", placeholder: "Tiny Farm" }) },
+        { kind: "block", markup: longField({ id: "example-page-description", name: "description", label: "Description", rowCount: 3, maximumCharacterCount: 500, placeholder: "What is it, and who is it for?" }) },
         { kind: "block", markup: toggle({ id: "example-page-listed", name: "is_listed", label: "Show it to players", isOn: true, hint: "Only people with the link can play it while this is off." }) },
         { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Save", { type: "button" }) }, { kind: "control", markup: cutButton("Cancel", { type: "button" }) }] }) },
-        { kind: "words", markup: html`<p>${textLink("Every component", "/design")}, in every state.</p>` },
+        { kind: "words", markup: html`<p>This page saves nothing: it shows how one is built from the gallery. ${textLink("Every component", "/design")}, in every state.</p>` },
       ],
     }),
   });

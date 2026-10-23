@@ -8,7 +8,7 @@ const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico"
 /** Every line icon the drafts use. Each is drawn in the words' color (.ico). */
 export const ICONS = {
   person: stroke("0 0 20 20", '<circle cx="10" cy="6.8" r="3.2"/><path d="M3.8 17.2c0-3.4 2.8-5.9 6.2-5.9s6.2 2.5 6.2 5.9"/>'),
-  people: stroke("0 0 16 16", '<circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/>', ' stroke-width="1.5"'),
+  people: stroke("0 0 16 16", '<circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/>', ' stroke-width="1.28"'),
   friends: stroke("0 0 20 20", '<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
   // Playing on your own, in your own world.
   headphones: stroke("0 0 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
@@ -23,7 +23,7 @@ export const ICONS = {
   "globe-south-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M8.8 10.2l2.5.4 1.5 1.9-.8 2.5-1.7 2.1-.8-2.3-.8-2.3z"/>'),
   globe: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2z"/>'),
   megaphone: stroke("0 0 20 20", '<path d="M3 8v4h3l7 4V4L6 8z"/><path d="M6 12l1.4 4.4h2.2L8.6 12.6M15.6 7.6a3.2 3.2 0 0 1 0 4.8"/>'),
-  clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.5"'),
+  clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.28"'),
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
@@ -71,6 +71,30 @@ export const ICONS = {
   download: stroke("0 0 20 20", '<path d="M10 3.5v9M6.2 8.8 10 12.6l3.8-3.8"/><path d="M4 16.5h12"/>'),
   "out-of-page": stroke("0 0 20 20", '<path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5"/><path d="M14.5 12v4.5h-11v-11H8"/>'),
   passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
+  // Things a player does to a game, a post or a person.
+  heart: stroke("0 0 20 20", '<path d="M10 16.4S3.5 12.5 3.5 7.9A3.5 3.5 0 0 1 10 6a3.5 3.5 0 0 1 6.5 1.9c0 4.6-6.5 8.5-6.5 8.5z"/>'),
+  bookmark: stroke("0 0 20 20", '<path d="M5.5 3h9v14l-4.5-3.4L5.5 17z"/>'),
+  "vote-up": stroke("0 0 20 20", '<path d="M10 3.6 16.2 11h-3.7v5.4h-5V11H3.8z"/>'),
+  "vote-down": stroke("0 0 20 20", '<path d="M10 16.4 3.8 9h3.7V3.6h5V9h3.7z"/>'),
+  reply: stroke("0 0 20 20", '<path d="M8 4.8 3.4 9.4 8 14"/><path d="M3.6 9.4H12a4.5 4.5 0 0 1 4.5 4.5v1.6"/>'),
+  quote: stroke("0 0 20 20", '<path d="M3.5 9.5h4.5V15H3.5zM3.5 9.5c0-2.6 1.2-4.2 3.8-5M12 9.5h4.5V15H12zM12 9.5c0-2.6 1.2-4.2 3.8-5"/>'),
+  send: stroke("0 0 20 20", '<path d="M3 9.6 17 3.5l-5.2 13.4-2.6-5.2z"/><path d="M9.2 11.7 17 3.5"/>'),
+  pencil: stroke("0 0 20 20", '<path d="M13.4 3.4l3.2 3.2-9.4 9.4-4 .8.8-4z"/><path d="M11.6 5.2l3.2 3.2"/>'),
+  plus: stroke("0 0 20 20", '<path d="M10 4v12M4 10h12"/>'),
+  minus: stroke("0 0 20 20", '<path d="M4 10h12"/>'),
+  link: stroke("0 0 20 20", '<path d="M8.7 11.3a3.2 3.2 0 0 0 4.5 0l2.7-2.7a3.2 3.2 0 0 0-4.5-4.5l-1.1 1.1"/><path d="M11.3 8.7a3.2 3.2 0 0 0-4.5 0l-2.7 2.7a3.2 3.2 0 0 0 4.5 4.5l1.1-1.1"/>'),
+  pause: stroke("0 0 20 20", '<path d="M7 4.5v11M13 4.5v11"/>', ' stroke-width="2.2"'),
+  // Someone blocked, or something turned off.
+  ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
+  bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
+  info: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.3v.1"/>'),
+  filter: stroke("0 0 20 20", '<path d="M3 4.5h14l-5.5 6.4v5.3l-3-1.6v-3.7z"/>'),
+  sort: stroke("0 0 20 20", '<path d="M6.5 4v12M3.5 7l3-3 3 3M13.5 16V4M10.5 13l3 3 3-3"/>'),
+  key: stroke("0 0 20 20", '<circle cx="6.5" cy="13.5" r="3.2"/><path d="M8.8 11.2 16 4M13.4 6.6l2 2M11.6 8.4l1.6 1.6"/>'),
+  image: stroke("0 0 20 20", '<path d="M3 4h14v12H3z"/><circle cx="7.4" cy="8" r="1.4"/><path d="M3.4 15.4l4.6-4.6 3 3 2-2 3.6 3.6"/>'),
+  // What a game uses on Zaisma's servers: its database, and how much of an allowance is gone.
+  database: stroke("0 0 20 20", '<ellipse cx="10" cy="5" rx="6" ry="2.2"/><path d="M4 5v10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5M4 10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/>'),
+  gauge: stroke("0 0 20 20", '<path d="M3.3 14.6a7 7 0 1 1 13.4 0"/><path d="M10 13.4l3.2-4.4"/>'),
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
   "arrow-on": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>',

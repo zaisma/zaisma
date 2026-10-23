@@ -77,7 +77,7 @@ export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameO
               { kind: "block", markup: listRows({ rows: [{ title: "", end: "Change", buttonDataAttributes: { back: "" } }] }) },
               { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 4, maximumCharacterCount: 2000 }) },
               { kind: "block", markup: pictureCheck({ id: "report-pic", imageId: "report-pic-img", alt: "The game when you opened Report", checkId: "report-picture", checkName: "picture", checkLabel: "Include this picture of the game", isHidden: true }) },
-              { kind: "block", id: "report-hold", isHidden: true, markup: banner({ text: "These go straight to a person.", icon: "warning", tone: "amber" }) },
+              { kind: "block", id: "report-hold", isHidden: true, markup: banner({ text: "These go straight to a person.", icon: "warning", tone: "warning" }) },
               { kind: "words", markup: paragraph("", { type: "note", isMuted: true, id: "report-context" }) },
               { kind: "words", markup: html`<p class="field-error" id="report-error" role="alert" hidden></p>` },
               { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Back", { type: "button", dataAttributes: { back: "" } }) }, { kind: "control", markup: runButton("Send report", { id: "report-send", type: "submit" }) }] }) },

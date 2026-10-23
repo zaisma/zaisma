@@ -124,7 +124,7 @@ describe("the home page", () => {
     expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-news" hidden><div data-announcement-id="announcement_homenews">/);
     expect(text).toContain("Kept rooms are here.");
     expect(text).toMatch(/href="\/forum"[\s\S]*?Read more/);
-    expect(text).toContain('class="banner-close"');
+    expect(text).toContain('name="banner_close"');
     await env.DB.prepare("UPDATE announcements SET ends_at_ms = ? WHERE id = 'announcement_homenews'").bind(Date.now() - 1).run();
     expect((await homePage()).text).not.toContain("home-news");
   });

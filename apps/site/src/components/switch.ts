@@ -33,6 +33,10 @@ export interface SwitchTab {
   /** It can fold away into the end of the tabs (the header's Developer and Forum, off a developer page): folded, it takes no room and can't be reached. */
   isFoldable?: boolean;
   isFolded?: boolean;
+  /** Can't be chosen now (a sort with nothing to sort by yet): it's faded and answers nothing. */
+  isDisabled?: boolean;
+  /** The gallery's fixed states: the ghost under it as if pointed at, or the focus line round it. */
+  state?: "is-pointed" | "is-focused";
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
@@ -41,8 +45,9 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const inside = (tab: SwitchTab) =>
     tab.icon || tab.badgeCount ? html`${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span>${tab.badgeCount ? tag(tab.badgeCount, "count") : ""}` : html`${tab.label}`;
   const kind = `${options.switchSize}${options.isVertical ? " vertical" : ""}`;
+  const classNames = (tab: SwitchTab) => [tab.isFoldable ? "foldable" : "", tab.isFoldable && tab.isFolded ? "folded" : "", tab.state ?? ""].filter(Boolean).join(" ");
   const folding = (tab: SwitchTab) =>
-    tab.isFoldable ? (tab.isFolded ? raw(' class="foldable folded" tabindex="-1" aria-hidden="true"') : raw(' class="foldable"')) : "";
+    html`${classNames(tab) ? html` class="${classNames(tab)}"` : ""}${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}`;
   // Framed: in a carved frame of its own that it scrolls inside, fading at its ends (the header's tabs, the gallery's groups on a phone), so
   // the switch has no well or cut of its own, and its slab's ends on the first and last tabs follow the frame's ends.
   const own = options.isFramed
@@ -50,8 +55,9 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
-      ? html`<a href="${tab.href}"${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
-      : html`<button type="button"${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${inside(tab)}</button>`,
+      ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
+        html`<a${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+      : html`<button type="button"${folding(tab)}${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}"${tab.isDisabled ? raw(" disabled") : ""}>${inside(tab)}</button>`,
   )}</div>${options.isFramed ? raw("</div></div>") : ""}`, isSmall ? "small" : "regular");
 }
 
@@ -87,15 +93,26 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
       if (el.redrawCut) el.redrawCut(isGliding && from.beside !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
     }
-    // A switch on its own (not framed, so it can't scroll) whose tabs don't fit keeps them closer to their words.
+    // A switch on its own (not framed, so it can't scroll) is never wider than its room: where its tabs don't fit, each gives up the same
+    // share of the room round its words (--tab-room), down to LEAST_ROOM_PX, so the tabs share the width instead of spilling out of it.
+    var LEAST_ROOM_PX = 6;
     function fit() {
       if (isVertical || sw.classList.contains("framed")) return;
-      sw.classList.remove("is-tight");
-      if (sw.scrollWidth > sw.clientWidth + 0.5) sw.classList.add("is-tight");
+      sw.style.removeProperty("--tab-room");
+      var overflowPx = sw.scrollWidth - sw.clientWidth, shown = Array.prototype.filter.call(tabs, function (tab) { return !tab.classList.contains("folded"); });
+      if (overflowPx <= 0.5 || !shown.length) return;
+      var roomPx = parseFloat(getComputedStyle(sw).getPropertyValue("--tab-room")) || LEAST_ROOM_PX;
+      sw.style.setProperty("--tab-room", Math.max(LEAST_ROOM_PX, roomPx - overflowPx / (2 * shown.length)).toFixed(2) + "px");
     }
     // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
     var isWaitingToSlide = false;
-    function settle() { if (isWaitingToSlide) return; fit(); var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); put(ghost, on); if (ring && focused) put(ring, focused); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
+    // The gallery's fixed states: a tab marked is-pointed has the ghost under it, one marked is-focused the focus line round it.
+    function fixedStates() {
+      var pointed = sw.querySelector(":scope > .is-pointed"), focused = sw.querySelector(":scope > .is-focused"), ring = sw.querySelector(".focus-ring");
+      if (pointed) { put(ghost, pointed); sw.classList.add("pointing"); }
+      if (focused && ring) { put(ring, focused); sw.classList.add("is-focus-shown"); }
+    }
+    function settle() { if (isWaitingToSlide) return; fit(); var on = current(), focused = sw.querySelector(":scope > :focus-visible"), ring = sw.querySelector(".focus-ring"); slab.style.transition = "none"; put(slab, on); put(ghost, on); if (ring && focused) put(ring, focused); fixedStates(); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
     // A switch of links that was on the last page too (the gallery's groups): once this page shows, its slab slides from the last page's tab
     // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
@@ -120,25 +137,23 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
     window.zaismaWatch.size(sw, settle);
+    // A switch as wide as its tabs doesn't change size when its room grows, so the room it has is watched too, to give its tabs back their room.
+    if (!isVertical && !sw.classList.contains("framed") && sw.parentElement) window.zaismaWatch.size(sw.parentElement, settle);
     // A page script can pick a tab too (the gallery's Light or Dark, when the theme changes elsewhere).
     sw.pickTab = function (tab) {
       sw.classList.remove("pointing");
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
       put(slab, tab, true); put(ghost, tab, true);
-      // In a row that scrolls, the picked tab comes into the middle of it.
-      // A smooth scroll can be cut short (a touch still settling, the page scrolling too), so it lands there once the glide is over.
+      // In a row that scrolls, the picked tab comes whole into view, clear of the row's fades (SCROLL_FADE_SCRIPT's showWhole).
       var row = sw.closest("[data-fades-sideways]");
-      if (row && row.scrollWidth > row.clientWidth) {
-        var goal = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2));
-        row.scrollTo({ left: goal, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-        clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
-      }
+      if (row && row.showWhole) row.showWhole(tab, true);
     };
+    function isDisabled(tab) { return tab.disabled || tab.getAttribute("aria-disabled") === "true"; }
     tabs.forEach(function (tab) {
-      tab.addEventListener("pointerenter", function () { if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
+      tab.addEventListener("pointerenter", function () { if (isDisabled(tab)) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
       // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab.
       tab.addEventListener("click", function () {
-        if (tab.href && new URL(tab.href, location.href).pathname !== location.pathname) return;
+        if (isDisabled(tab) || (tab.href && new URL(tab.href, location.href).pathname !== location.pathname)) return;
         sw.pickTab(tab);
       });
     });
@@ -161,28 +176,37 @@ component({
   group: "inputs",
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
-/* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-.tab-switch { --control-height: var(--control-height-regular); position: relative; display: flex; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
+/* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at.
+   It's never wider than its room: where its tabs don't fit, they keep less room round their words (--tab-room, SWITCH_SCRIPT) and share it. */
+.tab-switch { --control-height: var(--control-height-regular); --tab-room: 18px; position: relative; display: flex; min-width: 0; max-width: 100%; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
 .tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape);
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
 .tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
-/* A tab is its words, with its icon before them and its count after, in one line. */
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); padding: 0 var(--tab-room, 18px); border: 0; background: none; cursor: pointer;
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room); border: 0; background: none; cursor: pointer;
   font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
+/* One that can't be chosen now: faded, and it answers nothing (SWITCH_SCRIPT gives it no ghost). */
+.tab-switch > [aria-disabled="true"], .tab-switch > :disabled { cursor: default; opacity: 0.4; }
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
-/* Framed: the carved frame is its own (.switch-frame), --switch-height tall, and the tabs scroll inside it. */
-.switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, 44px); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
+/* Framed: the carved frame is its own (.switch-frame), --switch-height tall (a size class's height), and the tabs scroll inside it. */
+.switch-frame { position: relative; display: flex; flex: none; min-width: 0; height: var(--switch-height, var(--control-height-regular)); background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape);
   transition: height 0.45s cubic-bezier(.2,.8,.2,1); }
-.switch-frame.small { height: var(--switch-height, 36px); }
-.switch-frame-row { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; }
-.tab-switch.framed, .tab-switch.framed.small { height: 100%; width: max-content; min-width: 100%; background: none; box-shadow: none; clip-path: none; }
+.switch-frame.small { height: var(--switch-height, var(--control-height-small)); }
+/* At rest a row of tabs that scrolls shows them whole at its start: it snaps a tab's start to just past the fade there (SCROLL_FADE_SCRIPT
+   starts it where the one you're on shows whole). That fade is as wide as a tab's room round its words, so the words of the tab before
+   are wholly out of view, never cut, and the slab of the one you're on is never faded; the fade at its end stays the usual one
+   (--fade-sideways-px), over whatever runs on past it. */
+.switch-frame-row { --fade-sideways-px: 28px; --tab-fade: 18px; position: relative; display: flex; flex: 1; min-width: 0; height: 100%; scroll-snap-type: x mandatory; scroll-padding-inline-start: var(--tab-fade); }
+.switch-frame.small > .switch-frame-row { --tab-fade: 14px; }
+.switch-frame > .switch-frame-row.more-left { --fade-left: var(--tab-fade); }
+.tab-switch.framed > :not([aria-hidden]) { scroll-snap-align: start; }
+.tab-switch.framed, .tab-switch.framed.small { height: 100%; width: max-content; min-width: 100%; max-width: none; background: none; box-shadow: none; clip-path: none; }
 /* When they fit, the tabs share out the frame's width; when they don't, they keep their own and scroll. */
 .tab-switch.framed > a, .tab-switch.framed > button { flex: 1 0 auto; }
 /* A tab that folds away into the end of the tabs and opens out of it again. */
@@ -197,16 +221,14 @@ component({
 .tab-switch.is-focus-shown .focus-ring { opacity: 1; }
 .tab-switch .focus-ring .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The sort switch: the header's switch, smaller. */
-.tab-switch.small { --control-height: var(--control-height-small); padding: 3px; clip-path: var(--cut-shape); }
+.tab-switch.small { --control-height: var(--control-height-small); --tab-room: 14px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
-.tab-switch.small > a, .tab-switch.small > button { --tab-room: 14px; font-size: 14px; }
-/* Tight: a switch whose tabs don't fit their room (two long ones, on a 320px phone) keeps them closer to their words (SWITCH_SCRIPT says so). */
-.tab-switch.is-tight > a, .tab-switch.is-tight > button { --tab-room: 12px; }
-.tab-switch.small.is-tight > a, .tab-switch.small.is-tight > button { --tab-room: 8px; }
+/* Its tabs keep their own widths, and share out any room past them evenly (a sort filling its line under a heading on a phone). */
+.tab-switch.small > a, .tab-switch.small > button { flex: 1 1 auto; font-size: 14px; }
 /* The first and last tabs shown sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there.
    A folded tab isn't shown, so the ends are the first and last tabs that aren't folded (the cut line, slab, ghost and ring are hidden from readers, so they never count). */
-.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
-.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room, 18px) + var(--control-slant) / 2); }
+.tab-switch:not(.vertical) > :nth-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-start: calc(var(--tab-room) + var(--control-slant) / 2); }
+.tab-switch:not(.vertical) > :nth-last-child(1 of :not(.folded):not([aria-hidden])) { padding-inline-end: calc(var(--tab-room) + var(--control-slant) / 2); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and the ghost follows the pointer between them. */
 .tab-switch.vertical { flex-direction: column; height: auto; }
@@ -215,6 +237,15 @@ component({
 .tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; height: 40px; padding: 0 14px; text-align: left; }
 .tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
 .tab-switch.vertical .ico { width: 18px; height: 18px; }
+/* A count in a tab across sits just after its words. */
+.tab-switch:not(.vertical) > :is(a, button):has(> .tag) { display: flex; align-items: center; gap: var(--gap-words-words); }
+/* On a touch screen a switch is at least a regular control tall, and each tab's hit area takes in the well's inset above and below it, so a
+   finger always has a regular control's height to land on (the clip round the well would cut off anything reaching further). */
+@media (pointer: coarse) {
+  .tab-switch:not(.vertical, .framed) { height: max(var(--control-height), var(--control-height-regular)); }
+  .switch-frame, .switch-frame.small { height: max(var(--switch-height, var(--control-height-small)), var(--control-height-regular)); }
+  .tab-switch > :not([aria-hidden])::before { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--control-height-regular)) / 2)); bottom: min(0px, calc((100% - var(--control-height-regular)) / 2)); }
+}
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost, .tab-switch > .foldable { transition: none; } }
 `,
   render: tabSwitch,
@@ -228,8 +259,26 @@ component({
       markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] }),
     },
     {
-      label: "Small, with counts: rooms by region",
-      markup: tabSwitch({ label: "Region", switchSize: "small", tabs: [{ label: "All", isCurrent: true }, { label: "EU", badgeCount: 60, isCurrent: false }, { label: "NA", badgeCount: 8, isCurrent: false }, { label: "AS", badgeCount: 5, isCurrent: false }] }),
+      label: "Long words in a narrow place: the tabs keep less room round them",
+      markup: html`<div style="width:min(248px,100%)">${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}</div>`,
+    },
+    {
+      label: "Pointed: the faint slab under it",
+      markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false, state: "is-pointed" }] }),
+      isStill: true,
+    },
+    {
+      label: "Keyboard focus",
+      markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false, state: "is-focused" }] }),
+      isStill: true,
+    },
+    {
+      label: "One that can't be chosen yet: Friends, before you've added any",
+      markup: tabSwitch({ label: "Whose scores", switchSize: "small", tabs: [{ label: "Everyone", tabValue: "everyone", isCurrent: true }, { label: "Friends", tabValue: "friends", isCurrent: false, isDisabled: true }] }),
+    },
+    {
+      label: "With counts, the one you're on too",
+      markup: tabSwitch({ label: "Inbox", switchSize: "small", tabs: [{ label: "Replies", href: "#switch", badgeCount: 3, isCurrent: true }, { label: "Mentions", href: "#switch", badgeCount: 12, isCurrent: false }] }),
     },
     {
       label: "On a loop",
@@ -273,8 +322,14 @@ component({
   --swatch-size: 32px; }
 .color-well .color-pick:not(:last-of-type) { margin-inline-end: var(--gap-control-row-boxes); }
 .color-picker-name { margin-left: var(--gap-words-control); }
-.color-pick { position: relative; width: var(--swatch-size); height: var(--swatch-size); padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
-.color-pick .cut-line polygon { stroke: var(--line); stroke-width: 1; }
+.color-pick { position: relative; flex: none; width: var(--swatch-size); height: var(--swatch-size); padding: 0; border: 0; cursor: pointer; background: none; }
+/* Its color is painted inside its cut, and so is its line; the button itself isn't clipped, so on a touch screen its hit area can reach
+   past its color (below). */
+.color-pick::after { content: ""; position: absolute; inset: 0; background: var(--swatch); clip-path: var(--cut-shape); }
+.color-pick > .cut-line { clip-path: var(--cut-shape); }
+/* Its rim: a line inside its cut that stands out from the well by 3:1 at least in either theme, so a swatch of the well's own color (white
+   on light glass, black on smoked) still shows its shape. */
+.color-pick .cut-line polygon { stroke: var(--swatch-rim, var(--muted)); stroke-width: 2; }
 /* Pointed at: a light rim inside its cut. */
 .color-pick:hover .cut-line polygon { stroke: var(--raise-top); stroke-width: 4; }
 /* Picked: the swatch keeps its whole color, and an orange bar floats under it in the well's bottom: slanting with the swatches between
@@ -284,6 +339,9 @@ component({
 /* Keyboard focus: the orange line round its cut, like every control's. */
 .color-pick:focus-visible { outline: none; }
 .color-pick:focus-visible .cut-line polygon, .color-pick.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* On a touch screen a swatch's hit area is a regular control tall: from the well's top (4px above it) down over the bar's room under it,
+   all inside the well, whose clip would cut off anything reaching further. */
+@media (pointer: coarse) { .color-pick::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: var(--control-height-regular); } }
 @media (prefers-reduced-motion: reduce) { .color-mark { transition: none; } }
 `,
   render: colorPicker,

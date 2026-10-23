@@ -12,7 +12,11 @@ import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DR
 export { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
+import { paneParts, row, type ControlMarkup } from "./layout.ts";
 export { GLASS_SCRIPT, WATCH_SCRIPT } from "./glass-script.ts";
+
+/** The backdrop's still: soft light in the theme's colors, shown until a shader draws, wherever WebGL is missing, and while it's lost. */
+const BACKDROP_STILL = "radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%), radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base)";
 export { BACKDROP_SCRIPT } from "./backdrop-script.ts";
 
 
@@ -56,8 +60,8 @@ export function glassPane(options: GlassPaneOptions): Raw {
  * What has an edge sits on it at the frame gap, like a pane's; its words are closer than a pane's (--pad-tray), and its foot's cuts
  * smaller (16 and 12), still a bevel at what sits in its corners.
  */
-export function tray(options: { head: Raw; body: Raw; label?: string }): Raw {
-  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
+export function tray(options: { head: Raw; body: Raw; label?: string; paneWidth?: "full" | "fit" }): Raw {
+  return html`<section class="tray-group ${options.paneWidth ?? "full"}"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
 }
 
 /** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */
@@ -70,9 +74,14 @@ export const loader = (): Raw => raw('<span class="loader" aria-hidden="true"></
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
 export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
 
-/** A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated), "count" the buttons' face (unread topics, or plain words), "warning" amber (Held, Over the limit), "glass" a sliver of the menus' glass (the rail's labels). data.ts's Tag shows it. */
-export type TagTone = "new" | "count" | "warning" | "glass";
-export const tag = (words: string | number, tone: TagTone): Raw => html`<span class="tag ${tone}${tone === "glass" ? " glass" : ""}">${String(words)}</span>`;
+/**
+ * A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated, Live), "count" a number in the buttons'
+ * face (unread topics), "plain" words in the same face (Replaced, Developer), "warning" amber (Held, Over the limit), "glass" a sliver of the
+ * menus' glass (the rail's labels). An icon before its words says what kind it is at a glance. data.ts's Tag shows it.
+ */
+export type TagTone = "new" | "count" | "plain" | "warning" | "glass";
+export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName } = {}): Raw =>
+  html`<span class="tag ${tone}">${options.icon ? html`${icon(options.icon)}<span>${String(words)}</span>` : String(words)}</span>`;
 
 export interface ColorChoice {
   /** What it's called, said by a screen reader and shown beside the picker when it's picked. */
@@ -99,23 +108,19 @@ export function colorPicker(options: { label: string; choices: ColorChoice[]; pi
 /** A pick moves the bar and the name; what the color changes is the page's own script's (it reads data-color-value). */
 export const COLOR_PICKER_SCRIPT = `/* color pickers */(function () {
   var root = getComputedStyle(document.documentElement);
-  var SLANT_PX = parseFloat(root.getPropertyValue("--control-slant")) || 10, GAP_PX = parseFloat(root.getPropertyValue("--gap-control-row")) || 4;
+  var SLANT_PX = parseFloat(root.getPropertyValue("--control-slant")) || 10;
   // The bar under the picked swatch: its sides carry on the swatch's own slants down to it, so between colors it slants with them;
-  // under the first or last color, its outer end follows the well's cut corner instead, at the gap the swatches keep from it.
+  // under the first or last color, its outer end is straight under the swatch's edge, and the well's own cut corner trims it.
   function place(well, isGliding) {
     var mark = well.querySelector(".color-mark"), picks = Array.prototype.slice.call(well.querySelectorAll(".color-pick"));
     var pick = well.querySelector('.color-pick[aria-pressed="true"]');
     if (!mark || !pick) { if (mark) mark.hidden = true; return; }
     mark.hidden = false;
     var size = pick.offsetHeight, run = SLANT_PX / size, left = pick.offsetLeft, right = left + pick.offsetWidth;
-    var top = mark.offsetTop, bottom = top + mark.offsetHeight, below = top - (pick.offsetTop + size), height = mark.offsetHeight;
-    var wellWidth = well.offsetWidth, wellHeight = well.offsetHeight, cuts = well.cutCorners || [0, 0, 0, 0], reach = GAP_PX * Math.SQRT2;
-    // x on the well's bottom left or right corner line, moved in by the gap, at height y.
-    function startCorner(y) { return cuts[3] + reach - (wellHeight - y); }
-    function endCorner(y) { return wellWidth - (cuts[2] + reach - (wellHeight - y)); }
+    var top = mark.offsetTop, below = top - (pick.offsetTop + size), height = mark.offsetHeight;
     var isFirst = pick === picks[0], isLast = pick === picks[picks.length - 1];
-    var x = isFirst ? [Math.max(left, startCorner(top)), Math.max(left, startCorner(bottom))] : [left - run * below, left - run * (below + height)];
-    var endX = isLast ? [Math.min(right, endCorner(top)), Math.min(right, endCorner(bottom))] : [right - SLANT_PX - run * below, right - SLANT_PX - run * (below + height)];
+    var x = isFirst ? [left, left] : [left - run * below, left - run * (below + height)];
+    var endX = isLast ? [right, right] : [right - SLANT_PX - run * below, right - SLANT_PX - run * (below + height)];
     var from = Math.min(x[0], x[1]), to = Math.max(endX[0], endX[1]);
     var points = [[x[0] - from, 0], [endX[0] - from, 0], [endX[1] - from, height], [x[1] - from, height]];
     if (!isGliding) mark.style.transition = "none";
@@ -141,20 +146,34 @@ export interface SheetMarkupOptions {
   /** Unique on the page: what opens it names it (aria-controls). */
   id: string;
   title: string;
+  /** Its words and fields, which scroll between its head and its buttons when they're long. */
   body: Raw;
-  /** Its close button (actions.ts's cutButton, small and only its icon), in a form that closes the sheet without a script. */
-  closeButton: Raw;
+  /** Its Close (actions.ts's cutButton: small, only its icon, formmethod="dialog"), in its head's corner. */
+  closeButton: ControlMarkup;
+  /** Its buttons, an equal row at its foot, in view while the body scrolls: the way out first, the one thing to do last. */
+  buttons?: ControlMarkup[];
+  /** Where its form posts when a button sends it. Without one, a button that sends it only closes it. */
+  action?: string;
+  /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it. */
+  placement?: "center" | "foot";
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
 }
 
 /**
- * A sheet (panes.ts's Sheet shows it): a <dialog> of the panes' glass over the dimmed page, with its title and a close button at its
- * top. Its buttons come from actions.ts, so the markup is shared here, where both actions.ts (a delete's confirm step) and panes.ts
- * can reach it. SHEET_SCRIPT opens it from any button that names it (aria-controls); Esc and its close button close it natively.
+ * A sheet (panes.ts's Sheet shows it, and a Delete button's confirm is one): a <dialog> of the panes' glass, one form, with its title and
+ * Close in its head's corner (Pane parts), its body scrolling under the head, and its buttons at its foot. Close and Cancel close it
+ * without sending it (formmethod="dialog"). Here, so actions.ts can make one without a loop of imports.
  */
 export function sheetMarkup(options: SheetMarkupOptions): Raw {
-  return html`<dialog class="sheet glass${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}<div class="sheet-in"><div class="sheet-head"><h2 class="sheet-title" id="${options.id}-title">${options.title}</h2><form class="sheet-close" method="dialog">${options.closeButton}</form></div>${options.body}</div></dialog>`;
+  const buttons = options.buttons ?? [];
+  const parts = paneParts({
+    head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`, end: options.closeButton },
+    body: html`<div class="sheet-scroll"><div class="sheet-body">${options.body}</div></div>`,
+    foot: buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
+  });
+  const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${parts}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${parts}</form>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -174,6 +193,8 @@ const SWATCHES: { token: string; note: string }[] = [
   { token: "--run-hi", note: "Its light" },
   { token: "--run-lo", note: "Its shade" },
   { token: "--tag-new", note: "A new thing's tag" },
+  { token: "--warning", note: "A warning, a field marked wrong" },
+  { token: "--online", note: "Online, playing" },
   { token: "--danger", note: "A delete's confirm step only" },
 ];
 
@@ -187,13 +208,17 @@ component({
   summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Color: the gallery's swatches. */
-.swatches { list-style: none; margin: 0; padding: var(--pad-words); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
-.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: var(--type-facts); }
+/* The swatches have edges, so they sit at the frame gap (the first takes the pane's corner); each one's name and use are words beside it, its
+   name on the swatch's top line. */
+.swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-figure), 1fr)); gap: var(--gap-block-block); }
+.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: start; font: var(--type-facts); }
+.swatches li > :not(.chip-swatch) { padding-inline-end: var(--pad-words); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
 .divider-sample { display: grid; padding: var(--pad-words); }
+.divider-sample > * { --pad-words: 0px; }
 .divider-sample strong { font: var(--type-name); }
 .divider-sample span { font: var(--type-facts); color: var(--muted); }
 .divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
@@ -220,7 +245,7 @@ const TYPE_TOKENS: { token: string; use: string; sample: string; isMuted?: boole
   { token: "--type-note", use: "a note under something, a footer", sample: "Zaisma is open source, under the MIT license.", isMuted: true },
   { token: "--type-facts", use: "facts under a cover, a caption, a small heading", sample: "2 hours ago · 1,204 playing", isMuted: true },
   { token: "--type-tag", use: "a Tag", sample: "Updated" },
-  { token: "--type-code", use: "a token or a value", sample: "--gap-block-block" },
+  { token: "--type-code", use: "a token or a value", sample: "version_8f3k2m" },
 ];
 
 component({
@@ -232,7 +257,7 @@ component({
 /* Type: each token, set in itself. */
 .type-sample { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-block-block); color: var(--ink); }
 .type-sample li { display: grid; gap: var(--gap-words-words); }
-.type-sample code { font: var(--type-code); color: var(--muted); }
+.type-sample code { font: var(--type-code); color: var(--muted); padding-inline: var(--pad-words); }
 .type-sample .is-muted { color: var(--muted); }
 .type-sample p { margin: 0; max-width: 60ch; }
 `,
@@ -277,12 +302,13 @@ component({
   group: "foundations",
   summary: "Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.",
   styles: `
-/* Glass: shown over a few shapes, so the blur has something to show. */
-.glass-strip { width: 100%; position: relative; display: flex; flex-wrap: wrap; gap: var(--gap-block-block); padding: var(--pad-pane); overflow: hidden; }
+/* Glass: shown over a few shapes, so the blur has something to show, in a frame cut like a pane with the glass at its frame gap. The shapes
+   sit by share of its height, so wherever the glass wraps onto more lines there's something behind each piece. */
+.glass-strip { width: 100%; position: relative; display: flex; flex-wrap: wrap; gap: var(--gap-block-block); padding: var(--pad-frame); overflow: hidden; clip-path: ${cutPolygon("pane")}; }
 .glass-strip > i { position: absolute; width: 140px; height: 140px; border-radius: 50%; }
-.glass-strip > i:nth-child(1) { left: 6%; top: -30px; background: #F7931A; }
-.glass-strip > i:nth-child(2) { left: 38%; top: 40px; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
-.glass-strip > i:nth-child(3) { right: 8%; top: 10px; background: #1E9C8E; }
+.glass-strip > i:nth-child(1) { left: 6%; top: 8%; background: #F7931A; }
+.glass-strip > i:nth-child(2) { left: 38%; top: 40%; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
+.glass-strip > i:nth-child(3) { right: 8%; top: 62%; background: #1E9C8E; }
 .glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: var(--type-words); }
 .glass-strip .glass strong { display: block; font: var(--type-name); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
@@ -358,12 +384,12 @@ component({
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
-.backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none;
-  background: radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%),
-    radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base); }
+.backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; background: ${BACKDROP_STILL}; }
 .backdrop.is-framed { position: absolute; }
-/* A shader that lost its drawing context (the browser keeps only so many) shows what's under it until it's drawn again, never the browser's broken canvas. */
+/* A shader that lost its drawing context (the browser keeps only so many) hides until it's drawn again, never showing the browser's broken
+   canvas; what holds it shows the same still meanwhile, so glass is never over nothing. */
 .backdrop.is-lost { visibility: hidden; }
+:has(> .backdrop.is-lost) { background: ${BACKDROP_STILL}; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -393,13 +419,14 @@ component({
   summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and bends the light under the glass for any shader: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
-.shader-code { margin: 0; width: 100%; padding: var(--pad-inner-pane); overflow-x: auto; white-space: pre; font: var(--type-code); color: var(--ink-2);
+/* Its lines run on sideways where the frame is narrow, fading at the side with more (data-fades-sideways), never cut off. */
+.shader-code { margin: 0; width: 100%; padding: var(--pad-inner-pane); white-space: pre; font: var(--type-code); color: var(--ink-2);
   background: var(--well); box-shadow: var(--well-shade); }
 `,
   examples: [
     { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER, isGlassAdaptive: true }), "Dusk", "Four lines.") },
     { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true }), "Clouds", "fbm, from the helpers.") },
-    { label: "The dusk sky's whole source", markup: html`<pre class="shader-code">${DUSK_SHADER.trim()}</pre>`, isWide: true },
+    { label: "The dusk sky's whole source", markup: html`<pre class="shader-code" data-fades-sideways>${DUSK_SHADER.trim()}</pre>`, isWide: true },
     { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER, isGlassAdaptive: true }), "Neon Drift", "Skyline, neon windows, rain.") },
     { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER, isGlassAdaptive: true }), "Frostline", "Aurora, stars, falling snow.") },
     { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER, isGlassAdaptive: true }), "Starward", "Nebula, twinkling stars, a planet.") },
@@ -417,7 +444,7 @@ component({
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
 .icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
-.icon-set .play { color: var(--ink); }
+.icon-set .play { width: 20px; height: 20px; color: var(--ink); }
 `,
   render: icon,
   examples: [{ label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` }],
@@ -435,6 +462,8 @@ component({
 .logo.mark { --logo-height: 17px; padding: 0; opacity: 0.8; }
 .logo svg { height: var(--logo-height); width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* On a touch screen it's a control's height to press, whatever its size. */
+@media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--control-height-regular) - 100%) / -2)) 0; } }
 @media (prefers-reduced-motion: reduce) { .logo svg { transition: none; } }
 `,
   render: logo,
@@ -459,6 +488,7 @@ component({
   render: loader,
   examples: [
     { label: "On its own", markup: loader() },
-    { label: "Bigger, for a page that's loading", markup: html`<span style="--loader-width:40px;color:var(--ink)">${loader()}</span>` },
+    // A page that's loading shows the Loading state (Data), never a bigger loader over it: the loader is only what a pressed thing shows,
+    // as every button's Busy example does.
   ],
 });
