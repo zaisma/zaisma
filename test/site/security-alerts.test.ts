@@ -201,9 +201,13 @@ describe("script policy reports", () => {
     await report(JSON.stringify(legacy("https://evil.example/a.js")) + " ".repeat(17_000));
     await report("not json");
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM blocked_scripts").first()).toEqual({ row_count: 0 });
+    // The limiter counts in windows aligned to the clock's minutes, so the 31 reports go out well inside one: past a minute's 40th
+    // second, it waits for the next (on a busy runner they once crossed into a new window, and the 31st counted).
+    const intoMinuteMs = Date.now() % 60_000;
+    if (intoMinuteMs > 40_000) await new Promise((done) => setTimeout(done, 60_000 - intoMinuteMs + 100));
     for (let i = 0; i < 31; i++) expect((await report(legacy("https://evil.example/a.js"), "application/csp-report", "192.0.2.250")).status).toBe(204);
     expect(await env.DB.prepare("SELECT occurrence_count FROM blocked_scripts").first()).toEqual({ occurrence_count: 30 });
-  });
+  }, 40_000);
 
   it("are asked for by every zaisma.com page's policy", async () => {
     const response = await SELF.fetch(`${SITE}/`);
