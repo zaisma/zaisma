@@ -396,6 +396,20 @@ export const STAND_IN_BACKGROUNDS_SCRIPT: PageScript = pageScript("stand-in-back
 const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
   html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div></div>`;
 
+export interface GameBackgroundFrameOptions {
+  /** The stand-in world it shows (STAND_IN_BACKGROUNDS in shaders.ts). */
+  standInSlug: string;
+  /** The game's name, on the glass over it. */
+  title: string;
+  /** A few words under the name: its kind of game. */
+  note: string;
+}
+
+/** A game's world in a frame, a piece of glass over it naming the game: the gallery's examples and the background guide's. */
+export function gameBackgroundFrame(options: GameBackgroundFrameOptions): Raw {
+  return backdropFrame(backdrop({ isFramed: true, standInSlug: options.standInSlug, isGlassAdaptive: true }), options.title, options.note);
+}
+
 component({
   name: "Backdrop",
   slug: "backdrop",
@@ -453,9 +467,10 @@ component({
   group: "foundations",
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: "",
+  render: gameBackgroundFrame,
   examples: STAND_IN_BACKGROUNDS.map((background) => ({
     label: `${background.genre}: ${background.summary}`,
-    markup: backdropFrame(backdrop({ isFramed: true, standInSlug: background.slug, isGlassAdaptive: true }), background.title, background.genre),
+    markup: gameBackgroundFrame({ standInSlug: background.slug, title: background.title, note: background.genre }),
   })),
 });
 

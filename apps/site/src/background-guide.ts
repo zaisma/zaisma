@@ -3,7 +3,7 @@ import type { Env } from "./env.ts";
 import { html, layout, scriptTags, type Raw } from "./html.ts";
 import type { Viewer } from "./viewer.ts";
 import { textLink } from "./components/actions.ts";
-import { STAND_IN_BACKGROUNDS_SCRIPT, backdrop, glassPane, tray } from "./components/foundations.ts";
+import { STAND_IN_BACKGROUNDS_SCRIPT, gameBackgroundFrame, glassPane, tray } from "./components/foundations.ts";
 import { grid, stack } from "./components/layout.ts";
 import { readingText } from "./components/reading.ts";
 import { SHADER_HELPERS, STAND_IN_BACKGROUNDS, type StandInBackground } from "./components/shaders.ts";
@@ -73,8 +73,7 @@ const withCode = (words: string): Raw => html`${words.split("`").map((part, part
  * Backdrop's frame and its glass, drawn by the backdrop script once STAND_IN_BACKGROUNDS_SCRIPT gives the canvas its shader, the glass
  * light or smoked by what the world shows.
  */
-const worldFrame = (background: StandInBackground): Raw =>
-  html`<div class="backdrop-frame">${backdrop({ isFramed: true, standInSlug: background.slug, isGlassAdaptive: true })}<div class="glass" data-glass data-glass-corners="pane"><strong>${background.title}</strong><span>${background.genre}</span></div></div>`;
+const worldFrame = (background: StandInBackground): Raw => gameBackgroundFrame({ standInSlug: background.slug, title: background.title, note: background.genre });
 
 /** The page's content, inside the shell (the header, Zaisma's backdrop and the footer). */
 export function backgroundGuideBody(): Raw {

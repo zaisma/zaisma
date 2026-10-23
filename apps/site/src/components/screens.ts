@@ -9,7 +9,7 @@ import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
 import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage } from "./checked-pages.ts";
 
 /** Zaisma's branches, in the order Screens shows them. */
-const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Gallery"];
+const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Developers", "Gallery"];
 
 /*
  * Screens: one page on Julius's phone and on a desktop, light and dark, side by side, each measured by the layout check. It's where a
