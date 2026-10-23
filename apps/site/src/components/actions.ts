@@ -239,7 +239,7 @@ const RUN_STYLES = `
   --control-height: var(--control-height-regular);
   position: relative; z-index: 1; overflow: hidden; height: var(--control-height); padding: 0 24px 0 22px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
-  color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
+  color: var(--on-run); text-shadow: 0 1px 0 rgba(255,226,180,0.45);
   font: 600 16px var(--display); letter-spacing: 0.01em;
   /* The face: lit from above, deepening toward its foot. */
   background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
