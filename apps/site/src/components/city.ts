@@ -321,7 +321,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  col = mix(uFog, col, mix(0.26, 1.0, uNight));\n" +
     // The foundation's tiers: a thin line of cool light along the top edge of each, faint by day and glowing at night: the island's edge.
     "  if (isWall && kind == 9) { float fromTop = (1.0 - vLocal.y) * vSize.y, edgeLine = 1.0 - smoothstep(0.12, 0.12 + max(fwidth(fromTop), 0.02) * 1.5, fromTop);\n" +
-    "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.25 * (1.0 - uNight)); glow += edgeTone * edgeLine * 1.3 * uNight; }\n" +
+    "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.25 * (1.0 - uNight)); glow += edgeTone * edgeLine * 0.4 * uNight; }\n" +
     // When the Relay fires: how long ago its wave passed this row's origin (each point, on the ground's own mesh), so a row lights whole,
     // like a pixel: hit flashes and fades fast, hold lingers, pass is the moment it goes by.
     "  float since = -1.0, hit = 0.0, hold = 0.0, pass = 0.0, carvedMask = 0.0; vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
@@ -392,8 +392,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float px = fwidth(e); float line = 1.0 - smoothstep(px * 0.5, px * 1.6, e);\n" +
     " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.3 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
     // The orange shapes keep more of their color through the haze, so they still read from afar.
-    // By day the orange (carvings, players, their trails) is a deeper burnt orange, so it draws the pale city without glaring.
-    " float orangeShare = smoothstep(0.12, 0.35, col.r - col.b) * smoothstep(0.08, 0.25, col.r - col.g); col = mix(col, col * vec3(0.8, 0.66, 0.55), orangeShare * (1.0 - uNight));\n" +
+    // By day the orange (carvings, players, their trails) is a deep rust, so it stands out on the pale void as bright orange does on the dark.
+    " float orangeShare = smoothstep(0.12, 0.35, col.r - col.b) * smoothstep(0.08, 0.25, col.r - col.g); col = mix(col, col * vec3(0.58, 0.34, 0.18), orangeShare * (1.0 - uNight));\n" +
     " float fog = hazeAt(uCam, vWorld) * mix(mix(0.45, 0.7, uNight), 1.0, uLit);\n" +
     " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), fog) + glow * (1.0 - 0.5 * fog);\n" +
     " outColor = vec4(col, uOpaque > 0.5 ? 0.0 : vCol.a); }";
@@ -512,14 +512,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var BRIGHT_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform float uThreshold; uniform float uOrangeBoost; out vec4 o;\n" +
     "void main(){ vec3 c = texture(uTex, vUv).rgb; float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n" +
     " float k = smoothstep(uThreshold, uThreshold + 0.12, l);\n" +
-    " float orange = smoothstep(0.42, 0.68, c.r - c.b) * smoothstep(0.12, 0.26, c.r - c.g);\n" +
-    " o = vec4(c * k + vec3(1.0, 0.55, 0.12) * orange * uOrangeBoost, 1.0); }";
+    " float orange = smoothstep(0.1, 0.35, c.r - c.b) * smoothstep(0.05, 0.18, c.r - c.g);\n" +
+    " o = vec4(c * k, clamp(orange * uOrangeBoost * 0.4, 0.0, 1.0)); }";
   var COPY_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; out vec4 o; void main(){ o = texture(uTex, vUv); }";
   var BLUR_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform vec2 uStep; out vec4 o;\n" +
-    "void main(){ vec3 c = texture(uTex, vUv).rgb * 0.227027;\n" +
-    " c += (texture(uTex, vUv + uStep * 1.3846).rgb + texture(uTex, vUv - uStep * 1.3846).rgb) * 0.316216;\n" +
-    " c += (texture(uTex, vUv + uStep * 3.2308).rgb + texture(uTex, vUv - uStep * 3.2308).rgb) * 0.070270;\n" +
-    " o = vec4(c, 1.0); }";
+    "void main(){ vec4 c = texture(uTex, vUv) * 0.227027;\n" +
+    " c += (texture(uTex, vUv + uStep * 1.3846) + texture(uTex, vUv - uStep * 1.3846)) * 0.316216;\n" +
+    " c += (texture(uTex, vUv + uStep * 3.2308) + texture(uTex, vUv - uStep * 3.2308)) * 0.070270;\n" +
+    " o = c; }";
   // The final picture: sharp across the frame, the bloom, a gentle filmic contrast and a vignette.
   var COMPOSITE_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
     "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect; uniform float uSharpen;\n" +
@@ -528,7 +528,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "void main(){ vec3 c = texture(uScene, vUv).rgb;\n" +
     " if (uSharpen > 0.0) { ivec2 at = ivec2(gl_FragCoord.xy); vec3 around = texelFetch(uScene, at + ivec2(1, 0), 0).rgb + texelFetch(uScene, at - ivec2(1, 0), 0).rgb + texelFetch(uScene, at + ivec2(0, 1), 0).rgb + texelFetch(uScene, at - ivec2(0, 1), 0).rgb;\n" +
     "  c = clamp(c + (c - around * 0.25) * uSharpen, 0.0, 1.0); }\n" +
-    " c += texture(uBloom, vUv).rgb * uBloomStrength;\n" +
+    // The bloom: bright light adds (the beam blinds by day as at night); the orange's own bloom glows at night and by day is a soft rust
+    // halo that deepens the pale void round the carvings and the players, as the glow lifts the dark round them at night.
+    " vec4 bloom = texture(uBloom, vUv); c += bloom.rgb * uBloomStrength;\n" +
+    " vec3 orangeGlow = vec3(1.0, 0.55, 0.15) * bloom.a * 2.5 * uBloomStrength, rustHalo = vec3(0.25, 0.62, 0.85) * bloom.a * 1.5 * uBloomStrength;\n" +
+    " c = mix(c * (1.0 - rustHalo), c + orangeGlow, uGradeNight);\n" +
     // The Relay's release: a brief warm brightening of the whole frame, kept far under a harmful flash.
     " c += vec3(1.0, 0.6, 0.25) * uFlash;\n" +
     // The lens flare while the Relay fires, from the capstone's slot (uFlareUv): a long thin horizontal streak through it, a small star,
@@ -2208,14 +2212,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     bindTex(2, targets.quarterA.tex);
     gl.uniform1f(u.uFocusY, focusAt[1] * 0.5 + 0.5);
     gl.uniform1f(u.uSharpen, sharpen);
-    gl.uniform1f(u.uBloomStrength, isSoft ? 0.1 + 0.28 * night + ((0.3 + 0.02 * night) * relay.flash + lerp(0.14, 0.06, night) * relay.intensity) * calm : 0);
-    gl.uniform1f(u.uFlash, lerp(0.065, 0.07, night) * relay.flash * calm);
+    gl.uniform1f(u.uBloomStrength, isSoft ? lerp(0.26, 0.38, night) + (lerp(0.12, 0.32, night) * relay.flash + lerp(0.08, 0.06, night) * relay.intensity) * calm : 0);
+    gl.uniform1f(u.uFlash, lerp(0.035, 0.07, night) * relay.flash * calm);
     gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect));
     // The lens flare's source: the capstone's slot on the screen, fading as it nears the frame's edges or goes behind the eye.
     projectInto(flareAt, vp, setInto(flarePoint, 0, (CAPSTONE_BOTTOM_Y + CAPSTONE_TOP_Y) / 2 + relay.capstoneLiftUnits, 0));
     var flareU = flareAt[0] * 0.5 + 0.5, flareV = flareAt[1] * 0.5 + 0.5, flareIn = flareAt[2] > 0 ? 1 - smooth(0.42, 0.6, Math.max(Math.abs(flareU - 0.5), Math.abs(flareV - 0.5))) : 0;
     gl.uniform2f(u.uFlareUv, flareU, flareV); gl.uniform1f(u.uGradeNight, night);
-    gl.uniform1f(u.uFlareStrength, flareIn * (0.5 * relay.flare + 0.9 * relay.flash + 0.35 * relay.intensity) * lerp(0.85, 1, night) * calm);
+    gl.uniform1f(u.uFlareStrength, flareIn * (0.5 * relay.flare + 0.9 * relay.flash + 0.35 * relay.intensity) * lerp(0.3, 1, night) * calm); // by day a third: on the pale void it would read as a blast
     drawFull();
   }
   var flarePoint = [0, 0, 0], flareAt = [0, 0, 0];
@@ -2690,12 +2694,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkoCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggXAAAABAEAJ0BKkgAHAA+tVSiTScko6ImeAsA4BaJaQDRvAk4KTjaNkkgtRncAP7wrEviDzcVkph5ydhOEhnVaykktPjlWRedN5DCs9VrMt6fwB9yyfTtqOINFCVwAAAA); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRn4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkAAAABAFAJ0BKkgAHAA+tVKgTCckoyKs1AlY4BaJZwDGuCpQXJTaQEGMWb/H2vKpqT/TuMAA/vVgWMqKKPgRWslReUU6Z/2NkUvNNFfU/ad+2Gh18ZTl3qaIih3LBni7cPwRJzEiEpZBz3Zbf1imSJE094njVFn+CzkilEaYXNWl0obGkW8nndLnnwADAWavGpAAAA==); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkwCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggXgAAAHAEAJ0BKkgAHAA+tVSiTScko6ImeAsA4BaJaQDRvAk4KTjMocCTFAUpmy8AAP7wrEviDzcVkph5ydDT+2n8Xe6tZ8y1xtPJrVqsLHn9cAzroGw/PiJIvFV+cWAAAAA=); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoACAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkgAAAFAFAJ0BKkgAHAA+tVKhTKckoyIs1AlY4BaJZwDIXCpQXKAULatiIH4UQSv+7TAPrXA6AAD+9WBYyooo+QINAhPEO4U3/Y2RehFQIju7a5s5TZu95iuwY4oDLIzXoP6dJs8UEG97cUGG0r3n49Nw5NpdWTDgCYem1FbYA3Y3T47M0x1CLH1Xu8XykuP1ju4moAAA); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkQCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggVgAAABAEAJ0BKiQAJAA+tVSmTicko6IjigDgFolpAMyUCm4OuunK/7MrDToQAP7wgIRDXP5l32yMxvnS2z9GviRVA/fuAbrBL1rJp44EgpEqE/EuBn2EhQAA); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnwCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjgAAAJAEAJ0BKiQAJAA+tVCgSqclIyGuKADgFolnALOAJ9dsL/7P2/+/Huk3l7Y9AAD+9CHRmyLPt5NpCqle+BkaD7WMIoybCnbf11vPeTLzmSXeuxFxhtfl/mJdCgsXdzUwzNuSe3jlqfZuu9dGaUxIuKiL5HTIDMa/I6DVPmDJFBPo2B44GD4328mtRZGAAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkYCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggWAAAALADAJ0BKiQAJAA+tVSnTacko6IjigDgFolpAMyUCm4OurVa5vOgAP7wgIRDXP5l32yM/iAstvGvJ6/vyQm6VZrz4V0m0O5QE6lTlvBAoQXgHaOvRyZBAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoICAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgglAAAANAEAJ0BKiQAJAA+tVCbSiclIiGuKZjgFolnAMXIJnEXST5DhhVLSgCMkHwF+7O8AP70IdGfdE8Pvu4yx51CobJktTAeOlGTYU9D7IMtAIPKN6zZ7kfEQrQkXqPD4lQqvmfizY1ETB+3LtD/aRb7CYNwoQcteodFeMNw2bEg/glNwgUBNLtXoHdTpGFBeg2XnQfNUAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
