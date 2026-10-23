@@ -154,7 +154,7 @@ jobs:
         env:
           LAYOUT_CHECK: "1"
       - if: failure()
-        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log || true
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
   docs-tests:
     name: Docs tests

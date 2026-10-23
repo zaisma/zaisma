@@ -8,6 +8,8 @@
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports job) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview, and nothing of another checkout's.
+//   npm run preview:list                 every preview running on this machine, from any checkout: its address, folder,
+//                                        how long it's been up, the memory it takes and the command that stops it.
 // Its output goes to .wrangler/preview-run/preview.log; the servers' own log is .wrangler/preview/servers.log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -35,8 +37,9 @@ const show = (path) => relative(process.cwd(), path) || ".";
 const [command = "start", ...flags] = process.argv.slice(2);
 if (command === "start") await start();
 else if (command === "stop") console.log((await stop()) ? "Stopped this checkout's preview." : "This checkout's preview wasn't running.");
+else if (command === "list") list();
 else {
-  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], or npm run preview:stop`);
+  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], npm run preview:stop or npm run preview:list`);
   process.exit(1);
 }
 
@@ -124,6 +127,53 @@ async function stop() {
   }
   rmSync(STATE_FILE, { force: true });
   return stopped;
+}
+
+/** Prints every preview running on this machine: what listens on a preview's site port, with everything in its process group. */
+function list() {
+  const sitePorts = new Map(OFFSETS.map((offset) => [8800 + offset, offset]));
+  // One per port (lsof lists a port once for each address it listens on).
+  const running = [...new Map(listeners().filter((listener) => sitePorts.has(listener.port)).map((listener) => [listener.port, listener])).values()];
+  if (!running.length) return console.log("No preview is running on this machine.");
+  const processes = new Map();
+  for (const line of (spawnSync("ps", ["-axo", "pid=,pgid=,etime="], { encoding: "utf8" }).stdout ?? "").split("\n")) {
+    const [pid, pgid, upFor] = line.trim().split(/\s+/);
+    if (pid) processes.set(Number(pid), { pgid: Number(pgid), upFor });
+  }
+  // top's memory is what each process takes, swapped and compressed parts too (ps counts only what's in memory now).
+  const megabytes = new Map();
+  for (const line of (spawnSync("top", ["-l", "1", "-stats", "pid,mem"], { encoding: "utf8" }).stdout ?? "").split("\n")) {
+    const match = /^(\d+)\s+([\d.]+)([KMG])/.exec(line.trim());
+    if (match) megabytes.set(Number(match[1]), Number(match[2]) * { K: 1 / 1024, M: 1, G: 1024 }[match[3]]);
+  }
+  let totalMegabytes = 0;
+  console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
+  for (const listener of running.sort((a, b) => a.port - b.port)) {
+    const group = processes.get(listener.pid)?.pgid;
+    const members = [...processes].filter(([, each]) => each.pgid === group).map(([pid]) => pid);
+    const groupMegabytes = members.reduce((sum, pid) => sum + (megabytes.get(pid) ?? 0), 0);
+    totalMegabytes += groupMegabytes;
+    const folder = processFolder(group) ?? processFolder(listener.pid) ?? "(its folder is unknown)";
+    const upFor = processes.get(group)?.upFor ?? processes.get(listener.pid)?.upFor ?? "?";
+    console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}`);
+    console.log(`    up ${upForText(upFor)}, ${(groupMegabytes / 1024).toFixed(1)} GB in ${members.length} processes. Stop it: npm --prefix "${folder}" run preview:stop`);
+  }
+  console.log(`\nAll together: ${(totalMegabytes / 1024).toFixed(1)} GB.`);
+}
+
+/** ps's elapsed time ([[days-]hours:]minutes:seconds) in words: "3 h 12 min". */
+function upForText(elapsed) {
+  const [days, rest] = elapsed.includes("-") ? elapsed.split("-") : ["0", elapsed];
+  const [seconds, minutes, hours = 0] = rest.split(":").map(Number).reverse();
+  const parts = [[Number(days), "days"], [hours, "h"], [minutes, "min"]].filter(([count]) => count > 0).map(([count, unit]) => `${count} ${unit}`);
+  return parts.length ? parts.join(" ") : `${seconds} s`;
+}
+
+/** The folder a process runs in. */
+function processFolder(pid) {
+  if (!pid) return null;
+  const line = (spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).stdout ?? "").split("\n").find((each) => each.startsWith("n"));
+  return line ? line.slice(1) : null;
 }
 
 /** The first offset with none of its ports taken, trying this checkout's last one first so links stay the same. */
