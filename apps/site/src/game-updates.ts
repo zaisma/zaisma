@@ -83,8 +83,8 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   const frame = () => document.getElementById("game");
   const tell = (message) => { const f = frame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, gameOrigin); };
   // The local preview shows each state by its link (?play&preview_bar=weak), since a room on this computer
-  // is never slow or gone; the game's own messages then don't change it. Never on zaisma.com.
-  const previewBar = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? new URLSearchParams(location.search).get("preview_bar") : null;
+  // is never slow or gone; the game's own messages then don't change it. Never on zaisma.com (a .ts.net name is the preview on a phone).
+  const previewBar = /^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) ? new URLSearchParams(location.search).get("preview_bar") : null;
 
   // The game's room, as its SDK says, and its connection: { code, connectionStatus, pingDurationMs, isWeak }.
   let connection = null;

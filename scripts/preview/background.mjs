@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The preview in one step, for build sessions and anyone with several checkouts:
-//   npm run preview:start [-- --reset] [--engines-only]
+//   npm run preview:start [-- --reset] [--engines-only] [--local]
 //                                        starts this checkout's preview in the background on the first
 //                                        free port offset (8800, 8900, …), waits until it's ready and
 //                                        prints its links and sign-ins. Already running: just prints them.
@@ -11,6 +11,9 @@
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports jobs, each ENGINE_SAMPLE_SHARD's share
 //                                        of them) instead of all the test data.
+//                                        When this Mac is on a tailnet with HTTPS on (phone.mjs), its links are the
+//                                        Mac's tailnet name over HTTPS, which open on a phone too; --local (and
+//                                        --engines-only) keeps it on localhost.
 //   npm run preview:stop                 stops this checkout's preview (or takes it out of the line), and nothing of another checkout's.
 //   npm run preview:list                 every preview and test run on this machine, from any checkout: its address or
 //   (or npm run test:list)               folder, how long it's been up, the memory it takes and how to stop it; all of
@@ -22,6 +25,7 @@ import net from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, nextTurn, OFFSETS, placeText, readLine, sizeText, testRunSizeBytes, waitingInOrder, withLock, WORKERS_TEST_FILE_SIZE_BYTES, writeLine } from "./memory.mjs";
+import { serveOnTailnet, stopServingOnTailnet, tailnetHost } from "./phone.mjs";
 import { PASSWORD, SIGN_INS } from "./sign-ins.mjs";
 
 const ROOT = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "../.."));
@@ -37,7 +41,9 @@ const READY_LINE = "Zaisma preview is running.";
 const READY_TIMEOUT_MS = 9 * 60_000;
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
 const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
-const siteFor = (offset) => `http://localhost:${8800 + offset}`;
+// Where a browser opens it: this Mac's tailnet name when the preview is on a phone (phoneHost), else localhost.
+const addressFor = (port, phoneHost) => (phoneHost ? `https://${phoneHost}:${port}` : `http://localhost:${port}`);
+const siteFor = (offset, phoneHost = null) => addressFor(8800 + offset, phoneHost);
 const show = (path) => relative(process.cwd(), path) || ".";
 
 const [command = "start", ...flags] = process.argv.slice(2);
@@ -52,11 +58,13 @@ else {
 async function start() {
   let reset = flags.includes("--reset");
   const enginesOnly = flags.includes("--engines-only");
-  const unknown = flags.filter((flag) => flag !== "--reset" && flag !== "--engines-only");
+  const unknown = flags.filter((flag) => flag !== "--reset" && flag !== "--engines-only" && flag !== "--local");
   if (unknown.length) {
-    console.error(`Unknown option ${unknown.join(" ")}. The options are --reset (fresh test data) and --engines-only (only the engine samples as test data).`);
+    console.error(`Unknown option ${unknown.join(" ")}. The options are --reset (fresh test data), --engines-only (only the engine samples as test data) and --local (links on localhost only, not on the phone).`);
     process.exit(1);
   }
+  // On the phone when Tailscale can carry it; --local and the engine samples (GitHub's jobs) stay on localhost.
+  const phone = flags.includes("--local") || enginesOnly ? { host: null, reason: null } : tailnetHost();
   // Engine-only data is a different set of test data: asking for the other kind starts fresh.
   if (!reset && !enginesOnly && readSeeded().startsWith("engines-only")) {
     console.log("The test data is the engine samples only, so this start makes the full test data.");
@@ -70,15 +78,17 @@ async function start() {
   }
   const state = readState();
   // Asleep, it answers once it has woken up (run.mjs): a few seconds, longer on a busy machine, or once its turn to wake comes.
-  if (!reset && state && isAlive(state.pid) && readLog().includes(READY_LINE) && (await answers(siteFor(state.offset), 120_000))) {
-    printReady(state.offset, "already running");
+  // Running on another address than this start's (Tailscale came on or went off, or --local) starts it again there.
+  const isSameAddress = (state?.phone_host ?? null) === phone.host;
+  if (!reset && state && isSameAddress && isAlive(state.pid) && readLog().includes(READY_LINE) && (await answers(siteFor(state.offset), 120_000))) {
+    printReady(state.offset, "already running", phone);
     return;
   }
   // Waiting in line for memory: it keeps its place, and this follows it again.
   if (!reset && state && isAlive(state.pid) && isWaitingInLine(state.pid)) {
-    console.log(`This checkout's preview is waiting in line for memory, to start on ${siteFor(state.offset)}…`);
+    console.log(`This checkout's preview is waiting in line for memory, to start on ${siteFor(state.offset, state.phone_host)}…`);
     await follow(state.pid, state.offset, "Waiting in line");
-    printReady(state.offset, "started");
+    printReady(state.offset, "started", phone);
     return;
   }
   if (await stop()) console.log("Stopped what was left of this checkout's last preview.");
@@ -93,12 +103,18 @@ async function start() {
   const startPreview = async (takenOffsets) => {
     const offset = await freeOffset(state?.offset, takenOffsets);
     if (offset === undefined) return {};
+    const serveProblem = phone.host && serveOnTailnet(offset);
+    if (serveProblem) {
+      stopServingOnTailnet(offset);
+      phone.reason = `Tailscale Serve said: ${serveProblem}`;
+      phone.host = null;
+    }
     // Its own process group, so stopping it also stops wrangler and workerd under it.
     const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
       cwd: ROOT,
       detached: true,
       stdio: ["ignore", log, log],
-      env: { ...process.env, PREVIEW_PORT_OFFSET: String(offset) },
+      env: { ...process.env, PREVIEW_PORT_OFFSET: String(offset), PREVIEW_PHONE_HOST: phone.host ?? "" },
     });
     child.unref();
     return { child, offset };
@@ -115,10 +131,10 @@ async function start() {
       })
     : await startPreview(new Set());
   if (offset === undefined) fail(`No free ports: every offset from 8800 to 9700 is taken. See what holds them with: lsof -nP -iTCP:8800 -sTCP:LISTEN`);
-  writeFileSync(STATE_FILE, JSON.stringify({ pid: child.pid, offset, started_at: new Date().toISOString() }));
-  console.log(`Starting the preview on ${siteFor(offset)}${reset ? " with fresh test data (a few minutes)" : ""}${enginesOnly ? ", the engine samples only" : ""}…`);
+  writeFileSync(STATE_FILE, JSON.stringify({ pid: child.pid, offset, phone_host: phone.host, started_at: new Date().toISOString() }));
+  console.log(`Starting the preview on ${siteFor(offset, phone.host)}${reset ? " with fresh test data (a few minutes)" : ""}${enginesOnly ? ", the engine samples only" : ""}…`);
   await follow(child.pid, offset);
-  printReady(offset, "started");
+  printReady(offset, "started", phone);
 }
 
 /** Prints the preview's progress lines from its log until it's ready: all of them, or from the last one starting with fromLast. */
@@ -165,6 +181,7 @@ async function stop() {
     for (let i = 0; i < 20 && hasGroup(state.pid); i++) await new Promise((r) => setTimeout(r, 250));
     killGroup(state.pid, "SIGKILL");
   }
+  if (state?.phone_host) stopServingOnTailnet(state.offset);
   // Servers that outlived their group (an older preview started by hand, or one killed hard).
   const left = ourListeners();
   if (left.length) {
@@ -214,7 +231,7 @@ function list() {
       : isAsleep ? "asleep: opening a page wakes it"
       : !preview.isAwake ? "starting"
       : "";
-    console.log(`  ${siteFor(preview.offset)}  ${shownFolder(preview.folder)}${stateText ? `  ${stateText}` : ""}`);
+    console.log(`  ${siteFor(preview.offset, phoneHostOf(preview.folder))}  ${shownFolder(preview.folder)}${stateText ? `  ${stateText}` : ""}`);
     console.log(`    up ${preview.upFor ? upForText(preview.upFor) : "?"}, ${sizeText(preview.sizeBytes)} in ${preview.processCount === 1 ? "1 process" : `${preview.processCount} processes`}. Stop it: npm --prefix "${preview.folder}" run preview:stop`);
   }
   const runningTests = testRuns.filter((run) => run.isRunning);
@@ -235,7 +252,7 @@ function list() {
       continue;
     }
     const preview = previews.find((each) => each.offset === entry.offset);
-    console.log(`  ${index + 1}. ${siteFor(entry.offset)}  ${shownFolder(entry.folder)}  ${entry.kind === "wake" ? `to wake: someone opened a page, ${askedText}` : `to start, ${askedText}${preview ? ` (${sizeText(preview.sizeBytes)} while it waits)` : ""}`}`);
+    console.log(`  ${index + 1}. ${siteFor(entry.offset, phoneHostOf(entry.folder))}  ${shownFolder(entry.folder)}  ${entry.kind === "wake" ? `to wake: someone opened a page, ${askedText}` : `to start, ${askedText}${preview ? ` (${sizeText(preview.sizeBytes)} while it waits)` : ""}`}`);
     console.log(`     Take it out: npm --prefix "${entry.folder}" run preview:stop`);
   }
 }
@@ -301,8 +318,10 @@ async function answers(url, timeoutMs = 5000) {
   }
 }
 
-function printReady(offset, startedHow) {
-  const site = siteFor(offset);
+/** phone: this start's { host, reason }, the reason saying why the links aren't on the phone when they could have been. */
+function printReady(offset, startedHow, phone) {
+  const site = siteFor(offset, phone.host);
+  const phoneText = phone.host ? "Opens on your phone too, on this Mac's tailnet (Tailscale)." : phone.reason ? `On this Mac only: ${phone.reason}. The preview skill says how to open it on a phone.` : "On this Mac only (--local).";
   const text = readLog();
   if (text.includes(READY_LINE)) writeFileSync(PAGES, text.slice(text.indexOf(READY_LINE)));
   // run.mjs says how long it waited in line for memory, when it did.
@@ -315,10 +334,11 @@ function printReady(offset, startedHow) {
   const width = Math.max(...SIGN_INS.map((account) => account.username.length));
   console.log(`
 Preview ${how}: ${site}  (this checkout only; nothing touches the live site)
+${phoneText}
 
 Sign in at ${site}/signin, password "${PASSWORD}" for every one:
 ${SIGN_INS.map((account) => `  ${account.username.padEnd(width)}  ${account.about}`).join("\n")}
-Admin pages (${site}/admin) need no sign-in here. Email codes: http://localhost:${8795 + offset}
+Admin pages (${site}/admin) need no sign-in here. Email codes: ${addressFor(8795 + offset, phone.host)}
 
 Every test page and state, with what it shows: ${show(PAGES)}
 Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
@@ -337,12 +357,17 @@ function fail(message, logText) {
 }
 
 
-function readState() {
+function readState(file = STATE_FILE) {
   try {
-    return JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    return JSON.parse(readFileSync(file, "utf8"));
   } catch {
     return null;
   }
+}
+
+/** The tailnet name a checkout's preview is on, or null on localhost. */
+function phoneHostOf(folder) {
+  return readState(join(folder, ".wrangler/preview-run/state.json"))?.phone_host ?? null;
 }
 
 function readSeeded() {

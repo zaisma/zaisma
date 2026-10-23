@@ -486,8 +486,11 @@ export function metalButton(label: string, options: { href?: string; id?: string
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-/** The site running on this machine (the local preview, npm run dev), never zaisma.com or the tests' site. */
-export const isLocalSite = (env: Env): boolean => env.SITE_ORIGIN.startsWith("http://localhost");
+/**
+ * The site running on this machine (the local preview, npm run dev), never zaisma.com or the tests' site: on localhost, or on the
+ * machine's tailnet name when the preview opens on a phone (scripts/preview/phone.mjs).
+ */
+export const isLocalSite = (env: Env): boolean => env.SITE_ORIGIN.startsWith("http://localhost") || /^https:\/\/[^/]+\.ts\.net:\d+$/.test(env.SITE_ORIGIN);
 
 /**
  * formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. On a local
