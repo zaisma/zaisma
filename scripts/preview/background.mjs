@@ -8,7 +8,7 @@
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports job) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview, and nothing of another checkout's.
-// Its output goes to .wrangler/preview-run/preview.log; the servers' own logs stay in .wrangler/preview.
+// Its output goes to .wrangler/preview-run/preview.log; the servers' own log is .wrangler/preview/servers.log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -205,7 +205,7 @@ ${SIGN_INS.map((account) => `  ${account.username.padEnd(width)}  ${account.abou
 Admin pages (${site}/admin) need no sign-in here. Email codes: http://localhost:${8795 + offset}
 
 Every test page and state, with what it shows: ${show(PAGES)}
-Log: ${show(LOG)}  (the servers' own: .wrangler/preview/<site|games|rooms>.log)
+Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
 Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset`);
 }
 
@@ -214,7 +214,7 @@ function fail(message, logText) {
   if (logText) {
     console.error(`\nLast lines of ${show(LOG)}:`);
     console.error(logText.trimEnd().split("\n").slice(-30).map((line) => `  ${line}`).join("\n"));
-    console.error("\nThe servers' own logs: .wrangler/preview/site.log, games.log and rooms.log");
+    console.error("\nThe servers' own log: .wrangler/preview/servers.log");
   }
   process.exit(1);
 }

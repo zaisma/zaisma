@@ -130,7 +130,7 @@ jobs:
       - run: npm run preview:start -- --reset --engines-only
       - run: npm run engines:play
       - if: failure()
-        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log .wrangler/preview/games.log || true
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
   docs-tests:
     name: Docs tests

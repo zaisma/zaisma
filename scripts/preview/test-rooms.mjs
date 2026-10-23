@@ -6,12 +6,14 @@ import WebSocket from "ws";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newCode = () => Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join("");
 let address = 0;
+/** A made-up address of its own for each request and connection, so test players never use up your own limits. */
+const madeUpAddress = () => `198.51.100.${(address++ % 254) + 1}`;
 /** The preview's zaisma.com, where test players get their keys to passes like a browser does. */
 let site = "";
 
 async function guestPass(rooms, origin, game) {
   // Each test player asks from its own made-up address, so they don't use up your own limits.
-  const headers = { "content-type": "text/plain", "cf-connecting-ip": `198.51.100.${++address}` };
+  const headers = { "content-type": "text/plain", "cf-connecting-ip": madeUpAddress() };
   // The game page's key, as a browser gets it when Cloudflare's check on Play passes: the preview uses
   // Cloudflare's test keys, which pass this token.
   // The site can still be settling right after it starts, so try a few times.
@@ -27,8 +29,9 @@ async function guestPass(rooms, origin, game) {
 }
 
 /**
- * Ping like a game does, and say the player's still there now and then, as a game does while its
- * player gives input: otherwise rooms drop test players as gone or idle.
+ * Ping like a game does, say the player's still there now and then, as a game does while its
+ * player gives input, and answer a ticking room's probes at once, as the SDK does: otherwise rooms
+ * drop test players as gone, idle or too far behind (4003), and they'd come back every few seconds.
  */
 function keepUp(ws) {
   const timer = setInterval(() => {
@@ -36,6 +39,10 @@ function keepUp(ws) {
     ws.send("ping");
     ws.send(JSON.stringify({ type: "here" }));
   }, 20_000);
+  ws.on("message", (data) => {
+    const m = read(data);
+    if (m?.type === "probe" && ws.readyState === 1) ws.send(JSON.stringify({ type: "probe_answer", probeNumber: m.probeNumber }));
+  });
   ws.on("close", () => clearInterval(timer));
 }
 
@@ -43,7 +50,7 @@ function keepUp(ws) {
 const read = (data) => (String(data) === "pong" ? null : JSON.parse(String(data)));
 
 function stayIn(rooms, origin, game, code, pass, first) {
-  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin, headers: { "cf-connecting-ip": madeUpAddress() } });
   keepUp(ws);
   ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { isListed: first.isListed, name: first.name, labels: first.labels } })));
   ws.on("message", (data) => {
@@ -70,7 +77,7 @@ function lobbyAgain(rooms, origin, code, ms) {
 async function lobbyBot(rooms, origin, code) {
   const game = "four-in-a-row";
   const pass = await guestPass(rooms, origin, game);
-  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin, headers: { "cf-connecting-ip": madeUpAddress() } });
   keepUp(ws);
   let moved = false;
   ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { labels: { Room: "Lobby" } } })));
@@ -87,7 +94,7 @@ async function lobbyBot(rooms, origin, code) {
 }
 
 function play(rooms, origin, game, code, pass) {
-  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin, headers: { "cf-connecting-ip": madeUpAddress() } });
   keepUp(ws);
   let me = null;
   let met = false;
