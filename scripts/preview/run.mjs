@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmS
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { transformSync } from "esbuild";
+import { buildSync, transformSync } from "esbuild";
 import { startFakeAuth } from "./fake-auth.mjs";
 import { LATER_MARKER, MATCH_MARKER } from "./fake-shield.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
@@ -331,7 +331,7 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
-                  Four in a Row's picture, Cave Crew's Neon Drift shader, Tiny Farm's Frostline shader and Zaisma's own for the rest;
+                  Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
                   Play starts the game in place and Back returns)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
@@ -606,29 +606,35 @@ async function seed() {
       }
     }
   }
-  // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the looks drafts' Neon Drift shader, drawn by
+  // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the stand-in Neon Drift's shader, drawn by
   // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
   // the check refuses for flashing.
   const { image: world } = await api("POST", "/games/shard-dodge/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
   await go(`/admin/images/${world.id}/approve`, form({ reason: "" }));
   await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "image", image_id: world.id });
-  const sendShader = (slug, screen, file) => api("POST", `/games/${slug}/shaders?screen=${screen}`, new Uint8Array(readFileSync(join(ROOT, "scripts/preview/shaders", file))));
-  const { shader: neonDrift } = await sendShader("shard-dodge", "phone", "neon-drift.glsl");
-  await sendShader("arena", "wide", "strobe.glsl");
+  // The stand-in games' shaders come from the site's own (shaders.ts), sent as a game sends one: the helpers they call written in.
+  const shaders = await import(`data:text/javascript;base64,${Buffer.from(buildSync({ entryPoints: [join(ROOT, "apps/site/src/components/shaders.ts")], bundle: true, format: "esm", platform: "neutral", mainFields: ["module", "main"], write: false, logLevel: "error" }).outputFiles[0].text).toString("base64")}`);
+  const standInShader = (slug) => {
+    const background = shaders.STAND_IN_BACKGROUNDS.find((each) => each.slug === slug);
+    return new TextEncoder().encode(`// ${background.title}: ${background.summary}\n${shaders.SHADER_HELPERS}${background.shader}`);
+  };
+  const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders?screen=${screen}`, source);
+  const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
+  await sendShader("arena", "wide", new Uint8Array(readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"))));
   const isChecked = async () => (await api("GET", "/games/shard-dodge")).shaders.find((shader) => shader.id === neonDrift.id)?.review_status !== "pending";
   for (let tryIndex = 0; tryIndex < 45 && !(await isChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
   // Without a local browser, a person approves it, as on /admin (it then has no still or frames).
   if (!(await isChecked())) await go(`/admin/shaders/${neonDrift.id}/approve`, form({ reason: "Preview test data" }));
   await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
-  // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the Neon Drift shader and Tiny Farm
-  // the Frostline one (each on wide; phones follow). Arena and Night Drive keep Zaisma's own.
+  // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
+  // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own.
   const { image: boardWorld } = await api("POST", "/games/four-in-a-row/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
   await go(`/admin/images/${boardWorld.id}/approve`, form({ reason: "" }));
   await api("PUT", "/games/four-in-a-row/backgrounds/wide", { source: "image", image_id: boardWorld.id });
-  const homeShaders = [["cave-crew", "neon-drift.glsl"], ["tiny-farm", "frostline.glsl"]];
+  const homeShaders = [["cave-crew", "emberfall"], ["tiny-farm", "verdant"]];
   const sentShaders = [];
-  for (const [slug, file] of homeShaders) sentShaders.push([slug, (await sendShader(slug, "wide", file)).shader]);
+  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, (await sendShader(slug, "wide", standInShader(standIn))).shader]);
   for (const [slug, shader] of sentShaders) {
     const isShaderChecked = async () => (await api("GET", `/games/${slug}`)).shaders.find((each) => each.id === shader.id)?.review_status !== "pending";
     for (let tryIndex = 0; tryIndex < 45 && !(await isShaderChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));

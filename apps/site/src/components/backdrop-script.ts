@@ -290,6 +290,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
+    // A stand-in game's background waits for its shader (STAND_IN_BACKGROUNDS_SCRIPT writes it on, then adds the canvas).
+    if (canvas.hasAttribute("data-backdrop-stand-in") && !canvas.hasAttribute("data-backdrop-shader")) return;
     var outerKind = canvas.getAttribute("data-backdrop");
     if (outerKind === "frame" || outerKind === "picture") return setUpOuter(canvas, outerKind);
     var isScene = canvas.getAttribute("data-backdrop") === "scene", isPhone = window.matchMedia("(max-width: 760px)").matches, sharpness = Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1.5);
