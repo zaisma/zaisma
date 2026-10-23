@@ -406,10 +406,6 @@ component({
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
 .backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; background: ${BACKDROP_STILL}; }
 .backdrop.is-framed { position: absolute; }
-/* A shader that lost its drawing context (the browser keeps only so many) hides until it's drawn again, never showing the browser's broken
-   canvas; what holds it shows the same still meanwhile, so glass is never over nothing. */
-.backdrop.is-lost { visibility: hidden; }
-:has(> .backdrop.is-lost) { background: ${BACKDROP_STILL}; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
