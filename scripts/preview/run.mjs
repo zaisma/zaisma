@@ -607,10 +607,14 @@ async function seed() {
   };
 
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
-  await seedEngineSamples(api, uploadInBackground, waitForRunInChrome);
-  stepDone("engine samples");
-  if (ENGINES_ONLY) return;
-  await seedStartedInChrome(api, upload, waitForRunInChrome);
+  // Their runs in Chrome go on while the rest of the test data is added, and are waited for at the end.
+  const finishEngineSamples = await seedEngineSamples(api, uploadInBackground, waitForRunInChrome);
+  if (ENGINES_ONLY) {
+    await finishEngineSamples();
+    stepDone("engine samples: runs in Chrome");
+    return;
+  }
+  const finishStartedInChrome = await seedStartedInChrome(api, upload, waitForRunInChrome);
   stepDone("started in Chrome");
   // The rest of the account's 20 runs in Chrome today are used, so the other test games' versions say they weren't
   // measured (and their uploads don't wait for Chrome).
@@ -843,6 +847,9 @@ async function seed() {
   await makeKeyWithPasskey(post, studioPasskey, [["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]);
   await makeKeyWithPasskey(post, studioPasskey, { name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" });
   stepDone("scoped keys");
+  await finishEngineSamples();
+  await finishStartedInChrome();
+  stepDone("runs in Chrome still going");
 }
 
 /**
@@ -853,8 +860,9 @@ async function seed() {
 async function seedEngineSamples(api, uploadInBackground, waitForRunInChrome) {
   const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", "godot-threads": "Godot with threads", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
-  // One sample at a time through the scan, which counts against the day's reviews; each one's run in Chrome goes on beside the next
-  // samples (a threaded build's takes its whole two minutes on the local Chrome, which can't start one), and all are waited for at the end.
+  // One sample at a time through the scan, which counts against the day's reviews; their runs in Chrome go on after it (a threaded build's
+  // takes its whole two minutes on the local Chrome, which can't start one). It answers a function that waits for those runs, then
+  // publishes each sample that passed and writes engines.json.
   const started = [];
   for (const engine of engines) {
     // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.
@@ -870,20 +878,21 @@ async function seedEngineSamples(api, uploadInBackground, waitForRunInChrome) {
     started.push({ sample, uploading });
     stepDone(`engine ${engine}: uploaded and scanned`);
   }
-  const samples = [];
-  for (const { sample, uploading } of started) {
-    await uploading;
-    let [version] = (await api("GET", `/games/${sample.game.slug}`)).versions;
-    if (sample.exitCode === 0 && version?.scan_status === "approved") {
-      version = await waitForRunInChrome(sample.game.slug);
-      await api("POST", `/games/${sample.game.slug}/versions/${version.id}/publish`);
-      await api("PATCH", `/games/${sample.game.slug}`, { visibility: "unlisted" });
+  return async () => {
+    const samples = [];
+    for (const { sample, uploading } of started) {
+      await uploading;
+      let [version] = (await api("GET", `/games/${sample.game.slug}`)).versions;
+      if (sample.exitCode === 0 && version?.scan_status === "approved") {
+        version = await waitForRunInChrome(sample.game.slug);
+        await api("POST", `/games/${sample.game.slug}/versions/${version.id}/publish`);
+        await api("PATCH", `/games/${sample.game.slug}`, { visibility: "unlisted" });
+      }
+      // What the scan and the run in Chrome saw, for engines:play to check.
+      samples.push({ engine: sample.engine, slug: sample.game.slug, upload_exit_code: sample.exitCode, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
     }
-    // What the scan and the run in Chrome saw, for engines:play to check.
-    samples.push({ engine: sample.engine, slug: sample.game.slug, upload_exit_code: sample.exitCode, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
-  }
-  stepDone("engine samples: runs in Chrome");
-  writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+    writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+  };
 }
 /**
  * Started in Chrome: a WebGL game with two big 2048×2048 PNG textures, a 10 MB WAV and a level it asks for at start
@@ -956,11 +965,14 @@ Promise.all([texture(0, "textures/rock.png"), texture(1, "textures/moss.png")]).
   );
   const { game } = await api("POST", "/games", { title: "Texture Tour", description: "Two big textures on a turning quad: the preview's test of how a version starts in Chrome.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   upload(folder, game.slug, "First version.");
-  const version = await waitForRunInChrome(game.slug);
-  if (version?.scan_status === "approved") {
-    await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
-    await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
-  }
+  // Its run in Chrome waits behind the engine samples': the seed goes on, and publishes it once the run is over.
+  return async () => {
+    const version = await waitForRunInChrome(game.slug);
+    if (version?.scan_status === "approved") {
+      await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
+      await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+    }
+  };
 }
 
 /** A square PNG of colored noise, which hardly compresses: a big texture KTX2 would shrink. */
