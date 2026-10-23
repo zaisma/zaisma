@@ -102,22 +102,35 @@ export async function addCreditEntry(database: D1Database, entry: NewCreditEntry
 /**
  * Charges a game's hosting to its owner's credit: one hosting_charge entry per game per UTC day, grown in place, so
  * the list stays readable. Never takes the balance below zero; answers whether it charged.
+ *
+ * The month's row is the claim: the charge moves its charged_cents on from monthChargedCents, what the caller read,
+ * so two runs of the hosting job that read the same month charge it once. In one transaction, the entry and the
+ * balance change only when the statement before them changed a row (changes()).
  */
-export async function addHostingCharge(database: D1Database, charge: { ownerId: string; gameId: string; amountCents: number; nowMs?: number }): Promise<boolean> {
+export async function addHostingCharge(
+  database: D1Database,
+  charge: { ownerId: string; gameId: string; amountCents: number; monthStartDate: string; monthChargedCents: number; nowMs?: number },
+): Promise<boolean> {
   const nowMs = charge.nowMs ?? Date.now();
   if (charge.amountCents <= 0) return false;
+  await database.prepare("INSERT OR IGNORE INTO game_hosting_months (game_id, month_start_date) VALUES (?, ?)").bind(charge.gameId, charge.monthStartDate).run();
   const dayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000;
   const today = await database
     .prepare("SELECT id FROM credit_entries WHERE owner_id = ? AND game_id = ? AND entry_kind = 'hosting_charge' AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1")
     .bind(charge.ownerId, charge.gameId, dayStartMs)
     .first<{ id: string }>();
-  if (!today) return (await addCreditEntry(database, { ownerId: charge.ownerId, entryKind: "hosting_charge", amountCents: -charge.amountCents, gameId: charge.gameId, createdAtMs: nowMs })) !== null;
-  const isAffordable = "(SELECT credit_balance_cents FROM owners WHERE id = ?) >= ?";
-  const [grown] = await database.batch([
-    database.prepare(`UPDATE credit_entries SET amount_cents = amount_cents - ? WHERE id = ? AND ${isAffordable}`).bind(charge.amountCents, today.id, charge.ownerId, charge.amountCents),
-    database.prepare("UPDATE owners SET credit_balance_cents = credit_balance_cents - ? WHERE id = ? AND credit_balance_cents >= ?").bind(charge.amountCents, charge.ownerId, charge.amountCents),
+  const [claimed] = await database.batch([
+    database
+      .prepare("UPDATE game_hosting_months SET charged_cents = charged_cents + ? WHERE game_id = ? AND month_start_date = ? AND charged_cents = ? AND (SELECT credit_balance_cents FROM owners WHERE id = ?) >= ?")
+      .bind(charge.amountCents, charge.gameId, charge.monthStartDate, charge.monthChargedCents, charge.ownerId, charge.amountCents),
+    today
+      ? database.prepare("UPDATE credit_entries SET amount_cents = amount_cents - ? WHERE id = ? AND changes() > 0").bind(charge.amountCents, today.id)
+      : database
+          .prepare("INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT ?, ?, 'hosting_charge', ?, ?, ? WHERE changes() > 0")
+          .bind(newId("credit_entry"), charge.ownerId, -charge.amountCents, charge.gameId, nowMs),
+    database.prepare("UPDATE owners SET credit_balance_cents = credit_balance_cents - ? WHERE id = ? AND changes() > 0").bind(charge.amountCents, charge.ownerId),
   ]);
-  return (grown?.meta.changes ?? 0) > 0;
+  return (claimed?.meta.changes ?? 0) > 0;
 }
 
 /** Writes off what a game used past its budget or the balance this month: one written_off entry per game per month, grown in place. */
