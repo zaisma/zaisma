@@ -483,7 +483,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
                   shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
                   or choose a .glsl file to preview it before sending; the purple glass tint)
-                  ${SITE}/dashboard/arena/details#background  (a shader the check refused: "It flashes more than 3 times a second…")
+                  ${SITE}/dashboard/arena/details#background  (wide: a shader the check refused: "It flashes more than 3 times a second…";
+                  phones: a shader with a buffer of glowing trails and a noise texture, with each quality level's time; pick a level
+                  over the preview, and drop scripts/preview/shaders/trails on a folder box to preview, check before sending or send it)
+                  ${GAMES}/arena/_zaisma/background?screen=phone  (that two-pass shader's runner alone, on the game's own site)
                   ${GAMES}/shard-dodge/_zaisma/background?screen=phone  (the shader runner alone, on the game's own site)
   Country blocks  ${SITE}/g/night-drive  (blocked in the United States, where the preview's requests come from: the 451 page, and the home leaves it out);
                   ${SITE}/dashboard/four-in-a-row  (blocked in the United Kingdom: the alert; it still plays here); ${SITE}/admin/games/ for either
@@ -789,18 +792,30 @@ async function seed() {
   await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
   // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
-  // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own.
+  // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own on wide screens.
   const { image: boardWorld } = await api("POST", "/games/four-in-a-row/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
   await go(`/admin/images/${boardWorld.id}/approve`, form({ reason: "" }));
   await api("PUT", "/games/four-in-a-row/backgrounds/wide", { source: "image", image_id: boardWorld.id });
   const homeShaders = [["cave-crew", "emberfall"], ["tiny-farm", "verdant"]];
   const sentShaders = [];
-  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, (await sendShader(slug, "wide", standInShader(standIn))).shader]);
-  for (const [slug, shader] of sentShaders) {
+  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, "wide", (await sendShader(slug, "wide", standInShader(standIn))).shader]);
+  // Arena's phone background has a buffer and a texture, sent from its folder (scripts/preview/shaders/trails, also a folder to try the
+  // dashboard's folder upload with) as a developer's tools send one: the texture first, as a shader_texture picture, then the shader,
+  // whose Buffer A keeps glowing trails from frame to frame and whose image pass reads them over a nebula from the noise.
+  const trails = join(ROOT, "scripts/preview/shaders/trails");
+  const { image: noise } = await api("POST", "/games/arena/images?kind=shader_texture", new Uint8Array(readFileSync(join(trails, "noise.png"))));
+  // Image matching passes a texture at once; where the preview's can't answer, a person approves it, as on /admin.
+  if (noise.review_status !== "approved") await go(`/admin/images/${noise.id}/approve`, form({ reason: "" }));
+  const wiring = JSON.parse(readFileSync(join(trails, "channels.json"), "utf8"));
+  // channels.json names a texture by its file in the folder; the API by the picture it became.
+  const channelsOf = (passName) => wiring[passName].map(({ texture_path: texturePath, ...channel }) => (texturePath ? { ...channel, image_id: noise.id } : channel));
+  const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
+  sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
+  for (const [slug, screen, shader] of sentShaders) {
     const isShaderChecked = async () => (await api("GET", `/games/${slug}`)).shaders.find((each) => each.id === shader.id)?.review_status !== "pending";
     for (let tryIndex = 0; tryIndex < 45 && !(await isShaderChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
     if (!(await isShaderChecked())) await go(`/admin/shaders/${shader.id}/approve`, form({ reason: "Preview test data" }));
-    await api("PUT", `/games/${slug}/backgrounds/wide`, { source: "shader", shader_id: shader.id });
+    await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
   }
   stepDone("backgrounds and shaders");
 
