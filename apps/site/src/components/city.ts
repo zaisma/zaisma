@@ -212,14 +212,16 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
 
   // A unit box: x and z from -0.5 to 0.5, y from 0 to 1, so a box stands on its offset.
+  // Its bottom face comes last, so the city's rows, never seen from below, draw only the first 30 corners (BOX_TOP_COUNT).
   var faces = [
     [[1, 0, 0], [[.5, 0, -.5], [.5, 1, -.5], [.5, 1, .5], [.5, 0, .5]]],
     [[-1, 0, 0], [[-.5, 0, .5], [-.5, 1, .5], [-.5, 1, -.5], [-.5, 0, -.5]]],
     [[0, 1, 0], [[-.5, 1, -.5], [-.5, 1, .5], [.5, 1, .5], [.5, 1, -.5]]],
-    [[0, -1, 0], [[-.5, 0, .5], [-.5, 0, -.5], [.5, 0, -.5], [.5, 0, .5]]],
     [[0, 0, 1], [[.5, 0, .5], [.5, 1, .5], [-.5, 1, .5], [-.5, 0, .5]]],
-    [[0, 0, -1], [[-.5, 0, -.5], [-.5, 1, -.5], [.5, 1, -.5], [.5, 0, -.5]]]
+    [[0, 0, -1], [[-.5, 0, -.5], [-.5, 1, -.5], [.5, 1, -.5], [.5, 0, -.5]]],
+    [[0, -1, 0], [[-.5, 0, .5], [-.5, 0, -.5], [.5, 0, -.5], [.5, 0, .5]]]
   ];
+  var BOX_COUNT = 36, BOX_TOP_COUNT = 30;
   var cube = [];
   faces.forEach(function (f) {
     var n = f[0], q = f[1];
@@ -236,41 +238,66 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " return 1.0 - exp(-uFogDensity * exp(-max(cam.y, 0.0) * uFogFalloff) * along); }\n" +
     "vec3 hazeColor(vec3 cam, vec3 at, vec3 sun, float night){ vec3 dir = normalize(at - cam); float toward = pow(max(dot(dir, sun), 0.0), 6.0);\n" +
     " return mix(uFog, mix(vec3(1.0, 0.93, 0.8), vec3(0.3, 0.38, 0.6), night), toward * mix(0.5, 0.3, night)); }\n";
+  // Where a row's corner goes: its top narrowed by the row's taper (across and deep, 0 for none, 1 to an edge), which slants the faces
+  // and their normals, then climbed and turned. The same for the picture and the shadow map.
+  var PLACE_GLSL = "vec3 placeCorner(vec3 corner, vec3 size, vec4 material, vec2 turn, inout vec3 normal){ vec3 a = corner; vec2 taper = material.zw;\n" +
+    " if (taper.x > 0.0 || taper.y > 0.0) { a.x *= 1.0 - taper.x * a.y; a.z *= 1.0 - taper.y * a.y;\n" +
+    "  if (abs(normal.x) > 0.5) normal = normalize(vec3(normal.x * size.y, 0.5 * size.x * taper.x, 0.0));\n" +
+    "  else if (abs(normal.z) > 0.5) normal = normalize(vec3(0.0, 0.5 * size.z * taper.y, normal.z * size.y)); }\n" +
+    " vec3 c = vec3(0.0, size.y * 0.5, 0.0); vec3 q = a * size - c;\n" +
+    " float cp = cos(turn.y), sp = sin(turn.y), cy = cos(turn.x), sy = sin(turn.x);\n" +
+    " q = vec3(q.x * cp - q.y * sp, q.x * sp + q.y * cp, q.z); normal = vec3(normal.x * cp - normal.y * sp, normal.x * sp + normal.y * cp, normal.z);\n" +
+    " q = vec3(q.x * cy - q.z * sy, q.y, q.x * sy + q.z * cy); normal = vec3(normal.x * cy - normal.z * sy, normal.y, normal.x * sy + normal.z * cy);\n" +
+    " return q + c; }\n";
   var BOX_VS = "#version 300 es\n" +
     "layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor;\n" +
     "layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=4) in vec4 iCol; layout(location=5) in vec4 iMaterial; layout(location=6) in vec2 iRot;\n" +
     "uniform mat4 uViewProj; uniform mat4 uLightViewProj;\n" +
-    "out vec3 vNor; out vec4 vCol; out vec3 vWorld; out vec4 vLight; flat out vec4 vMaterial; out vec3 vLocal; flat out vec3 vSize; flat out vec3 vFace;\n" +
-    "void main(){ vec3 c = vec3(0.0, iScale.y * 0.5, 0.0); vec3 q = aPos * iScale - c; vec3 nn = aNor;\n" +
-    " float cp = cos(iRot.y), sp = sin(iRot.y), cy = cos(iRot.x), sy = sin(iRot.x);\n" +
-    " q = vec3(q.x * cp - q.y * sp, q.x * sp + q.y * cp, q.z); nn = vec3(nn.x * cp - nn.y * sp, nn.x * sp + nn.y * cp, nn.z);\n" +
-    " q = vec3(q.x * cy - q.z * sy, q.y, q.x * sy + q.z * cy); nn = vec3(nn.x * cy - nn.z * sy, nn.y, nn.x * sy + nn.z * cy);\n" +
-    " vec3 w = iOff + q + c; vWorld = w; vNor = nn; vCol = iCol; vLocal = aPos; vSize = iScale; vFace = aNor; vMaterial = iMaterial;\n" +
+    "out vec3 vNor; out vec4 vCol; out vec3 vWorld; out vec4 vLight; flat out vec4 vMaterial; out vec3 vLocal; flat out vec3 vSize; flat out vec3 vFace;\n" + PLACE_GLSL +
+    "void main(){ vec3 nn = aNor; vec3 w = iOff + placeCorner(aPos, iScale, iMaterial, iRot, nn);\n" +
+    " vWorld = w; vNor = nn; vCol = iCol; vLocal = aPos; vSize = iScale; vFace = aNor; vMaterial = iMaterial;\n" +
     " vLight = uLightViewProj * vec4(w + nn * 0.12, 1.0);\n" +
     " gl_Position = uViewProj * vec4(w, 1.0); }";
   // What each row is made of (its material's kind, in the row's material slot), so one program draws the whole city.
-  var KIND_PLAIN = 0, KIND_PAVEMENT = 4, KIND_STREET = 8, KIND_SHORE = 9;
+  // What each row is (the kind in its material slot): plain, carved with glowing grooves and a band at its top, a band only, or a beacon at its tip.
+  var KIND_PLAIN = 0, KIND_CARVED = 1, KIND_BANDED = 2, KIND_BEACON = 3, KIND_PAVEMENT = 4, KIND_STREET = 8, KIND_SHORE = 9;
   // The city's light on its pale boxes: a warm afternoon sun with crisp shadows, sky light from above and bounce from below, streets
   // darker at the bottom of their canyons, a weak fill from the side away from the sun so a building's two shaded sides never match, and walls a little lighter toward the top. At
   // night a cool moon lights the same shapes, softer.
   var BOX_FS = "#version 300 es\nprecision highp float; precision highp sampler2DShadow;\n" +
     "in vec3 vNor; in vec4 vCol; in vec3 vWorld; in vec4 vLight; flat in vec4 vMaterial; in vec3 vLocal; flat in vec3 vSize; flat in vec3 vFace;\n" +
-    "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight;\n" +
+    "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight; uniform float uPulse;\n" +
     "out vec4 outColor;\n" + FOG_GLSL +
     "float shadowAt(){ vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5; if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;\n" +
     " return texture(uShadow, vec3(p.xy, p.z - 0.0004)); }\n" +
     "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb; int kind = int(vMaterial.x + 0.5);\n" +
-    " vec3 toEye = uCam - vWorld; vec3 v = normalize(toEye); vec3 col;\n" +
+    " vec3 toEye = uCam - vWorld; vec3 v = normalize(toEye); vec3 col; vec3 glow = vec3(0.0);\n" +
     " if (uLit > 0.5) {\n" +
+    "  bool isWall = abs(vFace.y) < 0.5; bool isBuilt = kind < 8;\n" +
+    // A bevel along every upright edge and round the top of the walls: the face turns halfway to its neighbour within a third of a unit
+    // of the edge, so edges catch the light (or fall into shade) the way a cut edge would, with no line drawn.
+    "  if (isWall && isBuilt) { float across = abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x, width = abs(vFace.x) > 0.5 ? vSize.z : vSize.x;\n" +
+    "   float toSide = (0.5 - abs(across)) * width, toTop = (1.0 - vLocal.y) * vSize.y, bevel = min(0.32, width * 0.06);\n" +
+    "   vec3 side = normalize(cross(vec3(0.0, 1.0, 0.0), n)) * sign(across) * (abs(vFace.x) > 0.5 ? -vFace.x : vFace.z);\n" +
+    "   float atSide = 1.0 - smoothstep(bevel - fwidth(toSide), bevel + fwidth(toSide), toSide), atTop = 1.0 - smoothstep(bevel - fwidth(toTop), bevel + fwidth(toTop), toTop);\n" +
+    "   n = normalize(mix(n, normalize(n + side), atSide)); n = normalize(mix(n, normalize(n + vec3(0.0, 1.0, 0.0)), atTop)); }\n" +
     "  float sh = shadowAt(); float diff = max(dot(n, uSun), 0.0) * sh;\n" +
     "  vec3 sunLight = mix(vec3(1.0, 0.92, 0.8) * 1.12, vec3(0.6, 0.7, 1.0) * 0.36, uNight);\n" +
     "  vec3 skyLight = mix(vec3(0.5, 0.58, 0.72), vec3(0.2, 0.25, 0.42), uNight); vec3 bounce = mix(vec3(0.5, 0.47, 0.42), vec3(0.07, 0.08, 0.12), uNight);\n" +
-    "  bool isWall = abs(vFace.y) < 0.5;\n" +
     "  float canyon = isWall ? mix(0.45, 1.0, smoothstep(0.0, 22.0, vWorld.y)) : (kind == 4 || kind == 8 ? 0.8 : 1.0);\n" +
     "  vec3 ambient = mix(bounce, skyLight, n.y * 0.5 + 0.5) * canyon;\n" +
     "  float fill = max(dot(n, normalize(vec3(0.75, 0.25, -0.3))), 0.0) * mix(0.14, 0.08, uNight);\n" +
     "  col = base * (ambient + skyLight * fill + sunLight * diff);\n" +
-    "  if (isWall && kind < 8) col *= mix(0.9, 1.06, vLocal.y);\n" +
+    "  if (isWall && isBuilt) col *= mix(0.9, 1.06, vLocal.y);\n" +
+    // The carvings: thin grooves up the middle of two opposite faces, and a band round the top, a faint warm line by day that glows at night.
+    "  if (isWall && kind >= 1 && kind <= 3) {\n" +
+    "   float upUnits = vLocal.y * vSize.y, fromTop = vSize.y - upUnits, across = abs(abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x) * (abs(vFace.x) > 0.5 ? vSize.z : vSize.x);\n" +
+    "   float groove = kind == 1 && abs(vFace.x) > 0.5 ? 1.0 - smoothstep(0.16, 0.16 + fwidth(across) * 1.5, across) : 0.0;\n" +
+    "   float band = kind <= 2 && vMaterial.y < 0.5 ? 1.0 - smoothstep(0.2, 0.2 + fwidth(fromTop) * 1.5, abs(fromTop - 0.8)) : 0.0;\n" +
+    "   float tip = kind == 3 ? smoothstep(0.88, 0.94, vLocal.y) * (0.6 + 0.4 * uPulse) : 0.0;\n" +
+    "   float carved = max(max(groove, band), tip);\n" +
+    "   vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
+    "   col = mix(col, carve * mix(0.85, 0.3, uNight), carved * mix(0.75, 1.0, uNight)); glow += carve * carved * uNight * 1.5; }\n" +
     " }\n" +
     " else { float diff = max(dot(n, uSun), 0.0);\n" +
     "  float rim = pow(1.0 - max(dot(n, v), 0.0), 2.5);\n" +
@@ -278,14 +305,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " vec3 q = vec3(vLocal.x + 0.5, vLocal.y, vLocal.z + 0.5); vec3 toEdge = min(q, 1.0 - q) * vSize;\n" +
     " float e = abs(vFace.x) > 0.5 ? min(toEdge.y, toEdge.z) : (abs(vFace.y) > 0.5 ? min(toEdge.x, toEdge.z) : min(toEdge.x, toEdge.y));\n" +
     " float px = fwidth(e); float line = 1.0 - smoothstep(px * 0.5, px * 1.6, e);\n" +
-    " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.5 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
+    " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.3 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
     // The orange shapes keep more of their color through the haze, so they still read from afar.
     " float fog = hazeAt(uCam, vWorld) * mix(0.7, 1.0, uLit);\n" +
-    " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), fog);\n" +
+    " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), fog) + glow * (1.0 - 0.5 * fog);\n" +
     " outColor = vec4(col, uOpaque > 0.5 ? 0.0 : vCol.a); }";
-  var DEPTH_VS = "#version 300 es\nlayout(location=0) in vec3 aPos; layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=6) in vec2 iRot;\n" +
-    "uniform mat4 uLightViewProj; void main(){ vec3 c = vec3(0.0, iScale.y * 0.5, 0.0); vec3 q = aPos * iScale - c; float cy = cos(iRot.x), sy = sin(iRot.x);\n" +
-    " q = vec3(q.x * cy - q.z * sy, q.y, q.x * sy + q.z * cy); gl_Position = uLightViewProj * vec4(iOff + q + c, 1.0); }";
+  var DEPTH_VS = "#version 300 es\nlayout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=5) in vec4 iMaterial; layout(location=6) in vec2 iRot;\n" +
+    "uniform mat4 uLightViewProj;\n" + PLACE_GLSL +
+    "void main(){ vec3 nn = aNor; gl_Position = uLightViewProj * vec4(iOff + placeCorner(aPos, iScale, iMaterial, iRot, nn), 1.0); }";
   var DEPTH_FS = "#version 300 es\nprecision mediump float; out vec4 o; void main(){ o = vec4(1.0); }";
   var FULL_VS = "#version 300 es\nout vec2 vUv; void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }";
   var NOISE_GLSL = "float hash1(float x){ return fract(sin(x * 127.1) * 43758.5453); }\n" +
@@ -393,14 +420,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
 
   // Rows of boxes: the city's (drawn the same every frame) and the movers' and trails' (written again each frame).
-  var STRIDE = 16; // offset 3, scale 3, color 4, material 4 (kind, seed, floor height, lit share at night), heading and climb 2
+  var STRIDE = 16; // offset 3, scale 3, color 4, material 4 (kind, seed, taper across, taper deep), heading and climb 2
   function group(capacity) { return { data: new Float32Array(capacity * STRIDE), count: 0, capacity: capacity }; }
-  function put(g, x, y, z, sx, sy, sz, r, gg, b, a, kind, seed, floorHeight, litShare, yaw, pitch) {
+  function put(g, x, y, z, sx, sy, sz, r, gg, b, a, kind, seed, taperAcross, taperDeep, yaw, pitch) {
     if (g.count >= g.capacity) return;
     var o = g.count * STRIDE, d = g.data;
     d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = sx; d[o + 4] = sy; d[o + 5] = sz;
     d[o + 6] = r; d[o + 7] = gg; d[o + 8] = b; d[o + 9] = a;
-    d[o + 10] = kind || 0; d[o + 11] = seed || 0; d[o + 12] = floorHeight || 0; d[o + 13] = litShare || 0; d[o + 14] = yaw || 0; d[o + 15] = pitch || 0;
+    d[o + 10] = kind || 0; d[o + 11] = seed || 0; d[o + 12] = taperAcross || 0; d[o + 13] = taperDeep || 0; d[o + 14] = yaw || 0; d[o + 15] = pitch || 0;
     g.count++;
   }
 
@@ -413,14 +440,21 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function hashAt(x, z, salt) { var h = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453; return h - Math.floor(h); }
   function coastAt(x, z) { var a = Math.atan2(z, x); return 300 + 26 * Math.sin(3 * a + 0.7) + 18 * Math.sin(5 * a + 2.1) + 9 * Math.sin(9 * a + 4); }
   var downtown = [], allBuildings = [];
+  var carvedCount = 0, CARVED_LIMIT = 6;
   function building(x, z, w, d, h, roofy) {
     var col = white();
-    put(city, x, PAVE_H, z, w, h, d, col[0], col[1], col[2], 1);
+    // A few of the tallest are carved: glowing grooves up two faces and a band round the top.
+    var kind = h > 44 && roofy < 0.3 && carvedCount < CARVED_LIMIT ? (carvedCount++, KIND_CARVED) : KIND_PLAIN;
+    put(city, x, PAVE_H, z, w, h, d, col[0], col[1], col[2], 1, kind);
     var top = PAVE_H + h;
-    if (h > 40 && roofy < 0.5) { // a stepped crown on some of the tallest
+    if (h > 40 && roofy < 0.3) { // a setback crown on some of the tallest
       var w2 = w * 0.7, d2 = d * 0.7, h2 = h * 0.14;
       put(city, x, top, z, w2, h2, d2, col[0], col[1], col[2], 1);
       top += h2;
+    } else if (h > 26 && roofy < 0.55) { // a slanted top: a wedge, cut one way or the other
+      var h3 = Math.min(10, h * 0.16), isAcross = roofy < 0.42;
+      put(city, x, top, z, w, h3, d, col[0], col[1], col[2], 1, KIND_PLAIN, 0, isAcross ? 0.9 : 0, isAcross ? 0 : 0.9);
+      top += h3 * 0.5;
     } else if (roofy < 0.06) { // the odd box on a roof
       put(city, x + (rand() - 0.5) * w * 0.4, top, z + (rand() - 0.5) * d * 0.4, 1.6 + rand(), 0.9 + rand() * 0.8, 1.6 + rand(), 0.88, 0.89, 0.9, 1);
     }
@@ -428,6 +462,40 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     allBuildings.push(record);
     if (Math.abs(x) < 152 && Math.abs(z) < 152) downtown.push(record);
     return top;
+  }
+  /* The landmark, on its plaza at the middle of the city: a plinth, then a shaft of square plates, each a little narrower and turned a
+     little further than the one below, so it twists a quarter turn on its way up, paused twice by a recessed plate with a glowing band;
+     then a crown narrowing fast to a slanted top, and one thin spire with a light at its tip. Grooves glow up two faces of every plate,
+     so they twist with it. It's the tallest by far, so it's the first of the towers the camera and the flyers go round. */
+  var PLAZA_HALF = C, LANDMARK_PLATES = 22, PLATE_HEIGHT = 6;
+  function buildLandmark() {
+    var tone = [0.97, 0.972, 0.98], y = PAVE_H;
+    put(city, 0, y, 0, 26, 2.4, 26, tone[0], tone[1], tone[2], 1); y += 2.4;
+    for (var k = 0; k < LANDMARK_PLATES; k++) {
+      var f = k / (LANDMARK_PLATES - 1), width = lerp(19, 12.5, f), isGap = k === 7 || k === 15;
+      put(city, 0, y, 0, width * (isGap ? 0.84 : 1), PLATE_HEIGHT, width * (isGap ? 0.84 : 1), tone[0], tone[1], tone[2], 1, isGap ? KIND_BANDED : KIND_CARVED, isGap ? 0 : 1, 0, 0, f * Math.PI / 2);
+      y += PLATE_HEIGHT;
+    }
+    var crown = [[11.2, 5, KIND_BANDED, 0, 0], [9, 4, KIND_PLAIN, 0, 0], [7.5, 8, KIND_PLAIN, 0, 0.92]];
+    for (var c = 0; c < crown.length; c++) {
+      put(city, 0, y, 0, crown[c][0], crown[c][1], crown[c][0], tone[0], tone[1], tone[2], 1, crown[c][2], 0, crown[c][3], crown[c][4], Math.PI / 2);
+      y += crown[c][1];
+    }
+    var crownTop = y - 4;
+    put(city, 0, crownTop, 0, 1.1, 34, 1.1, 0.95, 0.955, 0.965, 1, KIND_BEACON, 0, 0.85, 0.85);
+    var record = { x: 0, z: 0, w: 27, d: 27, top: crownTop, isLandmark: true }; // no bays in the landmarks
+    allBuildings.push(record); downtown.push(record);
+  }
+  // The towers that answer it: about half to two-thirds its height, on the far side from the pane in the first frame, each carved and
+  // cut to a slanted top. [x, z, height, slant across, slant deep]
+  var SECOND_TOWERS = [[-49, -21, 104, 0, 0.9], [-21, 49, 90, 0.9, 0], [35, -63, 78, 0, 0.9]];
+  function secondTowerAt(x, z) { for (var i = 0; i < SECOND_TOWERS.length; i++) if (SECOND_TOWERS[i][0] === x && SECOND_TOWERS[i][1] === z) return SECOND_TOWERS[i]; return null; }
+  function buildSecondTower(t) {
+    var w = BLOCK - 1.4, tone = [0.95, 0.954, 0.962];
+    put(city, t[0], PAVE_H, t[1], w, t[2], w, tone[0], tone[1], tone[2], 1, KIND_CARVED);
+    put(city, t[0], PAVE_H + t[2], t[1], w, 12, w, tone[0], tone[1], tone[2], 1, KIND_PLAIN, 0, t[3], t[4]);
+    var record = { x: t[0], z: t[1], w: w, d: w, top: PAVE_H + t[2] + 6, isLandmark: true };
+    allBuildings.push(record); downtown.push(record);
   }
   // Smaller centres in the districts, so the city rises in a few places beyond downtown.
   var DISTRICTS = [[190, 40], [-150, 160], [-60, -215], [200, -150], [-215, -30]];
@@ -439,6 +507,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       if (dist > coastAt(cx, cz)) continue;
       put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, 0.93, 0.935, 0.945, 1, KIND_PAVEMENT); // the block's pavement, on the land the shore mesh lays
       var inCore = Math.max(Math.abs(cx), Math.abs(cz)) < HALF;
+      // The plaza round the landmark keeps its pavement and nothing else; the towers that answer it stand alone on their blocks.
+      if (Math.abs(cx) < PLAZA_HALF && Math.abs(cz) < PLAZA_HALF) continue;
+      var second = secondTowerAt(cx, cz);
+      if (second) { buildSecondTower(second); continue; }
       if (dist > 45 && rand() < 0.05) { // a park: a lawn of light stone with a few blocky trees
         put(city, cx, PAVE_H, cz, BLOCK - 1.5, 0.16, BLOCK - 1.5, 0.9, 0.915, 0.92, 1);
         for (var tree = 0; tree < 8; tree++) {
@@ -453,9 +525,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       for (var li = 0; li < lots.length; li++) {
         var lot = lots[li], w = lot[2] - 0.9 - rand() * 1.2, d = lot[3] - 0.9 - rand() * 1.2, h;
         if (inCore) {
+          // Downtown rises toward the landmark but stays well under the towers that answer it, so the skyline steps down from them.
           var core = smooth(150, 0, dist);
-          h = lerp(7, 58, core * core) * (0.5 + rand() * 0.8) + rand() * 3;
-          if (dist < 45 && rand() < 0.25) h += 25 + rand() * 45;
+          h = lerp(8, 50, core * core) * (0.55 + rand() * 0.6) + rand() * 3;
+          if (h > 60) h = 60 + (h - 60) * 0.3;
         } else {
           h = lerp(10, 3, smooth(HALF, 300, dist)) * (0.6 + rand() * 0.7);
           var lx = cx + lot[0], lz = cz + lot[1], lift = 0;
@@ -533,6 +606,38 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         vertex(p0[inner][0], p0[inner][1], p0[inner][2], n0[0], n0[1], n0[2], tone0, kind); vertex(p1[outer][0], p1[outer][1], p1[outer][2], n1[0], n1[1], n1[2], tone1, kind); vertex(p0[outer][0], p0[outer][1], p0[outer][2], n0[0], n0[1], n0[2], tone0, kind);
       }
     }
+  }
+
+  /* The city's rows sorted into a 6 by 6 grid of tiles, each with the box round everything in it, so a frame skips the tiles outside
+     the camera's view and draws the rest nearest first (what's behind a near tower then costs little). */
+  var TILE_COUNT_ACROSS = 6, TILE_WIDTH = 128, TILE_ORIGIN = -384, tiles = [];
+  function tileOf(x, z) { var i = Math.floor((x - TILE_ORIGIN) / TILE_WIDTH), j = Math.floor((z - TILE_ORIGIN) / TILE_WIDTH); return Math.max(0, Math.min(TILE_COUNT_ACROSS - 1, i)) * TILE_COUNT_ACROSS + Math.max(0, Math.min(TILE_COUNT_ACROSS - 1, j)); }
+  function sortCityIntoTiles() {
+    var count = TILE_COUNT_ACROSS * TILE_COUNT_ACROSS, sizes = new Int32Array(count), d = city.data, sorted = new Float32Array(d.length);
+    tiles = [];
+    for (var t = 0; t < count; t++) tiles.push({ first: 0, count: 0, low: [Infinity, Infinity, Infinity], high: [-Infinity, -Infinity, -Infinity], vao: null });
+    for (var row = 0; row < city.count; row++) sizes[tileOf(d[row * STRIDE], d[row * STRIDE + 2])]++;
+    for (var first = 0, i = 0; i < count; i++) { tiles[i].first = first; first += sizes[i]; }
+    for (var r = 0; r < city.count; r++) {
+      var o = r * STRIDE, tile = tiles[tileOf(d[o], d[o + 2])], at = (tile.first + tile.count++) * STRIDE, reach = Math.max(d[o + 3], d[o + 5]) * 0.72;
+      sorted.set(d.subarray(o, o + STRIDE), at);
+      tile.low[0] = Math.min(tile.low[0], d[o] - reach); tile.low[1] = Math.min(tile.low[1], d[o + 1]); tile.low[2] = Math.min(tile.low[2], d[o + 2] - reach);
+      tile.high[0] = Math.max(tile.high[0], d[o] + reach); tile.high[1] = Math.max(tile.high[1], d[o + 1] + d[o + 4]); tile.high[2] = Math.max(tile.high[2], d[o + 2] + reach);
+    }
+    city.data.set(sorted);
+    tiles = tiles.filter(function (tile) { return tile.count > 0; });
+  }
+  // The camera's six planes from its view and projection (column-major), and whether a box is at least partly inside all of them.
+  var viewPlanes = new Float32Array(24);
+  function viewPlanesInto(out, m) {
+    for (var k = 0; k < 6; k++) { var row = k >> 1, sign = k & 1 ? -1 : 1;
+      for (var c = 0; c < 4; c++) out[k * 4 + c] = m[c * 4 + 3] + sign * m[c * 4 + row]; }
+    return out;
+  }
+  function isBoxSeen(low, high, planes) {
+    for (var k = 0; k < 6; k++) { var a = planes[k * 4], b = planes[k * 4 + 1], c = planes[k * 4 + 2], e = planes[k * 4 + 3];
+      if (a * (a > 0 ? high[0] : low[0]) + b * (b > 0 ? high[1] : low[1]) + c * (c > 0 ? high[2] : low[2]) + e < 0) return false; }
+    return true;
   }
 
   // The city's rows, summed so their order doesn't matter: the same city gives the same number however its rows are sorted.
@@ -875,7 +980,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function tintInto(out, m, dt) {
     if (m.lastHit !== undefined && clock - m.lastHit > 5) { m.heat = Math.max(0, m.heat - dt * 0.4); if (!m.heat) m.hits = 0; }
     m.shake = (m.shake || 0) * Math.exp(-dt * 6);
-    var k = Math.max(m.heat * 0.75, m.grow < 1 ? 1 - smooth(0.5, 1, m.grow) : 0);
+    var k = Math.max(m.heat * 0.75, m.grow < 1 ? 1 - smooth(0.5, 1, m.grow) : 0, m.isHovered ? 0.45 : 0);
     return setInto(out, lerp(ORANGE[0], HOT[0], k), lerp(ORANGE[1], HOT[1], k), lerp(ORANGE[2], HOT[2], k));
   }
   function jitterInto(out, m) { var j = (m.shake || 0) * 0.35; return j < 0.01 ? setInto(out, 0, 0, 0) : setInto(out, (rand() - 0.5) * j, (rand() - 0.5) * j, (rand() - 0.5) * j); }
@@ -887,6 +992,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // Where a flyer's trail was, j steps back along its loop or lane.
   function behindInto(out, m, j) { return m.loop ? loopPointInto(out, m, m.theta - m.sign * m.step * 0.7 * j) : lanePointInto(out, m, m.p - m.sign * 0.85 * j); }
   // A hidden flyer (the lowest tier shows half of them) neither moves nor shows.
+  // A shape close to the camera draws smaller, so it never fills the screen as a block.
+  function nearScale(at) { return seen.isSet ? 0.35 + 0.65 * smooth(14, 70, Math.hypot(at[0] - seen.eye[0], at[1] - seen.eye[1], at[2] - seen.eye[2])) : 1; }
+  // Pointed at with a mouse, a shape swells a little and warms.
+  function hoverScale(m) { return m.isHovered ? 1.18 : 1; }
   function updateFlyer(m, dt) {
     if (m.isHidden || settleGone(m, dt)) return;
     for (var a = 0; a < 3; a++) { m.vel[a] += (-9 * m.off[a] - 3.2 * m.vel[a]) * dt; m.off[a] += m.vel[a] * dt; }
@@ -903,7 +1012,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var size = m.size * (1 + m.pop * 0.5) * growth(m, dt) * ends, col = tintInto(colour, m, dt), jt = jitterInto(shake, m);
     var at = setInto(m.at, onPoint[0] + m.off[0] + jt[0], onPoint[1] + m.off[1] + jt[1], onPoint[2] + m.off[2] + jt[2]); m.drawYaw = hd.yaw + m.spin;
     if (size < 0.02) return;
-    put(movers, at[0], at[1] - size * 0.375, at[2], size * 1.5, size * 0.75, size * 0.75, col[0], col[1], col[2], 1, 0, 0, 0, 0, hd.yaw + m.spin, hd.pitch + m.spin * 0.4);
+    size *= nearScale(at) * hoverScale(m);
+    put(movers, at[0], at[1] - size * 0.21, at[2], size * 2.1, size * 0.42, size * 0.72, col[0], col[1], col[2], 1, 0, 0, 0.55, 0.6, hd.yaw + m.spin, hd.pitch + m.spin * 0.4);
     if (m.grow < 1) return;
     var count = Math.round(m.tail * 1.4);
     setInto(trailPoints[0], at[0], at[1], at[2]);
@@ -911,7 +1021,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var p = behindInto(trailPoints[j], m, j), keep = 1 - j / (count + 1);
       p[0] += m.off[0] * keep; p[1] += m.off[1] * keep; p[2] += m.off[2] * keep;
     }
-    ribbon(trailPoints, count + 1, m.size * 0.62 * ends, 0.95);
+    ribbon(trailPoints, count + 1, m.size * 0.36 * ends, 0.95);
   }
   function updateHopper(h, dt) {
     if (h.gone) { if (h.flying) { h.t += dt; } if (settleGone(h, dt)) return; }
@@ -931,14 +1041,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     h.spin = (h.spin || 0) * Math.exp(-dt * 2.2);
     var sq = h.squash || 1;
     setInto(h.at, atX, atY + size * 0.4, atZ); h.drawYaw = (h.yaw || 0) + h.spin;
-    if (size > 0.02) put(movers, atX, atY, atZ, size * 1.4 / Math.sqrt(sq), size * 0.8 * sq, size * 0.8 / Math.sqrt(sq), col[0], col[1], col[2], 1, 0, 0, 0, 0, h.drawYaw, (h.pitch || 0) + h.spin * 0.4);
+    var shown = size * nearScale(h.at) * hoverScale(h);
+    if (shown > 0.02) put(movers, atX, atY, atZ, shown * 1.9 / Math.sqrt(sq), shown * 0.5 * sq, shown * 0.8 / Math.sqrt(sq), col[0], col[1], col[2], 1, 0, 0, 0.5, 0.55, h.drawYaw, (h.pitch || 0) + h.spin * 0.4);
     // Where it was, a point every twentieth of a second, newest first: its trail while it flies, shrinking away once it lands.
     h.historyClock += dt;
     if (h.historyClock > 0.05) { h.historyClock = 0; h.historyStart = (h.historyStart + HISTORY_LENGTH - 1) % HISTORY_LENGTH; setInto(h.history[h.historyStart], atX, atY + size * 0.4, atZ); h.historyCount = Math.min(HISTORY_LENGTH, h.historyCount + 1); }
     if (!h.flying || h.leg < 2 || h.leg > 5) { if (h.historyCount > 1) h.historyCount--; return; }
     setInto(trailPoints[0], atX, atY + size * 0.4, atZ);
     for (var i = 0; i < h.historyCount; i++) { var was = h.history[(h.historyStart + i) % HISTORY_LENGTH]; setInto(trailPoints[i + 1], was[0], was[1], was[2]); }
-    ribbon(trailPoints, h.historyCount + 1, h.size * 0.55, 0.95);
+    ribbon(trailPoints, h.historyCount + 1, h.size * 0.34, 0.95);
   }
   function updateWalker(m, dt) {
     move(m, m.limit, dt);
@@ -952,7 +1063,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var yaw = m.axis === "x" ? (m.sign > 0 ? 0 : Math.PI) : (m.sign > 0 ? Math.PI / 2 : -Math.PI / 2);
     var flip = m.hop >= 0 ? -Math.PI * 2 * smooth(0, 1, m.hop) : 0;
     setInto(m.at, at[0], at[1] + size * 0.4, at[2]); m.drawYaw = yaw;
-    if (size > 0.02) put(movers, at[0] + jt[0], at[1] + Math.abs(jt[1]), at[2] + jt[2], size * 1.3 / Math.sqrt(squash), size * 0.8 * squash, size * 0.8 / Math.sqrt(squash), col[0], col[1], col[2], 1, 0, 0, 0, 0, yaw, flip);
+    size *= nearScale(at) * hoverScale(m);
+    if (size > 0.02) put(movers, at[0] + jt[0], at[1] + Math.abs(jt[1]), at[2] + jt[2], size * 1.15 / Math.sqrt(squash), size * 0.5 * squash, size * 0.7 / Math.sqrt(squash), col[0], col[1], col[2], 1, 0, 0, 0.4, 0.5, yaw, flip);
   }
   // A list of short-lived things with the finished ones taken out, in place.
   function keepLiving(list) { var kept = 0; for (var i = 0; i < list.length; i++) if (list[i].life > 0) list[kept++] = list[i]; list.length = kept; }
@@ -1016,7 +1128,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var SPAN = 360;
   var lightViewProj = mul(ortho(-SPAN, SPAN, -SPAN, SPAN, 1, 1600), lookAt([SUN[0] * 700, SUN[1] * 700, SUN[2] * 700], [0, 0, 0], [0, 1, 0]));
 
-  /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea, over the districts, under the tallest tower looking up into the sun as it slips in and out behind the crown, up and out, low over the water, and a high sweep back round. */
+  /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the landmark, round its crown, out low over the water, and a high sweep back round. */
   // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
   var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
   var FOG_DAY = [0.7, 0.82, 0.94], ZENITH_DAY = [0.17, 0.43, 0.86], FOG_NIGHT = [0.11, 0.14, 0.25], ZENITH_NIGHT = [0.025, 0.045, 0.12];
@@ -1038,15 +1150,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var tower = [T.x, 0, T.z], underY = Math.max(24, T.top - 6 - 45 * sunRise);
     var sunA = off(tower, 45, -22, underY), sunB = off(tower, 45, 22, underY + 6);
     SHOTS = [
-      [0, [430, 120, 300], [0, 20, 0]],
-      [13, [250, 58, 175], [30, 24, 10]],
-      [25, off(tower, 95, -40, 46), [T.x, T.top * 0.6, T.z]],
-      [36, sunA, ahead(sunA, 100)],
-      [47, sunB, ahead(sunB, 100)],
-      [59, off(tower, 30, 60, T.top + 50), [0, 15, 0]],
-      [73, [-380, 16, 140], [-120, 30, 20]],
-      [87, [-120, 200, -400], [0, 10, 0]],
-      [100, [300, 160, -320], [0, 15, 0]]
+      [0, [430, 120, 300], [0, 40, 0]],
+      [14, [320, 80, 330], [0, 55, 0]],
+      [28, [150, 105, 190], [0, T.top * 0.8, 0]],
+      [42, [-70, 150, 175], [0, T.top * 0.75, 0]],
+      [56, [-210, 95, 70], [0, T.top * 0.45, 0]],
+      [70, [-390, 42, -110], [-60, 30, 0]],
+      [84, [-160, 230, -420], [0, 25, 0]],
+      [98, [330, 170, -320], [0, 35, 0]]
     ];
   }
   function catmullInto(out, p0, p1, p2, p3, t) {
@@ -1125,9 +1236,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var d = Math.hypot(sx - clientX, sy - clientY);
       if (d < radius && d < bestDistance) { best = m; bestDistance = d; }
     }
-    flyers.forEach(function (m) { if (!m.gone && !m.isHidden && m.grow >= 1) consider(m, 30); });
-    hoppers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 26); });
-    walkers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 18); });
+    var reach = coarse ? 1.5 : 1;
+    flyers.forEach(function (m) { if (!m.gone && !m.isHidden && m.grow >= 1) consider(m, 30 * reach); });
+    hoppers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 26 * reach); });
+    walkers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 18 * reach); });
     return best;
   }
   function seaPoint(clientX, clientY) {
@@ -1179,7 +1291,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     once(buildSea),
     once(buildShore),
     each(LAND, buildLandColumn),
-    each(function () { bayTowers = downtown.filter(function (b) { return b.top > 50 && Math.min(b.w, b.d) > 6.5; }); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
+    once(buildLandmark),
+    each(function () { bayTowers = downtown.filter(function (b) { return !b.isLandmark && b.top > 50 && Math.min(b.w, b.d) > 6.5; }); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
+    once(sortCityIntoTiles),
     each(function () { return Math.ceil(allBuildings.length / 400); }, function (item) { for (var i = item * 400; i < Math.min(allBuildings.length, (item + 1) * 400); i++) markRoof(allBuildings[i]); }),
     once(function () { bays.forEach(markBayRoof); }),
     each(function () { return Math.ceil(allBuildings.length / 400); }, function (item) { for (var i = item * 400; i < Math.min(allBuildings.length, (item + 1) * 400); i++) markRoofExact(allBuildings[i]); }),
@@ -1293,7 +1407,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   function areProgramsFinished() { for (var i = 0; i < gpu.programs.length; i++) if (!gpu.programs[i].isFinished) return false; return true; }
   function instanceBuffer(capacity, usage) { var buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, capacity * STRIDE * 4, usage); return buffer; }
-  function instanceVao(buffer) {
+  function instanceVao(buffer, firstRow) {
     var vao = gl.createVertexArray(); gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cubeBuffer);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
@@ -1302,7 +1416,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var sizes = [3, 3, 4, 4, 2], at = 0;
     for (var i = 0; i < 5; i++) {
       gl.enableVertexAttribArray(2 + i);
-      gl.vertexAttribPointer(2 + i, sizes[i], gl.FLOAT, false, STRIDE * 4, at * 4);
+      gl.vertexAttribPointer(2 + i, sizes[i], gl.FLOAT, false, STRIDE * 4, ((firstRow || 0) * STRIDE + at) * 4);
       gl.vertexAttribDivisor(2 + i, 1);
       at += sizes[i];
     }
@@ -1324,7 +1438,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gpu = { programs: [], parallel: gl.getExtension("KHR_parallel_shader_compile"), warmed: [], warmedCount: 0, warmFence: null, isFilled: false,
       maxSampleCount: gl.getParameter(gl.MAX_SAMPLES), timer: window.__city ? null : gl.getExtension("EXT_disjoint_timer_query_webgl2"), timings: [] };
     var vs = gl.VERTEX_SHADER, fs = gl.FRAGMENT_SHADER, full = compileShader(vs, FULL_VS);
-    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight"], { uShadow: SHADOW_UNIT });
+    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight", "uPulse"], { uShadow: SHADOW_UNIT });
     gpu.depth = program(compileShader(vs, DEPTH_VS), compileShader(fs, DEPTH_FS), ["uLightViewProj"]);
     gpu.sky = program(full, compileShader(fs, SKY_FS), ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight"]);
     gpu.water = program(compileShader(vs, WATER_VS), compileShader(fs, WATER_FS), ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff"]);
@@ -1374,6 +1488,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.waterBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, seaVertices);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cityBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, city.data, 0, city.count * STRIDE);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.shoreBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, shoreVertices);
+    gpu.tileVaos = tiles.map(function (tile) { return instanceVao(gpu.cityBuffer, tile.first); });
     gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.shadowFb);
     gl.viewport(0, 0, gpu.shadowSize, gpu.shadowSize);
     gl.enable(gl.DEPTH_TEST);
@@ -1381,7 +1496,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.useProgram(gpu.depth.program);
     gl.uniformMatrix4fv(gpu.depth.at.uLightViewProj, false, lightViewProj);
     gl.bindVertexArray(gpu.cityVao);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, city.count);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_TOP_COUNT, city.count);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.DEPTH_TEST);
@@ -1585,7 +1700,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var WARMS = [
     ["sky", function () { warmAt(sceneFb(), gpu.sky); gl.depthMask(false); warmFull(); }],
     ["water", function () { warmAt(sceneFb(), gpu.water); gl.enable(gl.DEPTH_TEST); gl.bindVertexArray(gpu.waterVao); gl.drawArrays(gl.TRIANGLES, 0, 3); }],
-    ["box", function () { warmAt(sceneFb(), gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1); }],
+    ["box", function () { warmAt(sceneFb(), gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_TOP_COUNT, 1); }],
     ["box", function () {
       warmAt(sceneFb(), gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
       gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false);
@@ -1623,7 +1738,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       drawTo(from); gl.useProgram(made.program); bindTex(0, via.tex); gl.uniform2f(made.at.uStep, 0, spread / via.h); drawFull();
     }
   }
-  var sunPoint = [0, 0, 0], sunAt = [0, 0, 0], focusAt = [0, 0, 0];
+  var sunPoint = [0, 0, 0], sunAt = [0, 0, 0], focusAt = [0, 0, 0], seenTiles = [];
+  function byDistance(a, b) { return a.distance - b.distance; }
   // One frame of the world as the camera last aimed it (seen), at the tier's size.
   function drawFrame() {
     var tier = TIERS[tierIndex], multisampled = multisampleFor(tier.sampleCount), vp = seen.viewProj, eye = seen.eye, aspect = width / height, u;
@@ -1653,9 +1769,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniformMatrix4fv(u.uLightViewProj, false, lightViewProj);
     gl.uniform3fv(u.uSun, SUN); gl.uniform3fv(u.uCam, eye); gl.uniform3fv(u.uFog, FOG);
     gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF); gl.uniform1f(u.uNight, night);
-    gl.uniform1f(u.uLit, 1); gl.uniform1f(u.uOpaque, 1); gl.uniform1f(u.uEdge, 1);
+    gl.uniform1f(u.uLit, 1); gl.uniform1f(u.uOpaque, 1); gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uPulse, 0.5 + 0.5 * Math.sin(clock * 2.4));
     gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
-    gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, city.count);
+    // The tiles the camera sees, nearest first.
+    viewPlanesInto(viewPlanes, vp); seenTiles.length = 0;
+    for (var ti = 0; ti < tiles.length; ti++) { var tile = tiles[ti]; if (!isBoxSeen(tile.low, tile.high, viewPlanes)) continue;
+      tile.distance = Math.hypot((tile.low[0] + tile.high[0]) / 2 - eye[0], (tile.low[2] + tile.high[2]) / 2 - eye[2]); tile.index = ti; seenTiles.push(tile); }
+    seenTiles.sort(byDistance);
+    for (var si = 0; si < seenTiles.length; si++) { gl.bindVertexArray(gpu.tileVaos[seenTiles[si].index]); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_TOP_COUNT, seenTiles[si].count); }
     // The shore: its own vertices, with the inputs a row would give held at rest (no offset, unit size, unturned).
     gl.bindVertexArray(gpu.shoreVao); gl.vertexAttrib3f(2, 0, 0, 0); gl.vertexAttrib3f(3, 1, 1, 1); gl.vertexAttrib2f(6, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, SHORE_COUNT);
@@ -2016,6 +2137,16 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10 && performance.now() - start.atMs < 600) play(event.clientX, event.clientY);
   }));
   stage.addEventListener("pointercancel", function () { touchStart = null; });
+  // A mouse over a shape: the pointer, and the shape swells and warms while it's there. Checked at most every 80 ms as the mouse moves.
+  var hovered = null, hoverCheckedAtMs = 0;
+  function hover(thing) { if (thing === hovered) return; if (hovered) hovered.isHovered = false; hovered = thing; if (thing) thing.isHovered = true; stage.style.cursor = thing ? "pointer" : ""; }
+  stage.addEventListener("pointermove", guarded(function (event) {
+    if (event.pointerType !== "mouse" || !isShown) return;
+    var now = performance.now(); if (now - hoverCheckedAtMs < 80) return; hoverCheckedAtMs = now;
+    var thing = pick(event.clientX, event.clientY);
+    hover(thing && !thing.gone ? thing : null);
+  }));
+  stage.addEventListener("pointerleave", function () { hover(null); });
   if (window.zaismaCityTool) tool.report = function () {
     return { phase: phase, phaseTimesMs: phaseTimesMs, tierIndex: tierIndex, canvasPx: [canvas.width, canvas.height], vsyncMs: Math.round(vsyncMs * 10) / 10,
       isTimed: Boolean(gpu && gpu.timer), heavyGpuMs: Math.round(heavyGpuMs() * 10) / 10, gpuP95Ms: gpu && gpu.timer ? gpuTimeP95(performance.now()) : null,
@@ -2170,12 +2301,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRmwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggfgEAAJAJAJ0BKkgAHAA+tU6gSyckIyGpq2jgFolkAL57jo3nob1eFgEYBK0e9V7LB/Ln8wDu02VPJKQ3+sRQ7MytoPGhQVXNqwS5YGLGvnxu2YVqFMSkWgAA/vADPIFtLGZZb98cpb/8bdPCDmNwUj7ONqtzhIEZqZxe6lYqGaP3oiHV8/Uf8dOUsWYdl4ymNYg0Gr3brDVaEKfXk2eSkFBKW4+i4IXnXmrAh6F1dx9vyhmQBkUMCLtUYaFAHwqmkVWRi/3ejXAPlhS3JpjzfiwiAuJS5kw/ev+3qw16O3ZZ5RIJdLUa05MA7h3+nSCwdQ6URMU/LcYnOJYGVW9w1V62VTuSQoQqjWIlDZB8N4KhwUFFfEqjs8CkPLLD2tpYa74Z2e3CYbKuJie4GBrCuEdyz6/NwRgFc9MQhEbYvceYSx5O5npoBztjH6rHDRe9mTwimM8cO49SbwkbkzdFPnGMjk/CTM+AvhIiZT9sIHRxPuCukfqm3EC1Cnsnfl4XIAA=); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRqACAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggsgAAAHAHAJ0BKkgAHAA+tVCgTCckoyIs1Aqo4BaJZwDOsauQNWmosqDKjI6MxD3ivaZKaQTUAZ6b27qvnSyNBSdCL3gs4tQAAP7z5s3R+XlXpsDgWh3EXSge06nAxRRYv6VgzQXuk9+KTkimYC45CoAys/kx2cLmuismopuAHm8b5j8wACUp86yhLhxCNyuOKTEei518354hofX9vQDOXoj9f+s08pXcVxrgQbmRB7VdqIUH8AA=); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRlgDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggagEAAJAHAJ0BKkgAHAA+tUShSqcjoyGs2/qo4BaJQxPk06ior0ROlZEYrXvMQ6sMYltt9Ukf9pIhDcHtnC1AsUvWTXoObNSUAAD+54Xpuc1rZv4E3b6uetQymYA9l9fJ422GTupakDPyRDLnLu67EB54CJeChRXBMzihdRWu6TPTkkcHZOfKP39SK8QOav0xCtYnlIY3TbYm5vRsCTHkRjpX5SS2L8dGQTwtCKySpbq/SVUs1LHIHrery1ST/N++fBt90VKMSB6MtZ2lRIPIBGnkHVlCpMKDlvRrP9qXMEqQfv5feCbvnf+o7bMsThjyH3XjSSZyPWDb3xQPI0CITqGdBW/YPq/X6+7tBN9872XOiLpKObN9CElPlNBlnTHsWj3Y8q9p7Zt8y6Oz7aD+7GZtCHZjkywq0n07JDS2E352ECxbxgsWrjr7K3L6Ltlfv/x0UuqLjRaeqvOvD5hoLcnQD+I3jaMqTQWIgAAA); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRooCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggnAAAABAHAJ0BKkgAHAA+sUicSackIqEzOqgA4BYJZwDSrCRBvfpTaXUHPwUukiGSJkLKxIrJ7sBo65BaL+1dHPsl6iwAAP7ybUsy5Tbl68kIYHUzV7N4++kBMiakFcNP3ZAL2B585WbCkHrjy0qdLIRJqzx9DCPxbgRlgjNCxzHfNbQBtyxIITTdGfO240GssG+TaH+y2FVVDC94vrQAAA==); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRgADAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggEgEAABAHAJ0BKiQAJAA+tVSlTicko6MjigDgFoliAMH/vgfIezcm8Pb/54AatYKJB8vMCGMdbYkLo7ZOQ7wxPyQ0E/VgAP3c9vBLLpOIRVv9dRfrjrs7gv6+YcPPl8/4DFxubIine6c4/PM9xOLb7eqVkSRNo/4y69oRtvipz/AVBxIAHVqJYvdLxg4QBcjYnUsm61GXb9ONCvT5yaw1q3Uuj1VNXmJYQqs5htXIy+WDG2OFcfwPtJGf4qdsz11v6VOH4cIi1a9M7plt7uz1MYfNYqoBOGnA10XeKIAp08xBBasp3+SJWECO0k8b6+9N3HEsnNCtvhBpf/fMtvJMSPrZ8UL/721QzB4zQxnfW7ENZTcAAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRmoCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggfAAAAJAEAJ0BKiQAJAA+tVKiTSckoyIqtVgA4BaJZwDFyCO9u93EcUEy2z/MDE6ygAD+9CH6CQzaVFPmT3sVuvU2LRAD8lK8Oj3Sl6ifg0SgbxFhSeDePFL56otVn2eBESGOx4sEJze4V4xpl3UwQ1kCVODE80UyvJnMnEOAAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRvgCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggCgEAANAHAJ0BKiQAJAA+tVahTKckoyInKkjgFoliAL57ceQMBP//w/s/+Tis3YkKd+bJ0L541rnija9UHuWarUKBZwm8AQslx04AAPx8PwyMuEHNzBlecN/376fonUKYu/rTqf0NPwwPBksfFjalozDOKGMCxBwusWj6c5yTES+eHKHIDyn1UAEh884KE0kwqrnNomw3Sf/tUltqxP8oNhtzTP07DtfgFVqfLejRG3KYEYK5Wb1SCIhBtQ9q/4nEVW8BVHJQx/RaJAPBExNnUu+Hb4iTcS5OJKYN5V+Lnh2C0Yyl4L43eXZkQk4HXTo1cTFf+Qxe+dQ7RkgPfddihVnKMllFWhCY3h1jiAAA); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnoCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjAAAALAFAJ0BKiQAJAA+tUqeSi4kIqGuNA5hwBaJZwDE2AnvIBcOZTZC5UelwZ8Wtu8mYesVLeGIAAD+8nG0l07KAT9izl/tRfw1oOqOPf9lpQM3RTt8xfYC+FwsBX8GqNRgMVWHaKeKtXWhU5F8SpYndQuA+1AX1E4zC8LU0VUaosNgQlRhXn9xG7AjwAAA); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
