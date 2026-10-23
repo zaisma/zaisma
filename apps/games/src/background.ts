@@ -388,7 +388,7 @@ export async function serveBackground(request: Request, env: BackgroundEnv, game
   if (!kind) return null;
   const isShown = game.review_status === "live" && Boolean(game.live_version_id) && (game.visibility === "listed" || game.visibility === "unlisted");
   if (!isShown) return notFound();
-  const params = new URL(request.url).searchParams;
+  const query = new URL(request.url).searchParams;
   // A chosen shader's files never change: a new choice is a new shader ID in the runner's links, and a texture is a new image ID.
   const served = (body: ReadableStream | string | null, contentType: string) => {
     const headers = gameHeaders(contentType, env.SITE_ORIGIN);
@@ -397,12 +397,12 @@ export async function serveBackground(request: Request, env: BackgroundEnv, game
   };
   if (kind === "texture") {
     // Only an approved shader texture of this game: what a shader reads, never another picture of it or another game's.
-    const image = await imageById(env.DB, params.get("image") ?? "");
+    const image = await imageById(env.DB, query.get("image") ?? "");
     if (!image || image.game_id !== game.id || image.kind !== "shader_texture" || image.review_status !== "approved") return notFound();
     const object = await env.GAMES.get(imageKey(image));
     return object ? served(object.body, image.content_type) : notFound();
   }
-  const screen = params.get("screen");
+  const screen = query.get("screen");
   if (screen !== "wide" && screen !== "phone") return notFound();
   const shader = await chosenShader(env, game, screen);
   if (!shader) return notFound();
