@@ -13,8 +13,8 @@ import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type Tag
 export type PictureSize = "xs" | "sm" | "md" | "lg";
 
 /**
- * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Pictures are the
- * one thing never cut or slanted: always square, alone or in a row, wherever they sit.
+ * An account's picture (accountPicture, its initials for now) in a small frame of the panes' glass, with its drawn rim. Its frame has no
+ * corners of its own, so in a pane's corner it takes the corner's cut like anything with an edge, and it's square elsewhere; never slanted.
  */
 export function pictureFrame(username: string, pictureSize: PictureSize, options: { presence?: "online" | "playing"; isCut?: boolean } = {}): Raw {
   // The initials are sized to the frame (--frame), so the largest frame takes the account's picture at its largest size.
@@ -99,7 +99,8 @@ component({
   group: "data",
   summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, at the head of a profile.",
   styles: `
-/* An account's picture under a small frame of the panes' glass. Always square: never cut or slanted, alone or in a row. The glass itself
+/* An account's picture under a small frame of the panes' glass. Square, except in a pane's corner, where it takes the corner's cut like
+   anything with an edge (the edge rule); never slanted. The glass itself
    is clear (no tint of its own), so the picture runs right to its edges and the drawn rim lies over the picture's own colors, the way a
    pane's edge takes the color of what's under it. */
 .frame { --frame: 44px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;

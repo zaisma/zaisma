@@ -19,7 +19,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     var css = getComputedStyle(el);
-    return css.visibility !== "hidden" && Number(css.opacity) > 0.01 && !el.closest("[hidden], dialog:not([open])");
+    // What a closed details folds away is laid out but never drawn.
+    return css.visibility !== "hidden" && Number(css.opacity) > 0.01 && !el.closest("[hidden], dialog:not([open]), details:not([open]) > :not(summary)");
   }
   function describe(el) {
     var named = el.closest("[class]"), component = "", walk = el;
@@ -118,6 +119,23 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         if (cut !== undefined && paneCuts[i] > 0 && atGap(corner[0]) && atGap(corner[1]) && cut < LEAST_BEVEL_PX - 0.01) report("bevel under 4px", el, "in the pane's " + corner.join(" ") + " corner its bevel is " + round(cut) + "px");
       });
     });
+    // Anything with an edge of its own (a picture, a filled, bordered or shadowed box) at the frame gap in a cut corner of the pane is cut
+    // there too, by itself or by what holds it: nothing square sits against a cut corner. Words, bare icons and thin lines have no edge.
+    if (!pane.closest(".frame")) (function walk(el) {
+      Array.prototype.forEach.call(el.children, function (child) {
+        if (child instanceof SVGElement || child.matches("[data-glass]:not(.frame), .edge, .cut-line") || !isShown(child) || isScrolledAway(child, pane)) return;
+        var r = child.getBoundingClientRect(), d = distances(r), css = getComputedStyle(child);
+        if (!r.width || !r.height || css.clipPath !== "none") return;
+        var corner = [["top", "left"], ["top", "right"], ["bottom", "right"], ["bottom", "left"]].findIndex(function (sides, i) {
+          return paneCuts[i] > 0 && d[sides[0]] <= gap[sides[0]] + TOLERANCE_PX && d[sides[1]] <= gap[sides[1]] + TOLERANCE_PX;
+        });
+        var isEdged = /^(IMG|VIDEO|CANVAS|IFRAME)$/.test(child.tagName) || css.backgroundImage !== "none" || css.boxShadow !== "none" ||
+          (function (fill) { return fill && (fill.length < 4 || Number(fill[3]) > 0.04); })(css.backgroundColor.match(/[\d.]+/g)) ||
+          ["Top", "Right", "Bottom", "Left"].some(function (side) { return parseFloat(css["border" + side + "Width"]) > 0 && !/rgba\(.*, 0\)|transparent/.test(css["border" + side + "Color"]); });
+        if (corner >= 0 && isEdged && Math.min(r.width, r.height) >= 6) report("square in a cut corner", child, "an edge in the pane's " + ["top left", "top right", "bottom right", "bottom left"][corner] + " corner with no cut");
+        else if (corner >= 0) walk(child);
+      });
+    })(pane);
     // Two things with an edge overlap only as far as two controls side by side do, slanting toward each other.
     for (var i = 0; i < framed.length; i++) for (var j = i + 1; j < framed.length; j++) {
       if (framed[i].closest(OVERLAPPING) && framed[i].closest(OVERLAPPING) === framed[j].closest(OVERLAPPING)) continue;
