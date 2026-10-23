@@ -318,7 +318,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  if (isWall && isBuilt) col *= mix(0.9, 1.06, vLocal.y);\n" +
     // The foundation's tiers: a thin line of cool light along the top edge of each, faint by day and glowing at night: the island's edge.
     "  if (isWall && kind == 9) { float fromTop = (1.0 - vLocal.y) * vSize.y, edgeLine = 1.0 - smoothstep(0.12, 0.12 + max(fwidth(fromTop), 0.02) * 1.5, fromTop);\n" +
-    "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.6 * (1.0 - uNight)); glow += edgeTone * edgeLine * 1.3 * uNight; }\n" +
+    "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.25 * (1.0 - uNight)); glow += edgeTone * edgeLine * 1.3 * uNight; }\n" +
     // When the Relay fires: how long ago its wave passed this row's origin (each point, on the ground's own mesh), so a row lights whole,
     // like a pixel: hit flashes and fades fast, hold lingers, pass is the moment it goes by.
     "  float since = -1.0, hit = 0.0, hold = 0.0, pass = 0.0, carvedMask = 0.0; vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
@@ -409,7 +409,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "void main(){ vec2 s = vUv * 2.0 - 1.0 - uShift; vec3 d = normalize(uFwd + uRight * s.x * uTan.x + uUp * s.y * uTan.y);\n" +
     " float h = max(d.y, 0.0); float toSun = dot(d, uSun);\n" +
     " vec3 c = mix(uHorizon, uZenith, 1.0 - exp(-h * 3.2));\n" +
-    " c += uHorizon * 0.12 * exp(-h * 16.0) * (1.0 - 0.6 * uNight);\n" +
+    " c += uHorizon * 0.12 * exp(-h * 16.0) * 0.4 * uNight;\n" +
     // The sun, a digital one: a crisp disc ringed by three thin circles, the outer two broken into dashes turning slowly opposite ways.
     // No glare and no rays. At night the same, cooler and dimmer.
     " if (toSun > 0.99) { vec3 across = normalize(cross(uSun, vec3(0.0, 1.0, 0.0))), upward = cross(across, uSun); vec2 q = vec2(dot(d, across), dot(d, upward));\n" +
@@ -417,7 +417,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float disc = 1.0 - smoothstep(0.011 - px, 0.011 + px, rho);\n" +
     "  float rings = lineAt(rho - 0.017, 0.0005, px) + lineAt(rho - 0.023, 0.0005, px) * step(0.5, fract(turn * 2.546 + uTime * 0.03))\n" +
     "   + 0.7 * lineAt(rho - 0.03, 0.0004, px) * step(0.3, fract(turn * 5.093 - uTime * 0.02));\n" +
-    "  c = mix(c, mix(vec3(1.0, 1.0, 0.98), vec3(0.8, 0.88, 1.0), uNight), clamp(disc + 0.85 * rings, 0.0, 1.0) * mix(1.0, 0.6, uNight)); }\n" +
+    "  c = mix(c, mix(vec3(1.0, 1.0, 0.98), vec3(0.8, 0.88, 1.0), uNight), clamp(disc + 0.85 * rings, 0.0, 1.0) * mix(0.18, 0.6, uNight)); }\n" +
     // Stars at night: sharp square points, one to three pixels across, a few blinking slowly like distant signals.
     " vec2 sc = vec2(atan(d.z, d.x) * 150.0, d.y * 150.0); vec2 ci = floor(sc); float hs = hash2(ci); vec2 cellPx = clamp(fwidth(sc), vec2(1e-3), vec2(0.5));\n" +
     " vec2 starAt = (fract(sc) - 0.5 - (vec2(hash1(hs * 9.1), hash1(hs * 3.7)) - 0.5) * 0.5) / cellPx; float starSize = 0.5 + 0.8 * fract(hs * 53.3);\n" +
@@ -433,7 +433,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float lattice = max(1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.x, cell.x), 1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.y, cell.y)) * clamp(1.0 - max(latticePx.x, latticePx.y) / 40.0, 0.0, 1.0);\n" +
     "  float r = max(abs(p.x), abs(p.y)), ringAt = (r - uSkyRing.x) / (60.0 + 0.04 * uSkyRing.x);\n" +
     "  warm += uSkyRing.y * step(0.02, d.y) * exp(-length(p - uEye.xz) / 3500.0) * (exp(-ringAt * ringAt) + 0.6 * lattice * step(r, uSkyRing.x) * exp(-max(uSkyRing.x - r, 0.0) / 500.0));\n" +
-    "  vec3 ember = vec3(1.0, 0.5, 0.15), dayLight = vec3(1.0, 0.86, 0.6); c = mix(mix(c, dayLight, clamp(warm * 1.4, 0.0, 1.0) * 0.9), c + ember * warm, uNight); }\n" +
+    "  vec3 ember = vec3(1.0, 0.5, 0.15); c = mix(mix(c, ember, clamp(warm * 1.3, 0.0, 1.0) * 0.85), c + ember * warm, uNight); }\n" +
     " o = vec4(c, 1.0); }";
   /* The sea: a data sea. An endless faceted surface, low-poly like the city, slowly rising and falling: glassy pale cyan by day under a
      soft white horizon, near-black navy at night. On it a faint grid every SEA_GRID_UNITS, lined up with the city's streets so the arms
@@ -458,7 +458,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
     " vec3 skyRef = mix(uHorizon, uZenith, pow(clamp(r.y, 0.0, 1.0), 0.45));\n" +
     " float shallow = vShallow, facet = 0.85 + 0.25 * max(dot(n, uSun), 0.0);\n" +
-    " vec3 deep = mix(mix(vec3(0.05, 0.4, 0.6), vec3(0.12, 0.6, 0.7), shallow), mix(vec3(0.006, 0.014, 0.036), vec3(0.01, 0.04, 0.066), shallow), uNight);\n" +
+    " vec3 deep = mix(mix(vec3(0.78, 0.82, 0.87), vec3(0.8, 0.84, 0.89), shallow), mix(vec3(0.006, 0.014, 0.036), vec3(0.01, 0.04, 0.066), shallow), uNight);\n" +
     " vec3 c = mix(deep * facet, skyRef * (0.94 + 0.08 * facet), clamp(fres * 0.9 + 0.18, 0.0, 0.8) * (1.0 - 0.4 * shallow));\n" +
     // The grid: its lines never thinner than most of a pixel, each set fading out before its cells crowd into a moire; every fourth line
     // carries on further out.
@@ -478,18 +478,18 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " packet *= step(0.0, outside);\n" +
     // A tap: a square ring of light running out along the grid's lines (a faint fill where the lines have faded), and the cell it hit lit.
     " float tap = 0.0; for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z; vec2 off = abs(vWorld.xz - rp.xy);\n" +
-    "   float k = (max(off.x, off.y) - rp.w * (4.0 + 26.0 * age)) / (rp.w * (2.6 + age)), k2 = (max(off.x, off.y) - rp.w * (4.0 + 18.0 * max(age - 0.35, 0.0))) / (rp.w * (2.0 + age)), onLine = max(lineAt(e.x, 0.06, cellPx.x), lineAt(e.y, 0.06, cellPx.y));\n" +
+    "   float k = (max(off.x, off.y) - rp.w * (3.0 + 14.0 * age)) / (rp.w * (1.6 + 0.6 * age)), k2 = (max(off.x, off.y) - rp.w * (3.0 + 10.0 * max(age - 0.35, 0.0))) / (rp.w * (1.4 + 0.6 * age)), onLine = max(lineAt(e.x, 0.06, cellPx.x), lineAt(e.y, 0.06, cellPx.y));\n" +
     "   vec2 tapCell = abs(floor(g) - floor(rp.xy / " + SEA_GRID_UNITS.toFixed(1) + "));\n" +
-    "   tap += (exp(-k * k) * (0.85 + 0.7 * onLine) + 0.55 * exp(-k2 * k2) * step(0.35, age) * (0.6 + 0.6 * onLine)) * exp(-age * 0.55) + 1.1 * exp(-age * 1.6) * step(max(tapCell.x, tapCell.y), 0.5); } }\n" +
+    "   tap = max(tap, (exp(-k * k) * (0.6 + 0.5 * onLine) + 0.3 * exp(-k2 * k2) * step(0.35, age) * (0.5 + 0.5 * onLine)) * exp(-age * 1.2) + 0.45 * exp(-age * 3.0) * step(max(tapCell.x, tapCell.y), 0.5)); } }\n" +
     // The Relay's wave turns the grid orange behind its front as it runs out over the sea.
     " float since = uWave.x - waveDistance(vWorld.xz), flare = uWave.y > 0.0 && since >= 0.0 ? uWave.y * exp(-since / 220.0) : 0.0;\n" +
     // By day the lines are a pale cyan-white over the glassy sea, low in contrast, and the orange is mixed in (orange added to blue turns
     // white); at night they glow a soft cyan-blue and the orange adds.
     " vec3 lineTone = mix(vec3(0.9, 0.98, 1.0), vec3(0.3, 0.6, 1.0), uNight), ember = vec3(1.0, 0.5, 0.15);\n" +
-    " float cool = grid * (1.0 - flare) * mix(0.32, 0.26, uNight) + edge * mix(0.7, 0.9, uNight), warmth = packet * mix(0.5, 1.3, uNight) + grid * flare * mix(1.5, 1.6, uNight);\n" +
+    " float cool = grid * (1.0 - flare) * mix(0.05, 0.26, uNight) + edge * mix(0.7, 0.9, uNight), warmth = packet * mix(0.22, 1.3, uNight) + grid * flare * mix(1.5, 1.6, uNight);\n" +
     " c = mix(mix(c, lineTone, clamp(cool, 0.0, 1.0)), c + lineTone * cool, uNight);\n" +
     // A tap's rings in a saturated cyan-blue, so they read on the pale sea by day as clearly as they glow at night.
-    " vec3 tapTone = mix(vec3(0.78, 0.98, 1.0), vec3(0.35, 0.75, 1.0), uNight); c = mix(mix(c, tapTone, clamp(tap, 0.0, 1.0) * 0.85), c + tapTone * tap * 1.3, uNight);\n" +
+    " vec3 tapTone = mix(vec3(0.2, 0.55, 0.95), vec3(0.35, 0.75, 1.0), uNight); c = mix(mix(c, tapTone, clamp(tap, 0.0, 1.0) * 0.6), c + tapTone * tap * 0.8, uNight);\n" +
     " c = mix(mix(c, ember, clamp(warmth, 0.0, 1.0)), c + ember * warmth, uNight);\n" +
     // While the Relay fires: a crisp line where its wave is, with a faint wake, and the column's reflection, broken by the facets into a
     // run of orange toward the eye. Mixed in by day, added at night.
@@ -497,7 +497,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float warm = uWave.y * (exp(-since * since / (width * width)) + 0.25 * step(0.0, since) * exp(-max(since, 0.0) / 80.0));\n" +
     "  float flatShare = max(dot(r.xz, r.xz), 1e-6), t = -dot(vWorld.xz, r.xz) / flatShare, off = length(vWorld.xz + r.xz * t), y = vWorld.y + r.y * t;\n" +
     "  warm += uBeamReflect.z * step(0.0, t) * exp(-off * off / 400.0) * step(uBeamReflect.x, y) * step(y, uBeamReflect.y);\n" +
-    "  c = mix(mix(c, mix(ember, vec3(1.0, 0.86, 0.6), 0.35), clamp(warm * 1.5, 0.0, 1.0)), c + ember * warm, uNight); }\n" +
+    "  c = mix(mix(c, ember, clamp(warm * 1.5, 0.0, 1.0)), c + ember * warm, uNight); }\n" +
     // The haze, and far out the sea meets the sky's horizon, so there's no edge to the world.
     " c = mix(c, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld));\n" +
     " c = mix(c, uHorizon, smoothstep(2600.0, 7000.0, d));\n" +
@@ -1491,7 +1491,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the Relay, under its tips and round it, out low over the water, and a high sweep back round. */
   // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
   var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
-  var FOG_DAY = [0.72, 0.86, 0.97], ZENITH_DAY = [0.07, 0.29, 0.78], FOG_NIGHT = [0.07, 0.095, 0.19], ZENITH_NIGHT = [0.012, 0.02, 0.055];
+  var FOG_DAY = [0.8, 0.84, 0.89], ZENITH_DAY = [0.73, 0.78, 0.85], FOG_NIGHT = [0.07, 0.095, 0.19], ZENITH_NIGHT = [0.012, 0.02, 0.055];
   var FOG = FOG_DAY.slice(), ZENITH = ZENITH_DAY.slice(), FIRE_HAZE_DAY = [1.0, 0.8, 0.62], FIRE_HAZE_NIGHT = [0.42, 0.2, 0.1];
   var nightTarget = isNight() ? 1 : 0, night = nightTarget;
   // The theme can change in place (a setting, or the system's), and the city eases to day or night with it.
@@ -1627,7 +1627,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var at = seaPoint(clientX, clientY);
       if (at) {
         var scale = Math.max(1, Math.hypot(at[0] - seen.eye[0], WATER_Y - seen.eye[1], at[1] - seen.eye[2]) / 110);
-        ripples.push({ x: at[0], z: at[1], start: clock, w: scale }); if (ripples.length > 12) ripples.shift();
+        ripples.push({ x: at[0], z: at[1], start: clock, w: scale }); if (ripples.length > 4) ripples.shift(); // at most four at once
         // A flat square flash of light on the water where it landed; the sea's own ring runs out along the grid from it.
         flashes.push({ p: [at[0], WATER_Y + 0.15, at[1]], life: 1, span: 0.5, from: 0.6 * scale, to: 4 * scale, color: [0.86, 0.97, 1], flat: true, alpha: 0.4 });
       }
@@ -1712,7 +1712,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var setOff = isShown ? Math.min(1, (now - shownAt) / 1500) : 0;
     if (!tool.isHeld) camTime += stepSec * paceAt(camTime) * setOff * setOff * (3 - 2 * setOff);
     var kept = 0;
-    for (var i = 0; i < ripples.length; i++) if (clock - ripples[i].start < 5) ripples[kept++] = ripples[i];
+    for (var i = 0; i < ripples.length; i++) if (clock - ripples[i].start < 3.5) ripples[kept++] = ripples[i];
     ripples.length = kept;
     for (var ri = 0; ri < 12; ri++) {
       var rp = ri < ripples.length ? ripples[ri] : null;
@@ -2676,7 +2676,7 @@ const CITY_STYLES = `
    placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
 /* Its height is the largest the window gets (lvh), not the visible one: a phone's address bar showing or hiding crops the stage's bottom
    instead of resizing it, so the city never scales with the bar. */
-.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #5597F7 0%, #DAFCFC 37%, #B5E0FB 44%, #ABDAFA 47%, #2689D7 100%); }
+.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #D1DBE3 0%, #DCE2E7 37%, #DCE2E7 44%, #DCE2E9 47%, #D7DFE5 100%); }
 .city-stage.is-framed { position: absolute; inset: 0; height: auto; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The placeholder and the still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is
@@ -2685,11 +2685,11 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRhwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggLgEAALAHAJ0BKkgAHAA+tVigTCcloyUpuqpI4BaJZAC2R4AkYBRkPOhdAoC0yMph7jICJ6MuFjdFsZVqdMTESzbv6mo51CUGmMAA/rE+1tevl2+Dx3WmD/vMI2wu9Rzf/+RBRkLt2bySwOlh8AedFoP0Kw6EiBSTBzK+vX+IPJj1+GiQMExRaNGxfkoz4nkY/N8e33XGmYL7cXgZnQhXD2+SL3hNRZe4B7b9WBiSk/ovHrRYfAMJN9fOT4B5j96wcoeO5RZI1nEptR6G6tQ0fJf8hw1OQMag6jB4xCHJ+A0yg8RnEr0LbFfJt7X6yTfFyAVLZD3j45GZ3VT4TTT3B81uuA9oAwhXd9+4J45imdgc1nV6iQtVbAaH2kmsKFBInJZOI10pdV+TEFzKSwqAAAAA); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRp4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggsAAAANAFAJ0BKkgAHAA+tU6gSyckIyGs2Aqo4BaJaQDSNywDuSrgp47AQkq2y75BQTfNJ4sV31Jj1ugA/vWACzkMpEyeUCMlKcnfrRQ2KfhbDtO9EDnVC+M24lmcL0w/bKydt75HI7RvmxuHpO1t/UONRcQWNufJfAbUAQLpnwB1jFFpsQuN7tW2l8r82fXogeA0BB1H3yiytq+k6GEy30KOMUv57LOj5Yp7e+16EJ/6AAAA); --still-full: url(/sign-in/city-day.webp); }
 .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRn4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkAAAABAFAJ0BKkgAHAA+tVKgTCckoyKs1AlY4BaJZwDGuCpQXJTaQEGMWb/H2vKpqT/TuMAA/vVgWMqKKPgRWslReUU6Z/2NkUvNNFfU/ad+2Gh18ZTl3qaIih3LBni7cPwRJzEiEpZBz3Zbf1imSJE094njVFn+CzkilEaYXNWl0obGkW8nndLnnwADAWavGpAAAA==); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRgADAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggEgEAAFAHAJ0BKiQAJAA+tUihSqckI6GuOAsw4BaJQBjV9lpr5/9KzAmgLj9A+RFHerPVZySQbQuvzVtjDMe8tBNP/A/kM8AA+wlIROCmN53Df/8l9f6Ki6AKhj//FvoVrOxjck0sONhYy9RK2vnLVAiDbPGGccQsyL6lhBkT62ldw2qn8llzb2oZ+HeuHI2vyllA+h3cw9obY4UEVTkWWhRvihIRqN1mvYSl26rJSq5V35ZvLJTvqy31Fm6PhwRm/MJjpS7PfSjfgpXZ9/JNcjcozAlcM955QB1zCUYfyiTKfbop/TRjefSrlVCyl+QSKejQT/b8gRIeOPfSt6B2ekt1JQaDLjFGR6TxS/EetEIHJAAAAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRpACAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggogAAAJAFAJ0BKiQAJAA+tVCjTackIyInOApI4BaJaQAAjHiygjFsFvIYN+8fKbC9NgreyIhqDrwAAP7zIAzLFSMwxt0xi+6EGrsIu9fUi+t12XMJzAWTLdY7rNjJIg1pIt0bkF8rZLLm3tY0ueZ3TEi1qttomioq+sVs40oL9wygBr0Xmid1ptJVfKsAWL603pH1+jjZ1K7rNp4uiNyOlMLFWIAAAA==); --still-full: url(/sign-in/city-day-phone.webp); }
   .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnwCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjgAAAJAEAJ0BKiQAJAA+tVCgSqclIyGuKADgFolnALOAJ9dsL/7P2/+/Huk3l7Y9AAD+9CHRmyLPt5NpCqle+BkaD7WMIoybCnbf11vPeTLzmSXeuxFxhtfl/mJdCgsXdzUwzNuSe3jlqfZuu9dGaUxIuKiL5HTIDMa/I6DVPmDJFBPo2B44GD4328mtRZGAAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
@@ -2718,7 +2718,7 @@ const CITY_STYLES = `
 [data-theme-choice="dark"] .city-stage { background: linear-gradient(180deg, #0B0D1C 0%, #131426 37%, #15172C 44%, #131427 47%, #0B0E1B 100%); }
 [data-theme-choice="dark"] .city-stage .city-still.is-day { display: none; }
 [data-theme-choice="dark"] .city-stage .city-still.is-night { display: block; }
-[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #5597F7 0%, #DAFCFC 37%, #B5E0FB 44%, #ABDAFA 47%, #2689D7 100%); }
+[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #D1DBE3 0%, #DCE2E7 37%, #DCE2E7 44%, #DCE2E9 47%, #D7DFE5 100%); }
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
