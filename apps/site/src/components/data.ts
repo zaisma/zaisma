@@ -1,4 +1,5 @@
 import { accountPicture, html, raw, type Raw } from "../markup.ts";
+import type { ControlMarkup } from "./control-markup.ts";
 import { component } from "./component.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
@@ -478,8 +479,8 @@ export interface TableOptions {
    *  or heading above it, like anything else. */
   label: string;
   columns: TableColumn[];
-  /** One list of cells a row, in the columns' order. */
-  rows: (Raw | string)[][];
+  /** One list of cells a row, in the columns' order. A cell that's a list of controls (a room's Join and Report) sets them side by side. */
+  rows: (Raw | string | ControlMarkup[])[][];
   /** The one column that stays put as the table scrolls sideways, in the header row's look; a table has one at most. "first": it names
    *  each row (a version, a player), so it's the row's head. "last": its buttons (a room's Join), kept in reach at the right on a phone. */
   headColumn?: "first" | "last";
@@ -496,6 +497,8 @@ export interface TableOptions {
   rowSlice?: { firstRowNumber: number; totalRowCount: number };
   /** Closer rows, for long lists (logs, requests). */
   isCompact?: boolean;
+  /** About five rows tall, so what's after it on the page stays near (a game's rooms); more scroll inside it under its header. */
+  isShort?: boolean;
   /** Even columns: the table fills its box, columns with a widthPx keep it and the rest share the rest equally, so columns stay put as
    *  rows change (a list that refreshes, like a game's rooms). Words too long for a column end in an ellipsis. It scrolls sideways only
    *  below its columns' widths together (112px for one without its own), and a pinned last column fits its buttons. */
@@ -539,8 +542,9 @@ export function table(options: TableOptions): Raw {
       ? html`<th${numeric(columnIndex)}${sort}>${column.isSortable ? shown : html`<span aria-hidden="true">${shown}</span>`}</th>`
       : html`<th scope="col"${numeric(columnIndex)}${sort}><span class="table-label" aria-hidden="true">${shown}</span><span class="sr">${column.label}</span></th>`;
   };
-  const cell = (row: (Raw | string)[], columnIndex: number, part: "head" | "rows" | "side") =>
-    isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="table-row-head"><span class="sr">${row[columnIndex]}</span></th>` : html`<td${numeric(columnIndex)}>${row[columnIndex]}</td>`;
+  const shownCell = (value: Raw | string | ControlMarkup[] | undefined) => (Array.isArray(value) ? html`<div class="table-controls">${value}</div>` : (value ?? ""));
+  const cell = (row: (Raw | string | ControlMarkup[])[], columnIndex: number, part: "head" | "rows" | "side") =>
+    isRowHead(columnIndex) && part !== "side" ? html`<th scope="row" class="table-row-head"><span class="sr">${shownCell(row[columnIndex])}</span></th>` : html`<td${numeric(columnIndex)}>${shownCell(row[columnIndex])}</td>`;
   const body = (indexes: number[], part: "head" | "rows" | "side") =>
     html`<tbody>${options.rows.map((row) => html`<tr>${indexes.map((columnIndex) => cell(row, columnIndex, part))}</tr>`)}</tbody>`;
   // The footer row: shown in its own part, flat in the rows' part (its words for screen readers), hidden in the header's.
@@ -567,8 +571,8 @@ export function table(options: TableOptions): Raw {
   const last = (part: "head" | "rows" | "foot") => (options.headColumn === "last" ? side(part) : "");
   const footPart = options.footRow ? html`<div class="table-foot">${first("foot")}<div class="table-foot-main">${main("foot")}</div>${last("foot")}</div>` : "";
   // The pager: hidden until the rows need pages (TABLE_SCRIPT).
-  const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="control-row">${cutButton("First page", { type: "button", icon: "arrow-first", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "first" } })}${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}${cutButton("Last page", { type: "button", icon: "arrow-last", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "last" } })}</div></nav>`;
-  return html`<div class="table"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div>${options.rows.length ? "" : html`<p class="table-empty">${options.emptyText ?? "Nothing here yet."}</p>`}</div>${footPart}</div></div>${pager}</div>`;
+  const pager = html`<nav class="table-pages" aria-label="Pages of ${options.label}" hidden><p class="table-page-words" aria-live="polite"></p><div class="table-controls">${cutButton("First page", { type: "button", icon: "arrow-first", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "first" } })}${cutButton("Previous page", { type: "button", icon: "arrow-back", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "-1" } })}${cutButton("Next page", { type: "button", icon: "arrow-on", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "1" } })}${cutButton("Last page", { type: "button", icon: "arrow-last", isLabelHidden: true, isSmall: true, dataAttributes: { "page-step": "last" } })}</div></nav>`;
+  return html`<div class="table${options.isShort ? " is-short" : ""}"${options.maximumRowCount ? html` data-maximum-row-count="${options.maximumRowCount}"` : ""}${options.rowSlice ? html` data-first-row-number="${options.rowSlice.firstRowNumber}" data-total-row-count="${options.rowSlice.totalRowCount}"` : ""}><div class="table-well cut-carved" data-cut-line="10">${CUT_LINE}<div class="table-frame" data-cut-line="8"><div class="table-head">${first("head")}<div class="table-head-main">${main("head")}</div>${last("head")}</div><div class="table-scroll" data-scroll-box><div class="table-rows">${first("rows")}<div class="table-x" data-fades-sideways data-side-rail>${main("rows")}</div>${last("rows")}</div>${options.rows.length ? "" : html`<p class="table-empty">${options.emptyText ?? "Nothing here yet."}</p>`}</div>${footPart}</div></div>${pager}</div>`;
 }
 
 /**
@@ -718,6 +722,7 @@ component({
    edge, so nothing scrolls under anything (see table()). */
 .table { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--gap-words-control); min-width: 0; --table-head-h: 38px; timeline-scope: --table-x; }
 .table:has(.data-table.compact) { --table-head-h: 34px; }
+.table.is-short { --table-height: 340px; }
 .table > .table-well { grid-row: 1; grid-column: 1; }
 /* Its rails, outside the well: up and down beside its right edge, from the header's foot down, and sideways under it. */
 /* Each spans only what it scrolls: the rows between the header and the footer, and the columns between the head column's sides
@@ -795,8 +800,12 @@ component({
 .data-table.even { table-layout: fixed; min-width: var(--table-min-width); }
 .data-table.even td { overflow: hidden; text-overflow: ellipsis; }
 /* Buttons in a cell keep their own widths, side by side (a room's Join, and its flat Report). */
-.data-table td > .control-row { display: inline-flex; flex-wrap: nowrap; vertical-align: middle; }
-[data-glass] .data-table td > .control-row > .shell { flex: none; }
+/* A table's own controls side by side, in a cell (a room's Join and Report) or its pager: each its own width, never wrapping, two controls
+   slanting toward each other (the edge rule's neighbor distance), a text button a little further off. */
+.table-controls { display: inline-flex; flex-wrap: nowrap; align-items: center; vertical-align: middle; }
+.table-controls > :not(:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
+.table-controls > .text-btn:not(:first-child) { margin-inline-start: calc(var(--control-slant) + var(--gap-words-control)); }
+[data-glass] .table-controls > .shell { flex: none; }
 /* The row under the pointer, in every part: TABLE_SCRIPT lights it (is-lit) and finds it again as the rows scroll, since the browser's own
    hover keeps the row it lit until the pointer moves; without the script, the browser's hover does. */
 .table-frame:not(.is-tracked) tbody tr:hover > *, .data-table tbody tr.is-lit > * { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }

@@ -141,10 +141,10 @@ describe("room browsing on the game page", () => {
     expect(page).toContain('<section id="rooms">');
     // The panel counts the rooms listed, the full one too.
     expect(page).toContain('data-count="2"');
-    expect(page).toMatch(/<div class="game-glance" id="playing-now"><ul class="glance"><li>[\s\S]*?<b>13<\/b> playing now/);
+    expect(page).toMatch(/id="playing-now"><ul class="glance"><li>[\s\S]*?<b>13<\/b> playing now/);
     expect(page).toMatch(/aria-label="Join a room with 3 of 8 players in Germany"><a class="shell cut-btn small" href="\/g\/arena\?room=BCDFGH">/);
     // A player with a code from a friend types it into the box.
-    expect(page).toContain('<form class="control-row code-join" method="get" action="/g/arena">');
+    expect(page).toContain('<form class="code-join" method="get" action="/g/arena">');
     // Each room shows its code, for telling a friend which room.
     expect(page).toContain('<td><code>BCDFGH</code></td>');
     // Each room is a row of the gallery's Table: the country it runs in, how full it is, then Join, or Full.
@@ -175,9 +175,9 @@ describe("room browsing on the game page", () => {
     await watching("QRSTVW", 5, 5);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain(">Watching<");
-    expect(page).toContain('href="/g/arena?room=BCDFGH&watch=1"');
+    expect(page).toContain('href="/g/arena?room=BCDFGH&amp;watch=1"');
     // A full room can still be watched.
-    expect(page).toContain('href="/g/arena?room=JKMN3P&watch=1"');
+    expect(page).toContain('href="/g/arena?room=JKMN3P&amp;watch=1"');
     // One whose audience is full shows how many watch, and no Watch.
     expect(page).not.toContain("room=QRSTVW&watch=1");
     // A game that doesn't take spectators shows neither.
@@ -266,7 +266,7 @@ describe("room browsing on the game page", () => {
     // A name that fails the filter isn't shown; its labels still are.
     expect(page).not.toContain("coolkid");
     expect(page).toContain('<td><code>CDFGHJ</code></td><td></td><td>Hardcore</td><td></td><td class="num">2 of 8</td>');
-    const modeFilter = page.match(/<div class="rooms-filter" data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
+    const modeFilter = page.match(/<div data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
     expect([...modeFilter.matchAll(/data-choice-value="([^"]*)"/g)].map((choice) => choice[1])).toEqual(["", "Classic", "Hardcore"]);
     const classic = await (await SELF.fetch(`https://zaisma.test/g/arena/rooms?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`)).text();
     expect(rowsOf(classic)).toBe(2);

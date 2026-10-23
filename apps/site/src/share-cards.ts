@@ -11,6 +11,8 @@ import { playable } from "./home.ts";
 import { cutButton } from "./components/actions.ts";
 import { codeField } from "./components/inputs.ts";
 import { sheet } from "./components/panes.ts";
+import { paragraph, qrCode, secretBox } from "./components/game-parts.ts";
+import { stack } from "./components/layout.ts";
 import { html, raw, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
 
@@ -128,19 +130,31 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
 /**
  * The game page's Share sheet: the QR code (the room's during a match), the link with Copy, and the system's share sheet where there
  * is one. Tester links get no QR code: their address is a secret the code would only spread further. The game page's script fills it
- * in (shareFrom); its look is the game page's (game-page-style.ts).
+ * in (shareFrom); its look is its components'.
  */
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   return sheet({
     id: "share-dialog",
     title: `Share ${gameTitle}`,
     closeLabel: "Close",
-    body: html`<div class="share-secret">
-${hasQrCode ? html`<figure class="share-qr"><img id="share-qr" alt="QR code for this link" width="220" height="220"><figcaption id="share-scan">Scan to play</figcaption></figure>` : ""}
-<p class="share-room" id="share-room" hidden>Room code <b></b></p>
-<span class="share-reveal" id="share-reveal" hidden>${cutButton("Show", { type: "button", icon: "eye" })}</span>
-</div>
-${codeField({ id: "share-link", label: "Link", code: "" })}
-${cutButton("More ways to share", { id: "share-more", type: "button", icon: "share", isFullWidth: true, isHidden: true })}`,
+    body: stack({
+      items: [
+        {
+          kind: "block",
+          markup: secretBox({
+            id: "share-secret",
+            revealId: "share-reveal",
+            body: stack({
+              items: [
+                ...(hasQrCode ? [{ kind: "block" as const, markup: qrCode({ id: "share-qr", alt: "QR code for this link", caption: "Scan to play", captionId: "share-scan" }) }] : []),
+                { kind: "words" as const, markup: paragraph(html`Room code <b></b>`, { type: "words", id: "share-room", isHidden: true }) },
+                { kind: "block" as const, markup: codeField({ id: "share-link", label: "Link", code: "" }) },
+              ],
+            }),
+          }),
+        },
+        { kind: "control", markup: cutButton("More ways to share", { id: "share-more", type: "button", icon: "share", isFullWidth: true, isHidden: true }) },
+      ],
+    }),
   });
 }

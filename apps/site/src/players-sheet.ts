@@ -5,6 +5,8 @@ import { cutButton, textLink } from "./components/actions.ts";
 import { pictureFrame } from "./components/data.ts";
 import { tag } from "./components/foundations.ts";
 import { sheet } from "./components/panes.ts";
+import { paragraph, sectionHeading } from "./components/game-parts.ts";
+import { stack } from "./components/layout.ts";
 import { friendJoinButton, friendWatchButton } from "./friends-now.ts";
 import { html, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -68,35 +70,49 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
  * room Zaisma knows. Watch beside it when their room takes spectators, by the same rules.
  */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
-  if (!friends.length) return html`<p class="players-note">None of your friends are playing this right now.</p>`;
+  if (!friends.length) return paragraph("None of your friends are playing this right now.", { type: "note", isMuted: true });
   return html`<ul class="list-rows">${friends.map((friend) => {
     const join = friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
     const watch = friend.watch ? { room_code: friend.watch.room_code ?? "", server_url: null, refusal: friend.watch.refusal, refusing_friend_names: [friend.username] } : null;
     // When Join won't work, why is said under the name, in words.
-    return html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${join?.refusal ? html`<span class="list-row-detail">${joinRefusalText(join)}</span>` : ""}</span>${join || watch ? html`<span class="list-row-end">${join ? friendJoinButton(slug, join) : ""}${watch ? friendWatchButton(slug, watch) : ""}</span>` : ""}</div></li>`;
+    return html`<li><div class="list-row"><a href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${join?.refusal ? html`<span class="list-row-detail">${joinRefusalText(join)}</span>` : ""}</span>${join || watch ? html`<span class="list-row-end">${join ? friendJoinButton(slug, join) : ""}${watch ? friendWatchButton(slug, watch) : ""}</span>` : ""}</div></li>`;
   })}</ul>`;
 }
 
 /**
  * The Players sheet itself, for games that go online. The rows its script builds use the buttons in its templates, so they're the
- * components' own; its look is the game page's (game-page-style.ts).
+ * components' own; its look is its components'.
  */
 export function playersSheet(options: { gameOrigin: string; slug: string; title: string; hasZaismaRooms: boolean; canSignIn: boolean; signInPath: string }): Raw {
   return html`${sheet({
     id: "players",
     title: "Players",
     closeLabel: "Close",
-    body: html`<section class="players-part" aria-labelledby="players-room-title">
-<h3 class="players-heading" id="players-room-title">In this room<span id="players-count"></span></h3>
-<ul class="list-rows" id="players-list"></ul>
-<p class="players-note" id="players-note" hidden></p>
-<p class="players-note" id="players-watching" hidden></p>
-</section>
-<section class="players-part" id="players-friends" aria-labelledby="players-friends-title" hidden>
-<h3 class="players-heading" id="players-friends-title">Friends playing ${options.title}</h3>
-<div id="players-friends-list"></div>
-</section>
-<p class="players-note" id="players-sign-in" hidden>${textLink("Sign in", options.signInPath)} to see your friends here.</p>`,
+    body: stack({
+      items: [
+        {
+          kind: "block",
+          markup: html`<section aria-labelledby="players-room-title">${stack({
+            items: [
+              { kind: "words", markup: sectionHeading(html`In this room <span id="players-count"></span>`, { level: 3, id: "players-room-title" }) },
+              { kind: "block", markup: html`<ul class="list-rows" id="players-list"></ul>` },
+              { kind: "words", markup: paragraph("", { type: "note", isMuted: true, id: "players-note", isHidden: true }) },
+              { kind: "words", markup: paragraph("", { type: "note", isMuted: true, id: "players-watching", isHidden: true }) },
+            ],
+          })}</section>`,
+        },
+        {
+          kind: "block",
+          markup: html`<section id="players-friends" aria-labelledby="players-friends-title" hidden>${stack({
+            items: [
+              { kind: "words", markup: sectionHeading(`Friends playing ${options.title}`, { level: 3, id: "players-friends-title" }) },
+              { kind: "block", markup: html`<div id="players-friends-list"></div>` },
+            ],
+          })}</section>`,
+        },
+        { kind: "words", markup: paragraph(html`${textLink("Sign in", options.signInPath)} to see your friends here.`, { type: "note", isMuted: true, id: "players-sign-in", isHidden: true }) },
+      ],
+    }),
   })}<span hidden id="players-config" data-game-origin="${options.gameOrigin}" data-slug="${options.slug}" data-has-zaisma-rooms="${String(options.hasZaismaRooms)}" data-can-sign-in="${String(options.canSignIn)}"></span>
 <template id="players-button">${cutButton("Mute", { type: "button", isSmall: true })}</template>
 <template id="players-more">${cutButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })}</template>
@@ -223,7 +239,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     const isBlocked = room.blocked.has(other.id) || room.lasting.has(other.id);
     const isMuted = room.muted.has(other.id);
     const item = element("li");
-    const line = element("div", "list-row players-row");
+    const line = element("div", "list-row");
     const words = element("span", "list-row-words");
     const title = element("span", "list-row-title", name);
     if (known && known.isFriend) title.append(" ", fromTemplate("players-friend"));
@@ -244,7 +260,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     more.addEventListener("click", () => { openPlayerId = openPlayerId === other.id ? null : other.id; render(); });
     end.appendChild(more);
     if (openPlayerId === other.id) {
-      const actions = element("div", "control-row players-actions");
+      const actions = element("div", "control-row");
       if (known) {
         const profile = fromTemplate("players-link", "Profile");
         profile.href = "/@" + encodeURIComponent(known.name);

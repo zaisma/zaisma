@@ -35,6 +35,9 @@ const GALLERY_GROUPS = ["", "/layout", "/actions", "/inputs", "/navigation", "/p
 /** Every page and state the layout check opens (scripts/layout-check.mjs), and the Screens page offers. */
 export const CHECKED_PAGES: CheckedPage[] = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere" },
+  // A game online, with rooms to list, and one on its own (Play is the runner on both).
+  { name: "Game page, online", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
+  { name: "Game page", area: "Playing", path: "/g/star-haul", mainActionShows: "everywhere" },
   { name: "Sign in", area: "Signing in", path: "/signin", ...CITY },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "Forgot your password", area: "Signing in", path: "/signin/email", ...CITY },

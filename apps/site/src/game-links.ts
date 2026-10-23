@@ -4,7 +4,8 @@ import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { checkField } from "./components/choices.ts";
-import { glassPane } from "./components/foundations.ts";
+import { cornerCard, paragraph } from "./components/game-parts.ts";
+import { row, stack } from "./components/layout.ts";
 import { codeField } from "./components/inputs.ts";
 import { html, raw, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -95,20 +96,33 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
  * here. Open is a real link to the address, so the browser opens the tab however long the player looked.
  */
 export function leavingCard(gameTitle: string): Raw {
-  return html`<aside class="game-card" id="link-ask" role="dialog" aria-labelledby="link-title" hidden>${glassPane({
-    paneWidth: "fit",
-    body: html`<div class="link-part" id="link-open">
-<h2 id="link-title">You're leaving Zaisma</h2>
-<p>${gameTitle} wants to open:</p>
-${codeField({ id: "link-url", label: "The link", code: "" })}
-${checkField({ id: "link-trust", name: "is_site_trusted", label: "Open links to this site straight away from now on, in this browser" })}
-<div class="control-row">${cutButton("Stay", { id: "link-stay", type: "button" })}${runButton("Open", { href: "#", dataAttributes: { "link-go": "" } })}</div>
-</div>
-<div class="link-part" id="link-closed" hidden>
-<h2 id="link-closed-title">This link can't be opened here.</h2>
-${cutButton("Back to the game", { id: "link-back", type: "button", isFullWidth: true })}
-</div>`,
-  })}</aside>`;
+  return cornerCard({
+    id: "link-ask",
+    titleId: "link-title",
+    body: stack({
+      items: [
+        {
+          kind: "block",
+          id: "link-open",
+          markup: stack({
+            items: [
+              { kind: "words", markup: html`<h2 id="link-title">You're leaving Zaisma</h2>` },
+              { kind: "words", markup: paragraph(`${gameTitle} wants to open:`, { type: "words" }) },
+              { kind: "block", markup: codeField({ id: "link-url", label: "The link", code: "" }) },
+              { kind: "block", markup: checkField({ id: "link-trust", name: "is_site_trusted", label: "Open links to this site straight away from now on, in this browser" }) },
+              { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Stay", { id: "link-stay", type: "button" }) }, { kind: "control", markup: runButton("Open", { href: "#", dataAttributes: { "link-go": "" } }) }] }) },
+            ],
+          }),
+        },
+        {
+          kind: "block",
+          id: "link-closed",
+          isHidden: true,
+          markup: stack({ items: [{ kind: "words", markup: html`<h2 id="link-closed-title">This link can't be opened here.</h2>` }, { kind: "control", markup: cutButton("Back to the game", { id: "link-back", type: "button", isFullWidth: true }) }] }),
+        },
+      ],
+    }),
+  });
 }
 
 /**
@@ -192,12 +206,13 @@ linkAsk.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLink("
  * player may open (the server picked them), each a cut button with its site's mark, in one row. They go straight to the site in a new
  * tab: the "You're leaving Zaisma" card is for links a game opens, not for our own page's.
  */
-export function developerLinks(links: GameLink[]): Raw | string {
-  if (!links.length) return "";
-  return html`<nav class="control-row" aria-label="The developer's links">${links.map((link) => {
+export function developerLinks(links: GameLink[]): Raw {
+  if (!links.length) return raw("");
+  const buttons = links.flatMap((link) => {
     const destinationUrl = shownAddress(link.destination_url);
-    if (!destinationUrl) return "";
+    if (!destinationUrl) return [];
     const { brand, label } = linkBrand(destinationUrl);
-    return cutButton(label, { href: destinationUrl, icon: brand === "website" ? "globe" : `site-${brand}`, isNewTab: true, dataAttributes: { site: brand } });
-  })}</nav>`;
+    return [{ kind: "control" as const, markup: cutButton(label, { href: destinationUrl, icon: brand === "website" ? "globe" : `site-${brand}`, isNewTab: true, dataAttributes: { site: brand } }) }];
+  });
+  return html`<nav aria-label="The developer's links">${row({ widths: "fit", items: buttons })}</nav>`;
 }

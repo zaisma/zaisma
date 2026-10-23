@@ -8,6 +8,8 @@ import { checkField, longField } from "./components/choices.ts";
 import { listRows, type ListRow } from "./components/data.ts";
 import { icon } from "./components/foundations.ts";
 import { banner, sheet } from "./components/panes.ts";
+import { paragraph, pictureCheck, sectionHeading } from "./components/game-parts.ts";
+import { row, stack } from "./components/layout.ts";
 import { html, layout, pageData, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Viewer } from "./viewer.ts";
@@ -48,33 +50,52 @@ const PLAYER_WHYS: [PlayerReportReason, string, string][] = [
 /** A reason: a row that leads on to the next step. */
 const why = (reason: string, label: string, hint: string): ListRow => ({ title: label, detail: hint || undefined, buttonDataAttributes: { reason, label } });
 
-/** The report sheet for the game page, with its script; its look is the game page's (game-page-style.ts). */
+/** The report sheet for the game page, with its script; its look is its components'. */
 export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
   const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
   return html`${sheet({
     id: "report",
     title: `Report ${game.title}`,
     closeLabel: "Close",
-    body: html`<p class="report-sub" id="report-sub">We don't record who you are.</p>
-<section class="report-step" data-step="why" aria-label="What's wrong">
-<div class="report-whys" data-for="game">${listRows({ rows: GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint)) })}</div>
-<div class="report-whys" data-for="player" hidden>${listRows({ rows: PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint)) })}</div>
-<p class="report-foot" data-for="game">Someone copied your work? <a class="link" href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a class="link" href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
-</section>
-<form class="report-step" data-step="tell" hidden>
-${listRows({ rows: [{ title: "", end: "Change", buttonDataAttributes: { back: "" } }] })}
-${longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 4, maximumCharacterCount: 2000 })}
-<figure class="report-pic" id="report-pic" hidden><img id="report-pic-img" alt="The game when you opened Report">${checkField({ id: "report-picture", name: "picture", label: "Include this picture of the game", isChecked: true })}</figure>
-<div id="report-hold" hidden>${banner({ text: "These go straight to a person.", icon: "warning", tone: "amber" })}</div>
-<p class="report-fine" id="report-context"></p>
-<p class="field-error" id="report-error" role="alert" hidden></p>
-<div class="control-row">${cutButton("Back", { type: "button", dataAttributes: { back: "" } })}${runButton("Send report", { id: "report-send", type: "submit" })}</div>
-</form>
-<section class="report-step report-sent" data-step="sent" aria-live="polite" hidden>
-<h3>${icon("check")}Thanks for the report</h3>
-<p id="report-sent-text"></p>
-${cutButton("Back to the game", { type: "button", dataAttributes: { close: "" }, isFullWidth: true })}
-</section>`,
+    body: stack({
+      items: [
+        { kind: "words", markup: paragraph("We don't record who you are.", { type: "note", isMuted: true, id: "report-sub" }) },
+        {
+          kind: "block",
+          markup: html`<section data-step="why" aria-label="What's wrong">${stack({
+            items: [
+              { kind: "block", markup: html`<div data-reasons data-for="game">${listRows({ rows: GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint)) })}</div>` },
+              { kind: "block", markup: html`<div data-reasons data-for="player" hidden>${listRows({ rows: PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint)) })}</div>` },
+              { kind: "words", markup: html`<p class="words type-note is-muted" data-notices data-for="game">Someone copied your work? <a class="link" href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a class="link" href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>` },
+            ],
+          })}</section>`,
+        },
+        {
+          kind: "block",
+          markup: html`<form data-step="tell" hidden>${stack({
+            items: [
+              { kind: "block", markup: listRows({ rows: [{ title: "", end: "Change", buttonDataAttributes: { back: "" } }] }) },
+              { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 4, maximumCharacterCount: 2000 }) },
+              { kind: "block", markup: pictureCheck({ id: "report-pic", imageId: "report-pic-img", alt: "The game when you opened Report", checkId: "report-picture", checkName: "picture", checkLabel: "Include this picture of the game", isHidden: true }) },
+              { kind: "block", id: "report-hold", isHidden: true, markup: banner({ text: "These go straight to a person.", icon: "warning", tone: "amber" }) },
+              { kind: "words", markup: paragraph("", { type: "note", isMuted: true, id: "report-context" }) },
+              { kind: "words", markup: html`<p class="field-error" id="report-error" role="alert" hidden></p>` },
+              { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Back", { type: "button", dataAttributes: { back: "" } }) }, { kind: "control", markup: runButton("Send report", { id: "report-send", type: "submit" }) }] }) },
+            ],
+          })}</form>`,
+        },
+        {
+          kind: "block",
+          markup: html`<section data-step="sent" aria-live="polite" hidden>${stack({
+            items: [
+              { kind: "words", markup: sectionHeading("Thanks for the report", { level: 3, icon: "check" }) },
+              { kind: "words", markup: paragraph("", { type: "words", id: "report-sent-text" }) },
+              { kind: "control", markup: cutButton("Back to the game", { type: "button", dataAttributes: { close: "" }, isFullWidth: true }) },
+            ],
+          })}</section>`,
+        },
+      ],
+    }),
   })}${pageData("report-config", config)}${scriptTags(REPORT_SHEET_SCRIPT)}`;
 }
 
@@ -112,7 +133,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   const frame = () => document.getElementById("game");
   function step(name) {
     sheet.querySelectorAll("[data-step]").forEach((el) => (el.hidden = el.dataset.step !== name));
-    const first = name === "why" ? sheet.querySelector("[data-step=why] .report-whys:not([hidden]) li:not([hidden]) [data-reason]") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] [data-close]");
+    const first = name === "why" ? sheet.querySelector("[data-step=why] [data-reasons]:not([hidden]) li:not([hidden]) [data-reason]") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] [data-close]");
     if (first) first.focus();
   }
   // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name.
@@ -130,7 +151,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     sheet.querySelectorAll("[data-for]").forEach((el) => (el.hidden = (el.dataset.for === "player") !== Boolean(about)));
     // A room's name is words: only the reasons words can break, and no copyright note.
     sheet.querySelectorAll("[data-for=game] [data-reason]").forEach((b) => (b.closest("li").hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(b.dataset.reason)));
-    sheet.querySelectorAll(".report-foot[data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
+    sheet.querySelectorAll("[data-notices][data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
     form.reset();
     $("report-error").hidden = true;
     if (!sheet.open) sheet.showModal();

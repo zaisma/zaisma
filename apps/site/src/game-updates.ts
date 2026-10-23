@@ -1,6 +1,8 @@
 import { gameBySlug } from "@zaisma/core";
 import { cutButton } from "./components/actions.ts";
-import { glassPane, icon } from "./components/foundations.ts";
+import { icon } from "./components/foundations.ts";
+import { paragraph, plate } from "./components/game-parts.ts";
+import { stack } from "./components/layout.ts";
 import { html, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
@@ -40,7 +42,7 @@ ${cutButton("Update", { id: "update", type: "button", icon: "download", isSmall:
 
 /** The plate the connection button opens, beside the game like the room's, and the connection's icon for each state. */
 export function connectionPlate(): Raw {
-  return html`<template id="conn-icons">${icon("signal-weak")}${icon("reconnecting")}${icon("signal-lost")}</template><dialog id="conn-dialog" class="game-plate" aria-label="Connection">${glassPane({ paneWidth: "fit", body: html`<h2 class="conn-title" id="conn-title">Connection</h2><p class="conn-line" id="conn-line"></p>` })}</dialog>`;
+  return html`<template id="conn-icons">${icon("signal-weak")}${icon("reconnecting")}${icon("signal-lost")}</template>${plate({ id: "conn-dialog", label: "Connection", body: stack({ items: [{ kind: "words", markup: paragraph("Connection", { type: "name", id: "conn-title" }) }, { kind: "words", markup: paragraph("", { type: "words", id: "conn-line" }) }] }) })}`;
 }
 
 export const GAME_UPDATES_SCRIPT = pageScript(

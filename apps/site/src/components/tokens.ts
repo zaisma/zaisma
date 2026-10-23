@@ -183,7 +183,7 @@ html, body { overscroll-behavior-x: none; }
   --control-height-small: 36px; --control-height-regular: 44px; --control-height-field: 52px; --control-height-big: 56px;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
-  --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;
+  --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch; --size-side: 390px; --size-side-narrow: 340px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
   --type-title: 600 52px/1.02 var(--display);
   --type-heading: 600 30px/1.1 var(--display);

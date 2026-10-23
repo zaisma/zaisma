@@ -6,6 +6,9 @@ import { toolRow } from "./components/panes.ts";
 import { country, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import type { IconName } from "./components/foundations.ts";
+import { controlMarkup } from "./components/control-markup.ts";
+import { paragraph } from "./components/game-parts.ts";
+import { stack } from "./components/layout.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
 import { playingNowCounts } from "./plays.ts";
 
@@ -68,7 +71,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   // Regions to pick from, once rooms run in more than one: each its continent's globe, its name and how many rooms it has.
   const regions =
     list.regions.length > 1 || (list.region && list.regions.length)
-      ? html`<div class="rooms-filter" data-region-filter>${selectField({
+      ? html`<div data-region-filter>${selectField({
           id: "rooms-region",
           name: "region",
           label: "Region",
@@ -86,7 +89,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
     .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
     .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
   const filterFields = filters.map(
-    (labelFilter, filterIndex) => html`<div class="rooms-filter" data-label-filter="${labelFilter.label}">${selectField({
+    (labelFilter, filterIndex) => html`<div data-label-filter="${labelFilter.label}">${selectField({
       id: `rooms-filter-${filterIndex}`,
       name: `label_${filterIndex}`,
       label: labelFilter.label,
@@ -103,11 +106,15 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
     : closedRoomCount
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
-${toolRow({ items: [regions, ...filterFields].filter(Boolean) as Raw[], end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }) })}
-${roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }, empty)}
-${open.length && isQuickJoining(game) ? html`<p class="rooms-more">Or press Play and the game finds you one.</p>` : ""}
-${closedRoomCount && open.length ? html`<p class="rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
+  return html`<div data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
+${stack({
+    items: [
+      { kind: "block", markup: toolRow({ items: [regions, ...filterFields].filter(Boolean) as Raw[], end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }) }) },
+      { kind: "block", markup: roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }, empty) },
+      ...(open.length && isQuickJoining(game) ? [{ kind: "words" as const, markup: paragraph("Or press Play and the game finds you one.", { type: "note", isMuted: true }) }] : []),
+      ...(closedRoomCount && open.length ? [{ kind: "words" as const, markup: paragraph(`Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.`, { type: "note", isMuted: true }) }] : []),
+    ],
+  })}
 </div>`;
 }
 
@@ -140,10 +147,10 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     const said = [name, labels.map(([, labelValue]) => labelValue).join(", ")].filter(Boolean).join(", ");
     const joinLabel = `Join ${name ? `“${name}”` : "a room"} with ${filled} ${room.maximumPlayerCount === 1 ? "player" : "players"}${room.location ? ` in ${room.location.countryName}` : ""}`;
     const labelOf = new Map(labels);
-    const join = hasSpace(room) ? html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>` : "Full";
+    const join = hasSpace(room) ? controlMarkup(html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>`, "small") : "Full";
     // A named room can be reported: its Report is a flat icon beside Join, quieter than it.
-    const watch = hasWatchSpace(room) ? cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true }) : "";
-    const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : "";
+    const watch = hasWatchSpace(room) ? cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true }) : null;
+    const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : null;
     return [
       html`<code>${room.roomCode}</code>`,
       ...(hasNames ? [name ?? ""] : []),
@@ -151,16 +158,12 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName, isNameHidden: true }) : ""] : []),
       filled,
       ...(hasWatching ? [room.spectatorCount ? String(room.spectatorCount) : ""] : []),
-      report || watch ? html`<div class="control-row">${join}${watch}${report}</div>` : join,
+      report || watch ? [...(typeof join === "string" ? [controlMarkup(html`${join}`, "small")] : [join]), ...(watch ? [watch] : []), ...(report ? [report] : [])] : join,
     ];
   });
   return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, rowSlice, emptyText, isCompact: true, isEven: true, headColumn: "last" });
 }
 
-/** A box for a room code a friend shared. It opens the same room link an invite does. */
-export function codeBox(slug: string): Raw {
-  return html`<form class="control-row code-join" method="get" action="/g/${slug}">${cutField({ id: "room-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "Room code", autocomplete: "off", isRequired: true, isLabelHidden: true })}${cutButton("Join", { type: "submit" })}</form>`;
-}
 
 /** GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen. */
 export async function roomsFragment(env: Env, slug: string, request: Request): Promise<Response> {

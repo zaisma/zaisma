@@ -3,6 +3,8 @@ import { authConfigured, currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { sheet } from "./components/panes.ts";
+import { paragraph } from "./components/game-parts.ts";
+import { row, stack } from "./components/layout.ts";
 import { accountPicture, html, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -76,13 +78,17 @@ export function blockSheet(options: { gameOrigin: string }): Raw {
     id: "block",
     title: "Block this player?",
     closeLabel: "Cancel",
-    body: html`<p class="block-sub">In every game on Zaisma.</p>
-<div class="block-who"><span id="block-face"></span><strong id="block-name"></strong></div>
-<p class="sheet-text">Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.</p>
-<p class="sheet-text" id="block-friend" hidden>You're friends, so this ends that too.</p>
-<p class="block-fine"><span id="block-told"></span> Unblock any time on your <a class="link" href="/friends#blocked" target="_blank" rel="noopener">friends page</a>.</p>
-<p class="field-error" id="block-error" role="alert" hidden></p>
-<div class="control-row">${cutButton("Cancel", { type: "button", dataAttributes: { cancel: "" } })}${runButton("Block", { id: "block-yes", type: "button" })}</div>`,
+    body: stack({
+      items: [
+        { kind: "words", markup: paragraph("In every game on Zaisma.", { type: "note", isMuted: true }) },
+        { kind: "block", markup: row({ widths: "fit", items: [{ kind: "block", markup: html`<span id="block-face"></span>` }, { kind: "words", markup: html`<strong class="section-heading" id="block-name"></strong>` }] }) },
+        { kind: "words", markup: paragraph("Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.", { type: "words" }) },
+        { kind: "words", markup: paragraph("You're friends, so this ends that too.", { type: "words", id: "block-friend", isHidden: true }) },
+        { kind: "words", markup: paragraph(html`<span id="block-told"></span> Unblock any time on your <a class="link" href="/friends#blocked" target="_blank" rel="noopener">friends page</a>.`, { type: "note", isMuted: true }) },
+        { kind: "words", markup: html`<p class="field-error" id="block-error" role="alert" hidden></p>` },
+        { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: cutButton("Cancel", { type: "button", dataAttributes: { cancel: "" } }) }, { kind: "control", markup: runButton("Block", { id: "block-yes", type: "button" }) }] }) },
+      ],
+    }),
   })}<span hidden id="block-config" data-game-origin="${options.gameOrigin}"></span>
 ${scriptTags(BLOCK_SHEET_SCRIPT)}`;
 }

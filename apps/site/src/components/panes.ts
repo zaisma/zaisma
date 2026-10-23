@@ -195,6 +195,8 @@ const PANE_STYLES = `
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
 .glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 16px); }
+/* A pane that keeps to about a screen: what's longer scrolls inside it. */
+.glass-pane.screen-tall { max-height: min(640px, 80svh); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
@@ -886,48 +888,6 @@ component({
   ],
 });
 
-
-export interface PaneHeadOptions {
-  /** The pane's heading and anything said under it (who's playing), on the left. */
-  heading: Raw;
-  /** What belongs in the pane's top corner (a room code box), on the right. */
-  end: Raw;
-}
-
-/**
- * A pane's head: its heading on the left and one thing in its top right corner, side by side whatever their widths, until the pane is
- * too narrow for both (a phone), when the corner's thing goes under the heading at the pane's full width. It goes by the pane's own width,
- * never the screen's, so it holds the same wherever the pane sits.
- */
-export function paneHead(options: PaneHeadOptions): Raw {
-  return html`<div class="pane-head"><div class="pane-head-in"><div class="pane-head-words">${options.heading}</div><div class="pane-head-end">${options.end}</div></div></div>`;
-}
-
-component({
-  name: "Pane head",
-  slug: "pane-head",
-  group: "panes",
-  summary: "A pane's heading with one thing in its top right corner, like a game's Rooms with its room code box. They sit side by side until the pane is too narrow, then the corner's thing goes under the heading.",
-  styles: `
-/* A pane's head: the heading and the corner's thing side by side, by the pane's own width (a container), stacking under 480px. */
-.pane-head { container-type: inline-size; }
-.pane-head-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gap-words-control) var(--gap-block-block); }
-.pane-head-words { display: grid; gap: var(--gap-words-words); min-width: 0; }
-.pane-head-end { justify-self: end; }
-@container (max-width: 480px) {
-  .pane-head-in { grid-template-columns: minmax(0, 1fr); }
-  .pane-head-end { justify-self: stretch; }
-}
-`,
-  render: paneHead,
-  examples: [
-    {
-      label: "A heading with a code box in its corner",
-      isWide: true,
-      markup: glassPane({ paneWidth: "full", body: paneHead({ heading: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: html`<form class="control-row">${cutField({ id: "pane-head-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "Room code", isLabelHidden: true })}${cutButton("Join", { type: "button" })}</form>` }) }),
-    },
-  ],
-});
 
 export interface ToolRowOptions {
   /** The controls, each as wide as its words need (small select fields, small buttons), in one row of one height. */

@@ -4,6 +4,9 @@ import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
 import { cutButton } from "./components/actions.ts";
 import { pictureRow } from "./components/data.ts";
+import type { ControlMarkup } from "./components/control-markup.ts";
+import { paragraph } from "./components/game-parts.ts";
+import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
 
 /**
@@ -89,12 +92,12 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
  * Join on the game page, in its new look: the room link as a small cut button, or the same lying flat when it won't work, with why said in
  * words under the friends (friendsHere). The /friends page keeps joinButton until it's rebuilt.
  */
-export function friendJoinButton(slug: string, join: NonNullable<FriendsInGame["join"]>): Raw {
+export function friendJoinButton(slug: string, join: NonNullable<FriendsInGame["join"]>): ControlMarkup {
   return join.refusal ? cutButton("Join", { type: "button", isSmall: true, isDisabled: true }) : cutButton("Join", { href: joinPath(slug, join), isSmall: true });
 }
 
 /** Watch beside it on the game page, for games that take spectators: the room link with &watch=1, or lying flat when it won't work. */
-export function friendWatchButton(slug: string, watch: NonNullable<FriendsInGame["watch"]>): Raw {
+export function friendWatchButton(slug: string, watch: NonNullable<FriendsInGame["watch"]>): ControlMarkup {
   return watch.refusal ? cutButton("Watch", { type: "button", isSmall: true, isDisabled: true }) : cutButton("Watch", { href: `${joinPath(slug, watch)}&watch=1`, isSmall: true });
 }
 
@@ -102,7 +105,9 @@ export function friendWatchButton(slug: string, watch: NonNullable<FriendsInGame
 function friendsHere(slug: string, here: FriendsInGame): Raw {
   const names = here.friends.map((friend) => friend.name);
   const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
-  return html`${pictureRow(names, "sm")}<span class="friends-said">${said}</span>${here.join ? friendJoinButton(slug, here.join) : ""}${here.watch ? friendWatchButton(slug, here.watch) : ""}${here.join?.refusal ? html`<p class="friends-why">${joinRefusalText(here.join)}</p>` : ""}`;
+  const doors: LayoutItem[] = [...(here.join ? [{ kind: "control" as const, markup: friendJoinButton(slug, here.join) }] : []), ...(here.watch ? [{ kind: "control" as const, markup: friendWatchButton(slug, here.watch) }] : [])];
+  const line = row({ widths: "fit", items: [{ kind: "block", markup: pictureRow(names, "sm") }, { kind: "words", markup: paragraph(said, { type: "words" }) }, ...doors] });
+  return here.join?.refusal ? stack({ items: [{ kind: "block", markup: line }, { kind: "words", markup: paragraph(joinRefusalText(here.join), { type: "note", isMuted: true }) }] }) : line;
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

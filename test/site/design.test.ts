@@ -249,8 +249,9 @@ describe("the gallery", () => {
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
         const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
-        // A row is a .control-row (foundations.ts): a gap can't be negative, so its controls overlap by a margin of --gap-control-row-boxes.
-        if (!isStack && holder.classes.includes("control-row")) continue;
+        // A row is a .control-row (foundations.ts), or a table's own .table-controls: a gap can't be negative, so its controls overlap by a
+        // margin of --gap-control-row-boxes.
+        if (!isStack && (holder.classes.includes("control-row") || holder.classes.includes("table-controls"))) continue;
         if (!isStack || gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-stack)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
       }
     }
@@ -697,9 +698,9 @@ describe("pages", () => {
   });
 
   it("fail the rule on a style, a class or a sheet of their own, and on a component's insides", () => {
-    expect(pageProblems('<div class="glass-pane" style="width:390px"><p class="game-note">Hi</p><div class="control-row"></div></div><style>.x{}</style>')).toEqual([
+    expect(pageProblems('<div class="glass-pane" style="height:390px"><p class="game-note">Hi</p><div class="control-row"></div></div><style>.x{}</style>')).toEqual([
       "writes a <style> of its own",
-      'style="width:390px" sets width:390px, which no component offers',
+      'style="height:390px" sets height:390px, which no component offers',
       ".game-note comes from no component",
       ".control-row is a component's inside, not for a page",
     ]);

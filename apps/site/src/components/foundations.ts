@@ -35,6 +35,8 @@ export interface GlassPaneOptions {
   paneWidth: "full" | "fit";
   body: Raw;
   label?: string;
+  /** Keeps to about a screen's height, so what's after it stays near: longer content scrolls inside it, on its rail (a game's updates). */
+  isScreenTall?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isScreenTall ? " screen-tall" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
 /**

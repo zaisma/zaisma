@@ -26,6 +26,8 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--fill:[0-9.]+$/, why: "a slider's fill, the share picked" },
   { pattern: /^width:\d+%$/, why: "a usage meter's fill, the share used" },
   { pattern: /^z-index:1$/, why: "a picture row's +N, over the pictures before it" },
+  { pattern: /^width:\d+px$/, why: "a table column's width (TableColumn.widthPx), on its <col>" },
+  { pattern: /^--table-min-width:\d+px$/, why: "an even table's least width, its columns' widths together" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */

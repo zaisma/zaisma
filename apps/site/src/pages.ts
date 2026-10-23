@@ -32,10 +32,12 @@ import { cutButton, runButton, textButton, textLink } from "./components/actions
 import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import { glassPane, icon, logo, tag, type IconName } from "./components/foundations.ts";
-import { banner, dropdown, notice, pictureViewer, paneHead } from "./components/panes.ts";
+import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
+import type { ControlMarkup } from "./components/control-markup.ts";
+import { checkSpot, codeJoin, cornerCard, gameBar, pageTitle, paragraph, plate, sectionHeading, split, worldWindow } from "./components/game-parts.ts";
+import { grid, paneParts, row, stack, type LayoutItem } from "./components/layout.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { GAME_BACKGROUND_SCRIPT, GAME_OPENING_SCRIPT } from "./game-background-script.ts";
-import { GAME_PAGE_STYLE } from "./game-page-style.ts";
 import { html, layout, message, openingScriptTags, pageData, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { coverOf, showcase } from "./home.ts";
@@ -47,7 +49,7 @@ import { playersSheet } from "./players-sheet.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { codeBox, pageRooms, roomsOnPage, roomsPanel, roomsPlayingLine } from "./rooms.ts";
+import { pageRooms, roomsOnPage, roomsPanel, roomsPlayingLine } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
@@ -161,50 +163,69 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const testerNote = tester
     ? `You're testing this game with a link from its developer.${isTestBuild ? ` It opens a version players don't have yet${game.multiplayer_mode !== "none" || ownServers.length ? ", so online play is off: it works only on the version players have" : ""}.` : ""}${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.${tester.ends_at_ms ? ` The link works until ${day(tester.ends_at_ms)}.` : ""}`
     : "";
-  const paneBody = html`<div class="game-head"><h1 id="title">${game.title}</h1>${developer ? html`<p class="game-by">by ${textLink(developer.name, profilePath(developer.name), { isNewTab: true })}</p>` : ""}</div>
-${tester || !canSignIn || isClosed ? "" : html`<div class="friends-here" id="friends-here" hidden></div>`}
-<div class="game-glance" id="playing-now"${isPlayingNowShown ? "" : raw(" hidden")}>${glanceFacts({ playerCount: playingNowPlayerCount })}</div>
-${accountRequirement !== "none" && !isClosed
-    ? html`<p class="game-note" id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
-    : ""}
-<p class="game-note" id="device-note" hidden>${icon("warning")}<span></span></p>
-${tester ? banner({ text: testerNote, icon: "warning", tone: "amber" }) : ""}
-${isClosed
-    ? html`<div class="game-closed" id="closed"><p>This game isn't open to your account.</p>${cutButton("Find other games", { href: "/", isFullWidth: true })}</div>`
-    : html`<div class="game-act"><div class="control-row game-actions">${runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })}${cutButton("Details", { href: "#about", isBig: true })}</div>
-<div class="game-more-actions">${textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })}${textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } })}</div></div>`}
-${gameFacts.length ? facts({ facts: gameFacts, label: "About this game" }) : ""}`;
+  const words = (markup: Raw, options: { id?: string; isHidden?: boolean } = {}): LayoutItem => ({ kind: "words", markup: markup as Raw & { controlHeight?: never }, ...options });
+  const block = (markup: Raw, options: { id?: string; isHidden?: boolean } = {}): LayoutItem => ({ kind: "block", markup: markup as Raw & { controlHeight?: never }, ...options });
+  const control = (markup: ControlMarkup): LayoutItem => ({ kind: "control", markup });
+  // The pane: the game's title, who made it, who's playing, Play and Details, then Share and Report as words under them, then its facts.
+  const paneBody = stack({
+    items: [
+      words(pageTitle(game.title, { id: "title" })),
+      ...(developer ? [words(paragraph(html`by ${textLink(developer.name, profilePath(developer.name), { isNewTab: true })}`, { type: "words" }))] : []),
+      // Friends playing it, filled in by the page's script for a signed-in player.
+      ...(tester || !canSignIn || isClosed ? [] : [block(html``, { id: "friends-here", isHidden: true })]),
+      block(glanceFacts({ playerCount: playingNowPlayerCount }), { id: "playing-now", isHidden: !isPlayingNowShown }),
+      ...(accountRequirement !== "none" && !isClosed
+        ? [words(paragraph(html`${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.`, { type: "note", id: "account-note" }))]
+        : []),
+      words(paragraph("", { type: "note", icon: "warning", id: "device-note", isHidden: true })),
+      ...(tester ? [block(banner({ text: testerNote, icon: "warning", tone: "amber" }))] : []),
+      ...(isClosed
+        ? [words(paragraph("This game isn't open to your account.", { type: "words" }), { id: "closed" }), control(cutButton("Find other games", { href: "/", isFullWidth: true }))]
+        : [
+            block(row({ widths: "lead-fills", items: [control(runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })), control(cutButton("Details", { href: "#about", isBig: true }))] })),
+            block(row({ widths: "fit", items: [control(textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })), control(textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } }))] })),
+          ]),
+      ...(gameFacts.length ? [block(facts({ facts: gameFacts, label: "About this game" }))] : []),
+    ],
+  });
   // The developer's pictures, the one picked large with the rest under it to pick from; the pane's heading is said to screen readers alone.
   const picturesSection = shots.length > 1 ? glassPane({ paneWidth: "full", label: "Screenshots", body: pictureViewer({ id: "game-pictures", title: game.title, pictureUrls: shots }) }) : "";
   const aboutSection = glassPane({
     paneWidth: "full",
     label: "About",
-    body: html`<h2>About</h2>
-${game.description ? html`<p class="game-description">${game.description}</p>` : html`<p class="game-description is-empty">The developer hasn't written about this game yet.</p>`}
-${developer || pageLinks.length
-    ? html`<div class="game-maker">${developer ? person({ username: developer.name, href: profilePath(developer.name), isNewTab: true, note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) : ""}${developerLinks(pageLinks)}</div>`
-    : ""}`,
+    body: stack({
+      items: [
+        words(sectionHeading("About")),
+        words(game.description ? paragraph(game.description, { type: "reading" }) : paragraph("The developer hasn't written about this game yet.", { type: "reading", isMuted: true })),
+        // Who made it, and their links.
+        ...(developer ? [block(person({ username: developer.name, href: profilePath(developer.name), isNewTab: true, note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }))] : []),
+        ...(pageLinks.length ? [block(developerLinks(pageLinks))] : []),
+      ],
+    }),
   });
-  // Patch notes, newest first, in a pane that keeps its height: older ones scroll inside it.
+  // Patch notes, newest first, in a pane that keeps to about a screen: older ones scroll inside it.
   const updatesSection = updates.results.length
-    ? glassPane({ paneWidth: "full", label: "Updates", body: html`<h2>Updates</h2>${listRows({ label: "Updates", rows: updates.results.map((update) => ({ title: day(update.published_at_ms), text: update.patch_notes })) })}` })
+    ? glassPane({ paneWidth: "full", label: "Updates", isScreenTall: true, body: stack({ items: [words(sectionHeading("Updates")), block(listRows({ label: "Updates", rows: updates.results.map((update) => ({ title: day(update.published_at_ms), text: update.patch_notes })) }))] }) })
     : "";
   const moreSection = more.length
-    ? glassPane({ paneWidth: "full", label: moreTitle, body: html`<h2>${moreTitle}</h2><div class="game-more">${more.map(coverOf)}</div>` })
+    ? glassPane({ paneWidth: "full", label: moreTitle, body: stack({ items: [words(sectionHeading(moreTitle)), block(grid({ itemSize: "cover", items: more.map((other) => block(coverOf(other))) }))] }) })
     : "";
   // Rooms: the heading with who's playing under it, the code box in the pane's top corner, then the rooms to pick from.
   const roomsSection = rooms
     ? glassPane({
         paneWidth: "full",
         label: "Rooms",
-        body: html`${paneHead({ heading: html`<h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p>`, end: codeBox(game.slug) })}<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
+        body: paneParts({
+          head: { words: html`${sectionHeading("Rooms")}${paragraph(roomsPlayingLine(rooms), { type: "words", id: "rooms-playing", isHidden: !rooms.playing.playerCount })}`, end: codeJoin({ id: "room-code", action: `/g/${game.slug}`, label: "Join a room by its code" }) },
+          body: html`<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
+        }),
       })
     : "";
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
     // A game with its own background opens on its color and glass, never on Zaisma's world first (GAME_OPENING_SCRIPT).
-    head: html`${autoplay ? "" : html`${pageData("game-opening", { wide: openingOf(wideBackground), phone: openingOf(phoneBackground) })}${openingScriptTags(GAME_OPENING_SCRIPT)}`}${styleTags(GAME_PAGE_STYLE)}${tester ? "" : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null })}`,
+    head: html`${autoplay ? "" : html`${pageData("game-opening", { wide: openingOf(wideBackground), phone: openingOf(phoneBackground) })}${openingScriptTags(GAME_OPENING_SCRIPT)}`}${tester ? "" : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null })}`,
     isBare: true,
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.
     isFramedBySelf: request.headers.get("sec-fetch-dest") === "iframe" && request.headers.get("sec-fetch-site") === "same-origin",
@@ -214,44 +235,51 @@ ${developer || pageLinks.length
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
     body: html`${siteHeader(env, { viewer })}
-<div class="game" id="game-details">
-<div class="game-window" aria-hidden="true"></div>
-<div class="game-pane">${glassPane({ paneWidth: "fit", label: game.title, body: paneBody })}</div>
-<div class="game-sections">
-${roomsSection ? html`<section id="rooms">${roomsSection}</section>` : ""}
+<main id="game-details">${worldWindow()}${split({
+      side: glassPane({ paneWidth: "full", label: game.title, body: paneBody }),
+      main: html`${roomsSection ? html`<section id="rooms">${roomsSection}</section>` : ""}
 ${picturesSection ? html`<section id="pictures">${picturesSection}</section>` : ""}
 <section id="about">${aboutSection}</section>
 ${updatesSection ? html`<section id="updates">${updatesSection}</section>` : ""}
-${moreSection}
-</div>
-</div>
+${moreSection}`,
+    })}</main>
 ${siteFooter()}
-<div class="game-bar smoke" id="game-bar">${glassPane({
-      paneWidth: "full",
-      label: "Game controls",
-      body: html`<a class="game-bar-home" href="/" aria-label="All games">${logo("mark")}</a><p class="game-bar-title">${game.title}</p><span class="game-bar-space"></span>
-${multiplayer ? html`<span class="game-bar-players">${cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" })}<span class="game-bar-count" id="players-count-badge" hidden>${tag("", "count")}</span></span>` : ""}
-${saves ? cutButton("Keep progress", { id: "keep-bar", href: joinHere, icon: "save", isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } }) : ""}
-${hasRoomCodes ? cutButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog", isExpanded: false }) : ""}
-${isClosed ? "" : updateBarButtons()}
-${cutButton("Share", { id: "share", type: "button", icon: "share", isSmall: true, controls: "share-dialog" })}
-${cutButton("Full screen", { id: "full", type: "button", icon: "full-screen", isSmall: true })}
-${cutButton("More", { id: "menu", type: "button", icon: "more", isSmall: true, isLabelHidden: true, controls: "game-menu", isExpanded: false })}`,
-    })}</div>
+${gameBar({
+      title: game.title,
+      players: multiplayer ? cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" }) : undefined,
+      controls: [
+        saves ? cutButton("Keep progress", { id: "keep-bar", href: joinHere, icon: "save", isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } }) : "",
+        hasRoomCodes ? cutButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog", isExpanded: false }) : "",
+        isClosed ? "" : updateBarButtons(),
+        cutButton("Share", { id: "share", type: "button", icon: "share", isSmall: true, controls: "share-dialog" }),
+        cutButton("Full screen", { id: "full", type: "button", icon: "full-screen", isSmall: true }),
+        cutButton("More", { id: "menu", type: "button", icon: "more", isSmall: true, isLabelHidden: true, controls: "game-menu", isExpanded: false }),
+      ],
+    })}
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 ${hasRoomCodes
-      ? html`<dialog id="room-dialog" class="game-plate" aria-label="Room">${glassPane({
-          paneWidth: "fit",
-          body: html`<section class="room-here" id="room-here" hidden>
-<p class="room-title">This room</p>
-<div class="room-line"><b id="room-code-text"></b>${cutButton("Copy", { id: "room-copy", type: "button", isSmall: true })}${cutButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isSmall: true, isLabelHidden: true, isPressed: false })}</div>
-<p class="game-note" id="room-closed" hidden>This room doesn't take new players.</p>
-</section>
-<form class="room-join" method="get" action="${here}">${cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off", isRequired: true })}${cutButton("Join", { type: "submit", isFullWidth: true })}
-<p class="game-note" id="join-leaves" hidden>It leaves the room you're in.</p></form>`,
-        })}</dialog>`
+      ? plate({
+          id: "room-dialog",
+          label: "Room",
+          body: stack({
+            items: [
+              block(
+                stack({
+                  items: [
+                    words(paragraph("This room", { type: "note" })),
+                    block(row({ widths: "lead-fills", items: [words(paragraph("", { type: "code", id: "room-code-text" })), control(cutButton("Copy", { id: "room-copy", type: "button", isSmall: true })), control(cutButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isSmall: true, isLabelHidden: true, isPressed: false }))] })),
+                    words(paragraph("This room doesn't take new players.", { type: "note", id: "room-closed", isHidden: true })),
+                  ],
+                }),
+                { id: "room-here", isHidden: true },
+              ),
+              control(codeJoin({ id: "bar-join-code", action: here, label: "Join a room by its code", isStacked: true })),
+              words(paragraph("It leaves the room you're in.", { type: "note", id: "join-leaves", isHidden: true })),
+            ],
+          }),
+        })
       : ""}
 ${dropdown({
       id: "game-menu",
@@ -271,21 +299,37 @@ ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
 ${multiplayer ? blockSheet({ gameOrigin }) : ""}
 ${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}` }) : ""}
 ${saves
-      ? gameCard("keep", "keep-title", html`<h2 id="keep-title">Keep your progress</h2>
-<p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>
-<div class="control-row">${runButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } })}${cutButton("Not now", { id: "keep-later", type: "button" })}</div>
-<p class="game-note">Have an account? <a class="link" href="${signinHere}" data-keep="/signin">Sign in</a></p>`)
+      ? cornerCard({
+          id: "keep",
+          titleId: "keep-title",
+          body: stack({
+            items: [
+              words(html`<h2 id="keep-title">Keep your progress</h2>`),
+              words(paragraph(`Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.`, { type: "words" })),
+              block(row({ widths: "lead-fills", items: [control(runButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } })), control(cutButton("Not now", { id: "keep-later", type: "button" }))] })),
+              words(paragraph(html`Have an account? <a class="link" href="${signinHere}" data-keep="/signin">Sign in</a>`, { type: "note" })),
+            ],
+          }),
+        })
       : ""}
 ${saves ? html`<template id="save-toast">${notice({ text: "", tone: "done" })}</template>` : ""}
 ${canSignIn
-      ? gameCard("sign-in-ask", "sign-in-title", html`<h2 id="sign-in-title">${game.title} asks you to sign in</h2>
-<p id="sign-in-text">Make a free Zaisma account or sign in. The game keeps running here while you do.</p>
-<div class="control-row">${runButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } })}${cutButton("Not now", { id: "sign-in-later", type: "button" })}</div>
-<p class="game-note">Have an account? <a class="link" href="${signinHere}" data-sign-in="/signin">Sign in</a></p>`)
+      ? cornerCard({
+          id: "sign-in-ask",
+          titleId: "sign-in-title",
+          body: stack({
+            items: [
+              words(html`<h2 id="sign-in-title">${game.title} asks you to sign in</h2>`),
+              words(paragraph("Make a free Zaisma account or sign in. The game keeps running here while you do.", { type: "words", id: "sign-in-text" })),
+              block(row({ widths: "lead-fills", items: [control(runButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } })), control(cutButton("Not now", { id: "sign-in-later", type: "button" }))] })),
+              words(paragraph(html`Have an account? <a class="link" href="${signinHere}" data-sign-in="/signin">Sign in</a>`, { type: "note" })),
+            ],
+          }),
+        })
       : ""}
 ${leavingCard(game.title)}
 ${shareDialog(game.title, !tester)}
-${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
+${tester && !multiplayer ? "" : checkSpot("play-check")}
 ${pageData("game-page-data", {
       slug: game.slug,
       tester_token: tester?.token ?? null,
@@ -340,7 +384,6 @@ ${isClosed
 const openingOf = (background: ShownBackground) => (background.source === "zaisma" ? null : { stillUrl: background.stillUrl, tone: background.tone });
 
 /** A card over the game's top corner (Keep your progress, a game's sign-in ask): a small pane the page's scripts show and hide. */
-const gameCard = (id: string, titleId: string, body: Raw) => html`<aside class="game-card" id="${id}" aria-labelledby="${titleId}" hidden>${glassPane({ paneWidth: "fit", body })}</aside>`;
 
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
 const DEVICE_ICONS: Record<string, IconName> = { phone: "phone", tablet: "tablet", computer: "computer" };
@@ -349,7 +392,7 @@ const PLAY_MODE_ICONS: Record<PlayMode["mode"], IconName> = { single: "person", 
 
 /** A tester link that can't open its game: what's wrong, on Zaisma's own glass. */
 function linkProblem(env: Env, title: string, text: string): Response {
-  const response = layout(env, { title, isRebuilt: true, head: styleTags(GAME_PAGE_STYLE), body: html`<div class="game-problem">${glassPane({ paneWidth: "fit", body: problemState({ title, text, action: cutButton("Find other games", { href: "/" }) }) })}</div>` });
+  const response = layout(env, { title, isRebuilt: true, body: row({ widths: "fit", alignment: "center", items: [{ kind: "block", markup: glassPane({ paneWidth: "fit", body: problemState({ title, text, action: cutButton("Find other games", { href: "/" }) }) }) }] }) });
   return new Response(response.body, { status: 404, headers: response.headers });
 }
 
@@ -742,15 +785,19 @@ async function refreshRooms(force) {
     if (line) line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
     if (shownCount) shownCount.textContent = playing.toLocaleString("en-US");
   } catch {} finally {
-    document.documentElement.classList.remove("just-left");
+    hideJustLeft(false);
   }
+}
+// Just back from a match: the room list and its counts wait a moment, unseen, for a copy without the player in it.
+function hideJustLeft(isHidden) {
+  ["rooms-list", "playing-now", "rooms-playing"].forEach((id) => { const shown = document.getElementById(id); if (shown) shown.style.visibility = isHidden ? "hidden" : ""; });
 }
 if (roomsPanel) {
   // Back on the page just after leaving a match: show the list without this player in it, straight away.
   const comeBack = () => {
     if (!justLeft()) return;
-    document.documentElement.classList.add("just-left");
-    setTimeout(() => document.documentElement.classList.remove("just-left"), 2000);
+    hideJustLeft(true);
+    setTimeout(() => hideJustLeft(false), 2000);
     refreshRooms("left");
   };
   comeBack();
@@ -895,6 +942,7 @@ if (roomOpen && roomDialog) {
 // Share opens the share sheet: the address bar's link (with the room code while the player is in a
 // match), its QR code for someone in the same room, Copy, and the system's share sheet where there is one.
 const shareBox = document.getElementById("share-dialog");
+const shareSecret = document.getElementById("share-secret");
 const shareLink = document.getElementById("share-link");
 function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
@@ -903,8 +951,8 @@ function shareFrom(button) {
   const roomLine = document.getElementById("share-room");
   roomLine.hidden = !room;
   roomLine.querySelector("b").textContent = room || "";
-  shareBox.classList.toggle("masked", isRoomCodeHidden && Boolean(room));
-  document.getElementById("share-reveal").hidden = !shareBox.classList.contains("masked");
+  shareSecret.classList.toggle("is-masked", isRoomCodeHidden && Boolean(room));
+  document.getElementById("share-reveal").hidden = !shareSecret.classList.contains("is-masked");
   const qr = document.getElementById("share-qr");
   if (qr) {
     qr.src = "/g/" + gamePage.slug + "/qr-code.svg" + (room ? "?room=" + encodeURIComponent(room) : "");
@@ -921,9 +969,9 @@ if (navigator.share) {
   };
 }
 // Show on the blur, or a tap on the blurred link, reveals them for this time.
-const revealShare = () => { shareBox.classList.remove("masked"); document.getElementById("share-reveal").hidden = true; };
+const revealShare = () => { shareSecret.classList.remove("is-masked"); document.getElementById("share-reveal").hidden = true; };
 document.getElementById("share-reveal").addEventListener("click", revealShare);
-shareLink.addEventListener("click", () => { if (shareBox.classList.contains("masked")) revealShare(); });
+shareLink.addEventListener("click", () => { if (shareSecret.classList.contains("is-masked")) revealShare(); });
 shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });
 share.addEventListener("click", (e) => { e.preventDefault(); shareFrom(share); });
 // The game says which room it's in, so the address bar (and so Share) points to that match.

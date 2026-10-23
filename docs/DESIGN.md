@@ -218,6 +218,9 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
 - **Spacing**: Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
+- **Words** (`paragraph(markup, options: ParagraphOptions)`, `pageTitle(text)`, `sectionHeading(text)`, `game-parts.ts`): A page's title, a heading in a pane, and lines in each type token: words, a paragraph to read, a note, a name, a code. Words never carry a size of their own; pick what they are.
+  - `options`: `type: "words" | "reading" | "note" | "name" | "code"`, `isMuted?: boolean`, `icon?: IconName`, `isLive?: boolean`, `id?: string`, `isHidden?: boolean`
+- **World window** (`worldWindow()`, `game-parts.ts`): A clear opening onto the background above a page's glass, so a game's world shows before you play. Only a game's page has one.
 - **City** (`cityStage(options?: CityStageOptions)`, `city.ts`): Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.
   - `options`: `isFramed?: boolean`
 
@@ -235,6 +238,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `columns: [Raw, Raw]`, `stickyColumn?: "first" | "second"`
 - **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
   - `options`: `head?: { words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
+- **Split** (`split(options: SplitOptions)`, `game-parts.ts`): A details pane at the start beside the rest of the width: a game's pane beside its sections. The pane stays in view while the rest scrolls; they go one over the other when there isn't room for both.
+  - `options`: `side: Raw`, `main: Raw`
 - **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
   - `options`: `path: string`, `title: string`
 
@@ -257,6 +262,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 ### Inputs
 
+- **Code join** (`codeJoin(options: CodeJoinOptions)`, `game-parts.ts`): A room code a friend shared, and Join, as one control: in a Rooms pane's corner, or stacked in the bar's room plate.
+  - `options`: `id: string`, `action: string`, `label: string`, `isStacked?: boolean`
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
   - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isLabelHidden?: boolean`, `isPasswordShown?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
@@ -288,6 +295,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 ### Navigation
 
+- **Game bar** (`gameBar(options: GameBarOptions)`, `game-parts.ts`): The bar over a game while it plays: back to all games, the game's title, and its buttons. The page gives way to the game under it.
+  - `options`: `title: string`, `players?: ControlMarkup`, `controls: (Raw | string)[]`, `isShown?: boolean`
 - **Header** (`header(options: HeaderOptions)`, `navigation.ts`): The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.
   - `options`: `current: HeaderTab | null`, `search?: Omit<SearchFieldOptions, "state">`, `account?: { username: string; pictureMarkup: Raw } | null`, `isOnDeveloperPage: boolean`, `isOnSignInPage?: boolean`, `ownTabs?: SwitchTab[]`, `yourGamesHref?: string`, `isCompact?: boolean`, `isMenuOpen?: boolean`, `id?: string`
 - **Account button** (`accountButton(options: AccountButtonOptions)`, `navigation.ts`): You, at the header's end once you're signed in: your picture alone is the button, online, as tall as the controls beside it. It opens the account menu, which names you.
@@ -306,7 +315,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Panes
 
 - **Glass pane** (`glassPane(options: GlassPaneOptions)`, `foundations.ts`): A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.
-  - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`
+  - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`, `isScreenTall?: boolean`
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
   - `options`: `head: Raw`, `body: Raw`, `label?: string`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs.
@@ -325,8 +334,13 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `tone?: "amber"`, `closeLabel?: string`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`
-- **Pane head** (`paneHead(options: PaneHeadOptions)`, `panes.ts`): A pane's heading with one thing in its top right corner, like a game's Rooms with its room code box. They sit side by side until the pane is too narrow, then the corner's thing goes under the heading.
-  - `options`: `heading: Raw`, `end: Raw`
+- **Plate** (`plate(options: PlateOptions)`, `game-parts.ts`): A small pane hanging from the bar's button that opens it, over the game, nothing dimmed: the room you're in and a code to join, the connection.
+  - `options`: `id: string`, `label: string`, `body: Raw`, `isShown?: boolean`
+- **Corner card** (`cornerCard(options: CornerCardOptions)`, `game-parts.ts`): A card over the game's top corner that asks one thing while the game keeps running: keep your progress, sign in, open a link.
+  - `options`: `id: string`, `titleId: string`, `body: Raw`, `isShown?: boolean`
+- **Secret box** (`secretBox(options)`, `game-parts.ts`): What a streamer keeps off screen, like a room code, its link and its QR code: blurred until Show, while Copy still works.
+  - `options`: `id: string`, `body: Raw`, `revealId: string`, `isMasked?: boolean`
+- **Check spot** (`checkSpot(id: string)`, `game-parts.ts`): Where Cloudflare's invisible check shows, if it ever needs a tap: at the bottom of the screen, over the game.
 - **Tool row** (`toolRow(options: ToolRowOptions)`, `panes.ts`): Small controls in one row over what they work on: pickers and a Refresh over a table. Each fits its words, all one height; they wrap only when they don't fit.
   - `options`: `items: Raw[]`, `end?: Raw`
 
@@ -353,7 +367,11 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Loading state** (`loadingState(options: { … })`, `data.ts`): Where content is on its way: a hairline with a light running along it, and what's coming. Never a spinner over content; a button that's waiting shows the loader instead.
   - `options`: `label: string`
 - **Table** (`table(options: TableOptions)`, `data.ts`): Rows to compare: versions, requests, players, logs. Its header stays as the rows scroll under it, every column lines up under its heading's left edge, and on a phone it scrolls sideways rather than folding rows into cards.
-  - `options`: `label: string`, `columns: TableColumn[]`, `rows: (Raw | string)[][]`, `headColumn?: "first" | "last"`, `footRow?: (Raw | string)[]`, `maximumRowCount?: number`, `emptyText?: string`, `rowSlice?: { firstRowNumber: number; totalRowCount: number }`, `isCompact?: boolean`, `isEven?: boolean`, `id?: string`
+  - `options`: `label: string`, `columns: TableColumn[]`, `rows: (Raw | string | ControlMarkup[])[][]`, `headColumn?: "first" | "last"`, `footRow?: (Raw | string)[]`, `maximumRowCount?: number`, `emptyText?: string`, `rowSlice?: { firstRowNumber: number; totalRowCount: number }`, `isCompact?: boolean`, `isShort?: boolean`, `isEven?: boolean`, `id?: string`
+- **QR code** (`qrCode(options)`, `game-parts.ts`): A link as a QR code, on white so any phone's camera reads it, with what to do under it: Scan to play.
+  - `options`: `id: string`, `alt: string`, `caption: string`, `captionId: string`
+- **Picture check** (`pictureCheck(options)`, `game-parts.ts`): A picture to send along with a form, and a check to leave it out: a report's picture of the game. Unticked, it grays.
+  - `options`: `id: string`, `imageId: string`, `alt: string`, `checkId: string`, `checkName: string`, `checkLabel: string`, `isHidden?: boolean`
 - **Numbers** (`numbers(options: { … })`, `data.ts`): A row of figures to take in at a glance: players, hours, plays. Each figure is big, its label sits under it, and how it moved is green when it's good news.
   - `options`: `items: NumberItem[]`
 - **Chart** (`chart(options: ChartOptions)`, `data.ts`): How something moved over time, drawn on the page with nothing to wait for: a line or bars on a hairline grid, the last point in orange with its number, and any point's number where you point. Or how a whole splits, as a ring with its key. Screen readers get the same numbers.

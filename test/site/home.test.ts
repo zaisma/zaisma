@@ -71,7 +71,7 @@ describe("the home page", () => {
     expect(text).not.toContain("data-home-staged");
     // The page's only way to start a game is a game's page: covers link there, and the home has no Play of its own.
     expect(text).not.toMatch(/href="\/g\/[a-z0-9-]+\?play"/);
-    expect(text).toContain('<a class="cover-art" data-cut-line="0" href="/g/home-one"');
+    expect(text).toContain('<a class="cover-art cut-carved" data-cut-line="0" href="/g/home-one"');
     expect(text).toMatch(/<h1 class="sr">/);
   });
 
