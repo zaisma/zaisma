@@ -13,7 +13,9 @@ import {
   isIdOf,
   itemByName,
   itemsOf,
+  newGrant,
   ownedItemNames,
+  owningPurchaseOf,
   purchaseById,
   purchaseLabelOf,
   purchaseSettingsOf,
@@ -116,27 +118,31 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
   if (method === "PUT") {
     const checkedItem = checkItem(itemName, checked.body);
     const existing = await itemByName(env.DB, game.id, itemName);
-    if (!existing) {
-      const counted = await env.DB.prepare("SELECT COUNT(*) AS item_count FROM game_items WHERE game_id = ?").bind(game.id).first<{ item_count: number }>();
-      if ((counted?.item_count ?? 0) >= ITEM_LIMITS.maximumItemCount) {
-        throw new ApiError("too_many_items", { message: `${game.slug} has ${ITEM_LIMITS.maximumItemCount} items, the most a game can have.`, field: "item_name", fix: "Remove items nobody owns with remove_item, or reuse one: an item is replaced whole by set_item with its name." });
-      }
-    }
-    if (checkedItem.price_minor_units !== null && game.refund_policy === null) {
-      throw new ApiError("refund_policy_needed", {
+    const tooManyItems = () => new ApiError("too_many_items", { message: `${game.slug} has ${ITEM_LIMITS.maximumItemCount} items, the most a game can have.`, field: "item_name", fix: "Remove items nobody owns with remove_item, or reuse one: an item is replaced whole by set_item with its name." });
+    const refundPolicyNeeded = () =>
+      new ApiError("refund_policy_needed", {
         message: `${game.slug} has no refund policy, and a game states one before anything goes on sale.`,
         field: "price_minor_units",
         fix: "Set it with set_purchase_settings (refund_policy no_refunds, unused_within_14_days, within_14_days, or own_words with refund_policy_text), then set the item again. An item with price_minor_units null can be granted without one.",
       });
+    if (!existing) {
+      const counted = await env.DB.prepare("SELECT COUNT(*) AS item_count FROM game_items WHERE game_id = ?").bind(game.id).first<{ item_count: number }>();
+      if ((counted?.item_count ?? 0) >= ITEM_LIMITS.maximumItemCount) throw tooManyItems();
     }
-    await env.DB.prepare(
-      "INSERT INTO game_items (game_id, item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (game_id, item_name) DO UPDATE SET title = excluded.title, description = excluded.description, item_kind = excluded.item_kind, item_category = excluded.item_category, price_minor_units = excluded.price_minor_units, currency_code = excluded.currency_code, local_prices = excluded.local_prices, updated_at_ms = excluded.updated_at_ms",
+    if (checkedItem.price_minor_units !== null && game.refund_policy === null) throw refundPolicyNeeded();
+    // The limit and the refund policy are checked again in the write itself, so items set, or a policy cleared, at the same moment can't get past them.
+    const saved = await env.DB.prepare(
+      "INSERT INTO game_items (game_id, item_name, title, description, item_kind, item_category, price_minor_units, currency_code, local_prices, created_at_ms, updated_at_ms) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10 WHERE (EXISTS (SELECT 1 FROM game_items WHERE game_id = ?1 AND item_name = ?2) OR (SELECT COUNT(*) FROM game_items WHERE game_id = ?1) < ?11) AND (?7 IS NULL OR EXISTS (SELECT 1 FROM games WHERE id = ?1 AND refund_policy IS NOT NULL)) ON CONFLICT (game_id, item_name) DO UPDATE SET title = excluded.title, description = excluded.description, item_kind = excluded.item_kind, item_category = excluded.item_category, price_minor_units = excluded.price_minor_units, currency_code = excluded.currency_code, local_prices = excluded.local_prices, updated_at_ms = excluded.updated_at_ms",
     )
-      .bind(game.id, itemName, checkedItem.title, checkedItem.description, checkedItem.item_kind, checkedItem.item_category, checkedItem.price_minor_units, checkedItem.currency_code, JSON.stringify(checkedItem.local_prices), nowMs, nowMs)
+      .bind(game.id, itemName, checkedItem.title, checkedItem.description, checkedItem.item_kind, checkedItem.item_category, checkedItem.price_minor_units, checkedItem.currency_code, JSON.stringify(checkedItem.local_prices), nowMs, ITEM_LIMITS.maximumItemCount)
       .run();
+    if (!saved.meta.changes) {
+      const policy = await env.DB.prepare("SELECT refund_policy FROM games WHERE id = ?").bind(game.id).first<{ refund_policy: string | null }>();
+      throw checkedItem.price_minor_units !== null && !policy?.refund_policy ? refundPolicyNeeded() : tooManyItems();
+    }
     await logCallerEvent(env, caller, "item_changed", { gameId: game.id, subjectName: itemName });
-    const saved = (await itemByName(env.DB, game.id, itemName))!;
-    return [{ item: itemJson(saved), next_steps: [] satisfies NextStep[] }, existing ? 200 : 201];
+    const answered = (await itemByName(env.DB, game.id, itemName))!;
+    return [{ item: itemJson(answered), next_steps: [] satisfies NextStep[] }, existing ? 200 : 201];
   }
 
   if (method === "DELETE") {
@@ -161,9 +167,14 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
 export async function purchaseSettingsRoute(env: Env, game: Game, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
   const sold = await env.DB.prepare("SELECT 1 AS is_sold FROM game_items WHERE game_id = ? AND price_minor_units IS NOT NULL LIMIT 1").bind(game.id).first();
   const settings = checkPurchaseSettings(checked.body, purchaseSettingsOf(game), sold !== null);
-  await env.DB.prepare("UPDATE games SET refund_policy = ?, refund_policy_text = ?, own_payment_categories = ?, updated_at_ms = ? WHERE id = ?")
+  // A game left with no policy must still sell nothing when it's written, so an item put on sale at the same moment can't get past it.
+  const changed = await env.DB.prepare(
+    "UPDATE games SET refund_policy = ?1, refund_policy_text = ?2, own_payment_categories = ?3, updated_at_ms = ?4 WHERE id = ?5 AND (?1 IS NOT NULL OR NOT EXISTS (SELECT 1 FROM game_items WHERE game_id = ?5 AND price_minor_units IS NOT NULL))",
+  )
     .bind(settings.refund_policy, settings.refund_policy_text, JSON.stringify(settings.own_payment_categories), Date.now(), game.id)
     .run();
+  // An item went on sale since: checked again as a game that sells, it answers refund_policy_needed.
+  if (!changed.meta.changes) checkPurchaseSettings(checked.body, purchaseSettingsOf(game), true);
   await logCallerEvent(env, caller, "purchase_settings_changed", { gameId: game.id });
   const items = await itemsOf(env.DB, game.id);
   return [{ ...settings, purchase_label: purchaseLabelOf(items, settings.own_payment_categories), next_steps: [] satisfies NextStep[] }];
@@ -235,10 +246,20 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
     if (gameAccountId !== null && (typeof gameAccountId !== "string" || !gameAccountId || gameAccountId.length > ITEM_LIMITS.maximumGameAccountIdCharacterCount)) {
       throw new ApiError("bad_game_account_id", { message: "game_account_id isn't text of up to 200 characters.", field: "game_account_id", fix: "Send your game's own ID for the player's account in your system, as it is, or leave it out." });
     }
-    const granted = await recordGrant(env.DB, game, { playerId, gameItem, itemCount, gameAccountId, nowMs });
-    if (!granted.isAlreadyOwned) await logCallerEvent(env, caller, "purchase_granted", { gameId: game.id, subjectName: itemName });
-    const [purchase] = await withReceipts(env, game, [granted.purchase]);
-    return [{ purchase, is_already_owned: granted.isAlreadyOwned, next_steps: [] satisfies NextStep[] }, granted.isAlreadyOwned ? 200 : 201];
+    const alreadyOwned = async (owning: Purchase): Promise<[unknown, number?]> => {
+      const [purchase] = await withReceipts(env, game, [owning]);
+      return [{ purchase, is_already_owned: true, next_steps: [] satisfies NextStep[] }, 200];
+    };
+    const owning = gameItem.item_kind === "permanent" ? await owningPurchaseOf(env.DB, game.id, playerId, itemName) : null;
+    if (owning) return alreadyOwned(owning);
+    const grant = newGrant(game, { playerId, gameItem, itemCount, gameAccountId, nowMs });
+    // Its receipt is signed before it's recorded: a grant whose receipt can't be signed is never recorded, so trying again can't give the item twice.
+    const [purchase] = await withReceipts(env, game, [grant]);
+    const granted = await recordGrant(env.DB, grant);
+    // Another grant of this permanent item was recorded first: it's the one that owns it.
+    if (granted.isAlreadyOwned) return alreadyOwned(granted.purchase);
+    await logCallerEvent(env, caller, "purchase_granted", { gameId: game.id, subjectName: itemName });
+    return [{ purchase, is_already_owned: false, next_steps: [] satisfies NextStep[] }, 201];
   }
 
   const purchaseFix = "list_purchases lists the game's purchases and grants with their IDs.";
@@ -252,13 +273,14 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
   }
 
   if (isRefund && method === "POST") {
-    if (purchase.purchase_status === "refunded" || purchase.purchase_status === "charged_back") {
-      throw new ApiError("already_refunded", { message: `${purchase.id} was ${purchase.purchase_status === "refunded" ? "refunded" : "charged back"} already.`, field: "purchase_id", fix: "Nothing to do: the player no longer owns it." });
-    }
+    const alreadyRefunded = (takenBack: Purchase) =>
+      new ApiError("already_refunded", { message: `${takenBack.id} was ${takenBack.purchase_status === "charged_back" ? "charged back" : "refunded"} already.`, field: "purchase_id", fix: "Nothing to do: the player no longer owns it." });
+    if (purchase.purchase_status === "refunded" || purchase.purchase_status === "charged_back") throw alreadyRefunded(purchase);
     if (purchase.purchase_source === "sale") {
       throw new ApiError("stripe_not_connected", { message: "A sale is refunded through Stripe, which this game's developer hasn't connected.", field: "purchase_id", fix: "Sales come with Zaisma's buy sheet, which refunds them through Stripe; grants can be taken back now." });
     }
-    await takeBack(env.DB, purchase.id, "refunded", nowMs);
+    // Another refund took it back since it was read: this one changed nothing.
+    if (!(await takeBack(env.DB, purchase.id, "refunded", nowMs))) throw alreadyRefunded((await purchaseById(env.DB, game.id, purchase.id))!);
     await logCallerEvent(env, caller, "purchase_refunded", { gameId: game.id, subjectName: purchase.item_name });
     const [answered] = await withReceipts(env, game, [(await purchaseById(env.DB, game.id, purchase.id))!]);
     return [{ purchase: answered, next_steps: [] satisfies NextStep[] }];

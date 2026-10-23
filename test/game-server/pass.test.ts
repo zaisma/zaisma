@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PassError, areFriends, canChat, generateSigningKey, hasBlockBetween, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, verifyReceipt, type PassClaims, type ReceiptClaims, type WhoCanChat } from "../../packages/game-server/src/index.ts";
+import { PassError, REQUEST_LIMITS, readRequestBody, areFriends, canChat, generateSigningKey, hasBlockBetween, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, verifyReceipt, type PassClaims, type ReceiptClaims, type WhoCanChat } from "../../packages/game-server/src/index.ts";
 
 const ISS = "https://rooms.zaisma.test";
 
@@ -175,5 +175,30 @@ describe("names and codes", () => {
     expect(guestName()).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+ \d\d$/);
     for (let i = 0; i < 50; i++) expect(isRoomCode(roomCode())).toBe(true);
     expect(isRoomCode("ABC10O")).toBe(false);
+  });
+});
+
+describe("the fullest pass Zaisma makes", () => {
+  it("fits the pass size both runtimes take with a request, with room to spare", async () => {
+    const { signing } = await setup();
+    const now = Math.floor(Date.now() / 1000);
+    const tag = (i: number) => `player_tag_${i.toString(16).padStart(20, "0")}`;
+    // Every one of a game's 1,000 items with a 40-character name, 200 friends and 100 blocks, for a 40-character slug.
+    const fullest = await signPass(signing, {
+      sub: "player_0123456789abcdefghij",
+      aud: "a".repeat(40),
+      iss: "https://rooms.zaisma.com",
+      kind: "account",
+      who_can_chat: "anyone",
+      chat_group: "chat_group_0123456789abcdef0123",
+      player_tag: tag(0),
+      friend_tag_ids: Array.from({ length: 200 }, (_, i) => tag(i + 1)),
+      block_tag_ids: Array.from({ length: 100 }, (_, i) => tag(i + 500)),
+      owned_item_names: Array.from({ length: 1000 }, (_, i) => `skin_${String(i).padStart(4, "0")}_`.padEnd(40, "x")),
+      iat: now,
+      exp: now + 86400,
+    });
+    expect(fullest.length).toBeLessThan(REQUEST_LIMITS.maximumPassSizeBytes * 0.8);
+    expect(readRequestBody(JSON.stringify({ pass: fullest, request: { type: "wardrobe" } }))).toEqual({ pass: fullest, request: { type: "wardrobe" } });
   });
 });

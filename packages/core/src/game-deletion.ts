@@ -126,7 +126,7 @@ export async function isSlugRetired(database: D1Database, slug: string): Promise
  * The last step, once the game's files, saves and storage are gone: every row about the game, children
  * before what they point at, then the game and its deletion. Confirmed chat is kept for its report until
  * its own expiry, and security events are an account's own log, so neither goes; forum topics stay
- * without their game.
+ * without their game, and players' purchases stay too: their purchase history lives in their account.
  */
 export function gameRowDeletions(database: D1Database, gameId: string): D1PreparedStatement[] {
   const deleteFrom = (table: string) => database.prepare(`DELETE FROM ${table} WHERE game_id = ?`).bind(gameId);
@@ -138,7 +138,7 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     ...[
       "play_days", "play_returns", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
       "game_server_errors", "game_server_schedules", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
-      "game_items", "purchases", "audit_log", "reports", "versions",
+      "game_items", "audit_log", "reports", "versions",
     ].map(deleteFrom),
     database.prepare("DELETE FROM games WHERE id = ?").bind(gameId),
     deleteFrom("game_deletions"),
