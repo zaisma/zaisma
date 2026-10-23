@@ -32,6 +32,7 @@ const observed = (fields: Partial<PerformanceObservations>): PerformanceObservat
   errors: [],
   longTaskDurationsMs: [],
   memorySizeBytes: null,
+  maximumRunDurationSec: 120,
   ...fields,
 });
 

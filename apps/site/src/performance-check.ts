@@ -155,6 +155,8 @@ const wait = (durationMs: number) => new Promise((resolve) => setTimeout(resolve
 /** The run in Cloudflare's headless Chrome, over its DevTools protocol, as scripts/engines/play.mjs does locally. */
 export const runInChrome: ChromeRun = async (env, pageUrl, gameBaseUrl) => {
   if (!env.BROWSER) throw new Error("No Browser Rendering binding (BROWSER)");
+  // The preview waits less for a game that never draws (its Chrome can't start one that needs a cross-origin isolated frame).
+  const maximumRunDurationSec = Number(env.PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC) || PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec;
   const browser = await puppeteer.launch(env.BROWSER as unknown as Parameters<typeof puppeteer.launch>[0]);
   try {
     const page = await browser.newPage();
@@ -219,12 +221,12 @@ export const runInChrome: ChromeRun = async (env, pageUrl, gameBaseUrl) => {
     await session.send("Performance.enable");
 
     const openedAtMs = Date.now();
-    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec * 1000 });
+    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: maximumRunDurationSec * 1000 });
     type ProbeState = { firstDrawAtMs: number | null; drawKind: string | null; longTaskDurationsMs: number[]; wasmMemorySizeBytes: number };
     const readProbe = () => page.evaluate("window.__zaismaPerformance ? window.__zaismaPerformance.read() : null").catch(() => null) as Promise<ProbeState | null>;
     let isClicked = false;
     let probe: ProbeState | null = null;
-    while (Date.now() - openedAtMs < PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec * 1000) {
+    while (Date.now() - openedAtMs < maximumRunDurationSec * 1000) {
       await wait(500);
       probe = await readProbe();
       if (probe?.firstDrawAtMs) {
@@ -250,6 +252,7 @@ export const runInChrome: ChromeRun = async (env, pageUrl, gameBaseUrl) => {
       errors,
       longTaskDurationsMs: probe?.longTaskDurationsMs ?? [],
       memorySizeBytes: heapSizeBytes === null ? null : heapSizeBytes + (probe?.wasmMemorySizeBytes ?? 0),
+      maximumRunDurationSec,
     };
   } finally {
     await browser.close().catch(() => {});

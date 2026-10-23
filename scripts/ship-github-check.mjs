@@ -9,9 +9,9 @@
 //   ruleset blocks force pushes);
 // - an earlier commit on main, when only docs/, .claude/, CLAUDE.md or README.md changed since.
 // A run that only ran the docs tests ("Docs tests") never counts for code.
-// A pull request's run skips "Engine exports" when its branch changed none of the code that job plays
-// (ENGINES_PATH); a run like that counts only with an Engine exports pass on the main commit it was cut from
-// (applyEnginesProof), since the branch's code is that commit's code where the engines look.
+// A pull request's run skips "Engine exports" when its branch changed nothing that job runs (scripts/affected-tests.mjs,
+// from the repository's graph); a run like that counts only with an Engine exports pass on the main commit it was cut
+// from (applyEnginesProof), since the branch's code is that commit's code where the engines look.
 
 // The check the ruleset requires, which passes only when the jobs before it did.
 export const GITHUB_CHECK_NAME = "Tests and typecheck";
@@ -19,12 +19,10 @@ export const GITHUB_CHECK_NAME = "Tests and typecheck";
 export const DOCS_TESTS_CHECK_NAME = "Docs tests";
 // Paths that hold no code that's tested or deployed. The same paths are in check.yml's "What changed".
 export const DOCS_ONLY_PATH = /^(docs\/|\.claude\/|CLAUDE\.md$|README\.md$)/;
-// The job that plays the engine samples. A pull request runs it only when its branch changes a path below; a push to main always does.
+// The jobs that play the engine samples, "Engine exports (1 of 3)" and the rest, each with its share of them. A pull request runs
+// them only when its branch changes something they run (scripts/affected-tests.mjs); a push to main always does.
 export const ENGINES_CHECK_NAME = "Engine exports";
-// What npm run engines:play exercises: the site Worker (uploads, the scan, game pages), the games Worker, the compress
-// Worker, the packages they and the upload command use, the database, the preview and the engine scripts and samples,
-// the packages installed, and the workflow itself. The same paths are in check.yml's "What changed".
-export const ENGINES_PATH = /^(apps\/(site|games|compress)\/|packages\/(core|sdk|cli|game-server)\/|migrations\/|scripts\/(preview|engines)\/|test\/engines\/|\.github\/workflows\/check\.yml$|package(-lock)?\.json$)/;
+const isEnginesCheck = (name) => name === ENGINES_CHECK_NAME || name.startsWith(`${ENGINES_CHECK_NAME} (`);
 // How far back along main to look for a commit with the same code.
 export const SAME_CODE_SEARCH_COMMIT_COUNT = 20;
 
@@ -55,20 +53,18 @@ export function sameCodeCommits(runGit, commitSha, { searchCommitCount = SAME_CO
   return commitShas;
 }
 
-/** Whether a change to these paths changes code the engine samples play. */
-export const isEnginesChanged = (changedPaths) => changedPaths.some((path) => ENGINES_PATH.test(path));
-
 /**
  * What one commit's check runs (GitHub's check-runs API, latest of each name) say about its code:
  * "passed" and "failed" for the full tests and typecheck, "docs_passed" and "docs_failed" when only the
- * docs tests ran, "running", or "none". `engines` is the Engine exports job's own state: "passed", "failed",
- * "running", "skipped" (a pull request that changed none of its code) or "none".
+ * docs tests ran, "running", or "none". `engines` is the Engine exports jobs' state, all their shares together: "passed",
+ * "failed" (any share), "running", "skipped" (a pull request that changed nothing they run) or "none".
  */
 export function checkState(checkRuns) {
   const check = checkRuns.find((checkRun) => checkRun.name === GITHUB_CHECK_NAME);
   if (!check) return { state: "none", url: null, engines: "none" };
-  const engineRun = checkRuns.find((checkRun) => checkRun.name === ENGINES_CHECK_NAME);
-  const engines = !engineRun ? "none" : engineRun.status !== "completed" ? "running" : engineRun.conclusion === "success" ? "passed" : engineRun.conclusion === "skipped" ? "skipped" : "failed";
+  const engineRuns = checkRuns.filter((checkRun) => isEnginesCheck(checkRun.name));
+  const isEngines = (conclusion) => engineRuns.length > 0 && engineRuns.every((engineRun) => engineRun.status === "completed" && engineRun.conclusion === conclusion);
+  const engines = !engineRuns.length ? "none" : engineRuns.some((engineRun) => engineRun.status === "completed" && !["success", "skipped"].includes(engineRun.conclusion)) ? "failed" : engineRuns.some((engineRun) => engineRun.status !== "completed") ? "running" : isEngines("success") ? "passed" : isEngines("skipped") ? "skipped" : "failed";
   if (check.status !== "completed") return { state: "running", url: check.html_url, engines };
   const docsTests = checkRuns.find((checkRun) => checkRun.name === DOCS_TESTS_CHECK_NAME);
   const isDocsRun = Boolean(docsTests && docsTests.status === "completed" && docsTests.conclusion !== "skipped");

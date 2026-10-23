@@ -75,6 +75,7 @@ const sawGame =
       errors: [],
       longTaskDurationsMs: [120],
       memorySizeBytes: 80_000_000,
+      maximumRunDurationSec: 120,
       ...fields,
     };
   };

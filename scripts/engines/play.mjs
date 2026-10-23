@@ -11,10 +11,11 @@
 //
 // Chrome is driven over its DevTools protocol with Node's own WebSocket, so it needs no dependency. Each
 // sample says it started by setting window.zaismaEngineSample = { engine, version, started: true }.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findChrome, openChrome } from "../chrome.mjs";
+import { engineSamples } from "./samples.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
@@ -34,7 +35,8 @@ const samples = readJson(join(ROOT, ".wrangler/preview/engines.json"));
 if (!samples) stop("The preview has no engine samples: start it with fresh test data, npm run preview:start -- --reset.");
 
 // Every sample in the repo is in the preview, uploaded and passed by the scan by itself.
-const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
+// Or ENGINE_SAMPLE_SHARD's share of them, as the preview was seeded (scripts/engines/samples.mjs).
+const engines = engineSamples();
 for (const engine of engines) {
   const sample = samples.find((candidate) => candidate.engine === engine);
   if (!sample) fail(`${engine}: not in the preview's test data. Start it with fresh test data: npm run preview:start -- --reset.`);

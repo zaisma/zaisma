@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "test:affected": "node scripts/affected-tests.mjs",
     "typecheck": "tsc --noEmit",
     "dev:site": "npm run dev -w apps/site",
     "dev:games": "npm run dev -w apps/games",

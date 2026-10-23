@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { transformSync } from "esbuild";
+import { engineSamples as engineSamplesToSeed } from "../engines/samples.mjs";
 import { startFakeAi } from "./fake-ai.mjs";
 import { startFakeAuth } from "./fake-auth.mjs";
 import { startFakeDns } from "./fake-dns.mjs";
@@ -66,6 +67,9 @@ if (!existsSync(signInKeyFile)) {
 }
 const siteSettings = {
   SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20",
+  // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
+  // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
+  PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC: "30",
   // Email codes go to the stand-in mailbox, never to a real address.
   EMAIL_OUTBOX_URL: `${MAIL}/`,
   // The feedback overlay and its comments (workers/site.mjs, withFeedback): the preview's entry only, never production.
@@ -330,8 +334,24 @@ if (waitedMs) {
     process.exit(1);
   }
 }
+// A fresh start's database is the migrations applied to an empty one, the same every time they are: it's kept once made (by the
+// migrations' hash, in MIGRATED_DATABASES) and copied in at the next fresh start instead of applying them all again, which takes half
+// a minute on GitHub's runners. GitHub's check keeps the folder between its runs (.github/workflows/check.yml).
+const MIGRATED_DATABASES = join(ROOT, ".wrangler/preview-migrated");
+const migrationsHash = createHash("sha256");
+for (const name of readdirSync(join(ROOT, "migrations")).filter((name) => name.endsWith(".sql")).sort()) migrationsHash.update(name).update(readFileSync(join(ROOT, "migrations", name)));
+const migratedDatabase = join(MIGRATED_DATABASES, migrationsHash.digest("hex").slice(0, 16));
+const databaseFolder = join(STATE, "v3/d1");
+const isEmptyDatabase = fresh && !existsSync(databaseFolder);
 console.log("Applying database updates…");
-spawnSync(...wrangler(["d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+if (isEmptyDatabase && existsSync(migratedDatabase)) cpSync(migratedDatabase, databaseFolder, { recursive: true });
+else {
+  spawnSync(...wrangler(["d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+  if (isEmptyDatabase && existsSync(databaseFolder)) {
+    rmSync(MIGRATED_DATABASES, { recursive: true, force: true });
+    cpSync(databaseFolder, migratedDatabase, { recursive: true });
+  }
+}
 if (!fresh) givePasswords();
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
 // The stand-ins run inside this process: each is a small server, and a Node of its own apiece cost more than they do.
@@ -739,7 +759,7 @@ async function seed() {
   /** An upload without blocking: answers its exit code. */
   const uploadInBackground = (folder, slug, notes) => new Promise((done) => spawn(process.execPath, ...uploadCommand(folder, slug, notes)).once("exit", (exitCode) => done(exitCode)));
   const upload = uploadInBackground;
-  /** A game's newest version once its run in Chrome is over (it takes up to PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec, 120s). */
+  /** A game's newest version once its run in Chrome is over (it waits up to PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC, 30s here, for a first frame). */
   const waitForRunInChrome = async (slug) => {
     let version;
     for (let i = 0; i < 360; i++) {
@@ -1009,10 +1029,11 @@ async function seed() {
  */
 async function seedEngineSamples(api, uploadInBackground, waitForRunInChrome) {
   const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", "godot-threads": "Godot with threads", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
-  const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
-  // One sample at a time through the scan, which counts against the day's reviews; their runs in Chrome go on after it (a threaded build's
-  // takes its whole two minutes on the local Chrome, which can't start one). It answers a function that waits for those runs, then
-  // publishes each sample that passed and writes engines.json.
+  // Every sample, or ENGINE_SAMPLE_SHARD's share (scripts/engines/samples.mjs), threaded builds last.
+  const engines = engineSamplesToSeed();
+  // One sample at a time through the scan, which counts against the day's reviews; their runs in Chrome go on after it, one at a
+  // time (a threaded build's takes its whole wait on the local Chrome, which can't start one). It answers a function that waits for
+  // those runs, then publishes each sample that passed and writes engines.json.
   const started = [];
   for (const engine of engines) {
     // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.

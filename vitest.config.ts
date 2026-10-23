@@ -2,7 +2,7 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { build } from "esbuild";
 import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
-import { BalancedShardSequencer } from "./test/shards.ts";
+import { ALONE_TEST_FILES, BalancedShardSequencer } from "./test/shards.ts";
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
@@ -103,7 +103,7 @@ const migrations = await readD1Migrations("migrations");
 const signInPair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
 const signInKey = JSON.stringify(await crypto.subtle.exportKey("jwk", signInPair.privateKey));
 
-const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}) => ({
+const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}, testOptions: Record<string, unknown> = {}) => ({
   extends: true as const,
   plugins: [
     cloudflareTest({
@@ -114,21 +114,43 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
       },
     }),
   ],
-  // Files share one database, so they run one after another: one file's clean-up can't wipe another's data mid-test.
+  // Each file gets a runtime of its own (its own Miniflare, database, buckets and Durable Objects), so files run side by side
+  // like the node project's: one file's clean-up can't reach another's data.
   test: {
     name,
     include: [`test/${name}/**/*.test.ts`],
+    exclude: ALONE_TEST_FILES,
     setupFiles: ["test/apply-migrations.ts"],
-    fileParallelism: false,
     // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
     deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
+    ...testOptions,
   },
 });
 
+const roomsBindings = {
+  ISSUER: "https://rooms.zaisma.test",
+  SITE_ORIGIN: "https://zaisma.test",
+  GAME_HOST_MODE: "path",
+  GAME_ORIGIN: "https://games.zaisma.test",
+  GAME_DOMAIN: "",
+  PASS_SIGNING_KEY: passKey,
+  ROOM_LIST_CACHE_SECONDS: "0",
+  PLAYING_NOW_CACHE_SECONDS: "0",
+  // Cloudflare's relay and its analytics answer from the stand-in above.
+  TURN_KEY_ID: "turn-key-test",
+  TURN_KEY_API_TOKEN: "turn-token-test",
+  CLOUDFLARE_ACCOUNT_ID: "account-test",
+  RELAY_ANALYTICS_API_TOKEN: "analytics-token-test",
+};
+const roomsExtra = { outboundService: outsideServers, workers: [chatCheckWorker] };
+
 export default defineConfig({
   test: {
-    // GitHub's check runs the tests in six shards: dealt out by each file's cost, not by a hash of its path (test/shards.ts).
+    // GitHub's check runs the tests in four shards: dealt out by each file's cost, not by a hash of its path (test/shards.ts).
     sequence: { sequencer: BalancedShardSequencer },
+    // Files at once, across every project: a Workers file's runtime takes about half a gigabyte, so TEST_WORKER_COUNT sets it
+    // for the machine (GitHub's runners have 4 cores and 16 GB), and it's 2 without it.
+    maxWorkers: Number(process.env.TEST_WORKER_COUNT) || 2,
     projects: [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
@@ -178,21 +200,10 @@ export default defineConfig({
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),
       worker("game-server", "apps/games/wrangler.jsonc"),
-      worker("rooms", "apps/rooms/wrangler.jsonc", {
-        ISSUER: "https://rooms.zaisma.test",
-        SITE_ORIGIN: "https://zaisma.test",
-        GAME_HOST_MODE: "path",
-        GAME_ORIGIN: "https://games.zaisma.test",
-        GAME_DOMAIN: "",
-        PASS_SIGNING_KEY: passKey,
-        ROOM_LIST_CACHE_SECONDS: "0",
-        PLAYING_NOW_CACHE_SECONDS: "0",
-        // Cloudflare's relay and its analytics answer from the stand-in above.
-        TURN_KEY_ID: "turn-key-test",
-        TURN_KEY_API_TOKEN: "turn-token-test",
-        CLOUDFLARE_ACCOUNT_ID: "account-test",
-        RELAY_ANALYTICS_API_TOKEN: "analytics-token-test",
-      }, { outboundService: outsideServers, workers: [chatCheckWorker] }),
+      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra),
+      // Files that measure how fast something runs (ALONE_TEST_FILES in test/shards.ts): without file parallelism, vitest runs them
+      // after every other file, one at a time, with the machine to themselves.
+      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra, { name: "rooms-alone", include: ALONE_TEST_FILES, exclude: [], fileParallelism: false }),
     ],
   },
 });
