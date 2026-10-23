@@ -1185,6 +1185,15 @@ export const SHADER_LIMITS = {
   keptShaderCount: 4,
   runtimeMaximumFps: 30,
   runtimeResolutionScale: 0.5,
+  /**
+   * Upscaling (SHADER_UPSCALE_SOURCE): every pass draws at this share of runtimeResolutionScale (0.7 a side, half the pixels), and
+   * the sharpening upscale writes the canvas at runtimeUpscaleNumber times that, so it's as sharp as before for half the work.
+   */
+  runtimeDrawShareNumber: 0.7,
+  runtimeUpscaleNumber: 1.4,
+  /** After this long with no input on the page, a background draws at runtimeIdleFramesPerSec, and at runtimeMaximumFps again on the first input. */
+  runtimeIdleTimeoutSec: 60,
+  runtimeIdleFramesPerSec: 15,
 };
 
 /** What the check measured at one quality level: its median frame, scaled to the renderer's speed, against that level's most. */
@@ -1466,6 +1475,36 @@ export function wrapShaderBuffer(source: string): string {
 }
 /** The vertex shader every pass draws with: one triangle over the whole canvas, from the corners [-1, -1, 3, -1, -1, 3]. */
 export const SHADER_VERTEX_SOURCE = "#version 300 es\nin vec2 corner;\nvoid main() { gl_Position = vec4(corner, 0.0, 1.0); }";
+
+/**
+ * The sharpening upscale every runner draws last (the game site's runner and Zaisma's own pages' backdrop): the passes' picture,
+ * drawn at fewer pixels (SHADER_LIMITS.runtimeDrawShareNumber), scaled up to the canvas with Catmull-Rom (nine bilinear taps) and a
+ * light contrast-adaptive sharpen over the four texels round it, which lifts detail more where the picture is flat and leaves edges
+ * alone, so nothing rings. Spatial only: nothing from an earlier frame, so nothing ghosts. zaismaDrawnSize is the part of zaismaDrawn
+ * the passes drew, in its texels from its bottom left (the site's backdrop shares one picture between canvases of many sizes).
+ */
+export const SHADER_UPSCALE_SOURCE = `#version 300 es
+precision highp float;
+uniform sampler2D zaismaDrawn;
+uniform vec2 zaismaDrawnSize;
+uniform vec2 zaismaCanvasSize;
+out vec4 zaismaFragColor;
+vec3 zaismaTap(vec2 texel) {
+  return texture(zaismaDrawn, clamp(texel, vec2(0.5), zaismaDrawnSize - 0.5) / vec2(textureSize(zaismaDrawn, 0))).rgb;
+}
+void main() {
+  vec2 at = gl_FragCoord.xy / zaismaCanvasSize * zaismaDrawnSize;
+  vec2 middle = floor(at - 0.5) + 0.5, f = at - middle;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2, at0 = middle - 1.0, at3 = middle + 2.0, at12 = middle + w2 / w12;
+  vec3 color = (zaismaTap(vec2(at0.x, at0.y)) * w0.x + zaismaTap(vec2(at12.x, at0.y)) * w12.x + zaismaTap(vec2(at3.x, at0.y)) * w3.x) * w0.y
+    + (zaismaTap(vec2(at0.x, at12.y)) * w0.x + zaismaTap(vec2(at12.x, at12.y)) * w12.x + zaismaTap(vec2(at3.x, at12.y)) * w3.x) * w12.y
+    + (zaismaTap(vec2(at0.x, at3.y)) * w0.x + zaismaTap(vec2(at12.x, at3.y)) * w12.x + zaismaTap(vec2(at3.x, at3.y)) * w3.x) * w3.y;
+  vec3 north = zaismaTap(at + vec2(0.0, 1.0)), south = zaismaTap(at - vec2(0.0, 1.0)), east = zaismaTap(at + vec2(1.0, 0.0)), west = zaismaTap(at - vec2(1.0, 0.0));
+  vec3 low = min(min(min(north, south), min(east, west)), color), high = max(max(max(north, south), max(east, west)), color);
+  vec3 weight = -sqrt(clamp(min(low, 2.0 - high) / max(high, vec3(0.0001)), 0.0, 1.0)) / 7.0;
+  zaismaFragColor = vec4(clamp((color + (north + south + east + west) * weight) / (1.0 + 4.0 * weight), 0.0, 1.0), 1.0);
+}`;
 
 export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes" | "buffer_count" | "texture_count">): Promise<GameShader> {
   const row: GameShader = { ...shader, review_status: "pending", review_reason: null, quality_checks: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
