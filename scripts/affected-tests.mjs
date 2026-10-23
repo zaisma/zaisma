@@ -114,7 +114,8 @@ export function buildGraph({ root = ROOT } = {}) {
   };
   /**
    * What one file depends on directly: { files, folders, named }. Files it imports are followed further; a folder it names is
-   * read (a change anywhere in it counts) but not followed; a script it names (.mjs, .js, .cjs) may be run, so it's followed.
+   * read (a change anywhere in it counts) but not followed; code it names may be run or bundled (a script it spawns, a Worker it
+   * builds), so it's followed.
    */
   const directOf = (path) => {
     if (parsed.has(path)) return parsed.get(path);
@@ -129,13 +130,14 @@ export function buildGraph({ root = ROOT } = {}) {
     if (NAMES_FILES.test(path)) {
       for (const match of source.matchAll(QUOTED)) {
         const text = match[1];
-        // A single word ("apps", "docs") names a folder only as a path part, join(ROOT, "apps", app): elsewhere it's a word.
+        // A single word ("apps", "docs") names a folder only as a path part, join(ROOT, "apps", app), or a call's own argument,
+        // readD1Migrations("migrations"): elsewhere it's a word.
         const lineBefore = source.slice(source.lastIndexOf("\n", match.index) + 1, match.index);
-        if (!text.includes("/") && !(/\b(join|resolve)\(/.test(lineBefore) && /,\s*$/.test(lineBefore))) continue;
+        if (!text.includes("/") && !(/\b(join|resolve)\(/.test(lineBefore) && /,\s*$/.test(lineBefore)) && !/\w\(\s*$/.test(lineBefore)) continue;
         const target = namedPath(path, text);
         if (!target || target === path) continue;
         if (isFolder(target)) found.folders.add(`${target}/`);
-        else if (/\.(mjs|js|cjs)$/.test(target)) found.files.add(target);
+        else if (CODE_FILE.test(target)) found.files.add(target);
         else found.named.add(target);
       }
     }

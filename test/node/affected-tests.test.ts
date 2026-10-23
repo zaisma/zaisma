@@ -14,7 +14,7 @@ const reached = (changedPaths: string[]) => affected(changedPaths).test_files.ma
 
 describe("the graph", () => {
   it("has every test file, in the projects vitest.config.ts runs them in", () => {
-    const testFiles = ["node", "layout", "site", "games", "core", "game-server", "rooms"].flatMap((project) => readdirSync(join(ROOT, "test", project)).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${project}/${name}`));
+    const testFiles = ["node", "layout", "load", "site", "games", "core", "game-server", "rooms"].flatMap((project) => readdirSync(join(ROOT, "test", project)).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${project}/${name}`));
     expect([...graph.testFiles].sort()).toEqual(testFiles.sort());
     expect(Object.fromEntries(workerProjects())).toEqual({ site: "site", games: "games", core: "games", "game-server": "games", rooms: "rooms" });
   });
@@ -64,7 +64,7 @@ describe("the graph", () => {
       ["apps/site/src/components/backdrop-script.ts", "test/site/flow.test.ts"],
       ["apps/site/src/components/backdrop-script.ts", "test/site/strict-scripts.test.ts"],
       ["apps/site/src/account-data.ts", "test/node/errors.test.ts"],
-      ["apps/rooms/src/database.ts", "test/rooms/room-load.test.ts"],
+      ["apps/rooms/src/database.ts", "test/load/room-load.test.ts"],
     ];
     for (const [changedPath, failedTest] of cases) expect(reached([changedPath!]), `${changedPath} → ${failedTest}`).toContain(failedTest);
   });

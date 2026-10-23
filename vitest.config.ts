@@ -2,7 +2,7 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { build } from "esbuild";
 import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
-import { ALONE_TEST_FILES, BalancedShardSequencer } from "./test/shards.ts";
+import { BalancedShardSequencer } from "./test/shards.ts";
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
@@ -103,7 +103,7 @@ const migrations = await readD1Migrations("migrations");
 const signInPair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
 const signInKey = JSON.stringify(await crypto.subtle.exportKey("jwk", signInPair.privateKey));
 
-const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}, testOptions: Record<string, unknown> = {}) => ({
+const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}) => ({
   extends: true as const,
   plugins: [
     cloudflareTest({
@@ -119,16 +119,14 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
   test: {
     name,
     include: [`test/${name}/**/*.test.ts`],
-    exclude: ALONE_TEST_FILES,
     setupFiles: ["test/apply-migrations.ts"],
     // Four files share a runner's cores, so a test that waits on many round trips (a room's sockets, a Durable Object's alarm) gets
     // 15 seconds before it counts as hung, not vitest's 5.
     testTimeout: 15_000,
     // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
     deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
-    // Vitest runs projects in groups by this, lowest first: rooms-alone (1) before everything else (2).
+    // Vitest runs projects in groups by this, lowest first: load (1) before everything else (2).
     sequence: { groupOrder: 2 },
-    ...testOptions,
   },
 });
 
@@ -206,10 +204,10 @@ export default defineConfig({
       worker("core", "apps/games/wrangler.jsonc"),
       worker("game-server", "apps/games/wrangler.jsonc"),
       worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra),
-      // Files that measure how fast something runs (ALONE_TEST_FILES in test/shards.ts): a group of their own that vitest runs before
-      // every other file starts, one at a time, so they have the machine to themselves (after the rest, the last files' runtimes were
-      // still winding down, and a full room dropped players).
-      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra, { name: "rooms-alone", include: ALONE_TEST_FILES, exclude: [], fileParallelism: false, sequence: { groupOrder: 1 } }),
+      // Files that measure how fast something runs (a full room at full speed, with its players in Node and the room in a Miniflare of
+      // its own): a group of their own that vitest runs before every other file starts, one at a time, so they have the machine to
+      // themselves (ALONE_TEST_FILES in test/shards.ts).
+      { extends: true as const, test: { name: "load", environment: "node", include: ["test/load/**/*.test.ts"], fileParallelism: false, sequence: { groupOrder: 1 } } },
     ],
   },
 });

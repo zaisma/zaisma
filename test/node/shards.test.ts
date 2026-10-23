@@ -15,7 +15,7 @@ const workflow = readFileSync(join(ROOT, ".github/workflows/check.yml"), "utf8")
 
 const testFilesIn = (folder: string): string[] =>
   readdirSync(join(ROOT, "test", folder), { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? testFilesIn(join(folder, entry.name)) : entry.name.endsWith(".test.ts") ? [`test/${join(folder, entry.name)}`] : []));
-const projects = ["node", "site", "games", "core", "game-server", "rooms"];
+const projects = ["node", "site", "games", "core", "game-server", "rooms", "load"];
 const allTestFiles = projects.flatMap(testFilesIn);
 
 describe("the shards", () => {
