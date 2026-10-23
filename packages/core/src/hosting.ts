@@ -105,12 +105,13 @@ const DAY_MS = 24 * 3600_000;
  */
 export async function hostingUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ use: HostingUse; kinds: Record<HostingKind, number>; totalCents: number; freeUsedPct: number }> {
   const monthStart = monthStartDateOf(nowMs);
+  const nextMonthStart = monthStartDateOf(Date.parse(`${monthStart}T00:00:00Z`) + 32 * DAY_MS);
   const [{ results: days }, before] = await Promise.all([
     database
       .prepare(
-        "SELECT date, room_play_duration_sec, relayed_size_bytes, game_server_cpu_duration_ms, outside_room_cpu_duration_ms, game_server_request_count, game_server_scheduled_run_count, database_written_row_count, database_read_row_count, database_size_bytes FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date",
+        "SELECT date, room_play_duration_sec, relayed_size_bytes, game_server_cpu_duration_ms, outside_room_cpu_duration_ms, game_server_request_count, game_server_scheduled_run_count, database_written_row_count, database_read_row_count, database_size_bytes FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date",
       )
-      .bind(gameId, monthStart)
+      .bind(gameId, monthStart, nextMonthStart)
       .all<{
         date: string;
         room_play_duration_sec: number;
