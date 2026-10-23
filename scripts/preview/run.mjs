@@ -808,7 +808,7 @@ async function seed() {
   if (noise.review_status !== "approved") await go(`/admin/images/${noise.id}/approve`, form({ reason: "" }));
   const wiring = JSON.parse(readFileSync(join(trails, "channels.json"), "utf8"));
   // channels.json names a texture by its file in the folder; the API by the picture it became.
-  const channelsOf = (passName) => wiring[passName].map(({ texture_path: texturePath, ...channel }) => (texturePath ? { ...channel, image_id: noise.id } : channel));
+  const channelsOf = (passName) => wiring[passName].map(({ texture_file: textureFile, ...channel }) => (textureFile ? { ...channel, image_id: noise.id } : channel));
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
   sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
   for (const [slug, screen, shader] of sentShaders) {
