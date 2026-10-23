@@ -679,7 +679,7 @@ component({
 }
 `,
   render: footer,
-  examples: [{ label: "At the end of a page, on its backdrop", isWide: true, markup: pageFrame(footer()) }],
+  examples: [{ label: "At the end of a page, on its backdrop", isWide: true, markup: html`<div class="header-frame is-fitted"><div class="backdrop is-framed" aria-hidden="true"></div>${footer()}</div>` }],
 });
 
 component({

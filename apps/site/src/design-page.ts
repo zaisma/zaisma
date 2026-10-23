@@ -193,6 +193,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
+/* A frame as tall as what's in it, the footer's example, which keeps its own margins on the backdrop. */
+.header-frame.is-fitted { height: auto; }
 .header-frame.tall { height: 470px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }

@@ -101,7 +101,13 @@ export interface RowOptions {
  */
 export function row(options: RowOptions): Raw {
   const controls = options.items.flatMap((layoutItem) => (layoutItem.kind === "control" ? [layoutItem.markup] : []));
-  const tallest = controls.reduce<ControlHeight | null>((found, control) => (found === null || CONTROL_HEIGHTS.indexOf(control.controlHeight) > CONTROL_HEIGHTS.indexOf(found) ? control.controlHeight : found), null);
+  // A block that's a row of controls itself (a shelf's sort and arrows) counts its controls' height too, so words beside it sit on their
+  // center line.
+  const nestedHeights = options.items.flatMap((layoutItem) => {
+    const found = layoutItem.kind === "block" ? /^<div class="layout-row[^"]*"[^>]*? data-control-height="([a-z]+)"/.exec(layoutItem.markup.html) : null;
+    return found ? [found[1] as ControlHeight] : [];
+  });
+  const tallest = [...controls.map((control) => control.controlHeight), ...nestedHeights].reduce<ControlHeight | null>((found, height) => (found === null || CONTROL_HEIGHTS.indexOf(height) > CONTROL_HEIGHTS.indexOf(found) ? height : found), null);
   const isOnFieldBoxes = controls.some((control) => control.hasOwnWords);
   const alignment = options.widths === "fit" ? (options.alignment ?? "start") : "start";
   const cells = options.items.map((layoutItem, itemIndex) => {
@@ -338,7 +344,7 @@ ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inlin
 .layout-row.is-measuring > .row-cell { flex: none !important; min-width: 0 !important; }
 /* A row that can't fit on one line is a stack of its controls (is-wrapped, ROW_LAYOUT_SCRIPT): each fills its own line, as controls fill a
    pane's width, and none is left short at a line's start. Words stay as wide as they are. */
-.layout-row.is-wrapped > .row-cell.is-control { flex: 1 1 100%; }
+.layout-row.is-wrapped > .row-cell.is-control, .layout-row.is-wrapped > .row-cell.is-control.fills { flex: 1 1 100%; min-width: 0; }
 .layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }

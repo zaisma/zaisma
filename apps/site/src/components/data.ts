@@ -129,7 +129,7 @@ component({
 .presence-play > .play { width: calc(var(--presence-tab-height) * 0.46); height: calc(var(--presence-tab-height) * 0.54); transform: translateX(0.5px); }
 /* A cut frame (your picture at the header's end) holds its presence inside, along its foot, under its rim. */
 .frame.is-cut > .presence-line { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 3px; clip-path: none; }
-.frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 50%; right: auto; bottom: 0; transform: translateX(-50%); }
+.frame.is-cut > .presence-play { position: absolute; z-index: 6; left: 0; right: auto; bottom: 0; }
 /* The smallest shows only the first letter. */
 .frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
@@ -313,7 +313,7 @@ component({
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
-.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: calc(var(--pad-inside-words) / 2 - 1.5px); top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+.list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
 .list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
 .list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link.is-pressed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
@@ -889,7 +889,8 @@ component({
 .chart-tip b { font-weight: 600; color: var(--ink); }
 .chart-hit.is-end .chart-tip { transform: translateX(calc(-100% + 12px)); }
 .chart-hit:is(:hover, .is-pointed) :is(.chart-dot, .chart-tip), .chart:focus-visible .chart-hit.is-focused :is(.chart-dot, .chart-tip) { opacity: 1; }
-.chart-plot:has(.chart-hit:last-child:is(:hover, .is-pointed)) .chart-last-words, .chart:focus-visible .chart-plot:has(.chart-hit.is-focused:last-child) .chart-last-words { opacity: 0; }
+/* While any point's number shows, the last point's steps aside, so the two never meet. */
+.chart-plot:has(.chart-hit:is(:hover, .is-pointed)) .chart-last-words, .chart:focus-visible .chart-plot:has(.chart-hit.is-focused) .chart-last-words { opacity: 0; }
 /* No points yet: it says so where the plot would be, over the plot's foot line. */
 .chart-empty { display: grid; place-items: center; height: 180px; margin: var(--gap-block-block) 0 0; border-bottom: var(--divider); font: var(--type-words); color: var(--muted); }
 /* A ring: the shares round a ring, biggest first and darkest, each lighter after; the whole in its middle. Its key beside it (under it on a

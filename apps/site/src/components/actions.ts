@@ -280,7 +280,7 @@ const RUN_STYLES = `
    its cut and edge kept, its words quieter, and it answers no pointer: no glow, no lift, no glint. */
 .run-wrap:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .run-wrap:disabled:not([aria-busy="true"])::before { opacity: 0; }
-.run-wrap:disabled:not([aria-busy="true"]) > .run { background: var(--well); box-shadow: var(--well-shade); color: var(--muted); text-shadow: none; transform: none; }
+.run-wrap:disabled:not([aria-busy="true"]) > .run { background: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); text-shadow: none; transform: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run::before, .run-wrap:disabled:not([aria-busy="true"]) > .run::after { content: none; }
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .run-wrap:disabled:not([aria-busy="true"]) > .run > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
@@ -376,7 +376,7 @@ component({
 /* Can't press: carved flat into the glass like a field, its cut and edge kept (on smoked glass, with a carving's light rim), its words
    quieter, and it answers no pointer. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
-.cut-btn:disabled:not([aria-busy="true"]) > .face { --face-color: var(--well); box-shadow: var(--well-shade); color: var(--muted); transform: none; }
+.cut-btn:disabled:not([aria-busy="true"]) > .face { --face-color: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); transform: none; }
 .cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line polygon { stroke: var(--carve-rim); stroke-width: 2; }
 /* In a well of its own (a row's arrow at its end) it lies flat in the well, faded. */
@@ -420,7 +420,8 @@ const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { i
 /** A glass button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: GlassTint })[] = [
   { name: "Clear", colorValue: "clear", swatch: "clear" },
-  { name: "Plain", colorValue: "plain", swatch: "light-dark(#fff, #131314)" },
+  // Plain follows the glass: white on light, Google's near-black on smoked, so its swatch shows both, half and half.
+  { name: "Plain", colorValue: "plain", swatch: "linear-gradient(135deg, #fff 50%, #131314 50%)" },
   { name: "Blue", colorValue: "blue", swatch: "#2A75E8" },
   { name: "Indigo", colorValue: "indigo", swatch: "#5865F2" },
   { name: "Black", colorValue: "black", swatch: "#14171C" },

@@ -173,7 +173,7 @@ const DROPDOWN_STYLES = `
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
 .dropdown-head { display: flex; flex-direction: column; padding: var(--pad-words) var(--pad-words) var(--gap-words-control); margin-bottom: var(--gap-control-stack); border-bottom: var(--divider); }
-.dropdown-head strong { font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; }
+.dropdown-head strong { font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; text-wrap: balance; }
 .dropdown-head span { color: var(--muted); font: var(--type-facts); }
 .dropdown hr { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
 /* A choice: words on the glass, a small control's height (a regular one's on a touch screen); under the pointer a faint slab, cut by the
@@ -586,7 +586,7 @@ component({
   examples: [
     { label: "Try it: from its button", markup: html`${cutButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
     { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
-    { label: "Sent, waiting", markup: confirmSheet({ id: "example-confirm-busy", title: "End this room?", text: "The 6 players in North gate go back to the menu, and the room's world is kept for 30 days.", action: "#confirm-sheet", confirmLabel: "End the room", isBusy: true, isShown: true }), isStill: true },
+    { label: "Sent, waiting", markup: confirmSheet({ id: "example-confirm-busy", title: "End this room?", text: "The 6 players in North gate go back to the menu, and the room's world is kept for 30 days.", action: "#confirm-sheet", confirmLabel: "End the room", isBusy: true, isShown: true }), isStill: true, isWide: true },
   ],
 });
 
@@ -960,7 +960,7 @@ component({
     },
     {
       label: "Words beside or under words in one block, an icon and its word: 8px",
-      markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }] })}</div>`)),
+      markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, playedAtMs: Date.now() - 2 * 60 * 60_000 })}</div>`)),
     },
     {
       label: "Two blocks, here two labeled fields in a pane: 24px",

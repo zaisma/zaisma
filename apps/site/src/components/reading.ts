@@ -178,10 +178,9 @@ component({
 .facts { margin: 0; min-width: 0; }
 .facts.across { display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
 .facts.across > .fact { display: grid; gap: var(--gap-words-words); min-width: 0; }
-.facts.down { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: var(--gap-words-words) var(--gap-block-block); }
+.facts.down { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); align-items: baseline; gap: var(--gap-words-words) var(--gap-block-block); }
 .facts.down > .fact { display: contents; }
 .fact dt { font: var(--type-facts); color: var(--muted); }
-.facts.down .fact dt { padding-top: var(--gap-words-words); }
 .facts.down .fact dt, .facts.down .fact dd { min-width: 0; }
 .fact dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); font: var(--type-words); color: var(--ink); overflow-wrap: anywhere; }
 /* An entry: its line icon, quiet, then its words. */
@@ -196,7 +195,7 @@ component({
     },
     {
       label: "Down: a version's details",
-      markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: facts({ arrangement: "down", label: "Version 14", facts: [{ label: "Status", text: "Live since Oct 14, 2026" }, { label: "Files", text: "312 files, 48 MB" }, { label: "Scanned", text: "Passed in 41 seconds" }, { label: "Uploaded by", text: "the_longest_username_allowed with Zaisma CLI 1.4" }] }) }] }) }),
+      markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: facts({ arrangement: "down", label: "Version 14", facts: [{ label: "Status", text: "Live since Oct\u00a014, 2026" }, { label: "Files", text: "312 files, 48 MB" }, { label: "Scanned", text: "Passed in 41 seconds" }, { label: "Uploaded by", text: "the_longest_username_allowed with Zaisma CLI 1.4" }] }) }] }) }),
     },
   ],
 });

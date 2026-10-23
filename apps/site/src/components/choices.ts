@@ -88,7 +88,7 @@ const LONG_STYLES = `
 .field.long textarea.is-scrolling { padding-right: calc(var(--pad-inside-words) + 16px); }
 .field.long.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Can't be changed now: flat in the glass, its words quieter, and nothing changes as you point at it. */
-.field.long.is-disabled textarea { --face-color: var(--well); color: var(--muted); box-shadow: none; cursor: default; }
+.field.long.is-disabled textarea { --face-color: var(--off-face); color: var(--muted); box-shadow: none; cursor: default; }
 .long-count { margin: 0; align-self: flex-end; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; }
 `;
 
@@ -280,7 +280,7 @@ component({
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */
-.field.select.is-disabled .select-button { --face-color: var(--well); color: var(--muted); box-shadow: none; cursor: default; }
+.field.select.is-disabled .select-button { --face-color: var(--off-face); color: var(--muted); box-shadow: none; cursor: default; }
 .field.select.is-disabled .select-chev { color: var(--muted); }
 /* The list: the popover's own place is the window, so it's set just under the field by SELECT_SCRIPT. Its choices sit close to its edge,
    inset like a well's slabs, so their words start where the field's do. */
@@ -408,7 +408,7 @@ ${TOUCH_ROOM(".check")}
 /* Can't be changed now: flat, its words quieter, and no orange, since there's nothing to do: ticked, the box is filled in grey. */
 .check.is-disabled { cursor: default; }
 .check.is-disabled .check-input { cursor: default; }
-.check.is-disabled .check-box { --face-color: var(--well); box-shadow: none; }
+.check.is-disabled .check-box { --face-color: var(--off-face); box-shadow: none; }
 .check.is-disabled .check-box > .cut-line polygon { stroke: var(--line); }
 .check.is-disabled .check-box:has(.check-input:checked) { --face-color: var(--muted); color: var(--page); }
 .check.is-disabled .check-box:has(.check-input:checked) > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
@@ -548,7 +548,7 @@ component({
    together, their line under their name, with no outline of their own: the well's is drawn (--press-rim), and only the picked one is a slab.
    It scrolls with no fade, so the picked card's orange line always shows in full: its rail and a card cut at its edge say there's more. */
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.choice-list.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 3; }
+.choice-list.cut-carved > .cut-line polygon { stroke: var(--press-rim); stroke-width: 2; }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
 .choice-list-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: 18px; }
@@ -637,7 +637,7 @@ ${TOUCH_ROOM(".toggle")}
    an edge (--press-rim), which the white slab stands out from in either glass. */
 .toggle.is-disabled, .toggle.is-disabled .toggle-input { cursor: default; }
 .toggle.is-disabled .toggle-label { color: var(--muted); }
-.toggle.is-disabled .toggle-slot { --face-color: var(--well); box-shadow: none; }
+.toggle.is-disabled .toggle-slot { --face-color: var(--off-face); box-shadow: none; }
 .toggle.is-disabled .toggle-slot > .cut-line polygon { stroke: var(--line); }
 .toggle.is-disabled .toggle-slot:has(.toggle-input:checked) { --face-color: var(--press-rim); }
 .toggle-slot:has(.toggle-input:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }

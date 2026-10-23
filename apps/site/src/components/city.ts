@@ -1556,7 +1556,7 @@ html:has(.city-page) { height: 100%; }
 .city-frame { position: relative; width: 100%; height: 420px; overflow: hidden; display: flex; align-items: flex-start; justify-content: flex-end; padding: var(--pad-inner-pane);
   container-type: inline-size; clip-path: ${cutPolygon("pane")}; }
 .city-frame > .glass-pane { position: relative; z-index: 1; }
-@container (max-width: 560px) { .city-frame > .glass-pane { width: 100%; align-self: flex-end; } }
+@container (max-width: 560px) { .city-frame > .glass-pane:is(.fit, .full) { width: 100%; align-self: flex-end; } }
 `;
 
 component({

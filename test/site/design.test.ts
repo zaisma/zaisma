@@ -510,7 +510,7 @@ const GALLERY_ONLY = new Set<string>([
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
+  "header-frame", "tall", "is-fitted", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
 ]);
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.

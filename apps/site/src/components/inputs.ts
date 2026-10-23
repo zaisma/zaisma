@@ -235,7 +235,7 @@ component({
 /* Marked wrong: the dashes in amber, and what's wrong said under it. */
 .file-drop.is-marked > .cut-line polygon { stroke: var(--marked); }
 /* Can't take files now: flat in the glass, its words and dashes quieter, and nothing changes as you point at it. */
-.file-drop.is-disabled { --face-color: var(--well); box-shadow: none; }
+.file-drop.is-disabled { --face-color: var(--off-face); box-shadow: none; }
 .file-drop.is-disabled .file-drop-input { cursor: default; }
 .file-drop.is-disabled .file-drop-words label { color: var(--muted); }
 .file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
@@ -243,7 +243,7 @@ component({
 /* What's picked: a row for each file, its words keeping the pane's margin all round (so the last row's keep it at a pane's foot), its name
    whole, on more lines where it's long; while one uploads, a line along its foot fills as it goes. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
-.file-drop-list li { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-control); padding: max(var(--gap-words-words), var(--pad-words)) var(--pad-words); border-top: var(--divider); font: var(--type-words); color: var(--ink); }
+.file-drop-list li { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--gap-words-control); padding: max(var(--gap-words-words), var(--pad-words)) var(--pad-words); border-top: var(--divider); font: var(--type-words); color: var(--ink); }
 .file-drop-list li:first-child { border-top: 0; }
 .file-drop-list li.is-uploading::after { content: ""; position: absolute; left: var(--pad-words); right: var(--pad-words); bottom: 0; height: 2px; background: linear-gradient(90deg, var(--meter-fill) calc(var(--sent) * 100%), var(--line) 0); }
 .file-drop-name { min-width: 0; overflow-wrap: anywhere; }

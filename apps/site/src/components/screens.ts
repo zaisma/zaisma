@@ -178,7 +178,7 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       doc.documentElement.setAttribute("data-theme-choice", theme);
       frame.classList.add("is-shown");
       loaded(doc, scripts.measureScript, function () {
-        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false, isTouch: widthPx < 768 })); }, 600); });
+        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false, isTouch: inside.matchMedia("(pointer: coarse)").matches })); }, 600); });
       });
       loaded(doc, scripts.inspectScript, function () {
         // Pointed at with a mouse, or tapped on a touch screen.
@@ -207,11 +207,9 @@ component({
    the screen's size; it shows once it has taken its light or dark. */
 /* Its words at its foot keep the pane's margin, --pad-words under them. */
 .screens { container-type: inline-size; padding-bottom: var(--pad-words); }
-.screens-in { display: grid; grid-template-columns: minmax(0, 1fr) ${SCREEN_SIZES[0].widthPx}px; gap: 0 var(--gap-block-block); align-items: start; }
+.screens-in { display: grid; grid-template-columns: minmax(0, 1fr) ${SCREEN_SIZES[0].widthPx}px; gap: var(--gap-block-block); align-items: start; }
 @container (max-width: ${2 * SCREEN_SIZES[0].widthPx + 24}px) { .screens-in { grid-template-columns: minmax(0, 1fr); } }
-/* Each screen's frame, caption, problems and pointed line are rows shared with the screen beside it, so the captions of a desktop and a phone
-   side by side are on one line, under the taller frame. */
-.screen { margin: 0 0 var(--gap-block-block); min-width: 0; display: grid; grid-row: span 4; grid-template-rows: subgrid; row-gap: var(--gap-words-control); align-content: start; }
+.screen { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .screen-view { position: relative; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .screen-view > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); visibility: hidden; }
 .screen-view > iframe.is-shown { visibility: visible; }

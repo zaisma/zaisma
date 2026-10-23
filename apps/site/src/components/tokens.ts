@@ -24,6 +24,8 @@ export const LIGHT_GLASS = `color-scheme: light;
   --press-rim: rgba(20, 23, 28, 0.5);
   /* A color swatch's rim against its well, so a color near the well's own (black in dark, white in light) still shows: 3:1 or more. */
   --swatch-rim: rgba(20, 23, 28, 0.5);
+  /* What can't be pressed now: carved flat into the glass, unlike a field's or a button's face in either theme. */
+  --off-face: rgba(70, 84, 108, 0.08);
   --field-face: rgba(255, 255, 255, 0.5); --field-hover: rgba(255, 255, 255, 0.66); --field-focus: rgba(255, 255, 255, 0.94);
   --field-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
@@ -68,6 +70,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
   --press-rim: rgba(255, 255, 255, 0.45);
   --swatch-rim: rgba(255, 255, 255, 0.45);
+  --off-face: rgba(0, 0, 0, 0.22);
   --field-face: rgba(255, 255, 255, 0.08); --field-hover: rgba(255, 255, 255, 0.12); --field-focus: rgba(255, 255, 255, 0.16);
   --field-shade: inset 0 1px 3px rgba(0, 0, 0, 0.25); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);

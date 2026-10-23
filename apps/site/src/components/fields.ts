@@ -448,7 +448,7 @@ const FIELD_STYLES = `
 .field input[readonly], .field:hover input[readonly], .field input[readonly]:focus { --face-color: var(--well); box-shadow: var(--well-shade); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */
 .field:has(input:disabled) { color: var(--muted); pointer-events: none; }
-.field input:disabled { --face-color: var(--well); box-shadow: var(--well-shade); color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 1; }
+.field input:disabled { --face-color: var(--off-face); box-shadow: var(--well-shade); color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 1; }
 `;
 
 component({
