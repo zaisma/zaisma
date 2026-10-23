@@ -1,15 +1,18 @@
 # Tests and typecheck on every pull request and every push to main.
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
-# The tests run split across six runners at once, with typecheck and the engine exports beside them. "Tests and typecheck",
-# the check the ruleset requires and npm run ship reads, passes only when all of them did.
+# Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
+# Layout check in two and the Engine exports in three. "Tests and typecheck", the check the ruleset requires and npm run ship
+# reads, passes only when all of them did.
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
-# The engine exports take the longest, so a pull request runs them only when its branch changes code they play
-# (ENGINES_PATH in scripts/ship-github-check.mjs, the same paths as "What changed" below); a push to main always
-# runs them. A run that skipped them still passes "Tests and typecheck", and npm run ship counts it only with an
-# Engine exports pass on the main commit the pull request was cut from (applyEnginesProof, same file).
+# A pull request runs the Engine exports only when its branch changes something they run: the preview's Workers and everything
+# they import, its test data and scripts, the samples (scripts/affected-tests.mjs, from the repository's own graph); a push to
+# main always runs them. A run that skipped them still passes "Tests and typecheck", and npm run ship counts it only with an
+# Engine exports pass on the main commit the pull request was cut from (applyEnginesProof, scripts/ship-github-check.mjs).
+# The Layout check measures pages on the preview's test data, restored from a snapshot made at most a day before from the same
+# test data files (main's, or this pull request's own): "Preview test data" makes one first when there's none.
 # A pull request's run tests its branch exactly as it is, not merged with main: the ruleset makes a
 # branch up to date before it merges, so main's merge commit then has exactly the code that passed,
 # and npm run ship counts that run instead of waiting for the same tests on main.
@@ -28,6 +31,14 @@ concurrency:
   # A newer push replaces a pull request's run; every commit on main keeps its own, for npm run ship.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # The preview's test data as a snapshot (its servers' logs and traces left out), the same paths wherever it's saved or restored.
+  PREVIEW_SNAPSHOT_PATHS: |
+    .wrangler/preview
+    !.wrangler/preview/v3/observability
+    !.wrangler/preview/v3/cache
+    !.wrangler/preview/*.log
+
 jobs:
   changes:
     name: What changed
@@ -36,6 +47,8 @@ jobs:
     outputs:
       is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
       is_engines_changed: ${{ steps.diff.outputs.is_engines_changed }}
+      preview_snapshot_key: ${{ steps.snapshot.outputs.key }}
+      is_preview_snapshot_ready: ${{ steps.snapshot.outputs.is_ready }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,22 +70,49 @@ jobs:
           fi
           changed_paths="$(git diff --name-only "$BASE_SHA$RANGE_DOTS$HEAD_SHA")"
           echo "$changed_paths"
-          # Every push to main plays the engine samples; a pull request, only when its branch changes code they play.
-          if [ "$EVENT_NAME" != pull_request ] || echo "$changed_paths" | grep -qE '^(apps/(site|games|compress)/|packages/(core|sdk|cli|game-server)/|migrations/|scripts/(preview|engines)/|test/engines/|\.github/workflows/check\.yml$|package(-lock)?\.json$)'; then
-            echo "is_engines_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Nothing the engine exports play changed: skipping them."
-            echo "is_engines_changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          # Whether the Engine exports run: always on main, and on a pull request when the change reaches what they run, by the
+          # repository's graph (scripts/affected-tests.mjs: plain Node, before npm ci).
+          node scripts/affected-tests.mjs --github
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
             echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
           fi
+      # The Layout check's test data: a snapshot made from the files that make it as they are (the preview's seed, stand-ins and
+      # Workers, and what it uploads; not how it starts, its memory line or its feedback overlay), by main or this pull request, at
+      # most 20 hours before. The key ends in when it was made.
+      - id: snapshot-name
+        run: |
+          seed_hash="$(git ls-files -s -- scripts/preview examples review-set/listing-cases brand ':!scripts/preview/background.mjs' ':!scripts/preview/memory.mjs' ':!scripts/preview/feedback-*' | sha256sum | cut -c1-16)"
+          echo "prefix=preview-test-data-v1-$seed_hash-" >> "$GITHUB_OUTPUT"
+          echo "now_sec=$(date +%s)" >> "$GITHUB_OUTPUT"
+      - id: snapshot-lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: ${{ steps.snapshot-name.outputs.prefix }}${{ steps.snapshot-name.outputs.now_sec }}
+          restore-keys: ${{ steps.snapshot-name.outputs.prefix }}
+          lookup-only: true
+      - id: snapshot
+        env:
+          PREFIX: ${{ steps.snapshot-name.outputs.prefix }}
+          NOW_SEC: ${{ steps.snapshot-name.outputs.now_sec }}
+          MATCHED_KEY: ${{ steps.snapshot-lookup.outputs.cache-matched-key }}
+        run: |
+          made_at_sec="${MATCHED_KEY#"$PREFIX"}"
+          if [ -n "$MATCHED_KEY" ] && [ $((NOW_SEC - made_at_sec)) -lt 72000 ]; then
+            echo "The preview's test data is ready: $MATCHED_KEY."
+            echo "key=$MATCHED_KEY" >> "$GITHUB_OUTPUT"
+            echo "is_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No snapshot of the preview's test data from these files in the last 20 hours: Preview test data makes one."
+            echo "key=$PREFIX$NOW_SEC" >> "$GITHUB_OUTPUT"
+            echo "is_ready=false" >> "$GITHUB_OUTPUT"
+          fi
 
   tests:
-    name: Tests (${{ matrix.shard }} of 6)
+    name: Tests (${{ matrix.shard }} of 4)
     needs: changes
     if: needs.changes.outputs.is_code_changed == 'true'
     runs-on: ubuntu-latest
@@ -81,7 +121,7 @@ jobs:
       # Every shard finishes, so a failure shows all its failing tests at once.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,10 +138,11 @@ jobs:
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
       # Miniflare keeps the tests' databases, buckets and rate limiters in SQLite files under the temp folder, and
-      # syncs each write: in memory, a slow runner disk can't hold a test past its time.
-      - run: npm test -- --shard=${{ matrix.shard }}/6
+      # syncs each write: in memory, a slow runner disk can't hold a test past its time. Four files at once, one a core.
+      - run: npm test -- --shard=${{ matrix.shard }}/4
         env:
           TMPDIR: /dev/shm
+          TEST_WORKER_COUNT: 4
 
   typecheck:
     name: Typecheck
@@ -125,12 +166,50 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
 
-  # The engine samples (test/engines) through the real upload command, scan and game page, on the
-  # preview with its stand-ins (seeded with only the samples), played in headless Chrome (scripts/engines/play.mjs).
+  # The engine samples (test/engines) through the real upload command, scan and game page, on the preview with its stand-ins
+  # (seeded with only the samples), played in headless Chrome (scripts/engines/play.mjs): each runner takes its share of the
+  # samples (ENGINE_SAMPLE_SHARD, scripts/engines/samples.mjs).
   engines:
-    name: Engine exports
+    name: Engine exports (${{ matrix.shard }} of 3)
     needs: changes
     if: needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_engines_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      ENGINE_SAMPLE_SHARD: ${{ matrix.shard }}/3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # npm's download cache, as in the tests job.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      # The migrations applied to an empty database, kept by their hash (MIGRATED_DATABASES in scripts/preview/run.mjs).
+      - uses: actions/cache@v4
+        with:
+          path: .wrangler/preview-migrated
+          key: preview-migrated-${{ hashFiles('migrations/**') }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run preview:start -- --reset --engines-only
+      - run: npm run engines:play
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
+  # The preview's full test data, made once when there's no snapshot of it from the same files (What changed), for the Layout check.
+  seed:
+    name: Preview test data
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_preview_snapshot_ready == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -146,20 +225,36 @@ jobs:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
+      # The migrations applied to an empty database, as in the engines job.
+      - uses: actions/cache@v4
+        with:
+          path: .wrangler/preview-migrated
+          key: preview-migrated-${{ hashFiles('migrations/**') }}
       - run: npm ci --no-audit --no-fund
-      - run: npm run preview:start -- --reset --engines-only
-      - run: npm run engines:play
+      - run: npm run preview:start -- --reset
+      # Stopped first, so its databases are written out whole.
+      - run: npm run preview:stop
+      - uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: ${{ needs.changes.outputs.preview_snapshot_key }}
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
   # The measuring check (npm run layout:check): every page in headless Chrome at 320 x 667 and 1440 x 900, light and dark,
-  # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts).
+  # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts), each runner its share of the pages
+  # (LAYOUT_CHECK_SHARD, scripts/layout-check.mjs). The preview starts from the snapshot in seconds and applies this branch's
+  # own migrations, as it does on any start.
   layout:
-    name: Layout check
-    needs: changes
-    if: needs.changes.outputs.is_code_changed == 'true'
+    name: Layout check (${{ matrix.shard }} of 2)
+    needs: [changes, seed]
+    if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,10 +269,16 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
-      - run: npm run preview:start -- --reset
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: ${{ needs.changes.outputs.preview_snapshot_key }}
+          fail-on-cache-miss: true
+      - run: npm run preview:start
       - run: npx vitest run --project layout
         env:
           LAYOUT_CHECK: "1"
+          LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/2
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
 
@@ -204,10 +305,11 @@ jobs:
       - run: npm test -- --project node
         env:
           TMPDIR: /dev/shm
+          TEST_WORKER_COUNT: 4
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, typecheck, engines, layout, docs-tests]
+    needs: [changes, tests, typecheck, engines, seed, layout, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -220,10 +322,11 @@ jobs:
           TESTS_RESULT: ${{ needs.tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
+          SEED_RESULT: ${{ needs.seed.result }}
           LAYOUT_RESULT: ${{ needs.layout.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Preview test data: $SEED_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
           # Engine exports passed, or was skipped because the pull request changed nothing it plays (a failure is never a skip).
           engines_ok=false

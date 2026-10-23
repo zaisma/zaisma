@@ -587,7 +587,7 @@ export const GAME_SERVER_OPTIONS = [
 ] as const satisfies readonly (keyof GameServer)[];
 
 export const ROOM_LIMITS = {
-  /** Players in one room: what one room carries at 60 ticks a second (test/rooms/room-load.test.ts). */
+  /** Players in one room: what one room carries at 60 ticks a second (test/load/room-load.test.ts). */
   maximumPlayerCount: 100,
   defaultMaximumPlayerCount: 8,
   /** Spectators in one room: each send costs the room time, so its audience is bounded like its players. Bigger audiences are a stream. */

@@ -38,6 +38,46 @@ export const LAYOUT_CHECK_PAGES = CHECKED_PAGES;
 const RUN_TIME_LIMIT_MS = 90_000;
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(4, availableParallelism() - 1));
 
+// Each page's time in a tab on GitHub's runners, all its sizes and themes, in seconds (measured Oct 23, 2026, on a preview started from
+// a snapshot, its images not yet made; the Layout check jobs print it as secondsByPage), by name: GitHub's check deals the pages to its runners by it (layoutCheckShard). A page that isn't
+// here costs UNLISTED_PAGE_COST_SEC.
+const PAGE_COSTS_SEC = {
+  Screens: 51.8,
+  "Gallery: inputs": 36.6,
+  "Gallery: foundations": 33.5,
+  "Gallery: navigation": 32.6,
+  "Home, signed in": 29.7,
+  Home: 26.5,
+  "Gallery: data": 24.1,
+  "Gallery: panes": 18,
+  "Gallery: actions": 17.6,
+  "Forgot your password": 17.3,
+  "Sign in": 17,
+  "Gallery: layout": 14.2,
+  "Sign in with Zaisma": 10.9,
+  "Make an account": 10.9,
+  "Example page": 9.8,
+  "Connect an app": 9.8,
+};
+const UNLISTED_PAGE_COST_SEC = 20;
+
+/**
+ * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
+ * with the least so far, so the runners finish together. Every page is in exactly one share.
+ */
+export function layoutCheckShard(pages, shard) {
+  const [index, count] = shard.split("/").map(Number);
+  if (!Number.isInteger(index) || !Number.isInteger(count) || index < 1 || index > count) throw new Error(`LAYOUT_CHECK_SHARD is "${shard}": it takes a share and a count, like 2/3.`);
+  const costOf = (page) => PAGE_COSTS_SEC[page.name] ?? UNLISTED_PAGE_COST_SEC;
+  const shares = Array.from({ length: count }, () => ({ costSec: 0, pages: [] }));
+  for (const page of [...pages].sort((a, b) => costOf(b) - costOf(a) || (a.name < b.name ? -1 : 1))) {
+    const least = shares.reduce((lightest, share) => (share.costSec < lightest.costSec ? share : lightest));
+    least.costSec += costOf(page);
+    least.pages.push(page);
+  }
+  return pages.filter((page) => shares[index - 1].pages.includes(page));
+}
+
 /** Waits until the page has drawn: loaded, its fonts in, the gallery's skipped sections laid out, the edge rule's shapes drawn. */
 const SETTLE = `(async () => {
   if (document.readyState !== "complete") await new Promise((done) => addEventListener("load", done, { once: true }));
@@ -95,14 +135,15 @@ async function signIn(chrome, contextId, site, username) {
 }
 
 /**
- * Measures pages, every size and theme, tabCount at once: { checkedCount, failures }, each failure { page, size, theme, check, element,
- * said }, in the order of pages, sizes and themes. markup puts that markup in place of a page's own (test/layout/layout-check.test.ts's
+ * Measures pages, every size and theme, tabCount at once: { checkedCount, failures, secondsByPage }, each failure { page, size, theme,
+ * check, element, said }, in the order of pages, sizes and themes, and secondsByPage each page's time in a tab, all its sizes and themes. markup puts that markup in place of a page's own (test/layout/layout-check.test.ts's
  * fixture), on the example page.
  */
 export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {} }) {
   const chrome = await openChrome(chromePath, "zaisma-layout-");
   const runs = pages.flatMap((page) => sizes.flatMap((size) => themes.map((theme) => ({ page, size, theme }))));
   const foundByRun = [];
+  const secondsByPage = {};
   try {
     const contexts = new Map();
     const contextFor = async (account) => {
@@ -125,7 +166,9 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const url = `${base}${page.path}${page.isGallery && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
         // A page that never settles (a load or a frame that doesn't come) fails by name instead of holding up the rest.
         const tooSlow = [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${RUN_TIME_LIMIT_MS / 1000}s` }];
+        const startedMs = Date.now();
         const found = await Promise.race([checkPage(chrome, await contextFor(page.account), url, size, theme, page), wait(RUN_TIME_LIMIT_MS).then(() => tooSlow)]);
+        secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
         foundByRun[runIndex] = found.map((failure) => ({ page: page.name, path: page.path, size: size.name, theme, ...failure }));
         onPage(page, size, theme, found);
       }
@@ -134,7 +177,7 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   } finally {
     await chrome.close();
   }
-  return { checkedCount: foundByRun.filter(Boolean).length, failures: foundByRun.flat() };
+  return { checkedCount: foundByRun.filter(Boolean).length, failures: foundByRun.flat(), secondsByPage };
 }
 
 /** This checkout's preview's addresses, starting it first when it isn't running. */

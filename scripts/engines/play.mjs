@@ -11,13 +11,15 @@
 //
 // Chrome is driven over its DevTools protocol with Node's own WebSocket, so it needs no dependency. Each
 // sample says it started by setting window.zaismaEngineSample = { engine, version, started: true }.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findChrome, openChrome } from "../chrome.mjs";
+import { engineSamples } from "./samples.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
+const REPORT_TIMEOUT_MS = 45_000;
 // The first Chrome with Document-Isolation-Policy, which games need for threads.
 const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
@@ -34,7 +36,8 @@ const samples = readJson(join(ROOT, ".wrangler/preview/engines.json"));
 if (!samples) stop("The preview has no engine samples: start it with fresh test data, npm run preview:start -- --reset.");
 
 // Every sample in the repo is in the preview, uploaded and passed by the scan by itself.
-const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
+// Or ENGINE_SAMPLE_SHARD's share of them, as the preview was seeded (scripts/engines/samples.mjs).
+const engines = engineSamples();
 for (const engine of engines) {
   const sample = samples.find((candidate) => candidate.engine === engine);
   if (!sample) fail(`${engine}: not in the preview's test data. Start it with fresh test data: npm run preview:start -- --reset.`);
@@ -136,9 +139,10 @@ async function play(chrome, sample) {
       if (first === second) fail(`${sample.engine}: the game didn't draw anything new in a second.`);
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
-      // Zaisma measured how it ran: a report with its load time and seconds of frames, its first 10 seconds in.
+      // Zaisma measured how it ran: a report with its load time and seconds of frames, its first 10 seconds in. It's waited for up to
+      // REPORT_TIMEOUT_MS: on a busy runner a big build's first frames come slowly (the preview may still be making its Brotli copies).
       let measured = null;
-      for (const waitedAt = Date.now(); !measured && Date.now() - waitedAt < 20_000; await wait(1000)) {
+      for (const waitedAt = Date.now(); !measured && Date.now() - waitedAt < REPORT_TIMEOUT_MS; await wait(1000)) {
         const { result } = await send("Runtime.evaluate", { expression: "JSON.stringify((window.zaismaPerformanceReports || []).find((report) => report.loading_duration_sec !== null && report.measured_duration_sec > 0) || null)", returnByValue: true });
         measured = JSON.parse(result.value ?? "null");
       }
