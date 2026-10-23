@@ -1,6 +1,6 @@
 {
-  "fingerprint_sha256": "d83a578a3749c62b00387f2b5813c1955edfab0e38c07df019e5eff32afb6ae5",
-  "ran_at": "2026-10-21T17:55:55Z",
+  "fingerprint_sha256": "dab85365e3c0e967b3d044992de3871fdbcb80d31cb1423f6a4219f7f9fdb290",
+  "ran_at": "2026-10-23T15:39:49Z",
   "model_vars": {
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
   },
@@ -13,7 +13,7 @@
     "missed_case_count": 0,
     "inconsistent_case_count": 0,
     "declined_attempt_count": 0,
-    "cost_cents": 31.7418,
+    "cost_cents": 31.7518,
     "is_passing": true
   },
   "cases": [

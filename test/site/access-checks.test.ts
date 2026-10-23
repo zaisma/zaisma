@@ -701,7 +701,8 @@ describe("every call", () => {
     expect((await eventCount()) - eventCountBefore, isLogged(apiRoute) ? `${routeName} changed something and wrote no security event: log it with logCallerEvent, or add it to UNLOGGED_CHANGES with why.` : `${routeName} wrote a security event it shouldn't`).toBe(isLogged(apiRoute) ? 1 : 0);
     // A call that reaches or names something of the developer's refused someone.
     if (ownsSomething(apiRoute) || Object.values(allInputs(apiRoute)).some((input) => input.kind === "names")) expect(refusals.length, routeName).toBeGreaterThan(0);
-  });
+    // A shader check draws the shader in the test's headless Chromium when it goes through, seconds on a CI runner.
+  }, 60_000);
 });
 
 /** The developer's values for the parts that own something (their game, webhook, sign-in app, private topic), over an example's own. */
