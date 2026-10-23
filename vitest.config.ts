@@ -84,6 +84,20 @@ const outsideServers = async (request: Request): Promise<Response> => {
   return Response.json({ host: url.hostname, path: url.pathname, method: request.method, authorization: request.headers.get("authorization") });
 };
 
+// What the site Worker's calls to other servers reach in the site tests, so no test waits on the runner's
+// network (a DNS lookup can take 5 seconds there). A test that stands in for a server itself (vi.stubGlobal("fetch"))
+// answers first; what it passes on lands here.
+const siteOutsideServers = async (request: Request): Promise<Response> => {
+  const url = new URL(request.url);
+  // Supabase's admin lookup of a user (apps/site/src/auth.ts): an account without an email, as Supabase knows it.
+  const userId = url.origin === "https://supabase.test" && request.method === "GET" ? url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/)?.[1] : undefined;
+  if (userId) return Response.json({ id: decodeURIComponent(userId), email: `${decodeURIComponent(userId)}@no-mail.zaisma.com` });
+  // The email outbox (apps/site/src/email-codes.ts): taken.
+  if (url.origin === "https://outbox.test") return Response.json({});
+  // Anything else is refused at once, as a server that can't be reached.
+  return new Response(`No server at ${url.origin} in the site tests: stand in for it in the test.`, { status: 502 });
+};
+
 const migrations = await readD1Migrations("migrations");
 // And one for Sign in with Zaisma's tokens (scripts/sign-in-key.mjs makes the real one).
 const signInPair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -159,6 +173,7 @@ export default defineConfig({
         // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs, and the cron its backup parts, to queues nothing reads.
         queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" }, PERFORMANCE_QUEUE: { queueName: "zaisma-performance-in-tests" }, BACKUP_QUEUE: { queueName: "zaisma-backup-in-tests" } },
         workers: [roomsDatabaseWorker, photoDnaWorker],
+        outboundService: siteOutsideServers,
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),

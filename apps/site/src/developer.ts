@@ -334,8 +334,7 @@ export async function handleDeveloper(request: Request, env: Env, path: string, 
   if (path.startsWith("/shader-checks/")) return serveShaderCheckSheet(request, env, path.slice("/shader-checks/".length));
   if (path !== "/api/dev" && !path.startsWith("/api/dev/")) return null;
   try {
-    const caller = await authenticate(request, env);
-    if (ctx) caller.waitUntil = (promise) => ctx.waitUntil(promise);
+    const caller = await authenticate(request, env, "api", ctx ? (promise) => ctx.waitUntil(promise) : undefined);
     return await route(request, env, path.slice("/api/dev".length) || "/", caller);
   } catch (error) {
     if (error instanceof ApiError) return errorResponse(error);
@@ -344,7 +343,8 @@ export async function handleDeveloper(request: Request, env: Env, path: string, 
   }
 }
 
-export async function authenticate(request: Request, env: Env, via: "api" | "mcp" = "api"): Promise<Caller> {
+/** waitUntil: the Worker's ctx.waitUntil, set on the caller before the key's use is noted, so its security alerts run after the answer. */
+export async function authenticate(request: Request, env: Env, via: "api" | "mcp" = "api", waitUntil?: WaitUntil): Promise<Caller> {
   const header = request.headers.get("authorization");
   let accountId: string | null = null;
   let cookies: string[] = [];
@@ -397,6 +397,7 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
   const caller = await callerFor(env, request, accountId, cookies);
   if (!caller) throw new ApiError("no_account", { message: "The account isn't finished yet.", fix: "Finish making it at zaisma.com/account, then call again." });
   caller.access = access;
+  if (waitUntil) caller.waitUntil = waitUntil;
   if (header) {
     caller.via = via;
     caller.where = whereFrom(request.cf as Parameters<typeof whereFrom>[0], request.headers.get("user-agent") ?? "", via === "mcp" ? "ai" : "api_key", connectionAddressOf(request));
@@ -1305,7 +1306,12 @@ async function putBlob(request: Request, env: Env, sha256: string, caller: Calle
   if (!request.body) throw new ApiError("no_body", { message: "The file came without a body.", fix: "Send the file's bytes as the request body." });
   try {
     await env.GAMES.put(blobKey(sha256), request.body, { sha256 });
-  } catch {
+  } catch (error) {
+    // Storage checks the SHA-256 as it stores (R2's BadDigest, 10037); any other failure is ours, not the file's.
+    if (!/\(10037\)|checksum you specified did not match/.test(String((error as Error)?.message ?? error))) {
+      console.error("Storing a file failed", error);
+      throw INTERNAL_ERROR();
+    }
     throw new ApiError("hash_mismatch", { message: `The file doesn't match the SHA-256 ${sha256}.`, fix: "Hash the file again (SHA-256, lowercase hex) and send it to that hash; check it didn't change since you listed it." });
   }
   // Programs and archives aren't allowed in games, whatever they're called.

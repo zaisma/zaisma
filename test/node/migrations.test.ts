@@ -390,3 +390,28 @@ describe("migration 0134", () => {
     expect(() => database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_video', 'game_one', 'video', 'video/mp4', 256, 256, 40, 9)")).toThrow();
   });
 });
+
+describe("migration 0135", () => {
+  const purchase = (id: string, createdAtMs: number, status = "completed", itemName = "supporter_cape") =>
+    `('${id}', 'game_one', '${itemName}', 'permanent', 'player_one', 'grant', '${status}', ${createdAtMs}, ${createdAtMs})`;
+  const database = migratedFrom(
+    "0135_",
+    `INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES
+       ${purchase("purchase_later", 2)}, ${purchase("purchase_first", 1)}, ${purchase("purchase_refunded", 0, "refunded")}, ${purchase("purchase_other", 3, "completed", "gold_crown")};`,
+  );
+
+  it("keeps the earliest of a player's completed purchases of a permanent item and marks the rest failed, deleting none", () => {
+    expect(database.prepare("SELECT id, purchase_status FROM purchases ORDER BY id").all()).toEqual([
+      { id: "purchase_first", purchase_status: "completed" },
+      { id: "purchase_later", purchase_status: "failed" },
+      { id: "purchase_other", purchase_status: "completed" },
+      { id: "purchase_refunded", purchase_status: "refunded" },
+    ]);
+  });
+
+  it("refuses a second completed purchase of a permanent item a player owns, and takes one once it's refunded", () => {
+    expect(() => database.exec(`INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ${purchase("purchase_again", 4)}`)).toThrow(/UNIQUE/);
+    database.exec("UPDATE purchases SET purchase_status = 'refunded' WHERE id = 'purchase_first'");
+    database.exec(`INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ${purchase("purchase_again", 4)}`);
+  });
+});

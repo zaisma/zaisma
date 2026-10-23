@@ -29,6 +29,7 @@ import { isDeviceMarked, markDevice } from "./device-marks.ts";
 import type { Caller, CheckedCall } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { deleteOldSecuritySignals, noteSpike, raiseSecurityAlert } from "./security-alerts.ts";
+import type { WaitUntil } from "./webhooks.ts";
 
 /**
  * The security log's database side (docs/DECISIONS.md, "The security log says who did what from where"):
@@ -77,8 +78,13 @@ export function keptWhere(row: SecurityEventRow) {
   };
 }
 
-/** Writes the event, raises its security alert when it is one, and counts it toward Zaisma's spikes. Answers the row's ID, or null when it couldn't be written. */
-export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = Date.now()): Promise<number | null> {
+/**
+ * Writes the event, raises its security alert when it is one, and counts it toward Zaisma's spikes. Answers the row's ID, or null when it couldn't be written.
+ * waitUntil (a developer's API or MCP call): the event is written before the answer, and the alert (the account's
+ * email from Supabase, the alert email, the developer's security_alert webhooks) runs after it, so the call never
+ * waits on any of those. Without it, the alert is raised before this answers.
+ */
+export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = Date.now(), waitUntil?: WaitUntil): Promise<number | null> {
   let eventNumber: number | null = null;
   try {
     const kept = keptWhere(row);
@@ -116,7 +122,11 @@ export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = 
     console.error("Security event not logged", row.kind, error);
   }
   // A folded kind is never an alert, so its row's ID is its own.
-  if (eventNumber !== null && isSecurityAlert(row.kind, row.doneBy, row.isNewPlace)) await raiseSecurityAlert(env, eventNumber, row, nowMs);
+  if (eventNumber !== null && isSecurityAlert(row.kind, row.doneBy, row.isNewPlace)) {
+    const raising = raiseSecurityAlert(env, eventNumber, row, nowMs);
+    if (waitUntil) waitUntil(raising);
+    else await raising;
+  }
   if (row.kind === "api_key_created") await noteSpike(env, "api_keys_created", ACROSS_ZAISMA_NETWORK_NUMBER, null, nowMs);
   if (row.kind === "database_exported") await noteSpike(env, "databases_exported", ACROSS_ZAISMA_NETWORK_NUMBER, null, nowMs);
   if (row.kind === "signed_in_new_device" && row.where.networkNumber !== null) await noteSpike(env, "new_device_sign_ins_from_network", row.where.networkNumber, row.where.networkName, nowMs);
@@ -153,7 +163,7 @@ export async function logCallerEvent(
       where: caller.where,
       isWhereKept: caller.isWhereKept,
       isNewPlace,
-    });
+    }, Date.now(), caller.waitUntil);
   } catch (error) {
     console.error("Security event not logged", kind, error);
   }
@@ -270,7 +280,7 @@ export async function noteKeyUse(request: Request, env: Env, key: Omit<ApiKey, "
           where: caller.where,
           isWhereKept: caller.isWhereKept,
           isNewPlace: true,
-        });
+        }, nowMs, caller.waitUntil);
       } else {
         await env.DB.prepare("UPDATE security_places SET last_seen_at_ms = ? WHERE api_key_id = ? AND place_sha256 = ?").bind(nowMs, key.id, placeSha256).run();
       }
@@ -295,7 +305,7 @@ export async function noteKeyUse(request: Request, env: Env, key: Omit<ApiKey, "
           where: caller.where,
           isWhereKept: caller.isWhereKept,
           isNewPlace: false,
-        });
+        }, nowMs, caller.waitUntil);
       }
     }
     return placeSha256;
