@@ -5,7 +5,7 @@
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,6 +19,7 @@ import { startFakeMail } from "./fake-mail.mjs";
 import { LATER_MARKER, MATCH_MARKER, startFakeShield } from "./fake-shield.mjs";
 import { startFakeSite } from "./fake-site.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
+import { finishTurn, noteMemoryFreed, waitForTurn } from "./memory.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -192,35 +193,52 @@ let serversProcess = null;
 let feedbackProcess = null;
 let wakingUp = null;
 let fallingAsleep = null;
+let hasWoken = false;
+// Its place in the line for memory while it waits to wake (memory.mjs), for the waking page.
+let lineText = "";
 const isAwake = () => serversProcess !== null && wakingUp === null;
-const WAKING_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Waking the preview…</title>
+const wakingPage = () => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Waking the preview…</title>
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#16191d;color:#eceef0;font:15px/1.5 system-ui,sans-serif">
-<p>Waking the preview… it slept after ${IDLE_MINUTES} minutes with nobody looking. The page opens by itself in a few seconds.</p>
+<div style="max-width:40em;padding:16px"><p>Waking the preview… it slept after ${IDLE_MINUTES} minutes with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
 <script>(async()=>{for(;;){try{await fetch(location.href,{method:"HEAD",cache:"no-store"});break}catch{}await new Promise(r=>setTimeout(r,1000))}location.reload()})()</script>`;
 
 /** Starts the servers (and the feedback server), and resolves once they answer. */
 function wake() {
   wakingUp ??= (async () => {
     await fallingAsleep;
-    // The site, games, rooms and compress Workers run in one wrangler dev: one Node, one bundler and one runtime for all
-    // four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and
-    // two runtimes each. Its output goes to servers.log, for when something doesn't start. Each checkout's preview finds
-    // its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
-    // Wrangler's local trace capture (X_LOCAL_OBSERVABILITY) stays off: it keeps every request, call and log line in a
-    // store inside the runtime, and each tick of a real-time room is a call into its game server's sandbox, so Arena's
-    // test rooms alone filled it at about 10 MB a minute. Nothing in the preview reads it; an older preview's store goes.
-    rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
-    const serversLog = openSync(join(STATE, "servers.log"), "a");
-    serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false" } });
-    // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
-    const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
-    feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
-    children.push(serversProcess, feedbackProcess);
-    await waitFor(`http://localhost:${PORTS.servers}`);
-    lastVisitAtMs = Date.now();
-    testPlayers.isPaused = false;
+    // After a sleep it waits for its turn for memory like a start does; the first wake is the start's own turn.
+    const isAfterSleep = hasWoken;
+    hasWoken = true;
+    if (isAfterSleep) await waitForTurn({ kind: "wake", offset: OFFSET, folder: realpathSync(ROOT), say: (text) => console.log((lineText = text)) });
+    lineText = "";
+    try {
+      await startServers();
+    } finally {
+      if (isAfterSleep) await finishTurn();
+    }
   })().finally(() => (wakingUp = null));
   return wakingUp;
+}
+
+/** The servers and the feedback server, started; resolves once the servers answer. */
+async function startServers() {
+  // The site, games, rooms and compress Workers run in one wrangler dev: one Node, one bundler and one runtime for all
+  // four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and
+  // two runtimes each. Its output goes to servers.log, for when something doesn't start. Each checkout's preview finds
+  // its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
+  // Wrangler's local trace capture (X_LOCAL_OBSERVABILITY) stays off: it keeps every request, call and log line in a
+  // store inside the runtime, and each tick of a real-time room is a call into its game server's sandbox, so Arena's
+  // test rooms alone filled it at about 10 MB a minute. Nothing in the preview reads it; an older preview's store goes.
+  rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
+  const serversLog = openSync(join(STATE, "servers.log"), "a");
+  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false" } });
+  // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
+  const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
+  feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
+  children.push(serversProcess, feedbackProcess);
+  await waitFor(`http://localhost:${PORTS.servers}`);
+  lastVisitAtMs = Date.now();
+  testPlayers.isPaused = false;
 }
 
 /** Stops the servers and the feedback server, until the next request. */
@@ -231,6 +249,8 @@ async function sleep() {
   serversProcess = feedbackProcess = null;
   fallingAsleep = Promise.all(stopped).finally(() => (fallingAsleep = null));
   await fallingAsleep;
+  // The next preview waiting in line for memory may fit now.
+  await noteMemoryFreed().catch(() => {});
 }
 
 /** The requests in servers.log since it was last read, besides the preview's own: someone looked at a page. */
@@ -268,7 +288,7 @@ function forward(port) {
       const isPageLoad = /^GET /.test(head) && /^(sec-fetch-dest: document|accept: text\/html)/im.test(head);
       if (serversProcess === null) console.log(`Waking up at ${new Date().toLocaleTimeString()}: someone opened ${head.split(" ")[1] ?? "a page"}.`);
       const awake = wake();
-      if (isPageLoad) return socket.end(`HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\nconnection: close\r\n\r\n${WAKING_PAGE}`);
+      if (isPageLoad) return socket.end(`HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\nconnection: close\r\n\r\n${wakingPage()}`);
       socket.unshift(firstChunk);
       awake.then(() => onward(socket), () => socket.destroy());
     });
@@ -302,6 +322,18 @@ async function waitFor(url) {
   throw new Error(`${url} didn't start. Is something else using its port? The servers' output is in ${join(STATE, "servers.log")}.`);
 }
 
+// Its turn in the line for memory comes first (memory.mjs): a start that would take every preview on this machine over
+// the cap waits here, holding no port yet, and says its place.
+const { waitedMs } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT) });
+// The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
+if (waitedMs) {
+  const isFree = (port) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, function () { this.close(() => resolve(true)); }));
+  for (const port of [...Object.values(PORTS), 9340 + OFFSET]) {
+    if (await isFree(port)) continue;
+    console.log(`Port ${port} was taken while it waited in line (by a preview started without the line, or something else), so it can't start here. npm run preview:start again picks free ports.`);
+    process.exit(1);
+  }
+}
 console.log("Applying database updates…");
 spawnSync(...wrangler(["d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 if (!fresh) givePasswords();
@@ -348,6 +380,7 @@ Zaisma preview is running. Only the engine samples are in it, and nothing here t
   Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ")}
                   (npm run engines:play checks that each starts and draws; npm run preview:start -- --reset adds the rest of the test data)
 `);
+  await finishTurn();
   // The servers and the every-20-seconds jobs above keep this process running until it's stopped.
   await new Promise(() => {});
 }
@@ -622,6 +655,8 @@ Sign in as Preview_Studio (it owns the test games) or any test account with the 
 or by email with the code from the mailbox (${MAIL}).
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
 `);
+// Up, so it leaves the line for memory: from now on it's measured like any running preview.
+await finishTurn();
 
 /**
  * Preview data made before usernames and passwords: its test accounts get the preview's password, in the
