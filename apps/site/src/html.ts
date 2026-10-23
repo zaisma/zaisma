@@ -417,13 +417,15 @@ const SYSTEM_STYLES = (): string => (systemStyles ||= mapSelectors(COMPONENT_STY
  * A page body not yet rebuilt is a band of Steel under the header (main.steel), the width of the window.
  */
 const SHELL_STYLES = `
-/* The room the floating header takes at the top: the page starts below it, and a link to a part of the page stops below it. */
-:root { --header-room: calc(var(--pad-pane) + 68px + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
-@media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + 122px + var(--gap-block-block)); } }
+/* The room the floating header takes at the top: its inset, its height (the header's own --header-height, worked out from its rows) and a
+   block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
+:root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
+@media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
-body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; padding-bottom: var(--gap-block-block); }
+/* The footer keeps a block's gap above it itself. */
+body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }
 main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
@@ -527,7 +529,7 @@ addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navig
 
 // Right after the header, before the page shows, so a signed-in player never sees Sign in flash on a page that doesn't know who's
 // looking (message and legal pages, cached for everyone): the Sign in runner becomes a way to the account.
-const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a.run-wrap");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`);
+const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a:is(.run-wrap,.cut-btn)");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`);
 
 /**
  * Light or dark: the page carries the player's choice (data-theme-choice on <html>, "system" for guests), and CSS follows it with no script.
@@ -616,7 +618,7 @@ ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 ${options.stage ?? backdrop()}
 ${options.isBare
     ? options.body
-    : html`${siteHeader(env, options)}
+    : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
 <main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
@@ -630,7 +632,7 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the
  * developer tabs open on developer pages, the page's search, and the viewer's account menu or Sign in. Admin pages have their own tabs.
  */
-export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null } = {}): Raw {
+export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean } = {}): Raw {
   const account = options.viewer?.account ?? null;
   const markup = header({
     current: options.isAdmin ? null : (options.nav ?? null),
@@ -638,6 +640,8 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     search: options.search ? { ...options.search, name: "search_text" } : undefined,
     account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
+    // The page has a runner of its own (Play, Save): Sign in is a cut button, so only one runner is ever in view.
+    hasPageRunner: options.hasPageRunner,
   });
   // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie.
   return options.viewer === undefined && env.SUPABASE_URL ? html`${markup}<script src="${pageScriptPath(ACCOUNT_LINK_SCRIPT)}"></script>` : markup;
