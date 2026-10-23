@@ -368,7 +368,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // Roofs and the line turn orange rather than take orange light, which would turn white roofs peach and navy ones pink; the band of
     // lit roofs is narrower by day, where it's paint.
     "  if (uWave.y > 0.0) { vec3 ember = vec3(1.0, 0.45, 0.12); float calm = mix(uRelayGlow.y, 1.0, uNight);\n" +
-    "   if (vFace.y > 0.5 && isBuilt && since >= 0.0) col = mix(col, ember * mix(0.95, 1.15, uNight), exp(-since / mix(16.0, 40.0, uNight)) * uWave.y * mix(0.85, 0.75, uNight) * calm);\n" +
+    "   if (vFace.y > 0.5 && isBuilt && since >= 0.0) col = mix(col, ember * mix(0.95, 1.15, uNight), mix(1.0 - smoothstep(14.0, 18.0, since), exp(-since / 40.0), uNight) * uWave.y * mix(0.85, 0.75, uNight) * calm);\n" +
     "   if (kind >= 8) col = mix(col, ember * mix(0.95, 1.3, uNight), exp(-since * since / 36.0) * uWave.y * 0.85 * calm);\n" +
     "   glow += ember * carvedMask * (2.5 * hit + 1.2 * hold) * mix(0.3, 1.0, uNight); col = mix(col, ember, carvedMask * hold * 0.5 * (1.0 - uNight)); }\n" +
     // The beam's light: a line light down the column on every built face that looks toward it (faces low in the streets get less).
@@ -538,7 +538,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "void main(){ vec3 dir = normalize(vWorld - uCam); float flatShare = max(dot(dir.xz, dir.xz), 1e-6), t = -dot(uCam.xz, dir.xz) / flatShare;\n" +
     " float d = length(uCam.xz + dir.xz * t), y = uCam.y + dir.y * t, slant = min(inversesqrt(flatShare), 1.6), px = max(fwidth(d), 1e-3);\n" +
     " float sec = uBeamLook.x, intensity = uBeamLook.z, fade = exp(-max(y - 244.0, 0.0) / 2600.0), body = 0.0, core = 0.0, halo = 0.0;\n" +
-    " vec3 orange = vec3(1.0, 0.5, 0.1), coreTone = mix(vec3(1.0, 0.8, 0.45), vec3(1.0, 0.95, 0.85), uNight);\n" +
+    " vec3 orange = vec3(1.0, 0.5, 0.1), coreTone = mix(mix(vec3(1.0, 0.8, 0.45), vec3(1.0, 0.95, 0.85), uNight), vec3(1.0, 0.6, 0.2), smoothstep(230.0, 330.0, y));\n" +
     // The column, between its foot (uBeamColumn.x) and its head (.y): half as wide inside the slit, widening high up, in steps of width
     // that rise; a Gaussian body, a square core turning on the axis and a soft halo. It's data, not smoke: packets of brighter light
     // stream up it and fine scanlines rise through it.
@@ -552,7 +552,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  vec2 from = turn * uCam.xz, toward = turn * dir.xz + vec2(1e-6), lowSide = (-sideSeen - from) / toward, highSide = (sideSeen - from) / toward;\n" +
     "  vec2 slabIn = min(lowSide, highSide), slabOut = max(lowSide, highSide); float chord = max(min(slabOut.x, slabOut.y) - max(slabIn.x, slabIn.y), 0.0);\n" +
     "  core = min(chord / (2.0 * sideSeen), 1.6) * side / sideSeen * (1.0 + 0.5 * packet) * along;\n" +
-    "  halo = (0.35 * exp(-d * d / (900.0 * smoothWidth * smoothWidth)) + 0.08 * exp(-d / 75.0)) * along; }\n" +
+    "  halo = (0.35 * exp(-d * d / (900.0 * smoothWidth * smoothWidth)) + 0.08 * exp(-d / 75.0)) * along * mix(0.25, 0.7, uNight); }\n" +
     // The flare: a point of light in the capstone's slot (uThread.w high), while it charges and as it fires.
     " vec3 toSlot = vec3(0.0, uThread.w, 0.0) - uCam; vec3 offSlot = toSlot - dir * dot(toSlot, dir); float slotOff = dot(offSlot, offSlot);\n" +
     " float flare = uBeamLook.w * (exp(-slotOff / 196.0) + 0.3 * exp(-slotOff / 2500.0));\n" +
@@ -561,7 +561,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " vec3 threadTone = mix(vec3(1.0, 0.62, 0.2), vec3(1.0, 0.74, 0.42), uNight);\n" +
     // Its light, held to one hue as it brightens (by day no brighter than orange can stay orange), and how much of what's behind it it hides.
     " vec3 light = orange * (body + halo) + coreTone * core + mix(orange, coreTone, 0.6) * flare + threadTone * thread;\n" +
-    " light *= min(1.0, mix(1.05, 1.6, uNight) / max(max(light.r, light.g), max(light.b, 1e-4)));\n" +
+    " light *= min(1.0, mix(1.05, mix(1.6, 1.1, smoothstep(230.0, 300.0, y)), uNight) / max(max(light.r, light.g), max(light.b, 1e-4)));\n" +
     // Everything fades out before the quad's sides, so its edges never show.
     " float haze = hazeAt(uCam, vec3(0.0, y, 0.0)), edge = 1.0 - smoothstep(0.5, 1.0, abs(vAcross));\n" +
     " float cover = clamp(core + 0.95 * body + 0.6 * halo + 0.5 * flare + thread, 0.0, 1.0) * mix(0.9, 0.12, uNight);\n" +
@@ -683,7 +683,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         putBox(plinthX, PAVE_H, plinthZ, plinthW, 2, plinthD, GATE_TONE);
         addRecord(plinthX, plinthZ, plinthW, plinthD, PAVE_H + 2, GATE_TONE);
       }
-      putBox(x1, 32.25, z1, ax ? 6 : 10, 3, ax ? 10 : 6, GATE_TONE, KIND_BANDED); // the lintel, set out a little so it stays inside the leaning blades
+      putBox(ax * (GATE_RING_UNITS + 1.3), 32.25, az * (GATE_RING_UNITS + 1.3), ax ? 5.6 : 9.6, 3, ax ? 9.6 : 5.6, GATE_TONE, KIND_BANDED); // the lintel, just inside the leaning blades, sharing no face with them
       addRecord(x0, z0, ax ? 9 : 10, ax ? 10 : 9, 44.25, GATE_TONE).isLandmark = true;
     }
   }
@@ -1223,7 +1223,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (m.lastHit !== undefined && clock - m.lastHit > 5) { m.heat = Math.max(0, m.heat - dt * 0.4); if (!m.heat) m.hits = 0; }
     m.shake = (m.shake || 0) * Math.exp(-dt * 6);
     // The Relay's wave reaching a shape: it flashes hot as the front passes, so the players receive the signal.
-    if (relay.waveStrength > 0 && Math.abs(waveDistanceAt(m.at[0], m.at[2]) - relay.waveFrontUnits) < 6 + 150 * dt) m.signal = 1;
+    if (relay.waveStrength > 0 && dt > 0 && Math.abs(waveDistanceAt(m.at[0], m.at[2]) - relay.waveFrontUnits) < 6 + 150 * dt) m.signal = 1;
     else if (m.signal) m.signal = Math.max(0, m.signal - dt / 0.4);
     var k = Math.max(m.heat * 0.75, m.grow < 1 ? 1 - smooth(0.5, 1, m.grow) : 0, m.isHovered ? 0.45 : 0, 0.8 * (m.signal || 0));
     return setInto(out, lerp(ORANGE[0], HOT[0], k), lerp(ORANGE[1], HOT[1], k), lerp(ORANGE[2], HOT[2], k));
@@ -1379,13 +1379,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var GATHER_SEC = 2.0, CHARGE_FROM_SEC = 1.2, NEEDLE_AT_SEC = 2.6, BOOM_AT_SEC = 2.8, LET_GO_AT_SEC = 6.0, LET_GO_SEC = 1.4, EVENT_SEC = 10;
   var OPENING_EVENT_SEC = 4.0, FIRST_FIRE_GAP_SEC = 11, FIRE_GAPS_SEC = [19, 14, 23, 16, 21], FIRE_FRAMING_WAIT_SEC = 4, FIRE_TAP_GAP_SEC = 8, HEAVY_EVENT_SEC = 3.1;
   var eventSec = OPENING_EVENT_SEC >= 0 ? OPENING_EVENT_SEC : -7, isOpeningEvent = OPENING_EVENT_SEC >= 0, nextFireGapSec = OPENING_EVENT_SEC >= 0 ? FIRST_FIRE_GAP_SEC : 0, fireGapIndex = 0;
+  // Where the running event started (a tap starts it at its charge, so its gather runs in from there).
+  var eventFromSec = 0;
   // The event's seconds held for the tool (beamSec pins them; a held camera holds them where they started), or for the hidden heavy frames.
   var heldEventSec = -1;
   function relayStateInto(out, sec, isOpening) {
     var isOn = sec >= 0 && sec < EVENT_SEC, needle = sec - NEEDLE_AT_SEC, boom = sec - BOOM_AT_SEC, letGo = sec - LET_GO_AT_SEC;
     var held = 1 - smooth(LET_GO_AT_SEC, LET_GO_AT_SEC + LET_GO_SEC, sec), charge = Math.min(1, Math.max(0, (sec - CHARGE_FROM_SEC) / 1.4));
-    out.armFrontUnits = lerp(340, 27, smooth(0, GATHER_SEC, sec));
-    out.armStrength = isOn && !isOpening ? smooth(0, 0.3, sec) * (1 - smooth(BOOM_AT_SEC, BOOM_AT_SEC + 0.6, sec)) : 0;
+    out.armFrontUnits = lerp(340, 27, smooth(eventFromSec, Math.max(GATHER_SEC, eventFromSec + 1.2), sec));
+    out.armStrength = isOn && !isOpening ? smooth(eventFromSec, eventFromSec + 0.3, sec) * (1 - smooth(BOOM_AT_SEC, BOOM_AT_SEC + 0.6, sec)) : 0;
     out.chargeShare = isOn ? smooth(CHARGE_FROM_SEC, NEEDLE_AT_SEC, sec) * held : 0;
     out.chargeHeightUnits = isOn ? RELAY_FOOT_Y + (RELAY_TIP_Y - RELAY_FOOT_Y) * charge * charge : 0;
     out.floodTopUnits = isOn && needle >= 0 ? RELAY_FOOT_Y + (RELAY_TIP_Y - RELAY_FOOT_Y) * Math.min(1, needle / 0.12) : 0;
@@ -1410,12 +1412,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     return out;
   }
   var relay = relayStateInto({ threadStrength: 0 }, -1, false);
-  function startEvent(fromSec) { eventSec = fromSec; isOpeningEvent = false; nextFireGapSec = FIRE_GAPS_SEC[fireGapIndex++ % FIRE_GAPS_SEC.length]; }
+  function startEvent(fromSec) { eventSec = fromSec; eventFromSec = fromSec; isOpeningEvent = false; nextFireGapSec = FIRE_GAPS_SEC[fireGapIndex++ % FIRE_GAPS_SEC.length]; }
   // The event's clock: on with the world's, and a start once its gap is up and the shot frames it (or it has waited long enough).
   function advanceEvent(stepSec) {
     if (typeof tool.beamSec === "number" || tool.isHeld) return;
     eventSec += stepSec;
-    if (eventSec >= nextFireGapSec && (eventSec >= nextFireGapSec + FIRE_FRAMING_WAIT_SEC || isFramedForFire())) startEvent(0);
+    // Never on the close pass round the crown: from there the column fills the screen and floods the header and the pane.
+    if (eventSec >= nextFireGapSec && !isCloseAtFire() && (eventSec >= nextFireGapSec + FIRE_FRAMING_WAIT_SEC || isFramedForFire())) startEvent(0);
   }
   function relayEventSec() { return heldEventSec >= 0 ? heldEventSec : typeof tool.beamSec === "number" ? tool.beamSec : eventSec; }
   function updateRelayState() {
@@ -1426,6 +1429,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // with the framing): in it, under the header and in the upper four fifths of it, with the column above it in it too.
   var fireEye = [0, 0, 0], fireTarget = [0, 0, 0], fireView = new Array(16), fireViewProj = new Array(16), fireCapstone = [0, 0, 0], fireAbove = [0, 0, 0];
   var CAPSTONE_POINT = [0, CAPSTONE_TOP_Y, 0], COLUMN_POINT = [0, 400, 0];
+  // Whether the camera will be within FIRE_CLOSE_UNITS of the Relay's axis at the release.
+  var FIRE_CLOSE_UNITS = 300;
+  function isCloseAtFire() { shotInto(fireEye, fireTarget, camTime + BOOM_AT_SEC * paceAt(camTime)); return Math.hypot(fireEye[0], fireEye[2]) < FIRE_CLOSE_UNITS; }
   function isFramedForFire() {
     if (!seen.isSet) return true;
     shotInto(fireEye, fireTarget, camTime + BOOM_AT_SEC * paceAt(camTime));
@@ -1458,16 +1464,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     relay.threadStrength = tone * relay.threadShare;
     coreTurnRad = (coreTurnRad + relay.coreSpinRadPerSec * stepSec) % (Math.PI * 2);
     updateRelayParts(relay.capstoneLiftUnits, relay.capstonePartUnits);
-    // The ring thins away instead of fading, since a faint orange line over a blue sky reads grey: it stays orange to the end.
-    var t = relay.boomSec;
-    if (t >= 0 && t < HALO_RING_SEC) {
-      var radius = 12 + 210 * (1 - Math.exp(-2 * t)), thin = 0.3 + 0.7 * Math.exp(-2 * t), th = (0.9 + 0.006 * radius) * thin, h = 1.6 * thin;
-      var alpha = 0.95 * (1 - smooth(HALO_RING_SEC - 0.5, HALO_RING_SEC, t)), y = CAPSTONE_BOTTOM_Y + 8;
-      put(trails, radius, y, 0, th, h, 2 * radius + th, ORANGE[0], ORANGE[1], ORANGE[2], alpha); put(trails, -radius, y, 0, th, h, 2 * radius + th, ORANGE[0], ORANGE[1], ORANGE[2], alpha);
-      put(trails, 0, y, radius, 2 * radius + th, h, th, ORANGE[0], ORANGE[1], ORANGE[2], alpha); put(trails, 0, y, -radius, 2 * radius + th, h, th, ORANGE[0], ORANGE[1], ORANGE[2], alpha);
-    }
+    // The wave across the city and the ring in the sky carry the release; there's no ring of its own round the capstone.
   }
-  var HALO_RING_SEC = 1.8;
 
   /* Light and its crisp shadow map, drawn once: the city doesn't move. */
   var SUN_AZIMUTH_RAD = Math.atan2(0.36, -0.45), SUN_ELEVATION_RAD = 40 * Math.PI / 180;
@@ -2108,7 +2106,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform2f(u.uTan, seen.tan[0], seen.tan[1]);
     gl.uniform2f(u.uShift, shift[0], shift[1]);
     gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform3fv(u.uSun, SUN); gl.uniform1f(u.uNight, night); gl.uniform1f(u.uTime, clock % 3600);
-    gl.uniform3fv(u.uEye, eye); gl.uniform4f(u.uBeamSky, relay.bottomY, headY, extras * relay.intensity * lerp(0.5, 1, night), 0);
+    gl.uniform3fv(u.uEye, eye); gl.uniform4f(u.uBeamSky, relay.bottomY, headY, extras * relay.intensity * lerp(0.5, 0.6, night), 0);
     gl.uniform4f(u.uSkyRing, relay.skyRingUnits, extras * relay.skyRingStrength * lerp(0.35, 1, night), 0, 0);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -2674,12 +2672,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggXgEAADAHAJ0BKkgAHAA+tUShSqcjoyIs2/qo4BaJTVhp9uJUSAAUisKQfv32qDUdX9EqURSQ/BjPOl+zH6wTkKscO/CVwAD+54Xpuc1rZyUIhzK18bd4ZHqgDb18nkEKA5pJPQMApLhviUb+g15cc/ESPoQY0E0Lp8g/fJWJyH4zGRffCk96dZecmHQvL6xKS3xnUPLNNHTf7FGnrs9MnkhO2wsPMG0/NsoPRBQZDXNTnGHJyRi41Wn/bmiPoaKucaYuKPjizNzqI2GPHbDBZiAwGmWiREL3UGV4XeP8F+ZAndJiN2YT47kbSmREu5T3b318n8Lr+/rAfmsqxCzjk9VRodnL4vdPd5hiJlsKuRnAAppODpgPwlgY5Oej9R2BUBq+hQsL1LQhl4DXI19kPlKMA0HttqaQUw85VQEsnugGk8yQAvRPXDZla4NgXr6pO9EAfmfTTYmpbBcEuQuM+AAA); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoYCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggmAAAADAHAJ0BKkgAHAA+sUaZSacjoiEzOqoA4BYJZwDRRCR/9BqMLu00ByQGu/cUGtP8t9jwdjO6cDy1uWHgLVaLXxdLoAD+8m1LMuCabIA9OpCZw2tOdNA6+9yri29+HBUU64fHOdD18tYqEyQgWJq1On3oSTVVc5a5GAfdgh3liWDaBhQHM6tg6Kx7Jm3oXpjAW0Ym21uvAwAA); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRuoCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg/AAAAFAHAJ0BKkgAHAA+pT6cSaYjJiEzOq34wBSJQBbI+iCWVVAPn7lXcdZJWMGWcFY0cPn4UIyCRfo1kGAyaV4z9vhY2KIA/pAKqqrqDdFwEbMofkSzDtH144HT7yXAiAEUm3nsUfSqu5H/xG/pVimw94e6p2nA3+NC559W+DncLur3VrmCW/tVjuwTM1OfTDYzWVMwxxVgNUzgTbdWHzMlNYs+tCWT9TuK7W/Zd1CwFa0oeBLLHZvaf12B/nEerECUBqautjycIogBSgyR8Ns4AMGpDZ13t4pUBjX7AMMU+TqgsrehcOqRwM9mv5imsEycD7rxaLHSkDoR3AAAAA==); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRqACAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggsgAAAJAFAJ0BKkgAHAA+tUqkSyckI6es2/lY8BaJZQDGBDRm1S3AmPrr5Seem6b9Fd+GBk3l23LAAP72cs7MJuwRdbxqWCR3awtFyXNpcB1fDxYd2rahcWzawWslS7P30oPpU3ODB6Ogvm0VeCyCO7iym8A4zdDj99j1A51K29Bd9SSGdbvppj1WXhTTahROgNNNBm7N3B4CC6N8iPZTEudSJUe+/7k9hphaLO0kH0uwZO5PAAA=); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRvgCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggCgEAADAHAJ0BKiQAJAA+tVSiTKckoyInKkjgFoliALb7tGAL/P//w/s/+BT2Ib4kVxZ9eotRSb/zx57QjHwsD8AQslx04AD8fD8Mi4ch/bzP3X+/eSzs9lSd+hOMq1POZyODsnc5FBxyb7HgWWWHF83e74FJc+hmlOnyLogBKHfSgAGM22tOv9MC55lv5RxEG1DgOTN3hLbVlhIWW81IM/x2/+ohSvPJgCvuW0sQOTmIuMQP4tril1fPPW1RGPmxnKkwCiXt5yo9xesJeO76XpJXNaR9mkUdKQWNJhCslkS7mMKmfZDi50TwuJ7dNBjiGrmxfkpgz9cJGSkrezzwZS+YG4FOuMrdoRBTwAAA); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnYCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggiAAAALAFAJ0BKiQAJAA+tUqfSy4kIqKuNAzJwBaJZwDE2ApAEEF1X5GTFksipZ4H8B7TMphtSc+EWAD+8nG0l07KAT9izkhOr+wcKIjOYmGAvL23WCh/GiHighJQFfwao1GAxSLvQ4cOkziCwaeVGoIu4WygIIiI+dhsEtPZnXIfZTrEnimDnA7XgAA=); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRtACAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg4gAAANAGAJ0BKiQAJAA+tUyiS6ckIyGqtVwA4BaJQBfAfuEGW9v/+DO0cft8pGWz6xregv9BJnxgr9k14POK29CowADKZEPk+RN1VbKeP9GnbNypKZ/xBWTkrLP5NG8d8PR4K+ulR8voCvLE2sFs3MOa2BlPVEQ2iGBticpIKXCvf7moEzzGK+dJdAqvsrZXQ3+K9m3Vw9lfgXQ4dTUOT7SoEU44OyfVVWa+ZxqC0JWBqUBICr0q8O44lDQbQL19KZ/g/7pw8NBok4Z4PHzC6lQQLNbENVuinr3Z7cnVEnFAwXdQAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRqQCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggtgAAABAGAJ0BKiQAJAA+tUqiSackI6EuOAsw4BaJZQDA3C6TCPPSDLKReziVCoyO6FKiK7ecSsMhtQFgUAD++l521ckTq8W5gDFLQP2V+Wk2Ev8Fzf9u+Ygzr5fNXXKcevf19/lNaP3hp4Yr98h/In5T7fbA/2XnzWc06D21Aa/qnAjtUSeU4lkbNDwdAzWqSlLH6CpmaoMIJjRm2muxhG0q0l7e/IGDAylkcV0jby7VZQc0UpBdgAAA); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
