@@ -679,7 +679,7 @@ describe("pages", () => {
   // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md). Pages signed in are checked
   // where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every page is measured in Chrome by
   // npm run layout:check (scripts/layout-check.mjs).
-  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/oauth/authorize?client_id=nope"];
+  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/developers/backgrounds", "/oauth/authorize?client_id=nope"];
 
   it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
     for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);

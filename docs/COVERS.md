@@ -34,7 +34,7 @@ A screenshot is a real capture of the game. Its score, menus, buttons and shop s
 
 ## Backgrounds
 
-A background is your game's world behind Zaisma's glass, on the home and your game page: a picture, or a shader that paints it live. It's separate from your cover and carries no title, logo or words: those go on the cover (`text_on_background`, and it doesn't show). Words that are part of the scene, like a sign on a building, are fine. Compose it for the glass: on a wide one, Zaisma's glass sits on the left, so keep the left calm and let the world open up on the right; on a phone one, the glass takes the bottom half, so keep the interest in the top half. Without a phone background, phones show the wide one.
+A background is your game's world behind Zaisma's glass, on the home and your game page: a picture, or a shader that paints it live. It's separate from your cover and carries no title, logo or words: those go on the cover (`text_on_background`, and it doesn't show). Words that are part of the scene, like a sign on a building, are fine. Compose it for the glass: on a wide one, Zaisma's glass sits on the left, so keep the left calm and let the world open up on the right; on a phone one, the glass takes the bottom half, so keep the interest in the top half. Without a phone background, phones show the wide one. The background guide ([`docs/BACKGROUNDS.md`](BACKGROUNDS.md), also at [zaisma.com/developers/backgrounds](https://zaisma.com/developers/backgrounds)) says what reads well under the glass, with live worlds whose sources are open to start from.
 
 ## Titles
 
