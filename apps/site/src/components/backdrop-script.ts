@@ -46,10 +46,10 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     });
     candidates.forEach(function (el) { if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
   }
+  // The pane's cuts as the edge rule reads them (GLASS_SCRIPT's window.zaismaCorners, from data-glass-corners), each at most 30% of its short side.
   function glassCuts(el, width, height) {
     var short = Math.min(width, height);
-    var isNarrow = window.matchMedia("(max-width: 760px)").matches;
-    return (el.getAttribute("data-glass-corners") || "24 20 24 20").trim().split(/ +/).map(function (cut) { return Math.min(isNarrow ? Math.round((Number(cut) || 0) * 0.8) : Number(cut) || 0, Math.round(short * 0.3)); });
+    return window.zaismaCorners(el, "pane").map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
   // Each layer's panes, in its canvas's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
   function placeGlass(layer) {
@@ -212,7 +212,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
     layers.forEach(function (layer) {
-      if (!layer.isInView || layer.canvas.hasAttribute("data-backdrop-paused")) return;
+      if (!layer.isInView || layer.isLost || layer.canvas.hasAttribute("data-backdrop-paused")) return;
       if (layer.isOuter) {
         if (!isMoved && layer.glass && layer.isTold) return;
         placeGlass(layer); layer.isTold = true;
@@ -263,6 +263,31 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(el);
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
+  /*
+   * A browser keeps only so many drawing contexts at once (about 16, across every tab of the site and every frame in them), and takes the
+   * oldest away past that. So a shader gives its context back once it has been out of view for a while and takes it again as it comes
+   * back; and one taken away anyway hides (.is-lost) instead of showing the browser's broken canvas, and is drawn on a fresh canvas when
+   * it's next in view.
+   */
+  var RELEASE_AFTER_MS = 3000;
+  function keepContext(layer) {
+    var canvas = layer.canvas, gl = canvas.getContext("webgl"), loser = gl && gl.getExtension("WEBGL_lose_context"), releaseTimer = 0;
+    canvas.addEventListener("webglcontextlost", function (event) { event.preventDefault(); layer.isLost = true; canvas.classList.add("is-lost"); });
+    canvas.addEventListener("webglcontextrestored", function () {
+      layer.drawShader = shaderDrawer(canvas); layer.isLost = false; layer.isReleased = false; layer.glass = null; layer.isDrawn = false;
+      if (!layer.drawShader) return;
+      canvas.classList.remove("is-lost"); draw(layer, performance.now());
+    });
+    layer.onView = function () {
+      clearTimeout(releaseTimer);
+      if (!layer.isInView) { if (loser && !layer.isLost) releaseTimer = setTimeout(function () { if (!layer.isInView && !layer.isLost) { layer.isReleased = true; loser.loseContext(); } }, RELEASE_AFTER_MS); return; }
+      if (!layer.isLost) return;
+      if (layer.isReleased && loser) { loser.restoreContext(); return; }
+      // Taken away by the browser: a fresh canvas in its place, set up as this one was.
+      var fresh = canvas.cloneNode(false); fresh.classList.remove("is-lost", "is-drawn");
+      window.zaismaBackdrop.remove(canvas); canvas.replaceWith(fresh); setUp(fresh);
+    };
+  }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
     var outerKind = canvas.getAttribute("data-backdrop");
@@ -284,7 +309,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     };
     layer.size();
     window.zaismaWatch.size(canvas, layer.size);
-    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(canvas);
+    if (!isScene) keepContext(layer);
+    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.onView) layer.onView(); }).observe(canvas);
     layers.push(layer);
     // The first frame is drawn at once, so the canvas never shows empty while it waits for the next animation frame.
     draw(layer, performance.now());

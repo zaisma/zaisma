@@ -4,12 +4,12 @@
 // window.zaismaInspect, which the preview's site entry loads first when the site has it, else the element's class) and a snapshot of the page as he saw it, for the pictures
 // (feedback-pictures.mjs), with what he did on the page before (pointing, clicks, touches, keys and scrolling, never what goes
 // into a password field) for the session to replay. Open comments show as pins; a session's replies show in the list, where he answers back or closes one.
-// In a frame (the gallery's Screens page) it has no button of its own: the top page hands it the clicks and boxes over it, and a
-// comment there keeps the frame's own page and size. It never starts in headless Chrome, so the measuring check and the pictures never
+// In a frame (the gallery's Screens page) it has no button of its own: the top page asks it what's under a click or a box, as a
+// comment on the frame's own page and size, and shows the spot and the form itself, at full size however small Screens draws the frame. It never starts in headless Chrome, so the measuring check and the pictures never
 // see it. Everything is in a shadow root, so page styles don't reach it and its styles don't reach the page.
 (() => {
   if (/HeadlessChrome/.test(navigator.userAgent) || window.__zaismaPreviewFeedback) return;
-  // What the top page calls on a frame's overlay, so a click or a box over a frame lands in it (below).
+  // What the top page calls on a frame's overlay, to know what a click or a box over the frame is on (below).
   const overlayApi = (window.__zaismaPreviewFeedback = {});
 
   const API = "/__preview/feedback";
@@ -288,53 +288,61 @@ textarea:focus{border-color:var(--accent)}
   // Not when the catcher itself goes away as the form opens: the box stays on screen while he writes.
   catcher.addEventListener("pointerleave", () => !press && state.mode === "picking" && clearHover());
 
-  // Over a same-origin frame with its own overlay, that overlay shows the spot and takes the comment, in its own coordinates.
+  // Over a same-origin frame with its own overlay, that overlay says what's there, in its own coordinates: Screens draws each frame
+  // scaled down to its cell (its page keeps the screen's size), so a point goes in divided by the scale and a box comes out times it.
   function frameAt(x, y) {
     for (const { frame } of frames()) {
       const rect = frame.getBoundingClientRect();
-      const left = rect.left + frame.clientLeft, top = rect.top + frame.clientTop;
+      const scale = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+      const left = rect.left + frame.clientLeft * scale, top = rect.top + frame.clientTop * scale;
       const overlay = frame.contentWindow.__zaismaPreviewFeedback;
-      if (overlay?.pick && x >= left && x < left + frame.clientWidth && y >= top && y < top + frame.clientHeight) return { overlay, left, top };
+      if (overlay?.draftAt && x >= left && x < left + frame.clientWidth * scale && y >= top && y < top + frame.clientHeight * scale) return { overlay, left, top, scale };
     }
     return null;
   }
-  let hoveredFrame = null;
+  const intoFrame = (inFrame, rect) => rect && { left: (rect.left - inFrame.left) / inFrame.scale, top: (rect.top - inFrame.top) / inFrame.scale, width: rect.width / inFrame.scale, height: rect.height / inFrame.scale };
+  const outOfFrame = (inFrame, rect) => ({ left: inFrame.left + rect.left * inFrame.scale, top: inFrame.top + rect.top * inFrame.scale, width: rect.width * inFrame.scale, height: rect.height * inFrame.scale });
   function clearHover() {
-    hoveredFrame?.clearHover();
-    hoveredFrame = null;
     hideMarks();
+  }
+  /** What's under x, y on this page: its box to outline and what to call it. */
+  function markAt(x, y) {
+    const element = elementAt(x, y);
+    const described = describe(element);
+    return { rect: (described.componentElement ?? element).getBoundingClientRect(), label: chipText(described) };
   }
   function hoverAt(x, y) {
     const inFrame = frameAt(x, y);
-    if (hoveredFrame && hoveredFrame !== inFrame?.overlay) hoveredFrame.clearHover();
-    hoveredFrame = inFrame?.overlay ?? null;
-    if (inFrame) return hideMarks(), inFrame.overlay.hoverAt(x - inFrame.left, y - inFrame.top);
-    const element = elementAt(x, y);
-    const described = describe(element);
-    showMark((described.componentElement ?? element).getBoundingClientRect(), false, chipText(described));
+    const pointed = inFrame ? inFrame.overlay.markAt((x - inFrame.left) / inFrame.scale, (y - inFrame.top) / inFrame.scale) : markAt(x, y);
+    showMark(inFrame ? outOfFrame(inFrame, pointed.rect) : pointed.rect, false, pointed.label);
+  }
+  /** A comment's draft for a click at x, y or a dragged box (rect, null for a click) on this page. */
+  function draftAt(rect, x, y) {
+    const atX = rect ? rect.left + rect.width / 2 : x, atY = rect ? rect.top + rect.height / 2 : y;
+    const element = elementAt(atX, atY);
+    return draftOf(rect ?? (describe(element).componentElement ?? element).getBoundingClientRect(), element, false);
   }
   /** A click at x, y, or a dragged box (rect, null for a click). */
   function pick(rect, x, y) {
     clearHover();
     const atX = rect ? rect.left + rect.width / 2 : x, atY = rect ? rect.top + rect.height / 2 : y;
     const inFrame = frameAt(atX, atY);
-    if (inFrame) {
-      // The frame shows the form; the top page waits, and goes back to picking when it's saved or cancelled.
-      setMode("off");
-      return inFrame.overlay.pick(rect && { left: rect.left - inFrame.left, top: rect.top - inFrame.top, width: rect.width, height: rect.height }, x - inFrame.left, y - inFrame.top);
-    }
-    const element = elementAt(atX, atY);
-    startWriting(rect ?? (describe(element).componentElement ?? element).getBoundingClientRect(), element);
+    if (!inFrame) return openDraft(draftAt(rect, x, y));
+    // The frame's page and screen, shown here at full size.
+    const draft = inFrame.overlay.draftAt(intoFrame(inFrame, rect), (x - inFrame.left) / inFrame.scale, (y - inFrame.top) / inFrame.scale);
+    openDraft({ ...draft, shownRect: outOfFrame(inFrame, draft.rect), frameOverlay: inFrame.overlay });
   }
-  overlayApi.hoverAt = hoverAt;
-  overlayApi.clearHover = hideMarks;
-  overlayApi.pick = pick;
+  overlayApi.markAt = markAt;
+  overlayApi.draftAt = draftAt;
+  overlayApi.refresh = () => ((lastAnswer = ""), refresh());
   const dragRect = (start, event) => {
     const left = Math.min(start.x, event.clientX), top = Math.min(start.y, event.clientY);
     return { left, top, width: Math.abs(event.clientX - start.x), height: Math.abs(event.clientY - start.y) };
   };
 
-  function startWriting(rect, element, isPageComment = false) {
+  // What a comment says about where it is: this page, its screen, scroll and theme, the spot (only what's on screen), what's under it,
+  // a snapshot of the page as he saw it and what he did since it loaded (Feedback's own clicks aren't in it).
+  function draftOf(rect, element, isPageComment) {
     const described = isPageComment ? { component: null, layout_rule: null, element_class: "", element_text: "", tag: "" } : describe(element);
     // Only what's on screen: a tall pane's box ends at the bottom of the viewport.
     const left = Math.max(0, rect.left), top = Math.max(0, rect.top);
@@ -343,27 +351,26 @@ textarea:focus{border-color:var(--accent)}
     try {
       snapshotHtml = snapshot();
     } catch {}
-    // What he did since the page loaded, up to now (Feedback's own clicks aren't in it).
-    state.draft = { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.slice() };
+    const screen = { page_url: pageUrl(), is_in_frame: isInFrame, viewport_width_px: innerWidth, viewport_height_px: innerHeight, scroll_x_px: scrollX, scroll_y_px: scrollY, theme: theme() };
+    return { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.slice(), screen };
+  }
+  // The form, by the spot it's about (shownRect: where that is on this page, when it's in a frame).
+  function openDraft(draft) {
+    state.draft = { shownRect: draft.rect, ...draft };
     state.mode = "writing";
     render();
-    if (isPageComment) hideMarks();
-    else showMark(clipped, false, "");
+    if (draft.isPageComment) hideMarks();
+    else showMark(state.draft.shownRect, false, "");
     root.querySelector("textarea")?.focus();
   }
+  const startWriting = (rect, element, isPageComment = false) => openDraft(draftOf(rect, element, isPageComment));
 
   async function save(text) {
-    const { rect, described, snapshotHtml, isPageComment, recentActions } = state.draft;
+    const { rect, described, snapshotHtml, isPageComment, recentActions, screen, frameOverlay } = state.draft;
     const comment = {
-      page_url: pageUrl(),
-      is_in_frame: isInFrame,
+      ...screen,
       is_page_comment: isPageComment,
       recent_actions: recentActions,
-      viewport_width_px: innerWidth,
-      viewport_height_px: innerHeight,
-      scroll_x_px: scrollX,
-      scroll_y_px: scrollY,
-      theme: theme(),
       box: { left_px: rect.left, top_px: rect.top, width_px: rect.width, height_px: rect.height },
       component: described.component,
       layout_rule: described.layout_rule,
@@ -375,6 +382,7 @@ textarea:focus{border-color:var(--accent)}
     state.comments.push(answer.comment);
     lastAnswer = "";
     toTop({ changed: true, resume: true });
+    frameOverlay?.refresh();
     setMode(isInFrame ? "off" : "picking");
     say("Saved. Click another thing, or Done.");
     refresh();
@@ -435,7 +443,7 @@ textarea:focus{border-color:var(--accent)}
   }
 
   function writingCard() {
-    const { rect, described, isPageComment, recentActions } = state.draft;
+    const { shownRect: rect, described, isPageComment, recentActions, screen } = state.draft;
     const isPhone = innerWidth < PHONE_WIDTH_PX;
     const below = rect.top + rect.height + 10, cardHeight = 190;
     // A comment on the whole page has no spot: its form sits in the middle.
@@ -445,7 +453,7 @@ textarea:focus{border-color:var(--accent)}
     return `<div class="box card" style="${isPhone ? "" : `left:${left}px;top:${top}px`}">
 <div class="label">${isPageComment ? "<b>The whole page</b>" : describedAs(described)}${described.element_text ? ` · “${esc(described.element_text)}”` : ""}</div>
 <textarea placeholder="${isPageComment ? "What's wrong or missing here?" : "What should change?"}" data-field="text"></textarea>
-<div class="row"><span class="label spacer">${innerWidth} × ${innerHeight} · ${theme()}${replayed}</span><button class="small" data-action="cancel">Cancel</button><button class="small primary" data-action="save">Save</button></div>
+<div class="row"><span class="label spacer">${screen.viewport_width_px} × ${screen.viewport_height_px} · ${screen.theme}${replayed}</span><button class="small" data-action="cancel">Cancel</button><button class="small primary" data-action="save">Save</button></div>
 </div>`;
   }
 

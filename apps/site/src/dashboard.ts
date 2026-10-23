@@ -1171,7 +1171,7 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 <div class="bg-preview not-steel" aria-label="Live preview"${glassTintColor ? html` style="--glass-hue:${glassTintColor}"` : ""}>
 <iframe class="backdrop is-framed" data-backdrop="frame" data-adapts-glass src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
 <img class="bg-picture" alt="" hidden>
-<div class="glass bg-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
+<div class="glass bg-sample" data-glass data-glass-corners="pane">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
 <p class="bg-note" role="status" hidden></p>
 </div>
 <p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>

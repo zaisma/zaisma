@@ -3,6 +3,7 @@ import { pageScript, type PageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
 import { runButton } from "./actions.ts";
+import { rail } from "./navigation.ts";
 
 /*
  * The city: Zaisma's own live 3D scene, from the sign-in draft. One city on land in an endless sea, seen on one slow cinematic loop,
@@ -36,6 +37,25 @@ export interface CityStageOptions {
  */
 export function cityStage(options: CityStageOptions = {}): Raw {
   return html`<div class="city-stage${options.isFramed ? " is-framed" : ""}" aria-hidden="true">${still("day")}${still("night")}<canvas class="city"></canvas></div>`;
+}
+
+export interface CityPaneOptions {
+  /** The header over the city (Header, on sign-in: the logo alone). */
+  header: Raw;
+  /** What the pane is, for a screen reader: the step's title. */
+  label: string;
+  body: Raw;
+  /** What goes after the pane on the page, like its scripts. */
+  after?: Raw;
+}
+
+/**
+ * The page over the city's stage (cityStage goes in the page's stage): the header, the one pane in front of the city, placed as the city
+ * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
+ */
+export function cityPane(options: CityPaneOptions): Raw {
+  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>${rail("page")}
+${options.after ?? ""}</div>`;
 }
 
 /*
@@ -1494,8 +1514,9 @@ const CITY_STYLES = `
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
-/* A pane on the city: glass in front, never resting in the scene. On a wide screen it stands on the right under the header, its edge in line
-   with the header's, down to the same inset from the bottom; on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
+/* A pane on the city: glass in front, never resting in the scene. On a wide screen it's the second of two columns (Columns, layout.ts) of
+   the page's width, standing under the header, its edge in line with the header's, down to the same inset from the bottom, the city in
+   the first; on a phone it's full width at the bottom, starting low (CITY_SCRIPT places it) and scrolling up with the page. */
 .city-page { min-height: 100vh; }
 /* The city is there to play with: a press anywhere but on the pane, the header or the rail goes through the page (and the body it
    lies behind) to it. */
@@ -1504,7 +1525,7 @@ body:has(> .city-page), .city-page { pointer-events: none; }
 /* The pane places itself under the header, so the page keeps no room for it. */
 body:has(> .city-page) { padding-top: 0; }
 html:has(.city-page) { height: 100%; }
-.city-page .city-pane { position: fixed; z-index: 1; top: calc(var(--pad-pane) + 68px + var(--pad-inner-pane)); bottom: var(--pad-pane); right: max(var(--pad-pane), calc((100% - 1240px) / 2)); width: min(440px, calc(100% - 2 * var(--pad-pane))); display: flex; }
+.city-page .city-pane { position: fixed; z-index: 1; top: calc(var(--pad-pane) + 68px + var(--pad-inner-pane)); bottom: var(--pad-pane); right: max(var(--pad-pane), calc((100% - 1240px) / 2)); width: calc((min(1240px, 100% - 2 * var(--pad-pane)) - var(--gap-block-block)) / 2); display: flex; }
 .city-page .city-pane > .glass-pane { flex: 1; min-height: 0; }
 /* The other ways in: stacked, cut only at the stack's ends. */
 .city-pane .ways { display: grid; gap: var(--gap-control-stack); }
@@ -1543,7 +1564,7 @@ component({
     {
       label: "A pane on the city",
       isWide: true,
-      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneSize: "small", label: "Sign in", body: html`<h2>Welcome back</h2>${runButton("Sign in", { type: "button", isFullWidth: true })}` })}</div>`,
+      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: html`<h2>Welcome back</h2>${runButton("Sign in", { type: "button", isFullWidth: true })}` })}</div>`,
     },
   ],
 });
