@@ -301,12 +301,17 @@ function inCheckout(pids) {
   return ours;
 }
 
-function canListen(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(false));
-    server.listen(port, () => server.close(() => resolve(true)));
-  });
+/** Whether the port is free on this Mac's own addresses, where the preview listens (its tailnet address is Tailscale Serve's). */
+async function canListen(port) {
+  for (const address of ["127.0.0.1", "::1"]) {
+    const isFree = await new Promise((resolve) => {
+      const server = net.createServer();
+      server.once("error", () => resolve(false));
+      server.listen(port, address, () => server.close(() => resolve(true)));
+    });
+    if (!isFree) return false;
+  }
+  return true;
 }
 
 async function answers(url, timeoutMs = 5000) {

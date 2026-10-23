@@ -40,6 +40,8 @@ const SIGN_IN_APP_SECRET = "preview-client-secret";
 // On a phone (PREVIEW_PHONE_HOST, set by background.mjs from phone.mjs): the pages a browser opens are this Mac's tailnet name over
 // HTTPS, each on its own port, which Tailscale Serve hands on to the same port here. workers/router.mjs tells the Workers so.
 const PHONE_HOST = process.env.PREVIEW_PHONE_HOST || "";
+// Where the preview listens: this Mac only. Tailscale Serve holds the same ports on the Mac's tailnet address.
+const LOOPBACK = ["127.0.0.1", "::1"];
 const browserOrigin = (localHost, port) => (PHONE_HOST ? `https://${PHONE_HOST}:${port}` : `http://${localHost}:${port}`);
 const SITE = browserOrigin("localhost", PORTS.site);
 // Games on another site than Zaisma's pages, as in production (zaisma.com and the game domain): 127.0.0.1 isn't localhost to a browser, so
@@ -299,6 +301,10 @@ function noteVisits() {
  * (workers/router.mjs). Asleep, a connection wakes the servers first.
  */
 function forward(port) {
+  return LOOPBACK.map((address) => forwardFrom(port, address));
+}
+
+function forwardFrom(port, address) {
   const onward = (socket) => {
     const servers = net.connect(PORTS.servers, "localhost");
     socket.pipe(servers).pipe(socket);
@@ -319,7 +325,7 @@ function forward(port) {
       awake.then(() => onward(socket), () => socket.destroy());
     });
   });
-  server.listen(port);
+  server.listen(port, address);
   return server;
 }
 
@@ -353,9 +359,9 @@ async function waitFor(url) {
 const { waitedMs } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT) });
 // The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
 if (waitedMs) {
-  const isFree = (port) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, function () { this.close(() => resolve(true)); }));
+  const isFree = (port, address) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, address, function () { this.close(() => resolve(true)); }));
   for (const port of [...Object.values(PORTS), 9340 + OFFSET]) {
-    if (await isFree(port)) continue;
+    if ((await isFree(port, "127.0.0.1")) && (await isFree(port, "::1"))) continue;
     console.log(`Port ${port} was taken while it waited in line (by a preview started without the line, or something else), so it can't start here. npm run preview:start again picks free ports.`);
     process.exit(1);
   }
@@ -397,7 +403,7 @@ const routerConfig = writeConfig("router", {
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
 writeFileSync(join(STATE, "servers.log"), "");
-const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)];
+const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)].flat();
 process.on("exit", () => forwards.forEach((server) => server.close()));
 await wake();
 await waitFor(SITE);
