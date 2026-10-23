@@ -1671,7 +1671,7 @@ function showCheck(box,check,remaining){const result=box.querySelector("[data-fo
 const line=(text,className)=>{const paragraph=document.createElement("p");paragraph.textContent=text;if(className)paragraph.className=className;result.append(paragraph);return paragraph};
 if(check.compile_error)line("It doesn't compile: "+check.compile_error,"hint bad");else{
 line(check.quality_checks.map(level=>"Level "+level.quality_level+": "+level.check_frame_ms+" of "+level.maximum_check_frame_ms+" ms a frame"+(level.check_frame_ms>level.maximum_check_frame_ms?", too slow":"")).join(" · ")||"It was too slow to time.");
-if(check.flash_count!==null)line(check.flash_count>3?"It flashes "+check.flash_count+" times in a second; more than 3 is refused.":"It flashes "+check.flash_count+" times in a second at most; more than 3 is refused.");
+if(check.flash_count)line(check.flash_count>3?"It flashes "+check.flash_count+" times in a second; more than 3 is refused.":"It flashes at most "+check.flash_count+(check.flash_count===1?" time":" times")+" in a second; more than 3 is refused.");else if(check.flash_count===0)line("It doesn't flash.");
 if(check.is_glass_smoked!==null)line("Zaisma would put "+(check.is_glass_smoked?"smoked":"light")+" glass over it, its tint at "+Math.round(check.glass_tint_pct)+"%.");
 check.notes.forEach(each=>{const paragraph=line(each.message+" ");const fix=document.createElement("span");fix.className="muted";fix.textContent=each.fix;paragraph.append(fix)});
 if(!check.notes.length)line("No notes: nothing to fix before sending.");
