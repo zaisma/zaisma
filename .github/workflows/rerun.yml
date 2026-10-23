@@ -3,7 +3,7 @@
 #
 # Two ways to start it:
 # - Push a branch named rerun/<anything> whose newest commit message has a line "Rerun: <test files>", or
-#   "Rerun: shard <n>/6" for one shard of GitHub's check exactly as check.yml deals it out. An empty commit on top of
+#   "Rerun: shard <n>/4" for one shard of GitHub's check exactly as check.yml deals it out. An empty commit on top of
 #   the fix's branch is enough (git commit --allow-empty -m "Rerun: test/rooms/room-load.test.ts"). A line
 #   "Rerun count: <n>" changes the number of runs from 50.
 # - From the Actions tab or gh workflow run rerun.yml --ref <branch> -f test_files="..." (once this file is on main).
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       test_files:
-        description: Test files, or "shard <n>/6"
+        description: Test files, or "shard <n>/4"
         required: true
       run_count:
         description: How many runs in all
@@ -71,8 +71,9 @@ jobs:
       - env:
           TEST_FILES: ${{ steps.what.outputs.test_files }}
           RUNS_FOR_JOB: ${{ steps.what.outputs.runs_for_job }}
-          # Miniflare's SQLite files in memory, as in check.yml.
+          # Miniflare's SQLite files in memory, and four files at once, as in check.yml.
           TMPDIR: /dev/shm
+          TEST_WORKER_COUNT: 4
         run: |
           case "$TEST_FILES" in
             "shard "*) arguments="--shard=${TEST_FILES#shard }" ;;
