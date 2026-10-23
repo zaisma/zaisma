@@ -43,7 +43,7 @@ export function screens(options: ScreensOptions): Raw {
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
 <figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span></figcaption>
 <ul class="screen-problems" data-screen-problems hidden></ul>
-<p class="screen-pointed" data-screen-pointed>Point at anything to see what it is and what placed it.</p>
+<p class="screen-pointed" data-screen-pointed>Point at or tap anything to see what it is and what placed it.</p>
 </figure>`;
   })}</div></div>`;
 }
@@ -56,7 +56,7 @@ export function screensPicker(path: string): Raw {
     label: "Pick a page",
     body: stack({
       items: [
-        { kind: "words", markup: html`<p>A page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, each measured by the layout check. Point at anything in a screen to see what it is and what placed it.</p>` },
+        { kind: "words", markup: html`<p>A page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, each measured by the layout check. Point at or tap anything in a screen to see what it is and what placed it.</p>` },
         // The pages the check measures, in Zaisma's branches: each branch's name over its pages.
         {
           kind: "block",
@@ -178,16 +178,17 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       doc.documentElement.setAttribute("data-theme-choice", theme);
       frame.classList.add("is-shown");
       loaded(doc, scripts.measureScript, function () {
-        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false })); }, 600); });
+        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false, isTouch: inside.matchMedia("(pointer: coarse)").matches })); }, 600); });
       });
       loaded(doc, scripts.inspectScript, function () {
-        doc.addEventListener("pointermove", function (event) {
+        // Pointed at with a mouse, or tapped on a touch screen.
+        ["pointermove", "pointerdown"].forEach(function (kind) { doc.addEventListener(kind, function (event) {
           if (!event.target.closest) return;
           var at = inside.zaismaInspect(event.target), r = at.element.getBoundingClientRect();
           pointer.hidden = false;
           pointer.style.left = r.left * scale + "px"; pointer.style.top = r.top * scale + "px"; pointer.style.width = r.width * scale + "px"; pointer.style.height = r.height * scale + "px";
           pointed.textContent = [(at.component || "Words") + (at.label ? ' "' + at.label + '"' : ""), at.layoutRule].filter(Boolean).join(" · ");
-        }, { passive: true });
+        }, { passive: true }); });
         doc.documentElement.addEventListener("mouseleave", hide);
       });
     });
@@ -199,7 +200,7 @@ component({
   name: "Screens",
   slug: "screens",
   group: "layout",
-  summary: "One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.",
+  summary: "One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.",
   styles: `
 /* Screens: a desktop beside a phone (the phone at its own size), light over dark; one under the other where the desktop would get less
    than a phone's width. Each frame is carved into the pane and cut by the edge rule, scaled down to fit its cell, so the page inside keeps

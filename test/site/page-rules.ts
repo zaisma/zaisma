@@ -24,8 +24,15 @@ export const STYLE_ATTRIBUTE: { pattern: RegExp; why: string }[] = [
   { pattern: /^--glass-hue:#[0-9a-f]{6}$/, why: "the page's glass hue (PageSettings, on <html>)" },
   { pattern: /^--swatch:(#[0-9a-fA-F]{3,8}|var\(--clear-swatch\))$/, why: "a color picker's swatch, its color" },
   { pattern: /^--fill:[0-9.]+$/, why: "a slider's fill, the share picked" },
-  { pattern: /^width:\d+%$/, why: "a usage meter's fill, the share used" },
-  { pattern: /^z-index:1$/, why: "a picture row's +N, over the pictures before it" },
+  { pattern: /^width:[0-9.]+%$/, why: "a usage meter's fill, the share used; a chart's bar" },
+  { pattern: /^z-index:\d+$/, why: "a picture row's pictures, each over the next" },
+  { pattern: /^--choice-count:\d+$/, why: "choice cards: how many share a row" },
+  { pattern: /^--point-count:\d+$/, why: "a chart's points, for the room each takes" },
+  { pattern: /^(left|right|top):-?[0-9.]+%$/, why: "a chart's point, bar or label, where its number puts it" },
+  { pattern: /^--point-(left|top):-?[0-9.]+%$/, why: "a chart's number where you point, where its point is" },
+  { pattern: /^--shown-row-count:\d+$/, why: "a table capped to a number of rows" },
+  { pattern: /^--sent:[0-9.]+$/, why: "a file drop's upload, the share sent" },
+  { pattern: /^--done-pct:[0-9.]+%$/, why: "Progress, the share done" },
 ];
 
 /** The page sheets pages may link: the site's and the gallery's, each every component's styles with the shell's or the gallery's. */

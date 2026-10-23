@@ -65,7 +65,7 @@ component({
   render: stack,
   examples: [
     {
-      label: "Words, fields and a button: words are 8px apart, a labeled field is a block (24px), a button under words 8px",
+      label: "Words, fields and a button: words are 8px apart, a labeled field is a block (24px either side), words under a button 8px",
       markup: glassPane({
         paneWidth: "fit",
         body: stack({
@@ -194,6 +194,11 @@ component({
     {
       label: "In a pane that fits what's in it",
       markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: cutButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: textButton("See all", { type: "button" }) } }) }),
+    },
+    {
+      label: "A long heading beside its corner control: it wraps, its first line on the control's center line",
+      isWide: true,
+      markup: glassPane({ paneWidth: "full", body: paneParts({ head: { words: html`<h2>Rooms where your friends are playing right now</h2><p>Liam, Sofia and Noah, in 3 rooms</p>`, end: cutButton("Refresh", { type: "button", icon: "refresh", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Join one to play with them.</p>`)] }) }) }),
     },
   ],
 });
