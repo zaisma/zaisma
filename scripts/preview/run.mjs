@@ -232,8 +232,15 @@ async function startServers() {
   // four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and
   // two runtimes each. Its output goes to servers.log, for when something doesn't start. Each checkout's preview finds
   // its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
+  // Wrangler's local trace capture (X_LOCAL_OBSERVABILITY) stays off: it keeps every request, call and log line in a
+  // store inside the runtime, and each tick of a real-time room is a call into its game server's sandbox, so Arena's
+  // test rooms alone filled it at about 10 MB a minute. Nothing in the preview reads it; an older preview's store goes.
+  // And the runtime does a full garbage collection each time it does a small one (--gc-global): each of those calls leaves
+  // memory in the runtime that only a full one frees, and with heaps this small V8 hardly ever does one, so the runtime
+  // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
+  rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
-  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } });
+  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
   // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
   const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
   feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
