@@ -98,15 +98,10 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
     var(--brush) 0 0/320px 320px,var(--face);
   box-shadow:var(--rim),var(--drop)}
 
-  background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,rgba(40,44,51,.94),rgba(24,26,31,.94));
-  -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 #000,0 2px 0 rgba(255,255,255,.035),0 12px 30px rgba(0,0,0,.38)}
-
 /* A section heading is engraved, with a machined rule running out to the edge. */
-.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin:48px 0 18px}
-.sec-head h2,.rule-h{display:flex;align-items:center;gap:18px;flex:1 1 auto;margin:0}
+.rule-h{display:flex;align-items:center;gap:18px;flex:1 1 auto;margin:0}
 .rule-h{margin:48px 0 18px}
-.sec-head h2::after,.rule-h::after{content:"";flex:1;min-width:40px;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.32),rgba(230,233,238,0));box-shadow:0 1px 0 rgba(0,0,0,.7)}
+.rule-h::after{content:"";flex:1;min-width:40px;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.32),rgba(230,233,238,0));box-shadow:0 1px 0 rgba(0,0,0,.7)}
 .engraved{height:2px;border:0;margin:0;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) bottom/100% 1px no-repeat}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px}
@@ -523,7 +518,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
  * The last check-in is kept for the tab: a page opened within a minute of it checks in when the next one is due, so moving from
  * page to page keeps the same beat as one page left open. A page that says which game checks in at once.
  */
-const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body,KEY="zaisma:presence-at";
+const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body,KEY="zaisma:checked-in-at-ms";
 try{last=Number(sessionStorage.getItem(KEY))||0}catch{}if(last>Date.now())last=0;
 const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();try{sessionStorage.setItem(KEY,String(last))}catch{}const g=b.dataset.presenceGame;
 fetch("/api/presence",{method:"POST",body:JSON.stringify(g?{game_slug:g}:{}),keepalive:true}).then(r=>{if(r.status===401)off=true}).catch(()=>{})};
