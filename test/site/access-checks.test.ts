@@ -200,6 +200,10 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "DELETE /sign-in-apps/:sign_in_app_id": () => ({}),
   "GET /credit": () => ({}),
   "POST /credit/top-ups": () => ({ body: { amount_cents: 2000 } }),
+  "GET /pro": () => ({}),
+  "POST /pro/checkout": () => ({}),
+  "POST /pro/cancel": () => ({}),
+  "POST /pro/resume": () => ({}),
   "POST /credit/refunds": (world) => ({ body: { top_up_id: world.values.top_up_id } }),
   "PATCH /credit/automatic-top-up": () => ({ body: { is_enabled: false } }),
   "GET /webhooks": () => ({}),
@@ -695,6 +699,10 @@ describe("every call", () => {
     // And the developer, with a full key, gets through.
     const eventCount = async () => (await env.DB.prepare(`SELECT COUNT(*) AS event_count FROM security_events WHERE account_id = ? AND kind NOT IN (${KEY_USE_EVENT_KINDS.map((kind) => `'${kind}'`).join(", ")})`).bind(world.victimAccountId).first<{ event_count: number }>())!.event_count;
     const eventCountBefore = await eventCount();
+    // Cancelling and resuming need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
+    if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume") {
+      await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, stripe_subscription_id = 'sub_test', is_pro_cancelled = ? WHERE id = ?").bind(Date.now() + 86_400_000, routeName === "POST /pro/resume" ? 1 : 0, world.victimOwnerId).run();
+    }
     const made = await call(apiRoute, developerKey, asDeveloper);
     expect(made.httpStatus, `The developer's own ${routeName} with a full key: ${made.answerText.slice(0, 400)}`).toBeLessThan(300);
     // A call that changes something says so in the security log; no other call writes to it.

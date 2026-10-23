@@ -14,7 +14,7 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Apps that can't send a key connect by signing in instead. In claude.ai: Settings → Connectors → Add custom connector, with `https://zaisma.com/mcp`; ChatGPT and other apps the same way, wherever they add a remote MCP server. The app opens a Zaisma page where you choose what it may do and tap your passkey, then you're back in the app with every tool working. The key command above stays the way for Claude Code and the upload command.
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `check_shader` (a shader drawn as the check would, before it's sent; see Backgrounds below), `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, hosting credit's `get_credit`, `top_up_credit`, `refund_top_up` and `update_automatic_top_up` (see Hosting and credit below), the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), a game's kept rooms' `list_kept_rooms` and `delete_kept_room` (see Kept rooms below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_shader`, `check_shader` (a shader drawn as the check would, before it's sent; see Backgrounds below), `remove_shader`, `set_background`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_qr_code` (the game's link, or a room's, as a QR code), `export_game` (everything about a game as one .zip; see Export everything below), `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, hosting credit's `get_credit`, `top_up_credit`, `refund_top_up` and `update_automatic_top_up` (see Hosting and credit below), Zaisma Pro's `get_pro`, `start_pro`, `cancel_pro` and `resume_pro` (see Zaisma Pro below), the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), a game's kept rooms' `list_kept_rooms` and `delete_kept_room` (see Kept rooms below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `rate_post`, `bookmark_post`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `check_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -146,14 +146,14 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `duplicate_path` | 400 | Two files share a path. |
 | `no_index_html` | 400 | There's no index.html at the top of the game. |
 | `too_many_files` | 400 | The game has more than 20,000 files. |
-| `game_too_big` | 413 | The game is over 2 GB. |
+| `game_too_big` | 413 | The game is over 2 GB (10 GB with Zaisma Pro). |
 | `too_big_for_mcp` | 413 | upload_files and check_game take up to 5 MB; bigger builds go through the upload command. |
 | `bad_base64` | 400 | Something sent as base64 isn't valid base64. |
 | `files_missing` | 409 | Some of the version's files haven't been sent yet. |
 | `bad_patch_notes` | 400 | patch_notes isn't text of up to 2,000 characters. |
 | `bad_publish_when_approved` | 400 | publish_when_approved isn't true or false. |
 | `bad_match_update_mode` | 400 | match_update_mode isn't next_match or now, or it came without publish_when_approved. |
-| `version_limit` | 429 | The game has had 20 versions in the last day. |
+| `version_limit` | 429 | The game has had 20 versions in the last day (100 with Zaisma Pro). |
 | `no_content_length` | 411 | A file was sent without a Content-Length header. |
 | `file_needs_parts` | 413 | A file over 95 MB was sent in one go. |
 | `no_body` | 400 | A file was sent without a body. |
@@ -233,6 +233,8 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `no_top_up` | 404 | You have no top-up with that ID. |
 | `top_up_not_refundable` | 409 | The top-up has nothing left to refund: it's spent, refunded, or over 180 days old. |
 | `bad_automatic_top_up` | 400 | The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up. |
+| `already_pro` | 409 | The developer already has a Zaisma Pro subscription (running, cancelled until the month ends, or a renewal Stripe is retrying), so there's nothing to start. |
+| `not_pro` | 409 | There's nothing to cancel or resume: the developer has no Zaisma Pro, or it's already cancelled (or isn't cancelled). |
 | `stripe_unavailable` | 503 | Stripe didn't answer, or this Zaisma has no Stripe account set up. |
 
 **A game server's logs**
@@ -394,8 +396,8 @@ The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/cor
 | `ai_review_budget_used` | none | This month's AI reviews are used up, so a person at Zaisma approves each version. |
 | `ai_review_declined` | none | The AI reviewer wouldn't review the game, so a person at Zaisma looks. |
 | `ai_review_failed` | none | The AI review didn't finish, so a person at Zaisma looks. |
-| `daily_large_reviews_used` | none | This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up. |
-| `daily_small_reviews_used` | none | This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up. |
+| `daily_large_reviews_used` | none | This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up. Zaisma Pro has 20 large reviews a day. |
+| `daily_small_reviews_used` | none | This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up. Zaisma Pro has 100 small reviews a day. |
 | `version_replaced` | none | A newer version of this game came in while this one waited, so this one isn't reviewed. |
 | `scan_failed` | none | The scan didn't finish after three tries, so a person at Zaisma looks. |
 
@@ -403,7 +405,7 @@ The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/cor
 
 Every version gets the same review, as a process rather than one look. Zaisma's own checks list what each file connects to, the links it opens and the code it can't follow. Reader models then read all of the code and pictures, in pieces, and pull out the exact lines and pictures that matter. Last, one stronger model judges from that list alone and picks its findings from the codes below, so the same game gets the same verdict every run. A finding's `path` and `quote` point at the exact line it's about.
 
-Each developer gets two kinds of review a day, across all their games. A large review is a new game or a real change: read by the reader models and judged, 5 a day. A small review is a version the reader models read, 30 a day: a tweak of a game that already passed (levels, sprites, balance: nothing new it connects to, opens, asks for or shows) keeps that version's verdict on a small review alone, and a real change uses one of each. Files a version shares unchanged with an earlier one aren't read again, so a version that changes nothing to read uses neither. Past 30, a new version is held unread with `daily_small_reviews_used`; past 5, a real change is held with `daily_large_reviews_used`, and tweaks still pass at once. Either way it's checked by itself as soon as one frees up, within a day. A version after a held one is checked for what the hold named and for anything new; what already passed stays passed. A version that's still waiting when a newer one of the same game comes in steps aside (`version_replaced`, with `replaced_by_version_id` on the version): only the newest is reviewed, and the older one never goes live by itself.
+Each developer gets two kinds of review a day, across all their games. A large review is a new game or a real change: read by the reader models and judged, 5 a day (20 with Zaisma Pro). A small review is a version the reader models read, 30 a day (100 with Zaisma Pro): a tweak of a game that already passed (levels, sprites, balance: nothing new it connects to, opens, asks for or shows) keeps that version's verdict on a small review alone, and a real change uses one of each. Files a version shares unchanged with an earlier one aren't read again, so a version that changes nothing to read uses neither. Past 30 (100 with Pro), a new version is held unread with `daily_small_reviews_used`; past 5 (20 with Pro), a real change is held with `daily_large_reviews_used`, and tweaks still pass at once. Either way it's checked by itself as soon as one frees up, within a day. A version after a held one is checked for what the hold named and for anything new; what already passed stays passed. A version that's still waiting when a newer one of the same game comes in steps aside (`version_replaced`, with `replaced_by_version_id` on the version): only the newest is reviewed, and the older one never goes live by itself.
 
 | Code | Rule | Meaning |
 | --- | --- | --- |
@@ -521,7 +523,7 @@ A key can be limited, for CI and collaborators, to some of your games and to wha
 | `forum_access` | `none`, `read`, `write` | write: post, reply, vote, follow and message Zaisma, in your name. |
 | `sign_in_app_access` | `none`, `read`, `write` | Sign-in apps. |
 | `webhook_access` | `none`, `read`, `write` | Webhooks. |
-| `credit_access` | `none`, `read`, `write` | Hosting credit (see Hosting and credit). read: the balance, top-ups and spending. write: also start a top-up, refund one, turn automatic top-up off or down, and change a game's `monthly_budget_cents`. Turning spending on or up always needs your passkey on zaisma.com (`confirmation_needed`). |
+| `credit_access` | `none`, `read`, `write` | Hosting credit (see Hosting and credit) and Zaisma Pro (see Zaisma Pro). read: the balance, top-ups and spending, and the plan. write: also start a top-up, refund one, start, cancel or resume Pro, turn automatic top-up off or down, and change a game's `monthly_budget_cents`. Turning spending on or up always needs your passkey on zaisma.com (`confirmation_needed`). |
 
 Every key sees its games and their versions, so `game_access` and `version_access` start at `read`. A key limited to some games lists only those, can't make games, and can't reach sign-in apps, webhooks or hosting credit, which belong to your whole account. Public profiles (`GET /players/:player_id`) and `GET /access` work with any key. `GET /activity` and `GET /api-keys` need a full key for all your games: they show where your account and its keys are used from. A call a key doesn't reach answers `key_not_allowed` (403), saying what it would need.
 
@@ -529,7 +531,7 @@ Every call is checked before any of it runs, in this order: the key's access, wh
 
 | Call | What it does |
 | --- | --- |
-| `GET /access` | What the key you called with can do: `{ "access": { api_key_name, access_level, area_access, game_slugs }, "can_publish", "credit_balance_cents" }`. `can_publish` is whether your account can make, upload and publish games, which until the beta only accounts Zaisma adds can. `credit_balance_cents` is your hosting credit, or `null` when the key can't read it (`credit_access` `none`, or a key limited to some games). `area_access` has every area's choice, whatever the level; `game_slugs` is `null` for every game you have and will make. From the dashboard's session, `api_key_name` is `null` and access is full. |
+| `GET /access` | What the key you called with can do: `{ "access": { api_key_name, access_level, area_access, game_slugs }, "can_publish", "credit_balance_cents", "plan" }`. `can_publish` is whether your account can make, upload and publish games, which until the beta only accounts Zaisma adds can. `credit_balance_cents` is your hosting credit, or `null` when the key can't read it (`credit_access` `none`, or a key limited to some games). `plan` is `free` or `pro` (see Zaisma Pro). `area_access` has every area's choice, whatever the level; `game_slugs` is `null` for every game you have and will make. From the dashboard's session, `api_key_name` is `null` and access is full. |
 
 ### Your account's activity
 
@@ -675,6 +677,27 @@ Everything a game runs on Zaisma's servers is on one meter per game, shown as a 
 | `POST /credit/refunds` | Refund what's unspent of one top-up to its card: `{"top_up_id"}`. Answers `refunded_cents` and `next_steps`. `top_up_not_refundable` when it's spent, refunded or over 180 days old; `no_top_up` when it isn't yours. |
 | `PATCH /credit/automatic-top-up` | Change automatic top-up: any of `is_enabled`, `top_up_below_cents`, `top_up_amount_cents` (1000 to 100000) and `monthly_top_up_limit_cents` (at least one top-up); leave out what stays the same. Turning it on needs a card from an earlier top-up. Off or lower works with a key; on or higher answers `confirmation_needed`. Answers the `credit` as `GET /credit` does, and `next_steps`. |
 | `PATCH /games/:slug` with `monthly_budget_cents` | A game's monthly budget: whole cents of at least 100, or `null` for no paid hosting (it pauses at its free hosting). `null` or lower works with a key that has `credit_access` `write`; a first or higher budget answers `confirmation_needed`. A budget under what credit already paid this month pauses the game at once; a higher one starts a game paused on its budget again. |
+
+## Zaisma Pro
+
+Zaisma Pro is $10 a month on your card, apart from hosting credit, for developers who ship a lot. It raises these limits (hosting stays on the meter and credit; Pro changes nothing inside games):
+
+| | Free | Pro |
+| --- | --- | --- |
+| Large reviews a day | 5 | 20 |
+| Small reviews a day | 30 | 100 |
+| Performance checks a day | 20 | 60 |
+| Versions a game a day | 20 | 100 |
+| Biggest game | 2 GB | 10 GB |
+
+Stats and scheduled releases are free for everyone. Seats come with Teams and custom domains with Custom game domains, so neither is part of Pro. You can cancel any time and keep Pro to the end of the paid month; then the free limits come back. A live version over 2 GB stays live, and only new uploads must fit. Versions waiting past a lowered daily review limit wait for the next free one. Pro ends at the end of the period Stripe says is paid, so a renewal Stripe retries keeps it until Stripe says it's over. Stripe sells it as the merchant of record, as it does credit. Teen developers buy Pro like anyone; whoever owns the card pays. These calls need `credit_access` (`read` for `GET /pro`, `write` for the rest); `GET /access` answers `plan` (`free` or `pro`).
+
+| Call | What it does |
+| --- | --- |
+| `GET /pro` | Your plan: `{"pro": {"plan", "pro_ends_at", "is_pro_cancelled", "monthly_price_cents", "limits": {"free": {...}, "pro": {...}}, "used_today": {"large_review_count", "small_review_count", "performance_check_count"}}}`. `plan` is `free` or `pro`; `pro_ends_at` is when Pro ends or renews (`null` on free); `is_pro_cancelled` says it ends there instead of renewing. Each plan's limits are `{"maximum_large_review_count", "maximum_small_review_count", "maximum_performance_check_count", "maximum_version_count", "maximum_game_size_bytes"}`. |
+| `POST /pro/checkout` | Start Pro. Answers `checkout_url`, Stripe's page where only you can pay, `expires_at` and `next_steps` (`get_pro` once you've paid). `already_pro` (409) while Stripe holds your Pro subscription, cancelled or not (`resume_pro` takes cancelling back). Up to 10 starts, cancels and resumes a minute. |
+| `POST /pro/cancel` | Cancel at the end of the paid month. Answers the `pro` as `GET /pro` does, and `next_steps`. `not_pro` (409) when you have no Pro or it's already cancelled. |
+| `POST /pro/resume` | Take cancelling back before it ends. Answers the `pro` as `GET /pro` does. `not_pro` (409) when you have no Pro or it isn't cancelled. |
 
 ## Players
 
@@ -1184,7 +1207,7 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/preview-links` | Turn off every preview link handed out so far for this version, and every browser that opened one. The next `preview_url` works again. Answers with the `version`. |
 
-- Same rules as zips: `index.html` at the top, no hidden files, no pre-compressed `.gz` or `.br` files, only the file types games use. Up to 20,000 files, 2 GB per game and 500 MB per file. Up to 20 versions per game a day.
+- Same rules as zips: `index.html` at the top, no hidden files, no pre-compressed `.gz` or `.br` files, only the file types games use. Up to 20,000 files, 2 GB per game (10 GB with Zaisma Pro) and 500 MB per file. Up to 20 versions per game a day (100 with Zaisma Pro).
 - Each version is scanned. An update sends only new pictures and videos through image matching (one checked in the last 30 days isn't sent again), so it's checked in seconds however big the game is.
 - A version most of whose files another developer sent first (leaving out engines, libraries and asset packs many developers share) is held with `matches_another_developers_game` until a person looks, usually within a day; your own games never count. If it's your game on another account, or you have permission, say so with `message_zaisma`. When a person finds it's a re-upload, the original developer hears, with your username.
 - One that passes waits as a draft with a private preview link for you and your AI, `https://zaisma.com/p/<secret>`, that works even while the game is a draft or private. Every call answers a fresh one, each working for a day (`preview_url_expires_at`); to show a version to anyone else, make a tester link. It opens the version full page at the game's fixed preview address, `https://<slug>--preview.zaismausercontent.com/`, so a game address never holds a key, and preview saves stay in that address's own browser storage, from one build to the next.
@@ -1199,7 +1222,7 @@ A minute after a version passes the scan, Zaisma has opened it in headless Chrom
 
 | Field | What it holds |
 | --- | --- |
-| `check_status` | `waiting` (it passed and waits for Chrome, usually under a minute), `checking`, `checked`, `over_daily_limit` (not measured: your 20 runs today are used; versions are measured again from midnight UTC) or `could_not_run` (Chrome couldn't run it on Zaisma's side; nothing for you to fix). |
+| `check_status` | `waiting` (it passed and waits for Chrome, usually under a minute), `checking`, `checked`, `over_daily_limit` (not measured: your 20 runs today (60 with Zaisma Pro) are used; versions are measured again from midnight UTC) or `could_not_run` (Chrome couldn't run it on Zaisma's side; nothing for you to fix). |
 | `checked_at` | When the run finished, or `null`. |
 | `browser_description` | Where it ran, like `Chrome 141 on a computer with no graphics card`. |
 | `loading_duration_sec` | Seconds from opening the game until it drew its first frame (the first draw on a canvas the page shows: WebGL, WebGL 2, 2D or WebGPU); `null` when nothing was drawn. A game that hasn't drawn after 10 seconds, with nothing downloading, gets one click, since many wait for one. |
@@ -1208,7 +1231,7 @@ A minute after a version passes the scan, Zaisma has opened it in headless Chrom
 | `longest_start_task_duration_ms` | The longest the page froze in one go while starting. |
 | `notes` | Each `{ code, message, path, saved_size_bytes, fix }`: `saved_size_bytes` is about how much smaller the download gets with the fix, `null` when it isn't about size or can't be told. Run notes first, then asset notes; `[]` when there's nothing to say. |
 
-`performance_check` is `null` for versions from before it ran. Every version is measured, free, up to 20 runs a day per developer; past that a version just isn't, and nothing waits. There's no call to run it again: the next upload is measured.
+`performance_check` is `null` for versions from before it ran. Every version is measured, free, up to 20 runs a day per developer (60 with Zaisma Pro); past that a version just isn't, and nothing waits. There's no call to run it again: the next upload is measured.
 
 | Code | Meaning |
 | --- | --- |
@@ -1242,7 +1265,7 @@ Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path
 | `duplicate_path` | refused | no | Two files share a path (paths don't depend on case). |
 | `bad_path` | refused | no | A path is absolute, has . or .. or an empty part in it, has control characters or is over 200 characters. |
 | `file_too_big` | refused | no | A file is over 500 MB. |
-| `game_too_big` | refused | no | The game is over 2 GB. |
+| `game_too_big` | refused | no | The game is over 2 GB (10 GB with Zaisma Pro). |
 | `too_many_files` | refused | no | The game has more than 20,000 files. |
 | `outside_file` | broken | yes | The page, a stylesheet or a module loads a file from another site; the upload command downloads it into the game. |
 | `outside_address` | broken | no | The code connects to or loads from another site while it runs. |

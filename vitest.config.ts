@@ -206,6 +206,7 @@ export default defineConfig({
         // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
+        STRIPE_PRO_PRICE_ID: "price_test_pro",
         // The pass key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
         TEST_PASS_SIGNING_KEY: passKey,
         // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).
