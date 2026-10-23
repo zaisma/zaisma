@@ -7,6 +7,9 @@
 //       Time to the first shown frame, long tasks while it builds, frame intervals, and the city's JS and GPU time per frame.
 //   node scripts/city.mjs stills
 //       Renders the four stills (brand/sign-in/) as the live city's first frame, and writes their tiny placeholders into city.ts.
+//   node scripts/city.mjs report  [--at 0] [--sizes phone,desktop] [--themes light,dark]
+//       What the city says of itself once it shows (window.zaismaCityTool.report()): its phase and when it reached each, its tier,
+//       its canvas, the screen's frame interval, the frames it drew, and its rows with their checksum. frames --json includes it too.
 //
 // Sizes: phone (320 x 667 at 2x, touch), desktop (1440 x 900), retina (1440 x 900 at 2x) and big (2560 x 1440). The city reads
 // window.zaismaCityTool, set here before each page loads, to start or hold its camera and to render a still.
@@ -35,7 +38,8 @@ const STILLS = [
 const INSTRUMENT = `(() => {
   const S = window.__city = { frames: [], cpu: [], gpu: [], longTasks: [], shownAt: null, stillAt: null, contextAt: null, measuring: false };
   const raf = window.requestAnimationFrame.bind(window), pending = [];
-  function poll() { const gl = S.gl, ext = S.timer; while (pending.length && gl.getQueryParameter(pending[0], gl.QUERY_RESULT_AVAILABLE)) { const q = pending.shift(); if (!gl.getParameter(ext.GPU_DISJOINT_EXT) && S.measuring) S.gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); gl.deleteQuery(q); } }
+  // A query from before a lost context is no query any more: it's dropped, so the ones after it are still read.
+  function poll() { const gl = S.gl, ext = S.timer; while (pending.length && (!gl.isQuery(pending[0]) || gl.getQueryParameter(pending[0], gl.QUERY_RESULT_AVAILABLE))) { const q = pending.shift(); if (!gl.isQuery(q)) continue; if (!gl.getParameter(ext.GPU_DISJOINT_EXT) && S.measuring) S.gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); gl.deleteQuery(q); } }
   window.requestAnimationFrame = (callback) => raf((time) => {
     const gl = S.gl, ext = S.timer; let query = null;
     if (gl && ext && S.measuring && !gl.isContextLost()) { poll(); query = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, query); }
@@ -44,10 +48,11 @@ const INSTRUMENT = `(() => {
   });
   (function tick(time) { if (S.measuring) S.frames.push(time); raf(tick); })();
   try { new PerformanceObserver((list) => list.getEntries().forEach((e) => S.longTasks.push([Math.round(e.startTime), Math.round(e.duration)]))).observe({ type: "longtask", buffered: true }); } catch {}
+  // The city's context, and again whenever a new canvas.city gets one (the city swaps in a fresh canvas after a lost context), so it stays measured.
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (kind, options) {
     const gl = getContext.call(this, kind, options);
-    if (gl && this.classList.contains("city") && !S.gl) { S.gl = gl; S.contextAt = performance.now(); try { S.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2"); } catch {} }
+    if (gl && this.classList.contains("city") && S.gl !== gl) { if (!S.gl) S.contextAt = performance.now(); S.gl = gl; pending.length = 0; S.timer = null; try { S.timer = gl.getExtension("EXT_disjoint_timer_query_webgl2"); } catch {} }
     return gl;
   };
   new MutationObserver(() => {
@@ -122,6 +127,19 @@ async function shots(chrome, site, args) {
   }
 }
 
+/** What the city says of itself (window.zaismaCityTool.report()), or null where it has no report. */
+const REPORT = "(() => { const tool = window.zaismaCityTool; try { return tool && tool.report ? tool.report() : null; } catch (error) { return { error: String(error) }; } })()";
+
+async function report(chrome, site, args) {
+  const second = Number(option(args, "at", "0")), path = option(args, "path", "/signin");
+  for (const sizeName of option(args, "sizes", "phone,desktop").split(",")) for (const theme of option(args, "themes", "light,dark").split(",")) {
+    const page = await openCity(chrome, site + path, { size: SIZES[sizeName], theme, tool: { startSec: second, isHeld: true } });
+    await wait(Number(option(args, "settle", "1000")));
+    console.log(`${sizeName.padEnd(7)} ${theme.padEnd(5)} ${JSON.stringify(await page.evaluate(REPORT))}${page.errors.length ? `  errors: ${page.errors.join(" / ")}` : ""}`);
+    await page.close();
+  }
+}
+
 async function frames(chrome, site, args) {
   const seconds = Number(option(args, "seconds", "8")), throttle = Number(option(args, "throttle", "1")), path = option(args, "path", "/signin");
   const results = [];
@@ -138,8 +156,9 @@ async function frames(chrome, site, args) {
       size: sizeName, theme, throttle, renderer: data.renderer, canvasPx: data.canvas,
       contextAtMs: data.contextAt && Math.round(data.contextAt), firstShownMs: data.shownAt && Math.round(data.shownAt), stillAtMs: data.stillAt && Math.round(data.stillAt),
       longTasksBeforeShownMs: data.longTasks.filter(([start]) => start < shown + 50).map(([, duration]) => duration), longTasksAfterShownMs: data.longTasks.filter(([start]) => start >= shown + 50).map(([, duration]) => duration),
+      longTasksAtMs: data.longTasks,
       frameIntervalMs: stats(intervals), framesOver20MsPercent: intervals.length ? +((100 * intervals.filter((value) => value > 20).length) / intervals.length).toFixed(1) : null,
-      cityJsMs: stats(data.cpu), cityGpuMs: stats(data.gpu), errors: page.errors,
+      cityJsMs: stats(data.cpu), cityGpuMs: stats(data.gpu), errors: page.errors, report: await page.evaluate(REPORT),
     };
     results.push(result);
     console.log(`${sizeName.padEnd(7)} ${theme.padEnd(5)} shown ${String(result.firstShownMs ?? "-").padStart(5)} ms${result.stillAtMs ? ` still at ${result.stillAtMs} ms` : ""} | long tasks before ${result.longTasksBeforeShownMs.join(",") || "none"}, after ${result.longTasksAfterShownMs.join(",") || "none"} | frames median ${result.frameIntervalMs?.median} p95 ${result.frameIntervalMs?.p95} max ${result.frameIntervalMs?.max}, ${result.framesOver20MsPercent}% over 20 ms | js median ${result.cityJsMs?.median} p95 ${result.cityJsMs?.p95} | gpu median ${result.cityGpuMs?.median} p95 ${result.cityGpuMs?.p95} max ${result.cityGpuMs?.max} | ${data.canvas}${page.errors.length ? ` | errors: ${page.errors.join(" / ")}` : ""}`);
@@ -176,8 +195,8 @@ async function stills(chrome, site) {
 }
 
 const [command, ...args] = process.argv.slice(2);
-if (!["shots", "frames", "stills"].includes(command)) {
-  console.log("Usage: node scripts/city.mjs shots|frames|stills [options] (see the top of scripts/city.mjs)");
+if (!["shots", "frames", "stills", "report"].includes(command)) {
+  console.log("Usage: node scripts/city.mjs shots|frames|stills|report [options] (see the top of scripts/city.mjs)");
   process.exit(1);
 }
 const sites = previewSites();
@@ -186,6 +205,7 @@ const chrome = await openChrome(await chromeToRun(), "zaisma-city-", { isGpu: !a
 try {
   if (command === "shots") await shots(chrome, option(args, "base", sites.site), args);
   else if (command === "frames") await frames(chrome, option(args, "base", sites.site), args);
+  else if (command === "report") await report(chrome, option(args, "base", sites.site), args);
   else await stills(chrome, option(args, "base", sites.site));
 } finally {
   await chrome.close();
