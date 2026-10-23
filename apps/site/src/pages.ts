@@ -180,7 +180,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       words(paragraph("", { type: "note", icon: "warning", id: "device-note", isHidden: true })),
       ...(tester ? [block(banner({ text: testerNote, icon: "warning", tone: "amber" }))] : []),
       ...(isClosed
-        ? [words(paragraph("This game isn't open to your account.", { type: "words" }), { id: "closed" }), control(cutButton("Find other games", { href: "/", isFullWidth: true }))]
+        ? [words(paragraph(html`This game isn't open to your account.`, { type: "words" }), { id: "closed" }), control(cutButton("Find other games", { href: "/", isFullWidth: true }))]
         : [
             block(row({ widths: "lead-fills", items: [control(runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })), control(cutButton("Details", { href: "#about", isBig: true }))] })),
             block(row({ widths: "fit", items: [control(textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })), control(textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } }))] })),

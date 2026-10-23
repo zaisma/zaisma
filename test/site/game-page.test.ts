@@ -29,9 +29,10 @@ describe("the game page's details", () => {
   it("hold Play and a Details link to About side by side, with Share and Report as words under them, and no tabs", async () => {
     await addGame("solo");
     const text = await page("/g/solo");
-    const actions = text.match(/<div class="game-act">[\s\S]*?<\/div><\/div>/)![0];
-    expect(actions).toMatch(/<div class="control-row game-actions"><button class="shell run-wrap" type="button" id="play">[\s\S]*<a class="shell cut-btn big" href="#about">/);
-    expect(actions).toMatch(/<div class="game-more-actions"><button class="shell text-btn" type="button" id="share-page" aria-controls="share-dialog">[\s\S]*<a class="shell text-btn" href="\/g\/solo\/report" data-report="">/);
+    // Play fills the row and Details fits its words (Row, lead-fills); Share and Report are text buttons in a row under them.
+    expect(text).toMatch(/<div class="row-cell is-control fills[^"]*"><button class="shell run-wrap" type="button" id="play">[\s\S]*?<div class="row-cell is-control[^"]*"><a class="shell cut-btn big" href="#about">/);
+    expect(text).toMatch(/<button class="shell text-btn" type="button" id="share-page" aria-controls="share-dialog">[\s\S]*?<a class="shell text-btn" href="\/g\/solo\/report" data-report="">/);
+    expect(placeOf(text, 'id="play"')).toBeLessThan(placeOf(text, 'id="share-page"'));
     expect(text).not.toContain('role="tablist"');
     expect(text).toContain('<section id="about">');
   });
@@ -40,12 +41,12 @@ describe("the game page's details", () => {
     const id = await addGame("arena", "relay");
     await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES (?, 'BCDFGH', 3, 8, 1, ?, ?)").bind(id, Date.now(), Date.now()).run();
     const arena = await page("/g/arena");
-    const sections = arena.slice(placeOf(arena, '<div class="game-sections">'));
+    const sections = arena.slice(placeOf(arena, '<div class="split-main">'));
     expect(sections.match(/<section id="([a-z]+)">/)![1]).toBe("rooms");
     expect(placeOf(arena, '<section id="rooms">')).toBeLessThan(placeOf(arena, '<section id="about">'));
     await addGame("solo");
     const solo = await page("/g/solo");
-    expect(solo.slice(placeOf(solo, '<div class="game-sections">')).match(/<section id="([a-z]+)">/)![1]).toBe("about");
+    expect(solo.slice(placeOf(solo, '<div class="split-main">')).match(/<section id="([a-z]+)">/)![1]).toBe("about");
   });
 
   it("show a tester link's note inside the pane just above Play, and no rooms", async () => {
@@ -54,7 +55,7 @@ describe("the game page's details", () => {
     await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('v-page', ?, 'games/page/v', 1, 0, 'approved', 0) ON CONFLICT (id) DO UPDATE SET game_id = excluded.game_id").bind(id).run();
     await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES ('t-page', ?, 'Team', 'pagetester0123456789', ?)").bind(id, Date.now()).run();
     const text = await page("/t/pagetester0123456789");
-    const pane = text.slice(placeOf(text, '<div class="game-pane">'), placeOf(text, '<div class="game-sections">'));
+    const pane = text.slice(placeOf(text, '<div class="split-side">'), placeOf(text, '<div class="split-main">'));
     expect(pane).toMatch(/<div class="banner glass amber"[\s\S]*?You&#39;re testing this game with a link from its developer\./);
     expect(placeOf(pane, "You&#39;re testing this game")).toBeLessThan(placeOf(pane, 'id="play"'));
     expect(text).not.toContain('<section id="rooms">');

@@ -1434,7 +1434,7 @@ describe("friends", () => {
     // Join grays out with why: a closed room, a full one, a friend who doesn't take joins.
     await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
     // On the game page Join lies flat, with why under the friends in words.
-    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('<p class="friends-why">Match in progress</p>');
+    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('<p class="words type-note is-muted">Match in progress</p>');
     await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 7, held_seat_count = 1").run();
     expect(await (await ana.go("/friends")).text()).toContain('data-reason="Room full"');
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
@@ -1447,7 +1447,7 @@ describe("friends", () => {
     expect(await (await ana.go("/friends")).text()).toContain('data-reason="Private room"');
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 0 WHERE slug = 'arena-game'").run();
     const gameOff = await (await ana.go("/g/arena-game/friends")).text();
-    expect(gameOff).toContain('<p class="friends-why">This game doesn&#39;t take joins</p>');
+    expect(gameOff).toContain('<p class="words type-note is-muted">This game doesn&#39;t take joins</p>');
     expect(gameOff).not.toContain("?room=ROOMAA");
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 1 WHERE slug = 'arena-game'").run();
     await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 1").run();
@@ -1580,18 +1580,19 @@ describe("friends", () => {
     }
     // One that does: Watch beside Join, everywhere Join is.
     await env.DB.prepare("UPDATE live_rooms SET maximum_spectator_count = 20, spectator_count = 2").run();
-    for (const page of await pages()) expect(page).toContain(watchLink);
+    for (const page of await pages()) expect(page.replaceAll("&amp;", "&")).toContain(watchLink);
     // A full or closed room can still be watched, while Join grays.
     await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
     const closed = await (await ana.go("/friends")).text();
     expect(closed).toContain('data-reason="Match in progress"');
-    expect(closed).toContain(watchLink);
+    expect(closed.replaceAll("&amp;", "&")).toContain(watchLink);
     await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 8").run();
-    expect(await (await ana.go("/g/arena-game/players/friends")).text()).toContain(watchLink);
+    expect((await (await ana.go("/g/arena-game/players/friends")).text()).replaceAll("&amp;", "&")).toContain(watchLink);
     // No room for another spectator.
     await env.DB.prepare("UPDATE live_rooms SET spectator_count = 20").run();
     for (const page of await pages()) {
-      expect(page).toContain('aria-label="Watch: Watching full"');
+      // Grayed with why: in its label on /friends and profiles, in words under it on the game page.
+      expect(page).toMatch(/aria-label="Watch: Watching full"|Watch: Watching full/);
       expect(page).not.toContain(watchLink);
     }
     await env.DB.prepare("UPDATE live_rooms SET spectator_count = 2").run();
@@ -1600,7 +1601,7 @@ describe("friends", () => {
     expect(await (await ana.go("/friends")).text()).toContain('aria-label="Watch: Private room"');
     await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 1").run();
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 0").run();
-    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('aria-label="Watch: This game doesn&#39;t take joins"');
+    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('Watch: This game doesn&#39;t take joins');
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 1").run();
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
     for (const page of await pages()) {
@@ -2180,7 +2181,7 @@ describe("cloud saves", () => {
     await liveGame();
     await liveGame("own-saves", 0);
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
-    expect(page).toContain('<aside class="game-card" id="keep"');
+    expect(page).toContain('<aside class="corner-card" id="keep"');
     expect(page).toContain("Your Owl Game progress is only saved in this browser.");
     expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-keep="/join"');
     expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-keep="/signin"');
@@ -2264,7 +2265,7 @@ describe("cloud saves", () => {
   it("lets a game ask a guest to sign in beside it, in a new tab, and tells the game who they are", async () => {
     await liveGame();
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
-    expect(page).toContain('<aside class="game-card" id="sign-in-ask"');
+    expect(page).toContain('<aside class="corner-card" id="sign-in-ask"');
     expect(page).toContain("Owl Game asks you to sign in");
     expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/join"');
     expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/signin"');

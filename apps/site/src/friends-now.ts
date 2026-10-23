@@ -107,7 +107,9 @@ function friendsHere(slug: string, here: FriendsInGame): Raw {
   const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
   const doors: LayoutItem[] = [...(here.join ? [{ kind: "control" as const, markup: friendJoinButton(slug, here.join) }] : []), ...(here.watch ? [{ kind: "control" as const, markup: friendWatchButton(slug, here.watch) }] : [])];
   const line = row({ widths: "fit", items: [{ kind: "block", markup: pictureRow(names, "sm") }, { kind: "words", markup: paragraph(said, { type: "words" }) }, ...doors] });
-  return here.join?.refusal ? stack({ items: [{ kind: "block", markup: line }, { kind: "words", markup: paragraph(joinRefusalText(here.join), { type: "note", isMuted: true }) }] }) : line;
+  // Why Join or Watch won't work, in words under them.
+  const why = [here.join?.refusal ? joinRefusalText(here.join) : "", here.watch?.refusal ? `Watch: ${joinRefusalText(here.watch)}` : ""].filter(Boolean).join(". ");
+  return why ? stack({ items: [{ kind: "block", markup: line }, { kind: "words", markup: paragraph(why, { type: "note", isMuted: true }) }] }) : line;
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

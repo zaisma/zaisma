@@ -182,8 +182,8 @@ describe("room codes in the game bar", () => {
     const rooms = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
     expect(rooms).toContain('id="room-open"');
     // The plate shows this room's code (filled in once the game says it's in one) and joins another by its code.
-    expect(rooms).toContain('id="room-here" hidden');
-    expect(rooms).toMatch(/<form class="room-join" method="get" action="\/g\/sky-hopper"><div class="cut-field"><label for="bar-join-code">/);
+    expect(rooms).toMatch(/id="room-here" hidden/);
+    expect(rooms).toMatch(/<form class="code-join is-stacked" method="get" action="\/g\/sky-hopper"><div class="cut-field"><label for="bar-join-code">/);
     expect(rooms).toMatch(/id="bar-join-code" name="room"[^>]* required/);
   });
 });
