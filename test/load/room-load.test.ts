@@ -24,6 +24,9 @@ const MESSAGES_PER_SEC = 30;
 const DURATION_SEC = 20;
 // The room's round trip to its players, averaged over the last seconds: a few milliseconds when it keeps up, and seconds when it doesn't.
 const MAXIMUM_LAST_PING_DURATION_MS = 500;
+// The share of 60 ticks a second the room makes. Its timer doesn't catch up a late tick, and on GitHub's 4-core runners the players
+// here take cores of their own: 88 to 99% in 60 runs there. A room whose ticks got a fifth slower still fails.
+const MINIMUM_TICK_SHARE = 0.8;
 
 // Each player's position as the game server broadcasts it, about 20 bytes a player: 2 KB a tick for 100.
 const WORLD = `
@@ -152,7 +155,7 @@ describe("a full room at full speed", () => {
     expect(summary.errors).toEqual([]);
     expect(summary.lastPingDurationMs).not.toBeNull();
     expect(summary.lastPingDurationMs!).toBeLessThan(MAXIMUM_LAST_PING_DURATION_MS);
-    expect(tickCount).toBeGreaterThanOrEqual(TICKS_PER_SEC * DURATION_SEC * 0.9);
+    expect(tickCount).toBeGreaterThanOrEqual(TICKS_PER_SEC * DURATION_SEC * MINIMUM_TICK_SHARE);
     expect(summary.fewestReceived).toBeGreaterThanOrEqual(tickCount * 0.9);
     for (const each of players) {
       each.got.isLeaving = true;
