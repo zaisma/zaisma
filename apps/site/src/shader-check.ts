@@ -334,8 +334,12 @@ window.zaismaCheck = async function (input) {
       var read = pixels();
       level.frameLuminances.push(luminance(read));
       if (input.isSheetWanted && l === 0 && (n === input.shimmerFrameIndex || n === input.shimmerFrameIndex + 1)) { drawn.shimmerDataUrls.push(canvas.toDataURL("image/png")); shimmerPixels.push(read); }
-      // Far over the limit: no need to draw the rest, or the other levels.
-      if (level.frameTimesMs[n] > slowFrameMs * 4 && n >= 2) return drawn;
+      // Far over the limit: no need to draw the rest, or the other levels. The frames so far, past the first (which compiles),
+      // must be, not one frame: a browser can stall a frame now and then, and on a fast GPU that alone is many times the limit.
+      if (n >= 4) {
+        var sortedSoFar = level.frameTimesMs.slice(1).sort(function (first, second) { return first - second; });
+        if (sortedSoFar[Math.floor(sortedSoFar.length / 2)] > slowFrameMs * 4) return drawn;
+      }
     }
   }
 
@@ -602,7 +606,9 @@ export function measureQualityLevels(drawn: Pick<ShaderRender, "referenceFrameTi
   for (const level of drawn.levels) {
     const maximumCheckFrameMs = SHADER_LIMITS.qualityLevels.find((each) => each.qualityLevel === level.qualityLevel)!.maximumCheckFrameMs;
     const isCut = level.frameTimesMs.length < SHADER_LIMITS.checkFrameCount;
-    const qualityCheck = { quality_level: level.qualityLevel, check_frame_ms: roundedMs((isCut ? Math.max(...level.frameTimesMs) : median(level.frameTimesMs)) * speedScaleNumber), maximum_check_frame_ms: maximumCheckFrameMs };
+    // Cut short, the frames it drew past the first (which compiles) say how slow; a renderer that ran out of time gave only its time.
+    const cutFrameTimesMs = level.frameTimesMs.length > 1 ? level.frameTimesMs.slice(1) : level.frameTimesMs;
+    const qualityCheck = { quality_level: level.qualityLevel, check_frame_ms: roundedMs(median(isCut ? cutFrameTimesMs : level.frameTimesMs) * speedScaleNumber), maximum_check_frame_ms: maximumCheckFrameMs };
     qualityChecks.push(qualityCheck);
     if (!tooSlow && (isCut || qualityCheck.check_frame_ms > maximumCheckFrameMs)) tooSlow = qualityCheck;
   }
