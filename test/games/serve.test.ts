@@ -38,7 +38,7 @@ describe("game server", () => {
     expect(csp).toContain("frame-ancestors https://zaisma.test");
     expect(csp).toContain("form-action 'none'");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+    expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains; preload");
     expect(res.headers.get("permissions-policy")).toContain("camera=()");
     expect(res.headers.get("set-cookie")).toBeNull();
     expect(res.headers.get("content-type")).toContain("text/html");
@@ -47,7 +47,7 @@ describe("game server", () => {
   it("sends Strict-Transport-Security on a missing game's 404 too", async () => {
     const res = await SELF.fetch(`${G}/no-such-game/`);
     expect(res.status).toBe(404);
-    expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+    expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains; preload");
   });
 
   it("knows which plain http addresses are a game's own", () => {
