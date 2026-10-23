@@ -1,6 +1,8 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
+import roomsWorker, { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import roomsWranglerText from "../../apps/rooms/wrangler.jsonc?raw";
 import { HOSTING_PAUSED_END_MESSAGE, areFriends, canChat, hasBlockBetween, verifyPass } from "@zaisma/game-server";
 import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
@@ -546,12 +548,17 @@ describe("rooms", () => {
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
+    expect(configuredRateLimit(roomsWranglerText, "CONNECT_LIMIT")).toEqual({ limit: 60, period: 60 });
+    // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 61 calls can straddle.
+    const connectLimit = countingRateLimiter(60);
     // A game that isn't there answers quickly, and still counts toward the limit.
-    const open = () => SELF.fetch(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": "203.0.113.9" } });
-    for (let i = 0; i < 60; i++) expect((await open()).status).toBe(404);
-    expect((await open()).status).toBe(429);
-    const other = await SELF.fetch(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": "203.0.113.10" } });
-    expect(other.status).toBe(404);
+    const open = (address: string) =>
+      roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, CONNECT_LIMIT: connectLimit });
+    for (let i = 0; i < 60; i++) expect((await open("203.0.113.9")).status).toBe(404);
+    expect((await open("203.0.113.9")).status).toBe(429);
+    expect(new Set(connectLimit.keys)).toEqual(new Set(["203.0.113.9"]));
+    // Another address has its own count.
+    expect((await open("203.0.113.10")).status).toBe(404);
   });
 
   it("lets the tester address in for the link it names, with room links back through it", async () => {

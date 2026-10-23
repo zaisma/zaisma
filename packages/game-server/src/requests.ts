@@ -29,8 +29,11 @@ export interface Server {
 export const REQUEST_LIMITS = {
   /** A request, as JSON. */
   maximumRequestSizeBytes: 16 * 1024,
-  /** The player pass that comes with it: room for 200 friends and 100 blocks. */
-  maximumPassSizeBytes: 16 * 1024,
+  /**
+   * The player pass that comes with it, or with a room's hello: the fullest pass Zaisma makes (1,000 owned
+   * items with 40-character names, 200 friends and 100 blocks) is about 70 KB, with room to spare.
+   */
+  maximumPassSizeBytes: 96 * 1024,
   /** What onRequest answers, as JSON. */
   maximumAnswerSizeBytes: 1024 * 1024,
   /** How long onRequest may take, awaiting the database included, before the request fails. */
