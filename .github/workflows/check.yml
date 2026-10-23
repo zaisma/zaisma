@@ -132,6 +132,30 @@ jobs:
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log .wrangler/preview/games.log || true
 
+  # The measuring check (npm run layout:check): every page in headless Chrome at 320 x 667 and 1440 x 900, light and dark,
+  # on the preview with its stand-ins and test data (test/layout/layout-check.test.ts).
+  layout:
+    name: Layout check
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run preview:start -- --reset
+      - run: npx vitest run --project layout
+        env:
+          LAYOUT_CHECK: "1"
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log || true
+
   docs-tests:
     name: Docs tests
     needs: changes
@@ -151,7 +175,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, typecheck, engines, docs-tests]
+    needs: [changes, tests, typecheck, engines, layout, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -164,14 +188,15 @@ jobs:
           TESTS_RESULT: ${{ needs.tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
+          LAYOUT_RESULT: ${{ needs.layout.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED, engine code changed: $IS_ENGINES_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Layout check: $LAYOUT_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
           # Engine exports passed, or was skipped because the pull request changed nothing it plays (a failure is never a skip).
           engines_ok=false
           if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi
           if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
-          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ]; then exit 0; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$engines_ok" = true ] && [ "$LAYOUT_RESULT" = success ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1

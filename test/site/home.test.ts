@@ -56,7 +56,7 @@ describe("the home page", () => {
 
   it("lists Popular, then Trending and New when they have games, after Continue playing", async () => {
     const { text } = await homePage();
-    const headings = [...text.matchAll(/<h2 id="([a-z]+)-title">/g)].map((match) => match[1]);
+    const headings = [...text.matchAll(/<h2 class="shelf-title" id="([a-z]+)-title">/g)].map((match) => match[1]);
     expect(headings[0]).toBe("continue");
     expect(headings).toContain("popular");
     const order = ["continue", "popular", "trending", "new"].filter((id) => headings.includes(id));
@@ -115,13 +115,13 @@ describe("the home page", () => {
     expect(second.text).toBe(first.text);
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
     // What is the player's own comes from the browser (the guest note, Continue playing, closed news) and starts hidden.
-    expect(first.text).toMatch(/<section class="home-row" id="home-continue"[^>]*hidden/);
+    expect(first.text).toMatch(/<div class="stack-cell[^"]*" id="home-continue" hidden>/);
   });
 
   it("shows Zaisma's current news as a banner the browser opens unless this device closed it, and none once it ends", async () => {
     await env.DB.prepare("INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_homenews', 'Kept rooms are here.', '/forum', NULL, ?, ?, ?, 'test')").bind(Date.now() - 1000, Date.now() + DAY_MS, Date.now()).run();
     const { text } = await homePage();
-    expect(text).toMatch(/<div class="home-news" id="home-news" data-announcement-id="announcement_homenews" hidden>/);
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-news" hidden><div data-announcement-id="announcement_homenews">/);
     expect(text).toContain("Kept rooms are here.");
     expect(text).toMatch(/href="\/forum"[\s\S]*?Read more/);
     expect(text).toContain('class="banner-close"');

@@ -1,11 +1,14 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
+import { cutPolygon } from "./tokens.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, pictureFrame } from "./data.ts";
+import { row, stack, track, type LayoutItem } from "./layout.ts";
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
@@ -56,7 +59,7 @@ export function header(options: HeaderOptions): Raw {
         { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
-  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${wordmark}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>`}
   ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
@@ -94,7 +97,7 @@ const HEADER_STYLES = `
   width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
   display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
-  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
 }
 .top.is-compact { height: 58px; top: 8px; }
@@ -224,7 +227,7 @@ const FOOTER_LINKS: [string, string][] = [
 ];
 
 export function footer(): Raw {
-  return html`<footer class="foot glass" data-glass data-glass-corners="20 14 20 14">${EDGE}
+  return html`<footer class="foot glass" data-glass data-glass-corners="header">${EDGE}
   ${logo("mark")}
   <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
   <p>Zaisma is open source, under the MIT license.</p>
@@ -399,10 +402,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
 
 
 /** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
-export function rowArrows(options: { rowName: string; trackId: string }): Raw {
+export function rowArrows(options: { rowName: string; trackId: string }): ControlMarkup {
   const arrow = (way: "back" | "on") =>
     cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`;
+  return controlMarkup(html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
 }
 
 /** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
@@ -563,7 +566,7 @@ component({
   position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
   width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-inner-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
-  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
 }
 .foot > :not(.edge) { position: relative; z-index: 3; }
@@ -578,7 +581,7 @@ component({
 }
 `,
   render: footer,
-  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],
+  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneWidth: "full", body: footer() }) }],
 });
 
 component({
@@ -670,21 +673,21 @@ component({
   examples: [
     {
       label: "Down a box",
-      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
     },
     {
       label: "Sideways, under a box (a table, a chart)",
-      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${"Patch notes, 1.4: the second boss telegraphs earlier, the arena's pillars break sooner, and saves sync across devices."}</p></div>` }),
     },
     {
       label: "Down a box, its parts marked: point at the rail for their names (by touch, drag its thumb; let go near a mark to go there)",
-      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
+      markup: html`<div class="rail-box">${glassPane({ paneWidth: "fit", body: html`${["1.4", "1.3", "1.2", "1.1"].map(
         (version) => html`<h3 class="rail-example-part" data-rail-mark="${version}">Version ${version}</h3><p>${"Rebalanced the second boss, sped up loading, and fixed saves that wouldn't sync. ".repeat(3)}</p>`,
       )}` })}</div>`,
     },
     {
       label: "Sideways, its parts marked",
-      markup: glassPane({ paneSize: "small", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="rail-side-box" data-fades-sideways data-side-rail><p>${["Monday", "Tuesday", "Wednesday", "Thursday"].map(
         (day) => html`<span data-rail-mark="${day}">${day}: 1,204 players, 3,906 hours. </span>`,
       )}</p></div>` }),
     },
@@ -700,31 +703,98 @@ component({
 /* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
-.steps { position: relative; margin-left: auto; display: none; gap: 0; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+.steps { --control-height: var(--control-height-small); position: relative; display: none; gap: 0; height: var(--control-height); padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 /* Each arrow is a Cut button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
 .steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
+/* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
 .steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
 .steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
 .steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
-/* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out
-   softly: the shared sideways fade (data-fades-sideways), further in for covers. */
-.track { --fade-sideways-px: 56px; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
-.track > .cover { flex: 0 0 236px; scroll-snap-align: start; }
-.row-head { display: flex; align-items: center; gap: var(--gap-words-control); margin-bottom: var(--gap-words-control); min-height: 36px; }
-.row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
-@media (max-width: 760px) { .track { --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } }
 `,
   render: rowArrows,
   examples: [
-    {
-      label: "A row, at its start",
-      isWide: true,
-      markup: glassPane({ paneSize: "full", body: html`<section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section>` }),
-    },
+    { label: "A row's arrows, at its start", markup: html`${rowArrows({ rowName: "Popular", trackId: "example-arrows-track" })}${track({ id: "example-arrows-track", itemSize: "cover", items: [] })}` },
   ],
 });
 
+export interface ShelfOptions {
+  /** Unique on the page: the shelf itself, for a page script (the home's Continue playing). */
+  id: string;
+  /** Its track's id, for its arrows and a page script that fills it. */
+  trackId: string;
+  title: string;
+  /** Where its title goes, like Browse sorted the same way. Left out, the title is words alone. */
+  titleHref?: string;
+  /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
+  sortTabs?: SwitchTab[];
+  /** Its covers. A page script may fill them in instead. */
+  items: LayoutItem[];
+}
+
+/**
+ * A shelf: a row of games under its heading, with its sort and, for a mouse, its arrows at the heading's end, and its covers in a track
+ * that scrolls sideways. Where the heading and the sort don't fit side by side (a phone), the sort goes under the heading, at its own width.
+ */
+export function shelf(options: ShelfOptions): Raw {
+  const titleId = `${options.id}-title`;
+  const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref, { isQuiet: true }) : options.title}</h2>`;
+  return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
+    items: [
+      {
+        kind: "block",
+        markup: row({
+          widths: "lead-fills",
+          // The sort and the arrows go together, so where they don't fit beside the heading they go under it as one.
+          items: [
+            { kind: "words", markup: title },
+            {
+              kind: "block",
+              markup: row({
+                widths: "fit",
+                items: [
+                  ...(options.sortTabs ? [{ kind: "control" as const, markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] : []),
+                  { kind: "control", markup: rowArrows({ rowName: options.title, trackId: options.trackId }) },
+                ],
+              }),
+            },
+          ],
+        }),
+      },
+      { kind: "block", markup: track({ id: options.trackId, itemSize: "cover", items: options.items }) },
+    ],
+  })}</section>`;
+}
+
+component({
+  name: "Shelf",
+  slug: "shelf",
+  group: "navigation",
+  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.",
+  styles: `
+/* A shelf: its heading, then its sort and its arrows together, in a row, the heading filling and never wrapping (so the sort and arrows go
+   under it where they don't fit), then its track of covers. */
+.shelf .shelf-title { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
+`,
+  render: shelf,
+  examples: [
+    { label: "Popular, its title a link to Browse", isWide: true, markup: glassPane({ paneWidth: "full", body: shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block" as const, markup: cover })) }) }) },
+    {
+      label: "Continue playing, with its sort",
+      isWide: true,
+      markup: glassPane({
+        paneWidth: "full",
+        body: shelf({
+          id: "example-shelf-continue",
+          trackId: "example-shelf-continue-track",
+          title: "Continue playing",
+          sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
+          items: Object.values(STAND_IN_COVERS).slice(0, 5).map((cover) => ({ kind: "block" as const, markup: cover })),
+        }),
+      }),
+    },
+  ],
+});
 
 export interface SectionTabsOptions {
   /** What the sections are, for a screen reader: "Game sections". */
@@ -751,7 +821,7 @@ component({
   render: sectionTabs,
   examples: [
     { label: "A game's dashboard", isWide: true, markup: sectionTabs({ label: "Game sections", tabs: ["Overview", "Versions", "Players", "Rooms", "Saves", "Stats", "Settings"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 1 })) }) },
-    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneSize: "small", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
+    { label: "In a narrow pane: they scroll to the one you pick", markup: glassPane({ paneWidth: "fit", body: sectionTabs({ label: "Profile sections", tabs: ["Games", "Friends", "Forum posts", "Saves", "Rooms"].map((label, tabIndex) => ({ label, href: "#section-tabs", isCurrent: tabIndex === 2 })) }) }) },
   ],
 });
 
@@ -809,7 +879,7 @@ component({
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneSize: "medium", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
+    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: html`${listRows({ id: "example-load-more-list", rows: LOADED_ROWS })}${loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" })}` }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${cutButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
   ],
 });

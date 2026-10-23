@@ -60,8 +60,8 @@ component({
    unseen, so dragging, tapping and the arrow keys work as they always do; SLIDER_SCRIPT moves the fill and the number with it. */
 .slider { --thumb: 30px; display: grid; gap: var(--gap-words-control); }
 .slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-words-words); }
-.slider-head > label { font: var(--type-label); color: var(--ink-2); }
-.slider-head > output { font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
+.slider-head > label { padding-inline-start: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
+.slider-head > output { padding-inline-end: var(--pad-words); font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
 .slider-track { position: relative; height: var(--thumb); }
 .slider-line, .slider-fill { position: absolute; top: calc(50% - 2px); height: 4px; left: calc(var(--thumb) / 2); pointer-events: none; }
 .slider-line { right: calc(var(--thumb) / 2); background: var(--line); }
@@ -168,8 +168,8 @@ component({
 `,
   render: fileDrop,
   examples: [
-    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
-    { label: "A file held over it", isWide: true, markup: glassPane({ paneSize: "medium", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
+    { label: "Waiting for a file", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-rest", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds." }) }) },
+    { label: "A file held over it", isWide: true, markup: glassPane({ paneWidth: "full", body: fileDrop({ id: "example-drop-over", name: "build", label: "Drop your game's folder as a .zip", accept: ".zip", hint: "Or tap to pick it. Up to 500 MB; the upload command takes bigger builds.", state: "over" }) }) },
     { label: "Several images", markup: examplePane(fileDrop({ id: "example-drop-images", name: "screenshots", label: "Add screenshots", accept: "image/png,image/jpeg,image/webp", isMultiple: true, hint: "PNG, JPEG or WebP, 16:9." })) },
   ],
 });
@@ -221,7 +221,7 @@ component({
   styles: `
 /* A code field: code set into the glass, a carved well like a switch's (nothing to type, so it isn't a field's lighter face), all of it in
    code's letters, wrapping onto more lines rather than hiding any. Copy is the small raised cut button at its end, standing out from the well; once it's copied, "Copied" shows beside it for a moment. */
-.code-label { font: var(--type-label); color: var(--ink-2); }
+.code-label { padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
 .field.code { height: auto; min-height: 52px; align-items: stretch; }
 .code-text { position: relative; z-index: 2; flex: 1; min-width: 0; padding: 15px 104px 15px 16px; font: 500 15px/1.45 ui-monospace, Menlo, monospace; color: var(--ink);
   overflow-wrap: anywhere; cursor: text; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
