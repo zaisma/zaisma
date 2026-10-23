@@ -1,8 +1,8 @@
 {
   "test/site/access-checks.test.ts": 34917,
+  "test/load/room-load.test.ts": 26000,
   "test/node/cli.test.ts": 22892,
   "test/site/accounts.test.ts": 20835,
-  "test/rooms/room-load.test.ts": 15279,
   "test/site/backups.test.ts": 13994,
   "test/site/compress.test.ts": 11292,
   "test/rooms/rooms.test.ts": 8536,

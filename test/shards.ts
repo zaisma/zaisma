@@ -15,8 +15,8 @@ import { relative } from "node:path";
  * the whole runner, so its time counts CI_WORKER_COUNT times.
  */
 export const SHARD_TEST_DURATIONS_MS: Record<string, number> = JSON.parse(readFileSync(new URL("./shard-weights.json", import.meta.url).pathname, "utf8"));
-/** Files that measure how fast something runs (a full room at full speed): beside other files they'd measure the machine's other work, so they run before everything else, one at a time (vitest.config.ts's rooms-alone project). */
-export const ALONE_TEST_FILES = ["test/rooms/room-load.test.ts"];
+/** Files that measure how fast something runs (a full room at full speed): beside other files they'd measure the machine's other work, so they run before everything else, one at a time (vitest.config.ts's load project). */
+export const ALONE_TEST_FILES = ["test/load/room-load.test.ts"];
 export const CI_WORKER_COUNT = 4;
 const WORKERS_SETUP_DURATION_MS = 4500;
 const NODE_SETUP_DURATION_MS = 500;
@@ -24,7 +24,7 @@ const UNLISTED_FILE_TEST_DURATION_MS = 300;
 
 /** A test file's cost in milliseconds, by its path from the repository root. */
 export function shardCostMs(path: string): number {
-  const isNode = path.startsWith("test/node/") || path.startsWith("test/layout/");
+  const isNode = path.startsWith("test/node/") || path.startsWith("test/layout/") || path.startsWith("test/load/");
   const costMs = (isNode ? NODE_SETUP_DURATION_MS : WORKERS_SETUP_DURATION_MS) + (SHARD_TEST_DURATIONS_MS[path] ?? UNLISTED_FILE_TEST_DURATION_MS);
   return ALONE_TEST_FILES.includes(path) ? costMs * CI_WORKER_COUNT : costMs;
 }
