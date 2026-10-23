@@ -87,7 +87,8 @@ async function player() {
   expect(up.status).toBe(101);
   const ws = up.webSocket as unknown as ClientSocket;
   ws.accept();
-  const got = { worldCount: 0, lastTickNumber: 0, errors: [] as string[], isClosed: false, isWelcomed: false, pings: [] as { atMs: number; pingDurationMs: number }[] };
+  // isLeaving: the test is closing the socket, so a probe that comes after gets no answer (a closing socket can't send).
+  const got = { worldCount: 0, lastTickNumber: 0, errors: [] as string[], isClosed: false, isLeaving: false, isWelcomed: false, pings: [] as { atMs: number; pingDurationMs: number }[] };
   ws.addEventListener("message", (event) => {
     const text = String(event.data);
     // Most of what comes is the world: counted without reading it all.
@@ -99,7 +100,7 @@ async function player() {
     const message = JSON.parse(text);
     if (message.type === "probe") {
       if (message.pingDurationMs !== null) got.pings.push({ atMs: Date.now(), pingDurationMs: message.pingDurationMs });
-      if (!got.isClosed) ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
+      if (!got.isClosed && !got.isLeaving) ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
     } else if (message.type === "welcome") got.isWelcomed = true;
     else if (message.type === "error") got.errors.push(message.code);
   });
@@ -153,6 +154,9 @@ describe("a full room at full speed", () => {
     expect(summary.lastPingDurationMs!).toBeLessThan(MAXIMUM_LAST_PING_DURATION_MS);
     expect(tickCount).toBeGreaterThanOrEqual(TICKS_PER_SEC * DURATION_SEC * 0.9);
     expect(summary.fewestReceived).toBeGreaterThanOrEqual(tickCount * 0.9);
-    for (const each of players) if (!each.got.isClosed) each.ws.close(1000);
+    for (const each of players) {
+      each.got.isLeaving = true;
+      if (!each.got.isClosed) each.ws.close(1000);
+    }
   }, 120_000);
 });
