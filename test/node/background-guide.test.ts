@@ -33,7 +33,7 @@ describe("docs/BACKGROUNDS.md", () => {
   });
 
   it("gives the check's numbers as the check has them", () => {
-    for (const words of [`${SHADER_LIMITS.maximumCheckFrameMs} ms`, `${SHADER_LIMITS.checkWidthPx} by ${SHADER_LIMITS.checkHeightPx}`, `${SHADER_LIMITS.maximumFlashCountPerSec} times a second`, `still at ${SHADER_LIMITS.stillTimeSec} seconds`]) expect(doc).toContain(words);
+    for (const words of [`${SHADER_LIMITS.qualityLevels[0]!.maximumCheckFrameMs} ms`, `${SHADER_LIMITS.checkWidthPx} by ${SHADER_LIMITS.checkHeightPx}`, `${SHADER_LIMITS.maximumFlashCountPerSec} times a second`, `still at ${SHADER_LIMITS.stillTimeSec} seconds`]) expect(doc).toContain(words);
   });
 });
 
@@ -68,6 +68,6 @@ describe("the stand-in worlds' sources", () => {
   });
 
   it("are each small enough to send as they are", () => {
-    for (const background of STAND_IN_BACKGROUNDS) expect(new TextEncoder().encode(backgroundSourceText(background)).length, background.slug).toBeLessThanOrEqual(SHADER_LIMITS.maximumSizeBytes);
+    for (const background of STAND_IN_BACKGROUNDS) expect(new TextEncoder().encode(backgroundSourceText(background)).length, background.slug).toBeLessThanOrEqual(SHADER_LIMITS.maximumPassSizeBytes);
   });
 });

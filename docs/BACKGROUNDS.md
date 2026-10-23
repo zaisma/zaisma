@@ -17,7 +17,7 @@ What keeps a background clear under the glass, each with why. The first three ar
 5. **Nothing flashes more than 3 times a second.** Flashing can cause seizures, so the check refuses a shader that does (`shader_flashes`).
 6. **No detail finer than about 2 pixels, and soft edges.** Players' browsers draw a shader at half the screen's resolution and scale it up, so finer or hard-edged detail shimmers as it moves.
 7. **Make every moment a finished picture.** The check keeps a still at 2 seconds and frames through the first 30, Zaisma picks the glass from that still, and the still is what shows under reduced motion. Nothing should fade in from black or build up first.
-8. **Stay within the check's time.** The check draws 90 frames at 640 by 360 on a software renderer and takes their median, scaled so Zaisma's own background takes 25 ms. Yours can take up to 75 ms (`shader_too_slow` past it), and `check_frame_ms` says what it took. Layers of noise and long loops cost the most.
+8. **Stay within the check's time.** The check draws 90 frames at 640 by 360 on a software renderer and takes their median, scaled so Zaisma's own background takes 25 ms. Yours can take up to 75 ms on phones (`shader_too_slow` past it); one that reads `iQuality` is timed at each level, up to 300 ms at level 2 for desktops, and `quality_checks` says what each took. `check_shader` runs the same check before you send it. Layers of noise and long loops cost the most.
 
 ## Worlds to start from
 

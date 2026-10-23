@@ -81,8 +81,6 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "game_images.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_images.listing_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // The copy 0134 kept when it made game_images again: never read or shown.
-  { stored: "game_images_before_0134.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  { stored: "game_images_before_0134.listing_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "game_shaders.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "tester_links.name", format: "shown_text", source: "developer", checked_by: checkedIn("apps/site/src/developer.ts", "readTesterName"), saved_by_door_ids: ["api:POST /games/:slug/testers", "api:PATCH /games/:slug/testers/:tester_id"], shown_on_door_ids: [DASHBOARD] },
   { stored: "sign_in_apps.name", format: "shown_text", source: "developer", checked_by: checkedIn("packages/core/src/sign-in-apps.ts", "checkSignInAppName"), saved_by_door_ids: ["api:POST /sign-in-apps", "api:PATCH /sign-in-apps/:sign_in_app_id"], shown_on_door_ids: ["page:/oauth/authorize"] },
@@ -196,7 +194,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "game_items.item_category", "games.refund_policy", "games.own_payment_categories", "purchases.purchase_source",
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, places Cloudflare names, its own keys and records.
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
-  "game_images.average_color", "game_images_before_0134.content_type", "game_images_before_0134.average_color", "game_shaders.average_color", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
+  "game_images.average_color", "game_shaders.average_color", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
   "domains.hostname", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "backup_runs.failure_message",
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item.
   "game_items.local_prices", "purchases.item_name",

@@ -388,7 +388,5 @@ describe("migration 0134", () => {
     expect(database.prepare("SELECT id, kind, cleared_at_ms, average_color, is_glass_smoked, glass_tint_pct FROM game_images").all()).toEqual([{ id: "image_world", kind: "background", cleared_at_ms: 9, average_color: "#0E0A28", is_glass_smoked: 1, glass_tint_pct: 62 }]);
     database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_noise', 'game_one', 'shader_texture', 'image/png', 256, 256, 40, 9)");
     expect(() => database.exec("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) VALUES ('image_video', 'game_one', 'video', 'video/mp4', 256, 256, 40, 9)")).toThrow();
-    // Nothing was deleted: the old table is kept under another name.
-    expect(database.prepare("SELECT COUNT(*) AS image_count FROM game_images_before_0134").get()).toEqual({ image_count: 1 });
   });
 });
