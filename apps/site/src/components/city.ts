@@ -402,8 +402,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "void main(){ vec3 nn = aNor; gl_Position = uLightViewProj * vec4(iOff + placeCorner(aPos, iScale, iMaterial, iRot, nn), 1.0); }";
   var DEPTH_FS = "#version 300 es\nprecision mediump float; out vec4 o; void main(){ o = vec4(1.0); }";
   var FULL_VS = "#version 300 es\nout vec2 vUv; void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }";
-  var NOISE_GLSL = "float hash1(float x){ return fract(sin(x * 127.1) * 43758.5453); }\n" +
-    "float hash2(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }\n";
+  var NOISE_GLSL = "float hash1(float x){ return fract(sin(x * 127.1) * 43758.5453); }\n";
   // The sky's ceiling, where the Relay's ring runs out at a firing, and the spacing of the lattice it lights there.
   var SKY_CEILING_Y = 600, LATTICE_SPACING = 220;
   var SKY_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
@@ -423,12 +422,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float rings = lineAt(rho - 0.017, 0.0005, px) + lineAt(rho - 0.023, 0.0005, px) * step(0.5, fract(turn * 2.546 + uTime * 0.03))\n" +
     "   + 0.7 * lineAt(rho - 0.03, 0.0004, px) * step(0.3, fract(turn * 5.093 - uTime * 0.02));\n" +
     "  c = mix(c, mix(vec3(1.0, 1.0, 0.98), vec3(0.8, 0.88, 1.0), uNight), clamp(disc + 0.85 * rings, 0.0, 1.0) * mix(0.18, 0.6, uNight)); }\n" +
-    // Stars at night: sharp square points, one to three pixels across, a few blinking slowly like distant signals.
-    " vec2 sc = vec2(atan(d.z, d.x) * 150.0, d.y * 150.0); vec2 ci = floor(sc); float hs = hash2(ci); vec2 cellPx = clamp(fwidth(sc), vec2(1e-3), vec2(0.5));\n" +
-    " vec2 starAt = (fract(sc) - 0.5 - (vec2(hash1(hs * 9.1), hash1(hs * 3.7)) - 0.5) * 0.5) / cellPx; float starSize = 0.5 + 0.8 * fract(hs * 53.3);\n" +
-    " float star = step(0.99, hs) * (1.0 - smoothstep(starSize - 0.5, starSize + 0.5, max(abs(starAt.x), abs(starAt.y)))) * (0.3 + 0.7 * pow(fract(hs * 91.7), 2.0)) * smoothstep(0.1, 0.3, d.y);\n" +
-    " star *= fract(hs * 17.3) < 0.15 ? 0.2 + 0.8 * step(0.35, fract(uTime * 0.23 + hs * 7.0)) : 1.0;\n" +
-    " c += vec3(0.85, 0.92, 1.0) * star * uNight * 1.4;\n" +
     // While the Relay fires: a warm glow round the column above the capstone, so what stands in front of it reads as a silhouette; and the
     // sky shows it's a grid: a square ring runs out over a ceiling at SKY_CEILING_Y, lighting a lattice behind it that fades away.
     " if (uBeamSky.z + uSkyRing.y > 0.0) { float warm = 0.0, flatShare = max(dot(d.xz, d.xz), 1e-6), t = -dot(uEye.xz, d.xz) / flatShare;\n" +
@@ -946,9 +939,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var k = 1 + m.wob * Math.sin(3 * theta + m.phase);
     var lx = Math.cos(theta) * m.rx * k, lz = Math.sin(theta) * m.rz * k;
     var c = Math.cos(m.rot), s = Math.sin(m.rot);
-    return setInto(out, m.cx + lx * c - lz * s, m.y + m.bob * Math.sin(theta + m.phase), m.cz + lx * s + lz * c);
+    return setInto(out, m.cx + lx * c - lz * s, m.y + m.bob * Math.sin(theta + m.phase) + m.rise * Math.sin(theta * m.riseRate + m.risePhase), m.cz + lx * s + lz * c);
   }
   // Each loop flyer circles close around one downtown tower, at some height on it; a loop is kept only if nothing else is in its way.
+  // Half of them spiral, up round the tower over a turn or two and back down; the rest fly rings tipped up on one side, down on the other.
   var towers = [], towerCount = 0, loopCheck = [0, 0, 0];
   function flyerKind(m) {
     var kind = rand();
@@ -958,15 +952,18 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     m.off = [0, 0, 0]; m.vel = [0, 0, 0]; m.pop = 0; m.at = [0, 0, 0]; m.hits = 0; m.heat = 0; m.grow = 1;
     return m;
   }
-  function makeLoop(tw) {
+  function makeLoop(tw, isSpiral) {
     for (var attempt = 0; attempt < 40; attempt++) {
       var rad = Math.hypot(tw.w, tw.d) / 2 + 2.5 + rand() * 5;
       var m = { loop: true, cx: tw.x, cz: tw.z, rx: rad, rz: rad * (1 + rand() * 0.3), rot: rand() * Math.PI, wob: 0.05,
-        phase: rand() * 6.28, theta: rand() * 6.28, sign: rand() < 0.5 ? 1 : -1, y: tw.top * (0.3 + rand() * 0.6), bob: 1 + rand() * 3 };
-      var ok = true;
-      for (var sIndex = 0; sIndex < 64 && ok; sIndex++) {
+        phase: rand() * 6.28, theta: rand() * 6.28, sign: rand() < 0.5 ? 1 : -1, y: tw.top * (0.3 + rand() * 0.6),
+        bob: isSpiral ? 1 + rand() * 2 : rad * (0.18 + rand() * 0.18), rise: isSpiral ? Math.min(24, tw.top * (0.12 + rand() * 0.14)) : 0,
+        riseRate: rand() < 0.5 ? 1 / 2 : 1 / 3, risePhase: rand() * 6.28 };
+      // Every turn of it before it repeats: clear of the roofs under it, and never far over its own tower's top.
+      var ok = true, sampleCount = Math.round(64 / m.riseRate);
+      for (var sIndex = 0; sIndex < sampleCount && ok; sIndex++) {
         var pt = loopPointInto(loopCheck, m, sIndex / 64 * Math.PI * 2);
-        if (heightUnder(pt[0], pt[2]) > pt[1] - 2.5) ok = false;
+        if (heightUnder(pt[0], pt[2]) > pt[1] - 2.5 || pt[1] > tw.top + 6) ok = false;
       }
       if (!ok) continue;
       var meanRadius = (m.rx + m.rz) / 2;
@@ -980,25 +977,37 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     towers = downtown.filter(function (b) { return b.top > 42; }).sort(function (a, b) { return b.top - a.top; });
     towerCount = Math.min(towers.length, 12);
     for (var f = 0; f < 40 && flyers.length < 10 && towerCount; f++) {
-      var loop = makeLoop(towers[f % towerCount]);
+      var loop = makeLoop(towers[f % towerCount], flyers.length % 2 === 1);
       if (loop) flyers.push(loop);
     }
   }
-  // Lane flyers run the street canyons in both directions, weaving low between the towers. Each keeps near the buildings around it: never far above the skyline, never in the sky over the low districts, and always clear of what's right under it.
-  var LANE_STEP = 4, laneCheck = [0, 0, 0];
+  // Lane flyers run the street canyons in both directions, weaving low between the towers. Each keeps near the buildings around it: never far above the skyline, never in the sky over the low districts, and always clear of what's in the street under it.
+  // It swoops, a long slow dive and climb where there's room, and never climbs or falls steeper than LANE_CLIMB_SLOPE: it starts up early
+  // where a roof rises ahead.
+  var LANE_STEP = 4, LANE_CLIMB_SLOPE = 0.35, laneCheck = [0, 0, 0];
   function laneProfile(m) {
     var n = Math.ceil(m.limit * 2 / LANE_STEP) + 2, want = new Float32Array(n), floor = new Float32Array(n), blur = new Float32Array(n);
     function at(p, along, side) { return m.axis === "x" ? heightUnder(p + along, m.lane + side) : heightUnder(m.lane + side, p + along); }
+    function exactAt(p, along, side) { return m.axis === "x" ? heightUnderExact(p + along, m.lane + side) : heightUnderExact(m.lane + side, p + along); }
     for (var i = 0; i < n; i++) {
       var p = -m.limit + i * LANE_STEP, sky = 0, under = 0;
       for (var a = -20; a <= 20; a += 4) for (var c = -28; c <= 28; c += 4) sky = Math.max(sky, at(p, a, c));
-      for (var a2 = -4; a2 <= 4; a2 += 2) for (var c2 = -3; c2 <= 3; c2 += 1.5) under = Math.max(under, at(p, a2, c2));
+      for (var a2 = -4; a2 <= 4; a2 += 2) for (var c2 = -1; c2 <= 1; c2 += 1) under = Math.max(under, exactAt(p, a2, c2));
       floor[i] = Math.max(6, under + 5);
       want[i] = Math.max(floor[i], Math.min(m.y, sky + 9));
     }
     for (var round = 0; round < 3; round++) {
       for (var j = 0; j < n; j++) { var sum = 0, count = 0; for (var o = -5; o <= 5; o++) if (j + o >= 0 && j + o < n) { sum += want[j + o]; count++; } blur[j] = sum / count; }
       for (var k = 0; k < n; k++) want[k] = Math.max(blur[k], floor[k]);
+    }
+    for (var sw = 0; sw < n; sw++) want[sw] = Math.max(floor[sw], want[sw] + m.swoop * Math.sin((sw * LANE_STEP - m.limit) * m.swoopRate + m.swoopPhase));
+    // Each point at least as high as its neighbours less the slope allows, both ways along; then the corners rounded.
+    var fall = LANE_CLIMB_SLOPE * LANE_STEP;
+    for (var up = 1; up < n; up++) want[up] = Math.max(want[up], want[up - 1] - fall);
+    for (var back = n - 2; back >= 0; back--) want[back] = Math.max(want[back], want[back + 1] - fall);
+    for (var pass = 0; pass < 2; pass++) {
+      for (var r = 0; r < n; r++) blur[r] = (want[Math.max(0, r - 1)] + 2 * want[r] + want[Math.min(n - 1, r + 1)]) / 4;
+      for (var q = 0; q < n; q++) want[q] = Math.max(blur[q], floor[q]);
     }
     m.alt = want; m.over = Math.max.apply(null, floor) - m.y;
   }
@@ -1020,7 +1029,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // to climb right over it, so another is tried, up to thirty times.
   function laneTry() {
     var line = (Math.floor(rand() * 19) - 9) * C, sign = rand() < 0.5 ? 1 : -1;
-    var m = { lane: line + sign * 0.7, axis: rand() < 0.5 ? "x" : "z", sign: sign, y: 9 + rand() * 34, phase: rand() * 6.28 };
+    var m = { lane: line + sign * 0.7, axis: rand() < 0.5 ? "x" : "z", sign: sign, y: 9 + rand() * 34, phase: rand() * 6.28,
+      swoop: 5 + rand() * 7, swoopRate: Math.PI * 2 / (160 + rand() * 100), swoopPhase: rand() * 6.28 };
     m.limit = Math.max(120, coastAt(m.axis === "x" ? 1 : 0, m.axis === "x" ? 0 : 1) - 20);
     laneProfile(m);
     return m;
@@ -1032,18 +1042,20 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     m.speed *= 2.6;
     return m;
   }
-  function makeLane() { for (var attempt = 0; ; attempt++) { var m = laneTry(); if (isLaneClear(m) || attempt === 29) return laneDone(m); } }
+  // Only ever a clear lane: with none in thirty tries there's none, and a flyer that broke apart keeps its own.
+  function makeLane() { for (var attempt = 0; attempt < 30; attempt++) { var m = laneTry(); if (isLaneClear(m)) return laneDone(m); } return null; }
   var LANE_COUNT = small ? 14 : 20, lanesMade = 0, laneAttempt = 0;
-  // One try at the next lane a build step; done once all of them are made.
+  // One try at the next lane a build step; done once all of them are made or given up on.
   function buildLaneTry() {
     if (lanesMade < LANE_COUNT) {
       var m = laneTry();
-      if (isLaneClear(m) || laneAttempt === 29) { flyers.push(laneDone(m)); lanesMade++; laneAttempt = 0; } else laneAttempt++;
+      if (isLaneClear(m)) { flyers.push(laneDone(m)); lanesMade++; laneAttempt = 0; } else if (++laneAttempt === 30) { lanesMade++; laneAttempt = 0; }
     }
     return lanesMade >= LANE_COUNT;
   }
-  // Low flying cars all over the city: each rests on a roof or in a tower's bay, spools up, lifts off, flies a gentle curve, flares, hovers and touches down.
-  var pads = [], hoppers = [], HISTORY_LENGTH = 14;
+  // Low flying cars all over the city: each rests on a roof or in a tower's bay, spools up, lifts off, flies a gentle curve that arcs up
+  // over the roofs and down again, flares, hovers and touches down.
+  var pads = [], hoppers = [], HISTORY_LENGTH = 14, FLIGHT_SAMPLES = 32, FLIGHT_CLIMB_SLOPE = 0.7, FLIGHT_OVER_UNITS = 16, FLIGHT_LIFT_UNITS = 8;
   function bezierInto(out, a, c, b, t) { var u = 1 - t; out[0] = u * u * a[0] + 2 * u * t * c[0] + t * t * b[0]; out[1] = u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]; return out; }
   function pickPad(from) {
     var list = bays.length && rand() < 0.35 ? bays : pads, to = null;
@@ -1053,20 +1065,51 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
     return to || pads[Math.floor(rand() * pads.length)];
   }
-  var flightPoint = [0, 0];
-  function planFlight(h) {
-    var from = h.pad, to = pickPad(from);
-    from.taken = false; to.taken = true;
-    h.a = [from.x + from.out[0], from.z + from.out[1]]; h.b = [to.x + to.out[0], to.z + to.out[1]];
-    var dx = h.b[0] - h.a[0], dz = h.b[1] - h.a[1], len = Math.hypot(dx, dz) || 1, bend = (rand() - 0.5) * 0.7 * len;
-    h.c = [(h.a[0] + h.b[0]) / 2 - dz / len * bend, (h.a[1] + h.b[1]) / 2 + dx / len * bend];
-    var clear = Math.max(from.top, to.top), length = 0, prevX = h.a[0], prevZ = h.a[1];
-    for (var i = 1; i <= 32; i++) { var q = bezierInto(flightPoint, h.a, h.c, h.b, i / 32); clear = Math.max(clear, heightUnder(q[0], q[1])); length += Math.hypot(q[0] - prevX, q[1] - prevZ); prevX = q[0]; prevZ = q[1]; }
-    h.from = from; h.to = to; h.cruise = clear + 6 + rand() * 8;
-    // The phases of one flight, in seconds.
-    h.legs = [0.7, from.bay ? 1.5 : 0.45, Math.max(1.2, (h.cruise - from.top - 2.5) / 12), length / (13 + rand() * 4), Math.max(1.2, (h.cruise - to.top - 2.5) / 11), to.bay ? 1.7 : 0.9, 0.45];
-    h.t = 0; h.flying = true; h.leg = 0; h.puffed = false;
+  var flightPoint = [0, 0], flightFloor = new Float32Array(FLIGHT_SAMPLES + 1), flightRound = new Float32Array(FLIGHT_SAMPLES + 1);
+  function highestUnder(a, c, b) {
+    var top = 0;
+    for (var i = 0; i <= FLIGHT_SAMPLES; i++) { var q = bezierInto(flightPoint, a, c, b, i / FLIGHT_SAMPLES); top = Math.max(top, heightUnder(q[0], q[1])); }
+    return top;
   }
+  // A flight's heights along its curve, into alt: an arc from pad to pad, raised where a roof under it needs, never climbing or falling
+  // steeper than FLIGHT_CLIMB_SLOPE, its corners rounded. Answers the curve's length.
+  function flightHeightsInto(alt, a, c, b, y0, y1) {
+    var length = 0, prevX = a[0], prevZ = a[1];
+    for (var i = 1; i <= FLIGHT_SAMPLES; i++) { var q = bezierInto(flightPoint, a, c, b, i / FLIGHT_SAMPLES); length += Math.hypot(q[0] - prevX, q[1] - prevZ); prevX = q[0]; prevZ = q[1]; }
+    var arc = 3 + 0.08 * length + rand() * 4, fall = FLIGHT_CLIMB_SLOPE * length / FLIGHT_SAMPLES;
+    for (var j = 0; j <= FLIGHT_SAMPLES; j++) {
+      var u = j / FLIGHT_SAMPLES, p = bezierInto(flightPoint, a, c, b, u);
+      flightFloor[j] = heightUnder(p[0], p[1]) + 4;
+      alt[j] = Math.max(lerp(y0, y1, u) + arc * Math.sin(Math.PI * u), flightFloor[j]);
+    }
+    for (var up = 1; up <= FLIGHT_SAMPLES; up++) alt[up] = Math.max(alt[up], alt[up - 1] - fall);
+    for (var back = FLIGHT_SAMPLES - 1; back >= 0; back--) alt[back] = Math.max(alt[back], alt[back + 1] - fall);
+    for (var r = 1; r < FLIGHT_SAMPLES; r++) flightRound[r] = (alt[r - 1] + 2 * alt[r] + alt[r + 1]) / 4;
+    for (var k = 1; k < FLIGHT_SAMPLES; k++) alt[k] = Math.max(flightRound[k], flightFloor[k]);
+    return length;
+  }
+  // A flight: where to, by which curve, and how high along it. The first of up to sixteen whose curve passes no roof more than
+  // FLIGHT_OVER_UNITS over its pads, and that lifts off and sets down no more than FLIGHT_LIFT_UNITS straight up or down; with none, the
+  // car waits on its pad a little longer. So it never climbs over a tower in its way, nor rises like a lift beside one.
+  function planFlight(h) {
+    var from = h.pad, alt = h.alt || (h.alt = new Float32Array(FLIGHT_SAMPLES + 1));
+    for (var tries = 0; tries < 16; tries++) {
+      var to = pickPad(from), a = [from.x + from.out[0], from.z + from.out[1]], b = [to.x + to.out[0], to.z + to.out[1]];
+      var dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz) || 1, bend = (rand() - 0.5) * 0.7 * len;
+      var c = [(a[0] + b[0]) / 2 - dz / len * bend, (a[1] + b[1]) / 2 + dx / len * bend];
+      if (highestUnder(a, c, b) - Math.max(from.top, to.top) > FLIGHT_OVER_UNITS) continue;
+      var y0 = from.top + 2.5, y1 = to.top + 2.5, length = flightHeightsInto(alt, a, c, b, y0, y1);
+      if (alt[0] - y0 > FLIGHT_LIFT_UNITS || alt[FLIGHT_SAMPLES] - y1 > FLIGHT_LIFT_UNITS) continue;
+      from.taken = false; to.taken = true;
+      h.a = a; h.b = b; h.c = c; h.from = from; h.to = to;
+      // The phases of one flight, in seconds.
+      h.legs = [0.7, from.bay ? 1.5 : 0.45, Math.max(0.6, (alt[0] - y0) / 12), length / (13 + rand() * 4), Math.max(0.6, (alt[FLIGHT_SAMPLES] - y1) / 11), to.bay ? 1.7 : 0.9, 0.45];
+      h.t = 0; h.flying = true; h.leg = 0; h.puffed = false;
+      return true;
+    }
+    return false;
+  }
+  function flightHeightAt(h, u) { var f = u * FLIGHT_SAMPLES, i = Math.min(FLIGHT_SAMPLES - 1, Math.floor(f)); return lerp(h.alt[i], h.alt[i + 1], f - i); }
   function makeHistory() { var list = []; for (var i = 0; i < HISTORY_LENGTH; i++) list.push([0, 0, 0]); return list; }
   function buildHoppers() {
     pads = allBuildings.filter(function (b) { return b.top > 4 && b.top < 32 && Math.min(b.w, b.d) > 3.5; });
@@ -1086,8 +1129,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var pad = h.flying ? h.from : h.pad;
     if (!h.flying) {
       h.wait -= dt;
-      if (h.wait > 0) return setInto(out, pad.x, pad.top, pad.z);
-      planFlight(h);
+      if (h.wait > 0 || !planFlight(h)) { if (h.wait <= 0) h.wait = 1 + rand() * 2; return setInto(out, pad.x, pad.top, pad.z); }
     }
     h.t += dt;
     var t = h.t, L = h.legs, k, leg = 0;
@@ -1106,20 +1148,20 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
         if (from.bay) { h.lean = -0.12 * Math.sin(Math.PI * k); return setInto(out, lerp(from.x, a[0], e), from.top + 0.5 + Math.sin(Math.PI * k) * -1.2 + e * 2, lerp(from.z, a[1], e)); }
         return setInto(out, from.x, from.top + 0.5 + e * 2, from.z);
       }
-      case 2: { // climb: speeds up, nose high, turning to face where it's going
+      case 2: { // climb: nose high, turning to face where it's going, up to where its arc starts if a roof beside the pad needs it
         var e2 = k * k * (3 - 2 * k);
         h.aim = Math.atan2(h.c[1] - a[1], h.c[0] - a[0]); h.lean = 0.35 * Math.sin(Math.PI * Math.min(1, k * 1.2));
         h.squash = 1 + 0.08 * Math.sin(Math.PI * k);
-        return setInto(out, a[0], lerp(from.top + 2.5, h.cruise, e2), a[1]);
+        return setInto(out, a[0], lerp(from.top + 2.5, h.alt[0], e2), a[1]);
       }
-      case 3: { // across: a gentle arc
-        var q = bezierInto(flightPoint, a, h.c, b, smooth(0, 1, k));
-        return setInto(out, q[0], h.cruise + Math.sin(k * Math.PI) * 2.5, q[1]);
+      case 3: { // across: an arc, curving up over the roofs and down again
+        var u3 = smooth(0, 1, k), q = bezierInto(flightPoint, a, h.c, b, u3);
+        return setInto(out, q[0], flightHeightAt(h, u3), q[1]);
       }
       case 4: { // down: falls quickly then brakes, nose up to flare
         var e4 = 1 - Math.pow(1 - k, 2.4);
         h.lean = 0.3 * smooth(0.45, 1, k); if (to.bay) h.aim = to.faceIn;
-        return setInto(out, b[0], lerp(h.cruise, to.top + 2.5, e4), b[1]);
+        return setInto(out, b[0], lerp(h.alt[FLIGHT_SAMPLES], to.top + 2.5, e4), b[1]);
       }
       case 5: { // in: hovers down onto a roof, or glides into a bay
         var e5 = smooth(0, 1, k), bob = Math.sin(k * Math.PI * 3) * 0.25 * (1 - k);
@@ -1221,8 +1263,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   // Respawning: a new place for each kind, then a column of light, motes drawn in from all around, and the shape grows out of them.
   function respawn(m) {
-    if (m.loop) { var fresh = null; for (var i = 0; i < 12 && !fresh; i++) fresh = makeLoop(towers[Math.floor(rand() * towerCount)]); if (fresh) Object.assign(m, fresh); }
-    else if (m.axis && m.limit && !m.hasOwnProperty("hop")) Object.assign(m, makeLane());
+    if (m.loop) { var fresh = null; for (var i = 0; i < 12 && !fresh; i++) fresh = makeLoop(towers[Math.floor(rand() * towerCount)], m.rise > 0); if (fresh) Object.assign(m, fresh); }
+    else if (m.axis && m.limit && !m.hasOwnProperty("hop")) { var lane = makeLane(); if (lane) Object.assign(m, lane); else m.p = (rand() * 2 - 1) * m.limit; }
     else if (m.hop !== undefined) Object.assign(m, makeWalker() || {});
     else if (m.pad) {
       if (m.flying && m.to) m.to.taken = false; else m.pad.taken = false;
@@ -2694,12 +2736,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkwCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggXgAAAHAEAJ0BKkgAHAA+tVSiTScko6ImeAsA4BaJaQDRvAk4KTjMocCTFAUpmy8AAP7wrEviDzcVkph5ydDT+2n8Xe6tZ8y1xtPJrVqsLHn9cAzroGw/PiJIvFV+cWAAAAA=); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoACAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkgAAAFAFAJ0BKkgAHAA+tVKhTKckoyIs1AlY4BaJZwDIXCpQXKAULatiIH4UQSv+7TAPrXA6AAD+9WBYyooo+QINAhPEO4U3/Y2RehFQIju7a5s5TZu95iuwY4oDLIzXoP6dJs8UEG97cUGG0r3n49Nw5NpdWTDgCYem1FbYA3Y3T47M0x1CLH1Xu8XykuP1ju4moAAA); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRk4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggYAAAADAEAJ0BKkgAHAA+tVSiTSckoyImeAsA4BaJaQDRvAlVQGb2k1iulxuCgAD+8KxL4g83GHwqdKwDWcI0G0QR3EbzSqMkYChdDilcGmclvT+ARy/9PhC2mtWHH0ms6AAAAA==); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoQCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgglgAAADAFAJ0BKkgAHAA+tVCiTCckoyKs1AlY4BaJZwDJTCpQXKANC0Ey5OogHQu2/wybTgIoAP71YFjNk70qZzGhaJvsoXP9hmMHJFtqdVRuMaPsEsw2KtyI+6ec/kkAzZEmSsQApEjnaB06n5sV8/eNIxuuco6S6/6wOdFhjMjmKynij73KY7K/utj7TGdtClZ/JH1JHEwAAA==); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkYCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggWAAAALADAJ0BKiQAJAA+tVSnTacko6IjigDgFolpAMyUCm4OurVa5vOgAP7wgIRDXP5l32yM/iAstvGvJ6/vyQm6VZrz4V0m0O5QE6lTlvBAoQXgHaOvRyZBAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRoICAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgglAAAANAEAJ0BKiQAJAA+tVCbSiclIiGuKZjgFolnAMXIJnEXST5DhhVLSgCMkHwF+7O8AP70IdGfdE8Pvu4yx51CobJktTAeOlGTYU9D7IMtAIPKN6zZ7kfEQrQkXqPD4lQqvmfizY1ETB+3LtD/aRb7CYNwoQcteodFeMNw2bEg/glNwgUBNLtXoHdTpGFBeg2XnQfNUAA=); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRkgCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggWgAAAFAEAJ0BKiQAJAA+tVSnTacko6IjigDgFolpAMzQCm4NWkoePj3Zn8YQWTgA/vCAhENdA/uOfjvHrEjxAA2saJjNSAy+/KKB0rJcxrLtVIWeWT++2NE4QAAAAA==); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnYCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggiAAAAJAEAJ0BKiQAJAA+tU6fSqckoqIuKADgFolnAMM0J9dsL/7P3Kl/ivMZ2LyE4AD+9CHRns/G7/kygB9Gl13jM12iIlNP6EeopjSLQnE36e4rBA6RjLHUrCuBHzzGoRN8z+3INyi7+a6y1u9vFcWHABZ5yBBAoWb/z3DoCQHVBjqp+S90mvoKAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
