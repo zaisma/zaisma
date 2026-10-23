@@ -55,7 +55,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
-  --backdrop-base: #E6ECF4; --backdrop-a: #B9CBE6; --backdrop-b: #C0DCDB; --backdrop-c: #D2CBEA;`;
+  --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
@@ -90,7 +90,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
-  --backdrop-base: #0A0D13; --backdrop-a: #1C2C49; --backdrop-b: #0E2E34; --backdrop-c: #241E3F;`;
+  --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
 
 /**
  * The tokens. Light or dark follows the system unless a choice is fixed with data-theme-choice, on <html>
@@ -155,7 +155,7 @@ html, body { overscroll-behavior-x: none; }
   --on-run: #14171C;
   /* The only red: a delete's confirm step, never anything else. */
   --danger: #D93A2B; --danger-lo: #A82718;
-  --page: #EEF2F7;
+  --page: #E7E4DF;
   --glass-blur: 24px;
   /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
   --glass-transition: --glass-shown-tint 0.5s ease, color 0.3s ease;
@@ -215,9 +215,9 @@ html, body { overscroll-behavior-x: none; }
   --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
 }
 @media (max-width: 760px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 48px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
-:root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
-[data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
+:root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }
+[data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #121110; }
 .smoke { ${SMOKED_GLASS} }
 *, *::before, *::after { box-sizing: border-box; }
 /* Still under the pointer: what you point at or press never moves; only what's inside it does. A button is a still

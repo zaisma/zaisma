@@ -23,112 +23,11 @@ float motes(vec2 p, float size, float chance, float seed) {
 `;
 
 /**
- * Zaisma's own background: a sheet of cut crystal facets drifting slowly over a pearl field (graphite lit like moonlight on dark), with
- * bars of window light on the Z's diagonal sliding behind it and small orange nodes wandering, each facet refracting the light and the
- * nodes' glow its own way, a faint spectrum where the light breaks, and a soft studio light swinging across. iDark eases between the
- * two, so a change of theme fades.
+ * Zaisma's own background: a matte sheet of satin, warm graphite on dark and soft warm gray on light, its long folds on the diagonal
+ * swaying slowly and catching a soft light from the top left that swings a little. Plain enough to rest behind the page; only the light
+ * on the folds moves. iDark eases between the two, so a change of theme fades.
  */
 export const ZAISMA_SHADER = `
-void mainImage(out vec4 o, in vec2 f) {
-  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
-  vec2 P = vec2(uv.x * ar, uv.y); float px = 1.5 / iResolution.y;
-  // Facets: nearest and second-nearest sites of a sheet drifting slowly; the crease is the line halfway between them.
-  float sc = 1.55 * inversesqrt(min(ar, 1.0)); vec2 p = P * sc + vec2(0.012, 0.005) * t, g = floor(p), fr = fract(p);
-  float d1 = 8.0, d2 = 8.0; vec2 r1 = vec2(0.0), r2 = vec2(1.0), c1 = vec2(0.0), c2 = vec2(0.0);
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-    vec2 c = vec2(float(i), float(j)), h = h22(g + c);
-    vec2 r = c + 0.18 + 0.64 * h - fr; float d = dot(r, r);
-    if (d < d1) { d2 = d1; r2 = r1; c2 = c1; d1 = d; r1 = r; c1 = g + c; } else if (d < d2) { d2 = d; r2 = r; c2 = g + c; }
-  }
-  vec2 n = normalize(r2 - r1); float edge = dot(0.5 * (r1 + r2), n) / sc;
-  // Each facet leans; right at the crease the two leans meet over a couple of pixels.
-  vec2 s1 = (h22(c1 * 1.7 + 3.1) - 0.5) * 0.9, s2 = (h22(c2 * 1.7 + 3.1) - 0.5) * 0.9;
-  vec2 slope = mix(0.5 * (s1 + s2), s1, smoothstep(0.0, 1.5 * px, edge));
-  vec3 N = normalize(vec3(-slope, 1.0));
-  // Refraction: the field is seen shifted against the lean, blue a little further than red.
-  vec2 off = -slope * 0.2;
-  vec2 qR = P + off * 0.9, qG = P + off, qB = P + off * 1.12;
-  // Bars of window light on the Z's diagonal, a wide one and a narrow one in each 0.9 of height, sliding slowly (each colour at its own shift).
-  vec2 wd = vec2(0.66, -0.75);
-  vec3 wx = fract((vec3(dot(qR, wd), dot(qG, wd), dot(qB, wd)) - t * 0.03) / 0.9) * 0.9;
-  vec3 win = smoothstep(0.0, 0.02, wx) * smoothstep(0.24, 0.21, wx) + 0.6 * smoothstep(0.31, 0.325, wx) * smoothstep(0.39, 0.375, wx);
-  // The nodes: small orange diamonds wandering, their glow read through the crystal.
-  vec3 orange = vec3(0.969, 0.576, 0.102);
-  vec3 glow = vec3(0.0); float core = 0.0;
-  for (int k = 0; k < 4; k++) {
-    float fk = float(k); vec2 hk = fract(vec2(fk * 0.618 + 0.23, fk * 0.382 + 0.61)); float sp = 0.04 + 0.04 * hk.x;
-    vec2 c = vec2(ar * (0.5 + 0.42 * sin(t * sp + 6.2831 * hk.y)), 0.5 + 0.38 * cos(t * sp * 0.83 + 6.2831 * hk.x));
-    float dg = length(qG - c);
-    glow += exp(-vec3(length(qR - c), dg, length(qB - c)) * 34.0) + 0.18 * exp(-dg * 9.0);
-    vec2 q = qG - c; core = max(core, smoothstep(0.011 + px, 0.011 - px, abs(q.x) + abs(q.y)));
-  }
-  vec2 qa = qG - vec2(ar * 0.15, 0.9), qb = qG - vec2(ar * 0.9, 0.15);
-  float wa = exp(-dot(qa, qa) * 2.0), wb = exp(-dot(qb, qb) * 2.0);
-  // The studio light: a large soft box above the top left, swinging; facets leaning toward it mirror it, more at a slant (Fresnel).
-  float a = 2.3 + 0.8 * sin(t * 0.12);
-  vec3 Ls = normalize(vec3(cos(a) * 0.5, sin(a) * 0.5, 0.87));
-  vec3 R = vec3(2.0 * N.z * N.xy, 2.0 * N.z * N.z - 1.0);
-  float box = smoothstep(0.86, 0.995, dot(R, Ls));
-  float fres = 0.05 + 0.7 * (1.0 - N.z);
-  float sky = clamp(dot(N.xy, normalize(Ls.xy)) * 2.5, -1.0, 1.0);      // facets turned toward the light catch more of the room
-  float crease = smoothstep(4.0 * px, 0.0, edge);                       // a soft shadowed line where two facets meet
-  // ...and a glint gliding along the creases that face the light, a few pixels wide.
-  float glint = exp(-edge / (2.5 * px)) * pow(abs(dot(n, normalize(Ls.xy))), 6.0) * exp(-pow(dot(P, vec2(0.8, 0.6)) - (fract(t * 0.05) * (ar + 2.3) - 0.9), 2.0) * 10.0);
-  // Light theme: pearl field, the window light white, faintly cool crystal.
-  vec3 lf = vec3(0.9, 0.915, 0.945);
-  lf = mix(lf, vec3(0.82, 0.86, 0.94), wa * 0.5);
-  lf = mix(lf, vec3(0.86, 0.84, 0.94), wb * 0.45);
-  lf = mix(lf, vec3(1.0, 0.995, 0.985), min(win, vec3(1.0)) * 0.9);
-  lf = mix(lf, orange, min(glow * 0.6, vec3(0.9)));
-  lf = mix(lf, vec3(1.0, 0.76, 0.42), core);
-  vec3 light = lf * (0.95 + 0.08 * sky) * mix(vec3(1.0), vec3(0.92, 0.95, 0.99), length(slope));
-  light = mix(light, vec3(1.0), clamp(fres * box * 2.2 + glint * 0.8, 0.0, 0.85));
-  // Dark theme: graphite and night-blue field, moonlit window bars, the nodes glowing through smoky crystal.
-  vec3 df = vec3(0.03, 0.037, 0.054);
-  df = mix(df, vec3(0.08, 0.12, 0.22), wa * 0.6);
-  df = mix(df, vec3(0.11, 0.09, 0.2), wb * 0.55);
-  df += vec3(0.1, 0.125, 0.175) * min(win, vec3(1.0));
-  df += orange * glow;
-  df = mix(df, vec3(1.0, 0.8, 0.5), core);
-  vec3 dark = df * (0.92 + 0.12 * sky) * mix(vec3(1.0), vec3(0.8, 0.88, 1.0), length(slope));
-  dark += vec3(0.34, 0.4, 0.54) * clamp(fres * box * 1.8, 0.0, 0.6);
-  dark *= 1.0 - 0.12 * crease;
-  dark += vec3(0.5, 0.58, 0.75) * glint * 0.6;
-  vec3 col = mix(light, dark, iDark) + (h2(f) - 0.5) / 255.0;        // a still dither against banding
-  o = vec4(col, 1.0);
-}
-`;
-
-/** Round only, removed before the pull request: new directions for Zaisma's own, picked with ?backdrop=shade or ?backdrop=satin on the local preview. */
-export const BACKDROP_CANDIDATES: Record<string, string> = {
-  shade: `
-// Smooth value noise (quintic, so no creases) and three octaves of it.
-float sn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), u.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), u.x), u.y); }
-// Each layer turned its own way and two grids averaged in the first, so no shape lines up with the noise's grid.
-float sf(vec2 p) { mat2 r = mat2(0.80, 0.60, -0.60, 0.80);
-  float v = 0.34 * (sn(p) + sn(r * p * 1.13 + 7.3)); p = r * p * 2.07 + 3.7;
-  v += 0.23 * sn(p); p = r * p * 2.03 + 9.1; return v + 0.09 * sn(p); }
-void mainImage(out vec4 o, in vec2 f) {
-  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
-  vec2 P = vec2((uv.x - 0.5) * ar, uv.y - 0.5);
-  // Broad shading: soft patches drifting slowly across and changing shape as they go, like cloud shadows on a wall.
-  vec2 q = P * 1.35 + vec2(0.024, 0.008) * t;
-  vec2 w = vec2(sf(q * 0.6 + vec2(0.0, 0.012 * t)), sf(q * 0.6 + vec2(5.2, -0.010 * t))) - 0.5;
-  float c = sf(q + w * 1.4), lit = 0.7 * smoothstep(0.36, 0.64, c) + 0.3 * smoothstep(0.2, 0.8, sf(q * 1.9 - w + vec2(-0.011 * t, 0.004 * t)));
-  // Light from above, falling off toward the corners.
-  float top = smoothstep(-0.6, 0.6, P.y);
-  vec2 e = P / vec2(ar * 0.62, 0.78); float corner = clamp(1.0 - 0.45 * dot(e, e), 0.0, 1.0);
-  float l = clamp((0.30 + 0.70 * lit) * (0.72 + 0.28 * top) * (0.55 + 0.45 * corner), 0.0, 1.0);
-  vec3 darkLo = vec3(0.046, 0.044, 0.041), darkHi = vec3(0.190, 0.179, 0.165);
-  vec3 lightLo = vec3(0.780, 0.765, 0.740), lightHi = vec3(0.972, 0.966, 0.952);
-  vec3 col = mix(mix(lightLo, lightHi, l), mix(darkLo, darkHi, l), iDark);
-  // A still dither so the slow gradients never band.
-  col += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
-  o = vec4(col, 1.0);
-}
-`,
-  satin: `
 float sn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
   return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), u.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), u.x), u.y); }
 // The cloth's height: long folds running on the diagonal, bent and swaying slowly.
@@ -155,8 +54,7 @@ void mainImage(out vec4 o, in vec2 f) {
   col += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
   o = vec4(col, 1.0);
 }
-`,
-};
+`;
 
 /** The gallery's simplest shader: a dusk gradient whose horizon breathes. Four lines. */
 export const DUSK_SHADER = `

@@ -1,5 +1,5 @@
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE, SHADER_VERTEX_SOURCE } from "@zaisma/core";
-import { BACKDROP_CANDIDATES, GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER } from "./shaders.ts";
+import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER } from "./shaders.ts";
 
 /**
  * Backdrops: every [data-backdrop] on a page. On a canvas, "shader" draws a shader background (shaders.ts: a mainImage function, the page's own in
@@ -16,10 +16,6 @@ import { BACKDROP_CANDIDATES, GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HE
  */
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
-  // Round only: ?backdrop=shade|satin (or =current) picks a candidate for Zaisma's own on the local preview, remembered while browsing.
-  (function () { try { if (!/^(localhost|127\\.0\\.0\\.1)$/.test(location.hostname)) return; var CANDIDATES = ${JSON.stringify(BACKDROP_CANDIDATES)};
-    var picked = new URLSearchParams(location.search).get("backdrop"); if (picked) sessionStorage.setItem("backdrop", picked); picked = sessionStorage.getItem("backdrop");
-    if (picked && CANDIDATES[picked]) ZAISMA = CANDIDATES[picked]; } catch (error) {} })();
   var HEAD = ${JSON.stringify(SHADER_HEAD)}, VERTEX = ${JSON.stringify(SHADER_VERTEX_SOURCE)}, UPSCALE = ${JSON.stringify(SHADER_UPSCALE_SOURCE)};
   var DRAW_SHARE = ${SHADER_LIMITS.runtimeDrawShareNumber}, UPSCALE_NUMBER = ${SHADER_LIMITS.runtimeUpscaleNumber}, IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000};
   var FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeMaximumFps)}, IDLE_FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeIdleFramesPerSec)};

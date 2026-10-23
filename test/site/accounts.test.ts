@@ -1862,7 +1862,7 @@ describe("the header and the theme", () => {
     for (const path of ["/", "/account", "/friends", "/forum", "/dashboard"]) expect(await (await b.go(path)).text(), path).toContain('data-theme-choice="dark"');
     // A fixed theme has one browser color; System has one for each.
     const home = await (await b.go("/")).text();
-    expect(home).toContain('<meta name="theme-color" content="#0D1015">');
+    expect(home).toContain('<meta name="theme-color" content="#121110">');
     expect(home).not.toContain('media="(prefers-color-scheme: light)"');
     expect((await b.go("/account/color-theme", { color_theme: "purple" })).status).toBe(400);
     expect(await accountById(env.DB, await idOf("Night_Owl"))).toMatchObject({ color_theme: "dark" });
