@@ -1,0 +1,93 @@
+# Runs chosen test files many times on GitHub's runners, to prove a flaky test's fix without anyone's laptop.
+# A fix to a flaky test counts after 50 clean runs of the files it touches.
+#
+# Two ways to start it:
+# - Push a branch named rerun/<anything> whose newest commit message has a line "Rerun: <test files>", or
+#   "Rerun: shard <n>/6" for one shard of GitHub's check exactly as check.yml deals it out. An empty commit on top of
+#   the fix's branch is enough (git commit --allow-empty -m "Rerun: test/rooms/room-load.test.ts"). A line
+#   "Rerun count: <n>" changes the number of runs from 50.
+# - From the Actions tab or gh workflow run rerun.yml --ref <branch> -f test_files="..." (once this file is on main).
+#
+# The runs are dealt to 10 jobs, at most 5 at once, so other pull requests' checks still find free runners.
+# Every job runs all its runs and says how many failed; the workflow fails when any run did.
+name: Rerun
+
+on:
+  push:
+    branches: ["rerun/**"]
+  workflow_dispatch:
+    inputs:
+      test_files:
+        description: Test files, or "shard <n>/6"
+        required: true
+      run_count:
+        description: How many runs in all
+        default: "50"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rerun-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runs:
+    name: Runs (${{ matrix.job }} of 10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        job: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # npm's download cache, as in check.yml.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      - id: what
+        env:
+          INPUT_TEST_FILES: ${{ github.event.inputs.test_files }}
+          INPUT_RUN_COUNT: ${{ github.event.inputs.run_count }}
+        run: |
+          message="$(git log -1 --format=%B)"
+          test_files="${INPUT_TEST_FILES:-$(echo "$message" | sed -n 's/^Rerun: //p' | head -n 1)}"
+          run_count="${INPUT_RUN_COUNT:-$(echo "$message" | sed -n 's/^Rerun count: //p' | head -n 1)}"
+          run_count="${run_count:-50}"
+          if [ -z "$test_files" ]; then echo "::error::No \"Rerun: <test files>\" line in the newest commit message."; exit 1; fi
+          # This job's share of the runs: run_count dealt over 10 jobs, the first ones taking the remainder.
+          runs_for_job=$(( run_count / 10 + ( ${{ matrix.job }} <= run_count % 10 ? 1 : 0 ) ))
+          echo "test_files=$test_files" >> "$GITHUB_OUTPUT"
+          echo "runs_for_job=$runs_for_job" >> "$GITHUB_OUTPUT"
+          echo "Running \"$test_files\" $runs_for_job times in this job, $run_count in all."
+      - env:
+          TEST_FILES: ${{ steps.what.outputs.test_files }}
+          RUNS_FOR_JOB: ${{ steps.what.outputs.runs_for_job }}
+          # Miniflare's SQLite files in memory, as in check.yml.
+          TMPDIR: /dev/shm
+        run: |
+          case "$TEST_FILES" in
+            "shard "*) arguments="--shard=${TEST_FILES#shard }" ;;
+            *) arguments="$TEST_FILES" ;;
+          esac
+          failed_count=0
+          for run in $(seq 1 "$RUNS_FOR_JOB"); do
+            echo "::group::Run $run of $RUNS_FOR_JOB"
+            if npx vitest run $arguments; then
+              echo "Run $run passed."
+            else
+              echo "::error::Run $run of $RUNS_FOR_JOB failed."
+              failed_count=$((failed_count + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "$failed_count of $RUNS_FOR_JOB runs failed."
+          [ "$failed_count" -eq 0 ]

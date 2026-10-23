@@ -1799,8 +1799,7 @@ export async function handleMcp(request: Request, env: Env, ctx?: ExecutionConte
         fix: "Add zaisma.com/mcp as a connector in your AI app and sign in, or send a key from zaisma.com/account as: Authorization: Bearer zsk_…",
       });
     }
-    caller = await authenticate(request, env, "mcp");
-    if (ctx) caller.waitUntil = (promise) => ctx.waitUntil(promise);
+    caller = await authenticate(request, env, "mcp", ctx ? (promise) => ctx.waitUntil(promise) : undefined);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     // Where an AI app finds how to sign in (the MCP authorization spec, RFC 9728), and that a token it sent didn't work.
