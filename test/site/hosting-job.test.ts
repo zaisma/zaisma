@@ -155,6 +155,34 @@ describe("a game with a budget", () => {
     await apiCall(testEnv, { ...caller, isSpendingConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 1000 });
     expect((await month()).paused_at_ms).toBeNull();
   });
+
+  it("charges a month once when two runs of the job judge it at the same moment", async () => {
+    await topUp(2000);
+    // A $2 budget and 3,500 player-hours: 700 cents, 200 past the free hosting, so the budget is just used.
+    await setBudget(200);
+    await setPlayerHours(3500);
+    const nowMs = Date.now();
+    await Promise.all([runHostingJob(testEnv, nowMs), runHostingJob(testEnv, nowMs)]);
+    expect({ balanceCents: await balance(), charges: await entries("hosting_charge"), monthChargedCents: (await month()).charged_cents }).toEqual({ balanceCents: 1800, charges: [-200], monthChargedCents: 200 });
+  });
+
+  it("charges what a month's rooms reported after its last run, on the 1st of the next", async () => {
+    await topUp(5000);
+    await setBudget(5000);
+    const setDay = (date: string, hours: number) =>
+      env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec").bind(game.id, date, hours * HOUR_SEC).run();
+    // January's last run: 3,000 player-hours, 600 cents, 100 past the free 500.
+    await setDay("2031-01-31", 3000);
+    await runHostingJob(testEnv, Date.parse("2031-01-31T23:55:00Z"));
+    // A room checks in at 23:58 with its last hour: 200 past free in all. February's use is February's own.
+    await setDay("2031-01-31", 3500);
+    await setDay("2031-02-01", 10);
+    await runHostingJob(testEnv, Date.parse("2031-02-01T00:00:00Z"));
+    await runHostingJob(testEnv, Date.parse("2031-02-01T00:05:00Z"));
+    await runHostingJob(testEnv, Date.parse("2031-02-02T12:00:00Z"));
+    expect((await gameHostingMonth(env.DB, game.id, Date.parse("2031-01-15T00:00:00Z"))).charged_cents).toBe(200);
+    expect(-(await entries("hosting_charge")).reduce((total, cents) => total + cents, 0)).toBe(200);
+  });
 });
 
 describe("automatic top-up", () => {

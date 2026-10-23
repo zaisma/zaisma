@@ -54,9 +54,12 @@ export function gameHeaders(contentType: string, siteOrigin: string, connectOrig
   return headers;
 }
 
-/** How long browsers remember that zaisma.com and the game domain only speak https. */
+/**
+ * How long browsers remember that zaisma.com and the game domain only speak https, and that they may be on the browsers' own list of
+ * https-only sites (preload, hstspreload.org), so even a first visit through an http:// link never goes out unencrypted.
+ */
 export const TRANSPORT_SECURITY_MAX_AGE_SEC = 31_536_000;
-export const TRANSPORT_SECURITY = `max-age=${TRANSPORT_SECURITY_MAX_AGE_SEC}; includeSubDomains`;
+export const TRANSPORT_SECURITY = `max-age=${TRANSPORT_SECURITY_MAX_AGE_SEC}; includeSubDomains; preload`;
 
 /** Plain http goes to the same address over https (308 keeps the method). */
 export function upgradeToHttps(url: URL): Response {

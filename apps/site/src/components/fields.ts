@@ -211,12 +211,14 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
     var firstDay = startOfDay(minimum), days = [];
     for (var d = 0; d < 366; d++) days.push(new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + d));
     var today = startOfDay(new Date()).getTime(), thisYear = new Date().getFullYear();
+    // Two formats made once for the wheel's 366 days, not one for each day.
+    var thisYearWords = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }), laterYearWords = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
     function dayWords(day) {
       var gap = Math.round((day.getTime() - today) / DAY_MS);
       if (gap === 0) return "Today";
       if (gap === 1) return "Tomorrow";
       // Next year's days say their year instead of their weekday, so they fit the wheel.
-      return day.toLocaleDateString("en-US", day.getFullYear() === thisYear ? { weekday: "short", month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+      return (day.getFullYear() === thisYear ? thisYearWords : laterYearWords).format(day);
     }
     var picked = { day: 0, hour: 0, minute: 0 }, isSet = false;
     function timeOf(at) { var day = days[at.day]; return new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.hour, at.minute * 5); }
@@ -238,14 +240,16 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
       Array.prototype.forEach.call(w.el.children, function (option, i) { option.setAttribute("aria-selected", String(i === at)); });
       w.el.setAttribute("aria-activedescendant", id + "-" + part + "-" + at);
     }
+    // Each wheel's rows go in together, with one listener for a press on any of them.
     Object.keys(wheels).forEach(function (part) {
-      var w = wheels[part];
+      var w = wheels[part], rows = document.createDocumentFragment();
       w.items.forEach(function (text, i) {
         var option = document.createElement("div");
         option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
-        option.addEventListener("click", function () { pickRow(part, i, true); });
-        w.el.appendChild(option);
+        rows.appendChild(option);
       });
+      w.el.appendChild(rows);
+      w.el.addEventListener("click", function (event) { var option = event.target.closest('[role="option"]'); if (option && option.parentElement === w.el) pickRow(part, Array.prototype.indexOf.call(w.el.children, option), true); });
       mark(part);
     });
     function place(isGliding) { Object.keys(wheels).forEach(function (part) { wheels[part].el.scrollTo({ top: picked[part] * ROW, behavior: isGliding && !reduce ? "smooth" : "auto" }); }); }
@@ -336,13 +340,16 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
       var w = wheels[part], list = [w.blank].concat(w.items());
       w.count = list.length;
       w.el.textContent = "";
+      // The rows go in together; one listener on the wheel (wired once) takes a press on any of them.
+      var rows = document.createDocumentFragment();
       list.forEach(function (text, i) {
         var option = document.createElement("div");
         option.setAttribute("role", "option"); option.id = id + "-" + part + "-" + i; option.textContent = text;
         if (i === 0) option.className = "blank";
-        option.addEventListener("click", function () { pickRow(part, i, true); });
-        w.el.appendChild(option);
+        rows.appendChild(option);
       });
+      w.el.appendChild(rows);
+      if (!w.isWired) { w.isWired = true; w.el.addEventListener("click", function (event) { var option = event.target.closest('[role="option"]'); if (option && option.parentElement === w.el) pickRow(part, Array.prototype.indexOf.call(w.el.children, option), true); }); }
       mark(part);
     }
     function mark(part) {
