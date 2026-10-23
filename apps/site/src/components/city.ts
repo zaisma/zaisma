@@ -9,8 +9,8 @@ import { cutPolygon } from "./tokens.ts";
 
 /*
  * The city: Zaisma's own live 3D scene, from the sign-in draft. One city on land in an endless sea, seen on one slow cinematic loop,
- * with orange shapes (players and games) moving through it that break apart when tapped enough, and a sea that rings with foam where
- * it's tapped. Signing in and making an account sit on it (docs/DECISIONS.md, "Signing in happens in the city, on every device"),
+ * with orange shapes (players and games) moving through it that break apart when tapped enough, and a sea that sends a ring of light
+ * along its grid where it's tapped. Signing in and making an account sit on it (docs/DECISIONS.md, "Signing in happens in the city, on every device"),
  * and the developer front door can reuse it: nothing here is the sign-in's.
  *
  * cityStage() is the city's sky, a still of the same city (a tiny blurred placeholder until the full one is needed) and the canvas.
@@ -65,7 +65,7 @@ ${options.after ?? ""}</div>`;
  * - It finds its canvas and the pane over it on the page, and works in the canvas's own box (the gallery frames it).
  * - Quality tiers (TIERS): a wide screen starts at 1.5 pixels per CSS pixel and at most about 3.2 million pixels, a phone (a coarse
  *   pointer, or narrower than 760px) at 1, sharpened lightly where that's fewer than the screen has. Below them, 30 frames a second,
- *   then 2x anti-aliasing, then no bloom, depth of field, god rays or lens glint and half the flyers. It settles on a tier while it's
+ *   then 2x anti-aliasing, then no bloom or depth of field and half the flyers. It settles on a tier while it's
  *   hidden, steps down when it can't keep pace and back up when it can. Slow even at the lowest, the still comes back and it stops.
  * - A tropical haze over everything, thick at the sea and thinning with height, warm toward the sun by day and dark blue at night.
  * - It starts once the page has painted, so the still and the pane never wait for it, and it's built in small steps between frames
@@ -240,20 +240,23 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   });
   cube = new Float32Array(cube);
 
-  // The air: a tropical haze, thick over the sea and thinning with height, so distance reads at a glance. How much of it lies
-  // between the eye and a point is the integral of a density falling off with height (exact for an exponential), and toward
-  // the sun it glows warm with the light it scatters. Thinner and dark blue at night.
+  // The air: a pale haze, thick over the sea and thinning with height, so distance reads at a glance. How much of it lies between
+  // the eye and a point is the integral of a density falling off with height (exact for an exponential), and toward the sun it's a
+  // little brighter. Thinner and dark blue at night.
   var FOG_GLSL = "uniform vec3 uFog; uniform float uFogDensity; uniform float uFogFalloff;\n" +
     "float hazeAt(vec3 cam, vec3 at){ vec3 ray = at - cam; float d = length(ray); float dy = ray.y / max(d, 1e-3) * uFogFalloff * d;\n" +
     " float along = abs(dy) < 1e-4 ? d : d * (1.0 - exp(-dy)) / dy;\n" +
     " return 1.0 - exp(-uFogDensity * exp(-max(cam.y, 0.0) * uFogFalloff) * along); }\n" +
     "vec3 hazeColor(vec3 cam, vec3 at, vec3 sun, float night){ vec3 dir = normalize(at - cam); float toward = pow(max(dot(dir, sun), 0.0), 6.0);\n" +
-    " return mix(uFog, mix(vec3(1.0, 0.93, 0.8), vec3(0.3, 0.38, 0.6), night), toward * mix(0.5, 0.3, night)); }\n";
+    " return mix(uFog, mix(vec3(0.97, 0.99, 1.0), vec3(0.2, 0.26, 0.45), night), toward * mix(0.35, 0.3, night)); }\n";
   // Where a row's corner goes: its top narrowed by the row's taper (across and deep, 0 for none, 1 to an edge), which slants the faces
   // and their normals, then climbed and turned. A positive taper narrows from both sides (a needle, a craft's nose); a negative one
   // from one side only, so one face leans in and the top is a single slanted cut. The same for the picture and the shadow map.
   // How far the Relay's wave has to run to reach a point: square in the city, so it runs the street grid as a square front, and round at sea.
   var WAVE_GLSL = "float waveDistance(vec2 p){ float r = length(p); return mix(max(abs(p.x), abs(p.y)), r, smoothstep(280.0, 650.0, r)); }\n";
+  // A line of half-width hw at e from its middle, where a pixel is px: never drawn thinner than most of a pixel (it fades instead of
+  // thinning), so a fine seam or grid line never shimmers.
+  var LINE_GLSL = "float lineAt(float e, float hw, float px){ float w = max(hw, 0.7 * px); return (1.0 - smoothstep(w - 0.5 * px, w + 0.5 * px, abs(e))) * hw / w; }\n";
   var PLACE_GLSL = "vec3 placeCorner(vec3 corner, vec3 size, vec4 material, vec2 turn, inout vec3 normal){ vec3 a = corner; vec2 taper = material.zw;\n" +
     " if (taper.x != 0.0 || taper.y != 0.0) { vec2 t = abs(taper);\n" +
     "  if (taper.x >= 0.0) a.x *= 1.0 - t.x * a.y; else a.x += t.x * a.y * (0.5 - a.x);\n" +
@@ -289,9 +292,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "out vec4 outColor;\n" + FOG_GLSL + WAVE_GLSL +
     "float shadowAt(){ vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5; if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;\n" +
     " return texture(uShadow, vec3(p.xy, p.z - 0.0004)); }\n" +
-    // A line of half-width hw at e from its middle, where a pixel is px: never drawn thinner than most of a pixel (it fades instead of
-    // thinning), so a fine seam never shimmers.
-    "float lineAt(float e, float hw, float px){ float w = max(hw, 0.7 * px); return (1.0 - smoothstep(w - 0.5 * px, w + 0.5 * px, abs(e))) * hw / w; }\n" +
+    LINE_GLSL +
     "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb; int kind = int(vMaterial.x + 0.5);\n" +
     " vec3 toEye = uCam - vWorld; vec3 v = normalize(toEye); vec3 col; vec3 glow = vec3(0.0);\n" +
     " if (uLit > 0.5) {\n" +
@@ -396,32 +397,44 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // The sky's ceiling, where the Relay's ring runs out at a firing, and the spacing of the lattice it lights there.
   var SKY_CEILING_Y = 600, LATTICE_SPACING = 220;
   var SKY_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
-    "uniform vec3 uFwd; uniform vec3 uRight; uniform vec3 uUp; uniform vec2 uTan; uniform vec2 uShift; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uSun; uniform float uNight;\n" +
+    "uniform vec3 uFwd; uniform vec3 uRight; uniform vec3 uUp; uniform vec2 uTan; uniform vec2 uShift; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uSun; uniform float uNight; uniform float uTime;\n" +
     "uniform vec3 uEye; uniform vec4 uBeamSky; uniform vec4 uSkyRing; out vec4 o;\n" +
-    NOISE_GLSL +
+    NOISE_GLSL + LINE_GLSL +
+    // A dome, not weather: pale cyan to white at the horizon and a deeper clean blue up high by day, deep navy to near-black at night.
     "void main(){ vec2 s = vUv * 2.0 - 1.0 - uShift; vec3 d = normalize(uFwd + uRight * s.x * uTan.x + uUp * s.y * uTan.y);\n" +
-    " float h = max(d.y, 0.0); float toSun = max(dot(d, uSun), 0.0);\n" +
+    " float h = max(d.y, 0.0); float toSun = dot(d, uSun);\n" +
     " vec3 c = mix(uHorizon, uZenith, 1.0 - exp(-h * 3.2));\n" +
-    " c += uHorizon * 0.16 * exp(-h * 16.0) * (1.0 - 0.6 * uNight);\n" +
-    " vec3 glowTone = mix(vec3(1.0, 0.9, 0.74), vec3(0.4, 0.48, 0.7), uNight);\n" +
-    " c += glowTone * (pow(toSun, 6.0) * 0.16 + pow(toSun, 48.0) * 0.28) * (1.0 - 0.75 * uNight);\n" +
-    // The sun: a small white disc. Alpha 1 marks open sky for the god rays.
-    " c += mix(vec3(1.0, 0.97, 0.9), vec3(0.84, 0.9, 1.0), uNight) * (smoothstep(0.99955, 0.99975, toSun) * mix(1.6, 1.0, uNight) + pow(toSun, 900.0) * 0.4);\n" +
-    " vec2 sc = vec2(atan(d.z, d.x) * 150.0, d.y * 150.0); vec2 ci = floor(sc); float hs = hash2(ci);\n" +
-    " float star = step(0.985, hs) * (1.0 - smoothstep(0.05, 0.32, length(fract(sc) - 0.5 - (vec2(hash1(hs * 9.1), hash1(hs * 3.7)) - 0.5) * 0.4))) * pow(fract(hs * 91.7), 3.0) * smoothstep(0.25, 0.5, d.y);\n" +
-    " c += vec3(0.85, 0.9, 1.0) * star * uNight * 1.6;\n" +
+    " c += uHorizon * 0.12 * exp(-h * 16.0) * (1.0 - 0.6 * uNight);\n" +
+    // The sun, a digital one: a crisp disc ringed by three thin circles, the outer two broken into dashes turning slowly opposite ways.
+    // No glare and no rays. At night the same, cooler and dimmer.
+    " if (toSun > 0.99) { vec3 across = normalize(cross(uSun, vec3(0.0, 1.0, 0.0))), upward = cross(across, uSun); vec2 q = vec2(dot(d, across), dot(d, upward));\n" +
+    "  float rho = length(q), px = max(fwidth(rho), 1e-5), turn = atan(q.y, q.x);\n" +
+    "  float disc = 1.0 - smoothstep(0.011 - px, 0.011 + px, rho);\n" +
+    "  float rings = lineAt(rho - 0.017, 0.0005, px) + lineAt(rho - 0.023, 0.0005, px) * step(0.5, fract(turn * 2.546 + uTime * 0.03))\n" +
+    "   + 0.7 * lineAt(rho - 0.03, 0.0004, px) * step(0.3, fract(turn * 5.093 - uTime * 0.02));\n" +
+    "  c = mix(c, mix(vec3(1.0, 1.0, 0.98), vec3(0.8, 0.88, 1.0), uNight), clamp(disc + 0.85 * rings, 0.0, 1.0) * mix(1.0, 0.6, uNight)); }\n" +
+    // Stars at night: sharp square points, one to three pixels across, a few blinking slowly like distant signals.
+    " vec2 sc = vec2(atan(d.z, d.x) * 150.0, d.y * 150.0); vec2 ci = floor(sc); float hs = hash2(ci); vec2 cellPx = clamp(fwidth(sc), vec2(1e-3), vec2(0.5));\n" +
+    " vec2 starAt = (fract(sc) - 0.5 - (vec2(hash1(hs * 9.1), hash1(hs * 3.7)) - 0.5) * 0.5) / cellPx; float starSize = 0.5 + 0.8 * fract(hs * 53.3);\n" +
+    " float star = step(0.99, hs) * (1.0 - smoothstep(starSize - 0.5, starSize + 0.5, max(abs(starAt.x), abs(starAt.y)))) * (0.3 + 0.7 * pow(fract(hs * 91.7), 2.0)) * smoothstep(0.1, 0.3, d.y);\n" +
+    " star *= fract(hs * 17.3) < 0.15 ? 0.2 + 0.8 * step(0.35, fract(uTime * 0.23 + hs * 7.0)) : 1.0;\n" +
+    " c += vec3(0.85, 0.92, 1.0) * star * uNight * 1.4;\n" +
     // While the Relay fires: a warm glow round the column above the capstone, so what stands in front of it reads as a silhouette; and the
     // sky shows it's a grid: a square ring runs out over a ceiling at SKY_CEILING_Y, lighting a lattice behind it that fades away.
     " if (uBeamSky.z + uSkyRing.y > 0.0) { float warm = 0.0, flatShare = max(dot(d.xz, d.xz), 1e-6), t = -dot(uEye.xz, d.xz) / flatShare;\n" +
     "  if (t > 0.0) { float off = length(uEye.xz + d.xz * t), y = uEye.y + d.y * t;\n" +
     "   warm = uBeamSky.z * (0.5 * exp(-off * off / 4900.0) + 0.15 * exp(-off / 260.0)) * smoothstep(244.0, 320.0, y) * (1.0 - smoothstep(uBeamSky.y - 40.0, uBeamSky.y, y)); }\n" +
-    "  vec2 p = uEye.xz + d.xz * (" + SKY_CEILING_Y.toFixed(1) + " - uEye.y) / max(d.y, 0.02); vec2 cell = abs(fract(p / " + LATTICE_SPACING.toFixed(1) + " + 0.5) - 0.5) * " + LATTICE_SPACING.toFixed(1) + ", cellPx = max(fwidth(p), vec2(1e-3));\n" +
-    "  float lattice = max(1.0 - smoothstep(2.0, 2.0 + 1.5 * cellPx.x, cell.x), 1.0 - smoothstep(2.0, 2.0 + 1.5 * cellPx.y, cell.y)) * clamp(1.0 - max(cellPx.x, cellPx.y) / 40.0, 0.0, 1.0);\n" +
+    "  vec2 p = uEye.xz + d.xz * (" + SKY_CEILING_Y.toFixed(1) + " - uEye.y) / max(d.y, 0.02); vec2 cell = abs(fract(p / " + LATTICE_SPACING.toFixed(1) + " + 0.5) - 0.5) * " + LATTICE_SPACING.toFixed(1) + ", latticePx = max(fwidth(p), vec2(1e-3));\n" +
+    "  float lattice = max(1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.x, cell.x), 1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.y, cell.y)) * clamp(1.0 - max(latticePx.x, latticePx.y) / 40.0, 0.0, 1.0);\n" +
     "  float r = max(abs(p.x), abs(p.y)), ringAt = (r - uSkyRing.x) / (60.0 + 0.04 * uSkyRing.x);\n" +
     "  warm += uSkyRing.y * step(0.02, d.y) * exp(-length(p - uEye.xz) / 3500.0) * (exp(-ringAt * ringAt) + 0.6 * lattice * step(r, uSkyRing.x) * exp(-max(uSkyRing.x - r, 0.0) / 500.0));\n" +
     "  vec3 ember = vec3(1.0, 0.5, 0.15); c = mix(mix(c, ember, clamp(warm, 0.0, 1.0) * 0.6), c + ember * warm, uNight); }\n" +
     " o = vec4(c, 1.0); }";
-  // The sea: an endless faceted surface, low-poly like the city, slowly rising and falling, aqua in the shallows by the coast, with rings of foam where it's tapped.
+  /* The sea: a data sea. An endless faceted surface, low-poly like the city, slowly rising and falling: glassy pale cyan by day under a
+     soft white horizon, near-black navy at night. On it a faint grid every SEA_GRID_UNITS, lined up with the city's streets so the arms
+     run on out as grid lines; small orange packets running in along it to the island; a bright line where the island's ledge meets it;
+     and where it's tapped, a square ring of light running out along the grid. */
+  var SEA_GRID_UNITS = 28;
   var WATER_VS = "#version 300 es\nlayout(location=0) in vec2 aXZ; layout(location=1) in float aSeed; uniform mat4 uViewProj; uniform float uY; uniform float uTime; uniform vec4 uWave; out vec3 vWorld; out float vShallow;\n" + WAVE_GLSL +
     "void main(){ vec2 p = aXZ; float r = length(p); float t = uTime; float a = atan(p.y, p.x);\n" +
     " float coast = 300.0 + 26.0 * sin(3.0 * a + 0.7) + 18.0 * sin(5.0 * a + 2.1) + 9.0 * sin(9.0 * a + 4.0);\n" +
@@ -433,33 +446,51 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " if (uWave.z > 0.0) { float k = (uWave.x - waveDistance(p)) / max(24.0, 0.12 * r); y += 2.5 * uWave.z * exp(-k * k) * step(coast, r); }\n" +
     " vWorld = vec3(p.x, uY + y * shore, p.y); gl_Position = uViewProj * vec4(vWorld, 1.0); }";
   var WATER_FS = "#version 300 es\nprecision highp float; in vec3 vWorld; in float vShallow;\n" +
-    "uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight;\n" +
-    "uniform vec4 uWave; uniform vec4 uBeamReflect; out vec4 o;\n" + FOG_GLSL + WAVE_GLSL +
+    "uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight; uniform float uTime;\n" +
+    "uniform vec4 uWave; uniform vec4 uBeamReflect; out vec4 o;\n" + FOG_GLSL + WAVE_GLSL + LINE_GLSL + NOISE_GLSL +
     "void main(){ vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld))); if (n.y < 0.0) n = -n;\n" +
     " float d = distance(vWorld, uCam); vec3 v = normalize(uCam - vWorld); vec3 r = reflect(-v, n);\n" +
     " float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
     " vec3 skyRef = mix(uHorizon, uZenith, pow(clamp(r.y, 0.0, 1.0), 0.45));\n" +
-    " float shallow = vShallow;\n" +
-    " vec3 deep = mix(mix(vec3(0.16, 0.53, 0.88), vec3(0.16, 0.84, 0.82), shallow), mix(vec3(0.025, 0.05, 0.1), vec3(0.058, 0.21, 0.245), shallow), uNight); float facet = 0.82 + 0.3 * max(dot(n, uSun), 0.0);\n" +
-    " vec3 c = mix(deep * facet, skyRef * (0.94 + 0.08 * facet), clamp(fres * 0.9 + 0.22, 0.0, 0.85) * (1.0 - mix(0.4, 0.68, uNight) * shallow));\n" +
-    // A soft path of sunlight on the water toward the sun, broken up by the facets, never blinding.
-    " vec2 toward = normalize(vWorld.xz - uCam.xz); float along = max(dot(toward, normalize(uSun.xz)), 0.0);\n" +
-    " float glare = pow(along, 26.0) * smoothstep(150.0, 900.0, d) * (1.0 - smoothstep(2600.0, 6000.0, d));\n" +
-    " float sparkle = 0.55 + 0.9 * pow(max(dot(n, normalize(uSun + v)), 0.0), 60.0);\n" +
-    " c += mix(vec3(1.0, 0.97, 0.9), vec3(0.7, 0.8, 1.0), uNight) * min(glare * sparkle * mix(0.42, 0.34, uNight), 0.4);\n" +
-    // A tap sends out two rings of foam and a burst of white in the middle, sized (w) by how far away it is, so it shows from anywhere.
-    " for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z, dd = distance(vWorld.xz, rp.xy) / rp.w;\n" +
-    "   float w1 = 0.6 + age * 0.35, k1 = dd - age * 5.0, k2 = dd - max(0.0, age - 0.4) * 3.6;\n" +
-    "   float foam = exp(-k1 * k1 / (w1 * w1)) * exp(-age * 1.1) + 0.6 * exp(-k2 * k2 / (w1 * w1 * 0.6)) * exp(-age * 1.4) * step(0.4, age)\n" +
-    "     + 0.8 * exp(-dd * dd / (1.2 + age * 5.0)) * exp(-age * 3.5);\n" +
-    "   c = mix(c, mix(vec3(1.08, 1.12, 1.14), vec3(0.5, 0.6, 0.75), uNight) * (0.88 + 0.16 * facet), clamp(foam * 0.6, 0.0, 0.6)); } }\n" +
+    " float shallow = vShallow, facet = 0.85 + 0.25 * max(dot(n, uSun), 0.0);\n" +
+    " vec3 deep = mix(mix(vec3(0.36, 0.68, 0.84), vec3(0.48, 0.84, 0.9), shallow), mix(vec3(0.006, 0.014, 0.036), vec3(0.01, 0.04, 0.066), shallow), uNight);\n" +
+    " vec3 c = mix(deep * facet, skyRef * (0.94 + 0.08 * facet), clamp(fres * 0.9 + 0.18, 0.0, 0.8) * (1.0 - 0.4 * shallow));\n" +
+    // The grid: its lines never thinner than most of a pixel, each set fading out before its cells crowd into a moire; every fourth line
+    // carries on further out.
+    " vec2 g = vWorld.xz / " + SEA_GRID_UNITS.toFixed(1) + ", cellPx = max(fwidth(g), vec2(1e-4)), e = abs(fract(g + 0.5) - 0.5), wideE = abs(fract(g / 4.0 + 0.5) - 0.5);\n" +
+    " vec2 fine = vec2(lineAt(e.x, 0.03, cellPx.x), lineAt(e.y, 0.03, cellPx.y)) * (1.0 - smoothstep(vec2(0.07), vec2(0.16), cellPx));\n" +
+    " vec2 wide = vec2(lineAt(wideE.x, 0.01, cellPx.x / 4.0), lineAt(wideE.y, 0.01, cellPx.y / 4.0)) * (1.0 - smoothstep(vec2(0.07), vec2(0.16), cellPx / 4.0));\n" +
+    " float grid = max(max(fine.x, fine.y), 0.8 * max(wide.x, wide.y)) * exp(-d / 5000.0);\n" +
+    // The island's edge, where its ledge meets the sea: a thin bright line with a little glow outward.
+    " float radius = length(vWorld.xz), angle = atan(vWorld.z, vWorld.x), coast = 300.0 + 26.0 * sin(3.0 * angle + 0.7) + 18.0 * sin(5.0 * angle + 2.1) + 9.0 * sin(9.0 * angle + 4.0), outside = radius - coast - 12.45;\n" +
+    " float edge = lineAt(outside, 0.3, fwidth(outside)) + 0.3 * step(0.0, outside) * exp(-max(outside, 0.0) / 3.0);\n" +
+    // Packets: on a few of the lines that reach the island, a short run of light heading in along it, gone as it reaches the edge.
+    " vec2 lineIndex = floor(g + 0.5); float packet = 0.0;\n" +
+    " for (int k = 0; k < 2; k++) { float index = k == 0 ? lineIndex.x : lineIndex.y, along = k == 0 ? vWorld.z : vWorld.x, offLine = k == 0 ? e.x : e.y, px = k == 0 ? cellPx.x : cellPx.y;\n" +
+    "  float pick = hash1(index * 3.17 + sign(along) * 0.71 + float(k) * 5.3);\n" +
+    "  if (pick < 0.22 && abs(index) * " + SEA_GRID_UNITS.toFixed(1) + " < 280.0) { float speed = 30.0 + 50.0 * hash1(pick * 91.3), head = 1600.0 - mod(uTime * speed + pick * 7919.0, 1400.0), behind = abs(along) - head;\n" +
+    "   packet += step(0.0, behind) * exp(-max(behind, 0.0) / 14.0) * lineAt(offLine, 0.05, px); } }\n" +
+    " packet *= step(0.0, outside);\n" +
+    // A tap: a square ring of light running out along the grid's lines (a faint fill where the lines have faded), and the cell it hit lit.
+    " float tap = 0.0; for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z; vec2 off = abs(vWorld.xz - rp.xy);\n" +
+    "   float k = (max(off.x, off.y) - rp.w * (4.0 + 26.0 * age)) / (rp.w * (1.5 + age)), onLine = max(lineAt(e.x, 0.06, cellPx.x), lineAt(e.y, 0.06, cellPx.y));\n" +
+    "   vec2 tapCell = abs(floor(g) - floor(rp.xy / " + SEA_GRID_UNITS.toFixed(1) + "));\n" +
+    "   tap += exp(-k * k) * exp(-age * 0.8) * (0.35 + 0.9 * onLine) + 0.9 * exp(-age * 2.0) * step(max(tapCell.x, tapCell.y), 0.5); } }\n" +
+    // The Relay's wave turns the grid orange behind its front as it runs out over the sea.
+    " float since = uWave.x - waveDistance(vWorld.xz), flare = uWave.y > 0.0 && since >= 0.0 ? uWave.y * exp(-since / 220.0) : 0.0;\n" +
+    // By day the lines are a pale cyan-white over the glassy sea, low in contrast, and the orange is mixed in (orange added to blue turns
+    // white); at night they glow a soft cyan-blue and the orange adds.
+    " vec3 lineTone = mix(vec3(0.9, 0.98, 1.0), vec3(0.3, 0.6, 1.0), uNight), ember = vec3(1.0, 0.5, 0.15);\n" +
+    " float cool = grid * (1.0 - flare) * mix(0.32, 0.26, uNight) + edge * mix(0.7, 0.9, uNight) + tap * mix(0.7, 0.9, uNight), warmth = packet * mix(0.5, 1.3, uNight) + grid * flare * mix(0.9, 1.6, uNight);\n" +
+    " c = mix(mix(c, lineTone, clamp(cool, 0.0, 1.0)), c + lineTone * cool, uNight);\n" +
+    " c = mix(mix(c, ember, clamp(warmth, 0.0, 1.0)), c + ember * warmth, uNight);\n" +
     // While the Relay fires: a crisp line where its wave is, with a faint wake, and the column's reflection, broken by the facets into a
-    // run of orange toward the eye. Mixed in by day (orange added to blue turns white), added at night.
-    " if (uWave.y + uBeamReflect.z > 0.0) { float radius = length(vWorld.xz), since = uWave.x - waveDistance(vWorld.xz), width = 4.0 + 0.012 * radius;\n" +
+    // run of orange toward the eye. Mixed in by day, added at night.
+    " if (uWave.y + uBeamReflect.z > 0.0) { float width = 4.0 + 0.012 * radius;\n" +
     "  float warm = uWave.y * (exp(-since * since / (width * width)) + 0.25 * step(0.0, since) * exp(-max(since, 0.0) / 80.0));\n" +
     "  float flatShare = max(dot(r.xz, r.xz), 1e-6), t = -dot(vWorld.xz, r.xz) / flatShare, off = length(vWorld.xz + r.xz * t), y = vWorld.y + r.y * t;\n" +
     "  warm += uBeamReflect.z * step(0.0, t) * exp(-off * off / 400.0) * step(uBeamReflect.x, y) * step(y, uBeamReflect.y);\n" +
-    "  vec3 ember = vec3(1.0, 0.5, 0.15); c = mix(mix(c, ember, clamp(warm, 0.0, 1.0) * 0.7), c + ember * warm, uNight); }\n" +
+    "  c = mix(mix(c, ember, clamp(warm, 0.0, 1.0) * 0.7), c + ember * warm, uNight); }\n" +
     // The haze, and far out the sea meets the sky's horizon, so there's no edge to the world.
     " c = mix(c, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld));\n" +
     " c = mix(c, uHorizon, smoothstep(2600.0, 7000.0, d));\n" +
@@ -471,33 +502,21 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float k = smoothstep(uThreshold, uThreshold + 0.12, l);\n" +
     " float orange = smoothstep(0.42, 0.68, c.r - c.b) * smoothstep(0.12, 0.26, c.r - c.g);\n" +
     " o = vec4(c * k + vec3(1.0, 0.55, 0.12) * orange * uOrangeBoost, 1.0); }";
-  var RAYS_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform vec2 uSunUv; uniform vec2 uAspect; out vec4 o;\n" +
-    "float light(vec2 uv){ vec4 t = texture(uTex, uv); vec2 d = (uv - uSunUv) * uAspect; return t.a * pow(max(0.0, 1.0 - length(d) * 2.2), 3.0) * dot(t.rgb, vec3(0.4)); }\n" +
-    "void main(){ vec2 delta = (vUv - uSunUv) / 40.0; float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);\n" +
-    " vec2 uv = vUv - delta * jit; float sum = 0.0, fall = 1.0;\n" +
-    " for (int i = 0; i < 40; i++) { sum += light(uv) * fall; fall *= 0.951; uv -= delta; }\n" +
-    " o = vec4(vec3(1.0, 0.93, 0.8) * sum / 18.7, 1.0); }";
-  // How much of the sun is open sky, worked out once per frame into a single pixel: a ring of samples round it in the scene's sky mask.
-  var SEEN_FS = "#version 300 es\nprecision highp float; uniform sampler2D uTex; uniform vec2 uSunUv; uniform vec2 uAspect; out vec4 o;\n" +
-    "void main(){ float v = texture(uTex, uSunUv).a; for (int i = 0; i < 8; i++) { float a = float(i) * 0.7854; v += texture(uTex, uSunUv + vec2(cos(a), sin(a)) * 0.012 / uAspect).a; } o = vec4(v / 9.0); }";
   var COPY_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; out vec4 o; void main(){ o = texture(uTex, vUv); }";
   var BLUR_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform vec2 uStep; out vec4 o;\n" +
     "void main(){ vec3 c = texture(uTex, vUv).rgb * 0.227027;\n" +
     " c += (texture(uTex, vUv + uStep * 1.3846).rgb + texture(uTex, vUv - uStep * 1.3846).rgb) * 0.316216;\n" +
     " c += (texture(uTex, vUv + uStep * 3.2308).rgb + texture(uTex, vUv - uStep * 3.2308).rgb) * 0.070270;\n" +
     " o = vec4(c, 1.0); }";
-  // The final picture: sharp across the frame, the bloom, the god rays and a soft glow round the sun, a gentle filmic contrast and a vignette.
+  // The final picture: sharp across the frame, the bloom, a gentle filmic contrast and a vignette.
   var COMPOSITE_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
-    "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform sampler2D uRays; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect; uniform float uSharpen;\n" +
-    "uniform vec2 uSunUv; uniform float uSunIn; uniform sampler2D uSeen; uniform float uFlash; out vec4 o;\n" +
+    "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect; uniform float uSharpen;\n" +
+    "uniform float uFlash; out vec4 o;\n" +
     // Where the picture is drawn with fewer pixels than the screen has, a light sharpen against its four neighbours brings the edges back.
     "void main(){ vec3 c = texture(uScene, vUv).rgb;\n" +
     " if (uSharpen > 0.0) { ivec2 at = ivec2(gl_FragCoord.xy); vec3 around = texelFetch(uScene, at + ivec2(1, 0), 0).rgb + texelFetch(uScene, at - ivec2(1, 0), 0).rgb + texelFetch(uScene, at + ivec2(0, 1), 0).rgb + texelFetch(uScene, at - ivec2(0, 1), 0).rgb;\n" +
     "  c = clamp(c + (c - around * 0.25) * uSharpen, 0.0, 1.0); }\n" +
     " c += texture(uBloom, vUv).rgb * uBloomStrength;\n" +
-    " if (uSunIn > 0.0) c += texture(uRays, vUv).rgb * 0.32 * uSunIn;\n" +
-    " float seen = uSunIn > 0.0 ? texture(uSeen, vec2(0.5)).r * uSunIn : 0.0; if (seen > 0.001) { vec2 p = (vUv - uSunUv) * uAspect; float r = length(p);\n" +
-    "  c += vec3(1.0, 0.95, 0.86) * (exp(-r * 14.0) * 0.22 + exp(-r * 40.0) * 0.3) * seen; }\n" +
     // The Relay's release: a brief warm brightening of the whole frame, kept far under a harmful flash.
     " c += vec3(1.0, 0.6, 0.25) * uFlash;\n" +
     " c = mix(c, c * c * (3.0 - 2.0 * c), 0.22);\n" +
@@ -1459,7 +1478,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the Relay, under its tips and round it, out low over the water, and a high sweep back round. */
   // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
   var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
-  var FOG_DAY = [0.7, 0.82, 0.94], ZENITH_DAY = [0.17, 0.43, 0.86], FOG_NIGHT = [0.11, 0.14, 0.25], ZENITH_NIGHT = [0.025, 0.045, 0.12];
+  var FOG_DAY = [0.8, 0.9, 0.96], ZENITH_DAY = [0.12, 0.38, 0.84], FOG_NIGHT = [0.07, 0.095, 0.19], ZENITH_NIGHT = [0.012, 0.02, 0.055];
   var FOG = FOG_DAY.slice(), ZENITH = ZENITH_DAY.slice(), FIRE_HAZE_DAY = [1.0, 0.8, 0.62], FIRE_HAZE_NIGHT = [0.42, 0.2, 0.1];
   var nightTarget = isNight() ? 1 : 0, night = nightTarget;
   // The theme can change in place (a setting, or the system's), and the city eases to day or night with it.
@@ -1596,10 +1615,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       if (at) {
         var scale = Math.max(1, Math.hypot(at[0] - seen.eye[0], WATER_Y - seen.eye[1], at[1] - seen.eye[2]) / 110);
         ripples.push({ x: at[0], z: at[1], start: clock, w: scale }); if (ripples.length > 12) ripples.shift();
-        // A splash: a white puff, a flat flash across the water, and spray thrown up and falling back.
-        flashes.push({ p: [at[0], WATER_Y + 0.4 * scale, at[1]], life: 1, span: 0.3, from: 0.4 * scale, to: 1.6 * scale, color: [0.96, 0.99, 1], alpha: 0.55 });
-        flashes.push({ p: [at[0], WATER_Y + 0.15, at[1]], life: 1, span: 0.5, from: 0.6 * scale, to: 4 * scale, color: [0.94, 0.99, 1], flat: true, alpha: 0.4 });
-        burst([at[0], WATER_Y + 0.3, at[1]], [0.94, 0.98, 1.0], 10, 1.6 * scale, 7 * scale, 16 * scale, 1, 0.55 * scale);
+        // A flat square flash of light on the water where it landed; the sea's own ring runs out along the grid from it.
+        flashes.push({ p: [at[0], WATER_Y + 0.15, at[1]], life: 1, span: 0.5, from: 0.6 * scale, to: 4 * scale, color: [0.86, 0.97, 1], flat: true, alpha: 0.4 });
       }
     }
   }
@@ -1773,15 +1790,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var vs = gl.VERTEX_SHADER, fs = gl.FRAGMENT_SHADER, full = compileShader(vs, FULL_VS);
     gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight", "uPulse", "uRelay", "uRelayGlow", "uWave", "uBeamLight"], { uShadow: SHADOW_UNIT });
     gpu.depth = program(compileShader(vs, DEPTH_VS), compileShader(fs, DEPTH_FS), ["uLightViewProj"]);
-    gpu.sky = program(full, compileShader(fs, SKY_FS), ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight", "uEye", "uBeamSky", "uSkyRing"]);
+    gpu.sky = program(full, compileShader(fs, SKY_FS), ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight", "uTime", "uEye", "uBeamSky", "uSkyRing"]);
     gpu.water = program(compileShader(vs, WATER_VS), compileShader(fs, WATER_FS), ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff", "uWave", "uBeamReflect"]);
     gpu.beam = program(compileShader(vs, BEAM_VS), compileShader(fs, BEAM_FS), ["uViewProj", "uCam", "uNight", "uFog", "uFogDensity", "uFogFalloff", "uBeamQuad", "uBeamColumn", "uBeamLook", "uThread"]);
     gpu.copy = program(full, compileShader(fs, COPY_FS), ["uTex"], { uTex: 0 });
     gpu.bright = program(full, compileShader(fs, BRIGHT_FS), ["uTex", "uThreshold", "uOrangeBoost"], { uTex: 0 });
     gpu.blur = program(full, compileShader(fs, BLUR_FS), ["uTex", "uStep"], { uTex: 0 });
-    gpu.seen = program(full, compileShader(fs, SEEN_FS), ["uTex", "uSunUv", "uAspect"], { uTex: 0 });
-    gpu.rays = program(full, compileShader(fs, RAYS_FS), ["uTex", "uSunUv", "uAspect"], { uTex: 0 });
-    gpu.composite = program(full, compileShader(fs, COMPOSITE_FS), ["uScene", "uSoft", "uBloom", "uRays", "uFocusY", "uBloomStrength", "uAspect", "uSunUv", "uSunIn", "uSeen", "uSharpen", "uFlash"], { uScene: 0, uSoft: 1, uBloom: 2, uRays: 3, uSeen: 4 });
+    gpu.composite = program(full, compileShader(fs, COMPOSITE_FS), ["uScene", "uSoft", "uBloom", "uFocusY", "uBloomStrength", "uAspect", "uSharpen", "uFlash"], { uScene: 0, uSoft: 1, uBloom: 2 });
     gpu.cubeBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cubeBuffer); gl.bufferData(gl.ARRAY_BUFFER, cube, gl.STATIC_DRAW);
     gpu.waterVao = gl.createVertexArray(); gl.bindVertexArray(gpu.waterVao);
     gpu.waterBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.waterBuffer); gl.bufferData(gl.ARRAY_BUFFER, seaVertices.byteLength, gl.STATIC_DRAW);
@@ -1859,7 +1874,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function freeTargets() {
     if (!targets) return;
     for (var count in targets.multisampled) freeMultisample(targets.multisampled[count]);
-    [targets.scene, targets.halfA, targets.halfB, targets.quarterA, targets.quarterB, targets.rays, targets.seen].forEach(freeColor);
+    [targets.scene, targets.halfA, targets.halfB, targets.quarterA, targets.quarterB].forEach(freeColor);
     if (targets.upscaled) freeColor(targets.upscaled);
     targets = null;
   }
@@ -1867,7 +1882,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     freeTargets();
     var hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1), qw = Math.max(1, w >> 2), qh = Math.max(1, h >> 2);
     targets = { w: w, h: h, multisampled: {}, upscaled: null, scene: colorTexture(w, h),
-      halfA: colorTexture(hw, hh), halfB: colorTexture(hw, hh), quarterA: colorTexture(qw, qh), quarterB: colorTexture(qw, qh), rays: colorTexture(Math.max(1, w >> 3), Math.max(1, h >> 3)), seen: colorTexture(1, 1) };
+      halfA: colorTexture(hw, hh), halfB: colorTexture(hw, hh), quarterA: colorTexture(qw, qh), quarterB: colorTexture(qw, qh) };
     multisampleFor(TIERS[tierIndex].sampleCount);
   }
   function multisampleFor(sampleCount) {
@@ -1886,18 +1901,18 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function upscaledTarget() { if (!targets.upscaled) targets.upscaled = colorTexture(targets.w, targets.h); return targets.upscaled; }
 
   /* The quality tiers, best first: how many pixels each draws per CSS pixel and at most in all, its anti-aliasing samples, its bloom
-     levels (none: no bloom and no soft focus), whether the sun's rays and glint are drawn, the share of the flyers shown, its frames a
+     levels (none: no bloom and no soft focus), the share of the flyers shown, its frames a
      second, its GPU cost per pixel against tier 0's (to jump straight to one that fits), and whether the Relay's firing has its extras
      (the sea's reflection and lift, the sky's glow, ring and lattice, and the beam's light on faces). A wide screen starts at the top, a
      phone at PHONE_TOP_TIER, a device with little memory two lower; the city never goes above where it started. Hidden while it warms
      up, it settles on a tier that keeps pace; shown, govern() steps down when it stops keeping pace and back up when there's room again. */
   var TIERS = [
-    { pixelsPerCssPixel: 1.5, maximumPixelCount: 3.2e6, sampleCount: 4, bloomLevelCount: 4, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
-    { pixelsPerCssPixel: 1.25, maximumPixelCount: 2.2e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
-    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
-    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 30, costPct: 100, hasBeamExtras: true },
-    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 2, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 30, costPct: 85, hasBeamExtras: true },
-    { pixelsPerCssPixel: 0.8, maximumPixelCount: 1.0e6, sampleCount: 2, bloomLevelCount: 0, hasSunRays: false, shownFlyerPct: 50, framesPerSec: 30, costPct: 70, hasBeamExtras: false }
+    { pixelsPerCssPixel: 1.5, maximumPixelCount: 3.2e6, sampleCount: 4, bloomLevelCount: 4, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
+    { pixelsPerCssPixel: 1.25, maximumPixelCount: 2.2e6, sampleCount: 4, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 30, costPct: 100, hasBeamExtras: true },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 2, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 30, costPct: 85, hasBeamExtras: true },
+    { pixelsPerCssPixel: 0.8, maximumPixelCount: 1.0e6, sampleCount: 2, bloomLevelCount: 0, shownFlyerPct: 50, framesPerSec: 30, costPct: 70, hasBeamExtras: false }
   ];
   var PHONE_TOP_TIER = 2, LOWEST_TIER = TIERS.length - 1, topTier = 0, tierIndex = 0, tierLeftCounts = [0, 0, 0, 0, 0, 0], tierSinceMs = 0, fewerSamplesSinceMs = 0;
   // How small the page is shown (Screens shows it scaled down in a frame): it needs no more pixels than that.
@@ -2051,12 +2066,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     ["copy", function () { bindTex(0, targets.scene.tex); warmAt(targets.halfA.fb, gpu.copy); warmFull(); }],
     ["bright", function () { bindTex(0, targets.halfA.tex); warmAt(targets.quarterA.fb, gpu.bright); warmFull(); }],
     ["blur", function () { bindTex(0, targets.halfA.tex); warmAt(targets.halfB.fb, gpu.blur); warmFull(); }],
-    ["seen", function () { bindTex(0, targets.scene.tex); warmAt(targets.seen.fb, gpu.seen); warmFull(); }],
-    ["rays", function () { bindTex(0, targets.scene.tex); warmAt(targets.rays.fb, gpu.rays); warmFull(); }],
-    ["composite", function () {
-      bindTex(0, targets.scene.tex); bindTex(1, targets.halfA.tex); bindTex(2, targets.quarterA.tex); bindTex(3, targets.rays.tex); bindTex(4, targets.seen.tex);
-      warmAt(null, gpu.composite); gl.uniform2f(gpu.composite.at.uSunUv, 0.5, 0.5); gl.uniform1f(gpu.composite.at.uSunIn, 1); warmFull();
-    }]
+    ["composite", function () { bindTex(0, targets.scene.tex); bindTex(1, targets.halfA.tex); bindTex(2, targets.quarterA.tex); warmAt(null, gpu.composite); warmFull(); }]
   ];
   function warmNext() {
     for (var i = 0; i < WARMS.length; i++) {
@@ -2080,7 +2090,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       drawTo(from); gl.useProgram(made.program); bindTex(0, via.tex); gl.uniform2f(made.at.uStep, 0, spread / via.h); drawFull();
     }
   }
-  var sunPoint = [0, 0, 0], sunAt = [0, 0, 0], focusAt = [0, 0, 0], seenTiles = [];
+  var focusAt = [0, 0, 0], seenTiles = [];
   function byDistance(a, b) { return a.distance - b.distance; }
   // One frame of the world as the camera last aimed it (seen), at the tier's size.
   function drawFrame() {
@@ -2097,7 +2107,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform3fv(u.uFwd, seen.fwd); gl.uniform3fv(u.uRight, seen.right); gl.uniform3fv(u.uUp, seen.up);
     gl.uniform2f(u.uTan, seen.tan[0], seen.tan[1]);
     gl.uniform2f(u.uShift, shift[0], shift[1]);
-    gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform3fv(u.uSun, SUN); gl.uniform1f(u.uNight, night);
+    gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform3fv(u.uSun, SUN); gl.uniform1f(u.uNight, night); gl.uniform1f(u.uTime, clock % 3600);
     gl.uniform3fv(u.uEye, eye); gl.uniform4f(u.uBeamSky, relay.bottomY, headY, extras * relay.intensity * lerp(0.5, 1, night), 0);
     gl.uniform4f(u.uSkyRing, relay.skyRingUnits, extras * relay.skyRingStrength * lerp(0.35, 1, night), 0, 0);
     gl.bindVertexArray(null);
@@ -2178,17 +2188,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       blurPasses(targets.quarterA, targets.quarterB, 2, 1.6);
     }
 
-    // The sun on screen: where it is, and how much it's in view (fading out as it leaves the frame).
-    projectInto(sunAt, vp, setInto(sunPoint, eye[0] + SUN[0] * 4000, eye[1] + SUN[1] * 4000, eye[2] + SUN[2] * 4000));
-    var sunU = sunAt[0] * 0.5 + 0.5, sunV = sunAt[1] * 0.5 + 0.5, outside = Math.max(Math.abs(sunU - 0.5), Math.abs(sunV - 0.5)) - 0.5;
-    // The god rays and the glint go on the lowest tier.
-    var sunIn = tier.hasSunRays ? (sunAt[2] > 0 ? 1 - smooth(0, 0.3, outside) : 0) * (1 - 0.8 * night) : 0;
-    if (sunIn > 0) {
-      drawTo(targets.seen); gl.useProgram(gpu.seen.program); u = gpu.seen.at;
-      bindTex(0, source.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
-      drawTo(targets.rays); gl.useProgram(gpu.rays.program); u = gpu.rays.at;
-      bindTex(0, source.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
-    }
 
     // 3. The final picture, focused where the camera looks.
     projectInto(focusAt, vp, viewTarget);
@@ -2202,8 +2201,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform1f(u.uBloomStrength, isSoft ? 0.1 + 0.28 * night + ((0.22 + 0.1 * night) * relay.flash + 0.06 * relay.intensity) * calm : 0);
     gl.uniform1f(u.uFlash, lerp(0.05, 0.07, night) * relay.flash * calm);
     gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect));
-    bindTex(3, targets.rays.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform1f(u.uSunIn, sunIn);
-    bindTex(4, targets.seen.tex);
     drawFull();
   }
 
@@ -2668,7 +2665,7 @@ const CITY_STYLES = `
    placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
 /* Its height is the largest the window gets (lvh), not the visible one: a phone's address bar showing or hiding crops the stage's bottom
    instead of resizing it, so the city never scales with the bar. */
-.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
+.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #6695D9 0%, #C9E3F6 37%, #E5F8F8 44%, #CDE1EC 47%, #9EC8E6 100%); }
 .city-stage.is-framed { position: absolute; inset: 0; height: auto; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The placeholder and the still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is
@@ -2699,17 +2696,18 @@ const CITY_STYLES = `
 /* Once the live city has faded in, nothing behind it is composited. */
 .city-stage.is-live .city-still, .city-stage.is-live .city-snapshot { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .city-stage .city-still, .city-stage .city { transition: none; } }
-/* Day for light, night for dark: only the one showing is ever loaded. */
+/* Day for light, night for dark: only the one showing is ever loaded. The stage's gradient is the live city's sky, horizon and sea
+   in its first frame, so the stage, the still and the city agree. */
 .city-stage .city-still.is-night { display: none; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme-choice="light"]) .city-stage { background: linear-gradient(180deg, #050812 0%, #0B1226 55%, #142040 100%); }
+  :root:not([data-theme-choice="light"]) .city-stage { background: linear-gradient(180deg, #0B0D1C 0%, #131426 37%, #15172C 44%, #131427 47%, #0B0E1B 100%); }
   :root:not([data-theme-choice="light"]) .city-stage .city-still.is-day { display: none; }
   :root:not([data-theme-choice="light"]) .city-stage .city-still.is-night { display: block; }
 }
-[data-theme-choice="dark"] .city-stage { background: linear-gradient(180deg, #050812 0%, #0B1226 55%, #142040 100%); }
+[data-theme-choice="dark"] .city-stage { background: linear-gradient(180deg, #0B0D1C 0%, #131426 37%, #15172C 44%, #131427 47%, #0B0E1B 100%); }
 [data-theme-choice="dark"] .city-stage .city-still.is-day { display: none; }
 [data-theme-choice="dark"] .city-stage .city-still.is-night { display: block; }
-[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%); }
+[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #6695D9 0%, #C9E3F6 37%, #E5F8F8 44%, #CDE1EC 47%, #9EC8E6 100%); }
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
