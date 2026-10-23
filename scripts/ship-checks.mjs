@@ -3,7 +3,7 @@
 //
 // "Security checks on every ship." in docs/DECISIONS.md: after a deploy, try the doors an attacker
 // tries first on the live site. A door that opens is SHIP FAIL, fixed before anything else:
-// a missing security header, a private game opening on a public address, an R2 bucket reachable
+// a missing security header, a private game opening on a public address, an R2 bucket or the backups bucket reachable
 // without signing, /admin answering without Cloudflare Access. It also checks that npm has the CLI's
 // version, which .github/workflows/publish-cli.yml publishes from main.
 //
@@ -19,6 +19,8 @@ export const ROOMS_URL = "https://rooms.zaisma.com";
 // request): never make it listed or delete it.
 export const PRIVATE_CHECK_GAME_SLUG = "ship-check";
 // The team domain must match ACCESS_TEAM_DOMAIN in apps/site/wrangler.jsonc.
+// Zaisma's backups at Backblaze (apps/site/src/backups.ts): private, so its list and its newest main database copy refuse a stranger.
+export const BACKUP_BUCKET_URL = "https://s3.us-east-005.backblazeb2.com/zaisma-backups/";
 export const ACCESS_LOGIN_PREFIX = "https://zaisma.cloudflareaccess.com/cdn-cgi/access/login/";
 // With Managed OAuth on, Access answers a request that isn't a browser's with a 401 naming its own
 // resource metadata here; the origin never sends it.
@@ -124,6 +126,11 @@ export function adminAccessProblems(response) {
   const resourceMetadataUrl = (response.headers.get("www-authenticate") ?? "").match(/resource_metadata="([^"]*)"/)?.[1] ?? "";
   if (response.status === 401 && resourceMetadataUrl.startsWith(ACCESS_RESOURCE_METADATA_PREFIX)) return [];
   return [`answered ${response.status} without Cloudflare Access${location ? ` (Location ${location})` : ""}`];
+}
+
+/** The backups bucket answers a request without a signature only with a refusal. */
+export function backupBucketProblems(response) {
+  return response.status === 401 || response.status === 403 ? [] : [`answered ${response.status} without being signed in`];
 }
 
 /** Every `name:` line of `wrangler r2 bucket list`. */
@@ -244,6 +251,12 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
     checkUrl("zaisma.com over http", `http://zaisma.com/g/${CHECK_GAME_SLUG}?from=ship`, {}, (response) => httpsRedirectProblems(response, `${SITE_URL}/g/${CHECK_GAME_SLUG}?from=ship`), security),
     checkUrl("game domain over http", `http://${CHECK_GAME_SLUG}.${GAME_DOMAIN}/`, {}, (response) => httpsRedirectProblems(response, CHECK_GAME_URL), security),
     checkPrivateCheckGame({ zaismaKey, ...retryOptions }),
+    (async () => {
+      const addresses = [BACKUP_BUCKET_URL, `${BACKUP_BUCKET_URL}main-database.sql`];
+      const answers = await Promise.all(addresses.map((address) => probe(address, {}, backupBucketProblems, { ...retryOptions, isRetriedOnProblem: false })));
+      const problems = answers.flatMap((answer, index) => answer.problems.map((problem) => `${addresses[index]} ${problem}`));
+      return problems.length ? failed("backups bucket", true, problems) : passed("backups bucket", true, "backups bucket private");
+    })(),
     (async () => {
       const [page, mcp] = await Promise.all([
         probe(`${SITE_URL}/admin`, {}, adminAccessProblems, { ...retryOptions, isRetriedOnProblem: false }),

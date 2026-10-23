@@ -143,6 +143,8 @@ const STATE_COPY_INTERVAL_MS = 5000;
  */
 const STATE_CHUNK_CHARACTER_COUNT = 512 * 1024;
 const stateChunkKey = (index: number) => `stateChunk:${index}`;
+/** Storage keys a kept room's backup reads at a time: a few state chunks of 512K characters each at most. */
+const BACKUP_PAGE_KEY_COUNT = 8;
 /** Where each player's owned items wait out hibernation: ownedItemNames:<player id>. */
 const OWNED_ITEM_NAMES_KEY_PREFIX = "ownedItemNames:";
 
@@ -288,6 +290,7 @@ export class Room extends DurableObject<Env> {
     if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
     if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -972,6 +975,33 @@ export class Room extends DurableObject<Env> {
    * The developer deletes a kept room's world (DELETE /games/:slug/kept-rooms/:room_code, through the
    * rooms Worker): players in it are sent out, and everything the room keeps goes now, not after a day.
    */
+  /**
+   * Everything a kept room keeps, for Zaisma's nightly backup (apps/site/src/backups.ts, through
+   * GameStorageService.keptRoomBackup): one JSON line per storage key, { key, value }, read a page at a
+   * time so a big world never sits whole in memory. Putting each back with storage.put restores the room.
+   */
+  private async backingUp(request: Request): Promise<Response> {
+    if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const storage = this.ctx.storage;
+    let startAfter: string | undefined;
+    let isDone = false;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (isDone) return controller.close();
+        const page = await storage.list({ startAfter, limit: BACKUP_PAGE_KEY_COUNT });
+        let lines = "";
+        for (const [key, storedValue] of page) {
+          lines += `${JSON.stringify({ key, value: storedValue })}\n`;
+          startAfter = key;
+        }
+        isDone = page.size < BACKUP_PAGE_KEY_COUNT;
+        if (lines) controller.enqueue(encoder.encode(lines));
+      },
+    });
+    return new Response(body, { headers: { "content-type": "application/jsonl" } });
+  }
+
   private async deleting(request: Request): Promise<Response> {
     if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
     if (this.sockets().length && (await this.load())) {

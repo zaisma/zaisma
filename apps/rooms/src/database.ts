@@ -193,6 +193,15 @@ export class GameDatabaseObject extends DurableObject<Env> {
    * paused: the data is always the developer's to take. One part runs in one go, so it's whole; between parts the game can write.
    */
   exportForDeveloper(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    return this.exportPart(cursor, true);
+  }
+
+  /** The same part for Zaisma's nightly backup (apps/site/src/backups.ts): Zaisma's own reads, never on the game's meter. */
+  exportForBackup(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    return this.exportPart(cursor, false);
+  }
+
+  private exportPart(cursor: string | null, isUsageCounted: boolean): DeveloperDatabaseAnswer<DumpPart> {
     if (this.isRestarting) return answerDatabase(() => {
       throw restarting();
     });
@@ -215,7 +224,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
         throw error;
       });
     } finally {
-      this.addUsage(readRowCount, 0, statementCount);
+      if (isUsageCounted) this.addUsage(readRowCount, 0, statementCount);
     }
   }
 
@@ -624,6 +633,11 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
 
   exportDump(gameId: string, cursor: string | null): Promise<DeveloperDatabaseAnswer<DumpPart>> {
     return this.reach(gameId, (database) => database.exportForDeveloper(cursor));
+  }
+
+  /** One part of the dump for Zaisma's nightly backup, whose reads aren't the developer's to pay for. */
+  backupDump(gameId: string, cursor: string | null): Promise<DeveloperDatabaseAnswer<DumpPart>> {
+    return this.reach(gameId, (database) => database.exportForBackup(cursor));
   }
 
   /** Erase one player from a game's database: the erase_player call, and a deleted account's erase (apps/site/src/webhooks.ts). */
