@@ -240,6 +240,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   });
   cube = new Float32Array(cube);
 
+  // The Relay's heights, read by the shaders below as well as by its build: its feet, its tips, its floating capstone and the core.
+  var CORE_Y = 12, RELAY_FOOT_Y = 9.25, RELAY_TIP_Y = 168, CAPSTONE_BOTTOM_Y = 180, CAPSTONE_TOP_Y = 193, CAPSTONE_LIFT_UNITS = 8;
   // The air: a pale haze, thick over the sea and thinning with height, so distance reads at a glance. How much of it lies between
   // the eye and a point is the integral of a density falling off with height (exact for an exponential), and toward the sun it's a
   // little brighter. Thinner and dark blue at night.
@@ -308,12 +310,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "   n = normalize(mix(n, normalize(n + side), atSide)); n = normalize(mix(n, normalize(n + vec3(0.0, 1.0, 0.0)), atTop)); }\n" +
     "  float sh = shadowAt(); float diff = max(dot(n, uSun), 0.0) * sh;\n" +
     "  vec3 sunLight = mix(vec3(1.0, 0.92, 0.8) * 1.12, vec3(0.6, 0.7, 1.0) * 0.36, uNight);\n" +
-    "  vec3 skyLight = mix(vec3(0.5, 0.58, 0.72), vec3(0.2, 0.25, 0.42), uNight); vec3 bounce = mix(vec3(0.5, 0.47, 0.42), vec3(0.07, 0.08, 0.12), uNight);\n" +
+    "  vec3 skyLight = mix(vec3(0.4, 0.49, 0.68), vec3(0.2, 0.25, 0.42), uNight); vec3 bounce = mix(vec3(0.42, 0.4, 0.37), vec3(0.07, 0.08, 0.12), uNight);\n" +
     "  float canyon = isWall ? mix(0.45, 1.0, smoothstep(0.0, 22.0, vWorld.y)) : (kind == 4 || kind == 8 ? 0.8 : 1.0);\n" +
     "  vec3 ambient = mix(bounce, skyLight, n.y * 0.5 + 0.5) * canyon;\n" +
     "  float fill = max(dot(n, normalize(vec3(0.75, 0.25, -0.3))), 0.0) * mix(0.14, 0.08, uNight);\n" +
     "  col = base * (ambient + skyLight * fill + sunLight * diff);\n" +
     "  if (isWall && isBuilt) col *= mix(0.9, 1.06, vLocal.y);\n" +
+    // The foundation's tiers: a thin line of cool light along the top edge of each, faint by day and glowing at night: the island's edge.
+    "  if (isWall && kind == 9) { float fromTop = (1.0 - vLocal.y) * vSize.y, edgeLine = 1.0 - smoothstep(0.12, 0.12 + max(fwidth(fromTop), 0.02) * 1.5, fromTop);\n" +
+    "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.6 * (1.0 - uNight)); glow += edgeTone * edgeLine * 1.3 * uNight; }\n" +
     // When the Relay fires: how long ago its wave passed this row's origin (each point, on the ground's own mesh), so a row lights whole,
     // like a pixel: hit flashes and fades fast, hold lingers, pass is the moment it goes by.
     "  float since = -1.0, hit = 0.0, hold = 0.0, pass = 0.0, carvedMask = 0.0; vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
@@ -378,13 +383,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " }\n" +
     " else { float diff = max(dot(n, uSun), 0.0);\n" +
     "  float rim = pow(1.0 - max(dot(n, v), 0.0), 2.5);\n" +
-    "  col = base * (0.82 + 0.3 * diff) * (1.0 + 0.25 * uNight) + base * rim * 0.35; }\n" +
+    "  col = base * (0.82 + 0.3 * diff) * (1.0 + mix(0.2, 0.25, uNight)) + base * rim * 0.35; }\n" +
     " vec3 q = vec3(vLocal.x + 0.5, vLocal.y, vLocal.z + 0.5); vec3 toEdge = min(q, 1.0 - q) * vSize;\n" +
     " float e = abs(vFace.x) > 0.5 ? min(toEdge.y, toEdge.z) : (abs(vFace.y) > 0.5 ? min(toEdge.x, toEdge.z) : min(toEdge.x, toEdge.y));\n" +
     " float px = fwidth(e); float line = 1.0 - smoothstep(px * 0.5, px * 1.6, e);\n" +
     " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.3 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
     // The orange shapes keep more of their color through the haze, so they still read from afar.
-    " float fog = hazeAt(uCam, vWorld) * mix(0.7, 1.0, uLit);\n" +
+    " float fog = hazeAt(uCam, vWorld) * mix(mix(0.45, 0.7, uNight), 1.0, uLit);\n" +
     " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), fog) + glow * (1.0 - 0.5 * fog);\n" +
     " outColor = vec4(col, uOpaque > 0.5 ? 0.0 : vCol.a); }";
   var DEPTH_VS = "#version 300 es\nlayout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=5) in vec4 iMaterial; layout(location=6) in vec2 iRot;\n" +
@@ -423,12 +428,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // sky shows it's a grid: a square ring runs out over a ceiling at SKY_CEILING_Y, lighting a lattice behind it that fades away.
     " if (uBeamSky.z + uSkyRing.y > 0.0) { float warm = 0.0, flatShare = max(dot(d.xz, d.xz), 1e-6), t = -dot(uEye.xz, d.xz) / flatShare;\n" +
     "  if (t > 0.0) { float off = length(uEye.xz + d.xz * t), y = uEye.y + d.y * t;\n" +
-    "   warm = uBeamSky.z * (0.5 * exp(-off * off / 4900.0) + 0.15 * exp(-off / 260.0)) * smoothstep(244.0, 320.0, y) * (1.0 - smoothstep(uBeamSky.y - 40.0, uBeamSky.y, y)); }\n" +
+    "   warm = uBeamSky.z * 0.3 * exp(-off * off / 1600.0) * smoothstep(" + CAPSTONE_TOP_Y.toFixed(1) + ", " + (CAPSTONE_TOP_Y + 60).toFixed(1) + ", y) * (1.0 - smoothstep(uBeamSky.y - 40.0, uBeamSky.y, y)); }\n" +
     "  vec2 p = uEye.xz + d.xz * (" + SKY_CEILING_Y.toFixed(1) + " - uEye.y) / max(d.y, 0.02); vec2 cell = abs(fract(p / " + LATTICE_SPACING.toFixed(1) + " + 0.5) - 0.5) * " + LATTICE_SPACING.toFixed(1) + ", latticePx = max(fwidth(p), vec2(1e-3));\n" +
     "  float lattice = max(1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.x, cell.x), 1.0 - smoothstep(2.0, 2.0 + 1.5 * latticePx.y, cell.y)) * clamp(1.0 - max(latticePx.x, latticePx.y) / 40.0, 0.0, 1.0);\n" +
     "  float r = max(abs(p.x), abs(p.y)), ringAt = (r - uSkyRing.x) / (60.0 + 0.04 * uSkyRing.x);\n" +
     "  warm += uSkyRing.y * step(0.02, d.y) * exp(-length(p - uEye.xz) / 3500.0) * (exp(-ringAt * ringAt) + 0.6 * lattice * step(r, uSkyRing.x) * exp(-max(uSkyRing.x - r, 0.0) / 500.0));\n" +
-    "  vec3 ember = vec3(1.0, 0.5, 0.15); c = mix(mix(c, ember, clamp(warm, 0.0, 1.0) * 0.6), c + ember * warm, uNight); }\n" +
+    "  vec3 ember = vec3(1.0, 0.5, 0.15), dayLight = vec3(1.0, 0.86, 0.6); c = mix(mix(c, dayLight, clamp(warm * 1.4, 0.0, 1.0) * 0.9), c + ember * warm, uNight); }\n" +
     " o = vec4(c, 1.0); }";
   /* The sea: a data sea. An endless faceted surface, low-poly like the city, slowly rising and falling: glassy pale cyan by day under a
      soft white horizon, near-black navy at night. On it a faint grid every SEA_GRID_UNITS, lined up with the city's streets so the arms
@@ -453,7 +458,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
     " vec3 skyRef = mix(uHorizon, uZenith, pow(clamp(r.y, 0.0, 1.0), 0.45));\n" +
     " float shallow = vShallow, facet = 0.85 + 0.25 * max(dot(n, uSun), 0.0);\n" +
-    " vec3 deep = mix(mix(vec3(0.36, 0.68, 0.84), vec3(0.48, 0.84, 0.9), shallow), mix(vec3(0.006, 0.014, 0.036), vec3(0.01, 0.04, 0.066), shallow), uNight);\n" +
+    " vec3 deep = mix(mix(vec3(0.05, 0.4, 0.6), vec3(0.12, 0.6, 0.7), shallow), mix(vec3(0.006, 0.014, 0.036), vec3(0.01, 0.04, 0.066), shallow), uNight);\n" +
     " vec3 c = mix(deep * facet, skyRef * (0.94 + 0.08 * facet), clamp(fres * 0.9 + 0.18, 0.0, 0.8) * (1.0 - 0.4 * shallow));\n" +
     // The grid: its lines never thinner than most of a pixel, each set fading out before its cells crowd into a moire; every fourth line
     // carries on further out.
@@ -463,7 +468,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float grid = max(max(fine.x, fine.y), 0.8 * max(wide.x, wide.y)) * exp(-d / 5000.0);\n" +
     // The island's edge, where its ledge meets the sea: a thin bright line with a little glow outward.
     " float radius = length(vWorld.xz), angle = atan(vWorld.z, vWorld.x), coast = 300.0 + 26.0 * sin(3.0 * angle + 0.7) + 18.0 * sin(5.0 * angle + 2.1) + 9.0 * sin(9.0 * angle + 4.0), outside = radius - coast - 12.45;\n" +
-    " float edge = lineAt(outside, 0.3, fwidth(outside)) + 0.3 * step(0.0, outside) * exp(-max(outside, 0.0) / 3.0);\n" +
+    " float edge = 0.0;\n" +
     // Packets: on a few of the lines that reach the island, a short run of light heading in along it, gone as it reaches the edge.
     " vec2 lineIndex = floor(g + 0.5); float packet = 0.0;\n" +
     " for (int k = 0; k < 2; k++) { float index = k == 0 ? lineIndex.x : lineIndex.y, along = k == 0 ? vWorld.z : vWorld.x, offLine = k == 0 ? e.x : e.y, px = k == 0 ? cellPx.x : cellPx.y;\n" +
@@ -473,16 +478,18 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " packet *= step(0.0, outside);\n" +
     // A tap: a square ring of light running out along the grid's lines (a faint fill where the lines have faded), and the cell it hit lit.
     " float tap = 0.0; for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z; vec2 off = abs(vWorld.xz - rp.xy);\n" +
-    "   float k = (max(off.x, off.y) - rp.w * (4.0 + 26.0 * age)) / (rp.w * (1.5 + age)), onLine = max(lineAt(e.x, 0.06, cellPx.x), lineAt(e.y, 0.06, cellPx.y));\n" +
+    "   float k = (max(off.x, off.y) - rp.w * (4.0 + 26.0 * age)) / (rp.w * (2.6 + age)), k2 = (max(off.x, off.y) - rp.w * (4.0 + 18.0 * max(age - 0.35, 0.0))) / (rp.w * (2.0 + age)), onLine = max(lineAt(e.x, 0.06, cellPx.x), lineAt(e.y, 0.06, cellPx.y));\n" +
     "   vec2 tapCell = abs(floor(g) - floor(rp.xy / " + SEA_GRID_UNITS.toFixed(1) + "));\n" +
-    "   tap += exp(-k * k) * exp(-age * 0.8) * (0.35 + 0.9 * onLine) + 0.9 * exp(-age * 2.0) * step(max(tapCell.x, tapCell.y), 0.5); } }\n" +
+    "   tap += (exp(-k * k) * (0.85 + 0.7 * onLine) + 0.55 * exp(-k2 * k2) * step(0.35, age) * (0.6 + 0.6 * onLine)) * exp(-age * 0.55) + 1.1 * exp(-age * 1.6) * step(max(tapCell.x, tapCell.y), 0.5); } }\n" +
     // The Relay's wave turns the grid orange behind its front as it runs out over the sea.
     " float since = uWave.x - waveDistance(vWorld.xz), flare = uWave.y > 0.0 && since >= 0.0 ? uWave.y * exp(-since / 220.0) : 0.0;\n" +
     // By day the lines are a pale cyan-white over the glassy sea, low in contrast, and the orange is mixed in (orange added to blue turns
     // white); at night they glow a soft cyan-blue and the orange adds.
     " vec3 lineTone = mix(vec3(0.9, 0.98, 1.0), vec3(0.3, 0.6, 1.0), uNight), ember = vec3(1.0, 0.5, 0.15);\n" +
-    " float cool = grid * (1.0 - flare) * mix(0.32, 0.26, uNight) + edge * mix(0.7, 0.9, uNight) + tap * mix(0.7, 0.9, uNight), warmth = packet * mix(0.5, 1.3, uNight) + grid * flare * mix(0.9, 1.6, uNight);\n" +
+    " float cool = grid * (1.0 - flare) * mix(0.32, 0.26, uNight) + edge * mix(0.7, 0.9, uNight), warmth = packet * mix(0.5, 1.3, uNight) + grid * flare * mix(1.5, 1.6, uNight);\n" +
     " c = mix(mix(c, lineTone, clamp(cool, 0.0, 1.0)), c + lineTone * cool, uNight);\n" +
+    // A tap's rings in a saturated cyan-blue, so they read on the pale sea by day as clearly as they glow at night.
+    " vec3 tapTone = mix(vec3(0.78, 0.98, 1.0), vec3(0.35, 0.75, 1.0), uNight); c = mix(mix(c, tapTone, clamp(tap, 0.0, 1.0) * 0.85), c + tapTone * tap * 1.3, uNight);\n" +
     " c = mix(mix(c, ember, clamp(warmth, 0.0, 1.0)), c + ember * warmth, uNight);\n" +
     // While the Relay fires: a crisp line where its wave is, with a faint wake, and the column's reflection, broken by the facets into a
     // run of orange toward the eye. Mixed in by day, added at night.
@@ -490,7 +497,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  float warm = uWave.y * (exp(-since * since / (width * width)) + 0.25 * step(0.0, since) * exp(-max(since, 0.0) / 80.0));\n" +
     "  float flatShare = max(dot(r.xz, r.xz), 1e-6), t = -dot(vWorld.xz, r.xz) / flatShare, off = length(vWorld.xz + r.xz * t), y = vWorld.y + r.y * t;\n" +
     "  warm += uBeamReflect.z * step(0.0, t) * exp(-off * off / 400.0) * step(uBeamReflect.x, y) * step(y, uBeamReflect.y);\n" +
-    "  c = mix(mix(c, ember, clamp(warm, 0.0, 1.0) * 0.7), c + ember * warm, uNight); }\n" +
+    "  c = mix(mix(c, mix(ember, vec3(1.0, 0.86, 0.6), 0.35), clamp(warm * 1.5, 0.0, 1.0)), c + ember * warm, uNight); }\n" +
     // The haze, and far out the sea meets the sky's horizon, so there's no edge to the world.
     " c = mix(c, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld));\n" +
     " c = mix(c, uHorizon, smoothstep(2600.0, 7000.0, d));\n" +
@@ -511,7 +518,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // The final picture: sharp across the frame, the bloom, a gentle filmic contrast and a vignette.
   var COMPOSITE_FS = "#version 300 es\nprecision highp float; in vec2 vUv;\n" +
     "uniform sampler2D uScene; uniform sampler2D uSoft; uniform sampler2D uBloom; uniform float uFocusY; uniform float uBloomStrength; uniform vec2 uAspect; uniform float uSharpen;\n" +
-    "uniform float uFlash; out vec4 o;\n" +
+    "uniform float uFlash; uniform vec2 uFlareUv; uniform float uFlareStrength; uniform float uGradeNight; out vec4 o;\n" +
     // Where the picture is drawn with fewer pixels than the screen has, a light sharpen against its four neighbours brings the edges back.
     "void main(){ vec3 c = texture(uScene, vUv).rgb;\n" +
     " if (uSharpen > 0.0) { ivec2 at = ivec2(gl_FragCoord.xy); vec3 around = texelFetch(uScene, at + ivec2(1, 0), 0).rgb + texelFetch(uScene, at - ivec2(1, 0), 0).rgb + texelFetch(uScene, at + ivec2(0, 1), 0).rgb + texelFetch(uScene, at - ivec2(0, 1), 0).rgb;\n" +
@@ -519,7 +526,22 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " c += texture(uBloom, vUv).rgb * uBloomStrength;\n" +
     // The Relay's release: a brief warm brightening of the whole frame, kept far under a harmful flash.
     " c += vec3(1.0, 0.6, 0.25) * uFlash;\n" +
-    " c = mix(c, c * c * (3.0 - 2.0 * c), 0.22);\n" +
+    // The lens flare while the Relay fires, from the capstone's slot (uFlareUv): a long thin horizontal streak through it, a small star,
+    // and square ghosts running through the frame's middle, from warm by the source to cool across the frame, as a lens would.
+    " if (uFlareStrength > 0.0) { vec2 p = (vUv - uFlareUv) * uAspect, axis = (vec2(0.5) - uFlareUv) * uAspect;\n" +
+    "  float streak = exp(-abs(p.y) * 320.0) * exp(-abs(p.x) * 1.6), star = exp(-length(p) * 22.0) + 0.5 * exp(-abs(p.x) * 70.0) * exp(-abs(p.y) * 900.0);\n" +
+    "  vec3 flare = vec3(1.0, 0.72, 0.42) * streak * 0.55 + vec3(1.0, 0.92, 0.8) * star * 0.7;\n" +
+    "  for (int k = 0; k < 4; k++) { float f = float(k), size = 0.018 + 0.014 * f; vec2 q = p - axis * (0.55 + 0.42 * f) * 2.0; float box = max(abs(q.x), abs(q.y));\n" +
+    "   flare += mix(vec3(1.0, 0.55, 0.2), vec3(0.45, 0.75, 1.0), f / 3.0) * ((1.0 - smoothstep(size * 0.8, size, box)) * 0.05 + (1.0 - smoothstep(0.0, 0.0025, abs(box - size))) * 0.06); }\n" +
+    "  c += flare * uFlareStrength; }\n" +
+    // Clamped first: the curve turns values over 1 (the flare's heart, the beam's core) negative, and white went blue.
+    // The grade. By day the picture is lifted out of its haze: more saturation and contrast, cooler shadows, warmer highlights, and
+    // orange (the carvings, the players) pushed to its full strength; at night it's barely touched.
+    " float luma = dot(c, vec3(0.2126, 0.7152, 0.0722)), day = 1.0 - uGradeNight, orangeShare = smoothstep(0.12, 0.35, c.r - c.b) * smoothstep(0.08, 0.25, c.r - c.g);\n" +
+    " c = mix(vec3(luma), c, mix(1.06, 1.2, day) + 0.25 * orangeShare * day);\n" +
+    " c *= mix(vec3(1.0), mix(vec3(0.96, 1.0, 1.04), vec3(1.03, 1.0, 0.96), smoothstep(0.25, 0.85, luma)), day);\n" +
+    " c = (c - 0.45) * mix(1.0, 1.1, day) + 0.45;\n" +
+    " c = clamp(c, 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), 0.22);\n" +
     " vec2 v = (vUv - 0.5) * uAspect; c *= 1.0 - dot(v, v) * 0.12;\n" +
     " c += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;\n" +
     " o = vec4(c, 1.0); }";
@@ -537,31 +559,26 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "uniform vec3 uCam; uniform float uNight; uniform vec4 uBeamColumn; uniform vec4 uBeamLook; uniform vec4 uThread; out vec4 o;\n" + FOG_GLSL + NOISE_GLSL +
     "void main(){ vec3 dir = normalize(vWorld - uCam); float flatShare = max(dot(dir.xz, dir.xz), 1e-6), t = -dot(uCam.xz, dir.xz) / flatShare;\n" +
     " float d = length(uCam.xz + dir.xz * t), y = uCam.y + dir.y * t, slant = min(inversesqrt(flatShare), 1.6), px = max(fwidth(d), 1e-3);\n" +
-    " float sec = uBeamLook.x, intensity = uBeamLook.z, fade = exp(-max(y - 244.0, 0.0) / 2600.0), body = 0.0, core = 0.0, halo = 0.0;\n" +
-    " vec3 orange = vec3(1.0, 0.5, 0.1), coreTone = mix(mix(vec3(1.0, 0.8, 0.45), vec3(1.0, 0.95, 0.85), uNight), vec3(1.0, 0.6, 0.2), smoothstep(230.0, 330.0, y));\n" +
-    // The column, between its foot (uBeamColumn.x) and its head (.y): half as wide inside the slit, widening high up, in steps of width
-    // that rise; a Gaussian body, a square core turning on the axis and a soft halo. It's data, not smoke: packets of brighter light
-    // stream up it and fine scanlines rise through it.
+    " float sec = uBeamLook.x, intensity = uBeamLook.z, fade = exp(-max(y - " + CAPSTONE_TOP_Y.toFixed(1) + ", 0.0) / 2600.0), body = 0.0, core = 0.0, halo = 0.0;\n" +
+    " vec3 orange = vec3(1.0, 0.5, 0.1), coreTone = mix(mix(vec3(1.0, 0.97, 0.9), vec3(1.0, 0.95, 0.85), uNight), vec3(1.0, 0.6, 0.2), smoothstep(" + RELAY_TIP_Y.toFixed(1) + ", " + (RELAY_TIP_Y + 90).toFixed(1) + ", y));\n" +
+    // The column, between its foot (uBeamColumn.x) and its head (.y): a straight beam of light with crisp edges, narrower inside the slit,
+    // and a brighter core down its middle. Its edges are held to a pixel so they never shimmer.
     " if (intensity > 0.0) {\n" +
-    "  float smoothWidth = uBeamColumn.z * mix(0.5, 1.0, smoothstep(200.0, 260.0, y)) * (1.0 + 0.3 * smoothstep(300.0, 1500.0, y)), w = smoothWidth * (1.0 + 0.08 * (hash1(floor((y - 120.0 * sec) / 24.0)) * 2.0 - 1.0));\n" +
-    "  float head = uBeamColumn.y < 5900.0 ? exp(-(y - uBeamColumn.y) * (y - uBeamColumn.y) / 100.0) : 0.0;\n" +
-    "  float along = (smoothstep(uBeamColumn.x, uBeamColumn.x + 6.0, y) * (1.0 - smoothstep(uBeamColumn.y - 3.0, uBeamColumn.y + 3.0, y)) + head) * fade * intensity;\n" +
-    "  float packet = step(0.7, hash1(floor((y - 320.0 * sec) / 16.0) + 31.0)), scan = 1.0 + 0.15 * sin(6.2832 * (y - 60.0 * sec) / 3.0) * clamp(1.0 - fwidth(y) / 1.5, 0.0, 1.0);\n" +
-    "  float bodyWidth = 9.0 * w; body = exp(-d * d / (bodyWidth * bodyWidth)) * slant * (1.0 + 0.8 * packet) * scan * along;\n" +
-    "  float side = 3.0 * w, sideSeen = max(side, 0.7 * px), c = cos(uBeamLook.y), s = sin(uBeamLook.y); mat2 turn = mat2(c, -s, s, c);\n" +
-    "  vec2 from = turn * uCam.xz, toward = turn * dir.xz + vec2(1e-6), lowSide = (-sideSeen - from) / toward, highSide = (sideSeen - from) / toward;\n" +
-    "  vec2 slabIn = min(lowSide, highSide), slabOut = max(lowSide, highSide); float chord = max(min(slabOut.x, slabOut.y) - max(slabIn.x, slabIn.y), 0.0);\n" +
-    "  core = min(chord / (2.0 * sideSeen), 1.6) * side / sideSeen * (1.0 + 0.5 * packet) * along;\n" +
-    "  halo = (0.35 * exp(-d * d / (900.0 * smoothWidth * smoothWidth)) + 0.08 * exp(-d / 75.0)) * along * mix(0.25, 0.7, uNight); }\n" +
+    "  float w = uBeamColumn.z * mix(3.6, 6.0, smoothstep(" + (RELAY_TIP_Y - 12).toFixed(1) + ", " + (RELAY_TIP_Y + 12).toFixed(1) + ", y)), soft = max(px, 0.05);\n" +
+    "  float head = uBeamColumn.y < 5900.0 ? 1.0 - smoothstep(0.0, 6.0, y - uBeamColumn.y) : 0.0;\n" +
+    "  float along = smoothstep(uBeamColumn.x, uBeamColumn.x + 4.0, y) * (uBeamColumn.y < 5900.0 ? head : 1.0) * fade * intensity;\n" +
+    "  body = (1.0 - smoothstep(w - soft, w + soft, d)) * along;\n" +
+    "  float coreWidth = mix(0.55, 0.38, uNight) * w; core = (1.0 - smoothstep(coreWidth - soft, coreWidth + soft, d)) * along * mix(1.6, 1.0, uNight);\n" +
+    "  halo = exp(-max(d - w, 0.0) / (0.5 * w)) * (1.0 - body) * 0.1 * uNight * along; }\n" +
     // The flare: a point of light in the capstone's slot (uThread.w high), while it charges and as it fires.
     " vec3 toSlot = vec3(0.0, uThread.w, 0.0) - uCam; vec3 offSlot = toSlot - dir * dot(toSlot, dir); float slotOff = dot(offSlot, offSlot);\n" +
-    " float flare = uBeamLook.w * (exp(-slotOff / 196.0) + 0.3 * exp(-slotOff / 2500.0));\n" +
+    " float flare = uBeamLook.w * exp(-slotOff / 64.0);\n" +
     // The thread: a core-only line from the capstone up, never thinner than most of a pixel (it fades instead).
     " float sigma = max(uThread.z, 0.7 * px), thread = uThread.x * uThread.z / sigma * exp(-d * d / (sigma * sigma)) * slant * smoothstep(uThread.y, uThread.y + 3.0, y) * fade;\n" +
     " vec3 threadTone = mix(vec3(1.0, 0.62, 0.2), vec3(1.0, 0.74, 0.42), uNight);\n" +
     // Its light, held to one hue as it brightens (by day no brighter than orange can stay orange), and how much of what's behind it it hides.
     " vec3 light = orange * (body + halo) + coreTone * core + mix(orange, coreTone, 0.6) * flare + threadTone * thread;\n" +
-    " light *= min(1.0, mix(1.05, mix(1.6, 1.1, smoothstep(230.0, 300.0, y)), uNight) / max(max(light.r, light.g), max(light.b, 1e-4)));\n" +
+    " light *= min(1.0, mix(1.7, mix(1.6, 1.1, smoothstep(" + RELAY_TIP_Y.toFixed(1) + ", " + (RELAY_TIP_Y + 60).toFixed(1) + ", y)), uNight) / max(max(light.r, light.g), max(light.b, 1e-4)));\n" +
     // Everything fades out before the quad's sides, so its edges never show.
     " float haze = hazeAt(uCam, vec3(0.0, y, 0.0)), edge = 1.0 - smoothstep(0.5, 1.0, abs(vAcross));\n" +
     " float cover = clamp(core + 0.95 * body + 0.6 * halo + 0.5 * flare + thread, 0.0, 1.0) * mix(0.9, 0.12, uNight);\n" +
@@ -599,7 +616,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
      a low inner terrace, then a crown of the tallest towers, terraces stepping down from it, a calm low field out to the edge, and a
      valley of low plinths opening from the first view to the Relay's feet. Every level sits at its own height, so nothing flickers. */
   var LAND = 54, C = 14, BLOCK = 10;
-  var STREET_Y = 0, PAVE_H = 0.25, WATER_Y = -1.2;
+  var STREET_Y = 0, PAVE_H = 0.25, WATER_Y = -4.2;
   var city = group(18000);
   // A steady number from 0 to 1 for a place, so details can vary from building to building without drawing on the seeded random.
   function hashAt(x, z, salt) { var h = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453; return h - Math.floor(h); }
@@ -621,7 +638,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
      their own: relayParts). Local +x of a blade is its slit face. Its record is as tall as the beam's capstone rises, so the camera and
      the loops keep clear of it. */
   var RELAY_TONE = [0.6, 0.615, 0.65], COURT_HALF_X = 28, COURT_HALF_Z = 42;
-  var CORE_Y = 12, RELAY_FOOT_Y = 9.25, RELAY_TIP_Y = 213, CAPSTONE_BOTTOM_Y = 228, CAPSTONE_TOP_Y = 244, CAPSTONE_LIFT_UNITS = 10;
   var LIGHT_TONE = [1.0, 0.5, 0.1];
   function buildRelay() {
     var t = RELAY_TONE, k = 0.92;
@@ -649,7 +665,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The pylons: the Relay's children, white, round it in the crown of the city. Each is two shafts either side of a slit of light, with
      the Relay's seam up their ends and a band under their tops, cut together to one slanted top that falls toward the Relay. [x, z,
      height to the top of the cut] */
-  var PYLONS = [[7, 91, 96], [63, -63, 84], [-77, 35, 72]];
+  var PYLONS = [[7, 91, 112], [63, -63, 100], [-77, 35, 88]];
   // The yaw that turns a row's local -z toward the Relay, along whichever axis is longer (x on a tie).
   function bowYawRad(x, z) { return Math.abs(x) >= Math.abs(z) ? (x > 0 ? -Math.PI / 2 : Math.PI / 2) : (z > 0 ? 0 : Math.PI); }
   function pylonAt(x, z) { for (var i = 0; i < PYLONS.length; i++) if (PYLONS[i][0] === x && PYLONS[i][1] === z) return PYLONS[i]; return null; }
@@ -691,7 +707,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
      round the court, the crown of the tallest towers, the terraces stepping down, the field and the edge along the coast. The valley runs
      in from the first view along its bearing to the Relay, low plinths walled by a shoulder held under 20, so the first frame sees the
      Relay's feet. In the crown and the terraces a block's height is its ring's envelope, or 0.8 or 0.6 of it, so the steps read. */
-  var FIRST_BEARING_RAD = Math.atan2(250, 620), CROWN_ENVELOPES = [52, 48, 44], TERRACE_ENVELOPES = [36, 32, 28, 24], SHOULDER_TOP_UNITS = 20;
+  var FIRST_BEARING_RAD = Math.atan2(250, 620), CROWN_ENVELOPES = [72, 64, 58], TERRACE_ENVELOPES = [50, 44, 38, 32], SHOULDER_TOP_UNITS = 28;
   function offFirstBearingRad(x, z) { var off = Math.atan2(z, x) - FIRST_BEARING_RAD; return Math.abs(Math.atan2(Math.sin(off), Math.cos(off))); }
   // A height of the envelope: all of it half the time, 0.8 or 0.6 of it otherwise, in steps of 4.
   function stepHeight(envelope) { var pick = rand(); return floorTo4(envelope * (pick < 0.5 ? 1 : pick < 0.8 ? 0.8 : 0.6)); }
@@ -748,9 +764,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var cx = (gx - LAND / 2 + 0.5) * C, cz = (gz - LAND / 2 + 0.5) * C;
       var r = Math.hypot(cx, cz), coast = coastAt(cx, cz), d = Math.max(Math.abs(cx), Math.abs(cz));
       if (r > coast) continue;
+      landCells.push(gx * LAND + gz);
+      put(city, cx, -2.4, cz, C, 2.4, C, STREET_TONE[0], STREET_TONE[1], STREET_TONE[2], 1, KIND_STREET); // the land under the block, its streets on top
       // The court round the Relay is one slab of its own; the pylons and the gates stand alone on their blocks.
       if (Math.abs(cx) < COURT_HALF_X && Math.abs(cz) < COURT_HALF_Z) continue;
-      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, PLATE_TONE[0], PLATE_TONE[1], PLATE_TONE[2], 1, KIND_PAVEMENT); // the block's plate, on the land the shore mesh lays
+      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, PLATE_TONE[0], PLATE_TONE[1], PLATE_TONE[2], 1, KIND_PAVEMENT); // the block's plate
       var pylon = pylonAt(cx, cz);
       if (pylon) { buildPylon(pylon); continue; }
       if (isGateBlock(cx, cz)) continue;
@@ -817,37 +835,33 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       made++;
     }
   }
-  /* The land and its edge, as one mesh round the coast: the streets out to a road along the coast, then one pale ledge with a bevelled
-     lip that drops straight into the sea. */
-  var SHORE_SEGMENTS = 360, SHORE_STRIDE = 14, SHORE_COUNT = SHORE_SEGMENTS * 15, shoreVertices = new Float32Array(SHORE_COUNT * SHORE_STRIDE);
-  var STREET_TONE = [0.74, 0.754, 0.775], LEDGE_TONE = [0.9, 0.91, 0.925];
-  function buildShore() {
-    var at = 0;
-    function vertex(x, y, z, nx, ny, nz, tone, kind) {
-      var o = at * SHORE_STRIDE; at++;
-      shoreVertices[o] = x; shoreVertices[o + 1] = y; shoreVertices[o + 2] = z; shoreVertices[o + 3] = nx; shoreVertices[o + 4] = ny; shoreVertices[o + 5] = nz;
-      shoreVertices[o + 6] = tone[0]; shoreVertices[o + 7] = tone[1]; shoreVertices[o + 8] = tone[2]; shoreVertices[o + 9] = 1; shoreVertices[o + 10] = kind; shoreVertices[o + 11] = 0; shoreVertices[o + 12] = 0; shoreVertices[o + 13] = 0;
-    }
-    // Rings of a segment's edge: [distance past the coast, height] for the road's end, the promenade, and the foot of the beach or quay.
-    function rings() { return [[11, 0], [12.4, -0.7], [12.6, -4]]; }
-    for (var i = 0; i < SHORE_SEGMENTS; i++) {
-      var a0 = i / SHORE_SEGMENTS * Math.PI * 2, a1 = (i + 1) / SHORE_SEGMENTS * Math.PI * 2;
-      var c0 = coastAt(Math.cos(a0), Math.sin(a0)), c1 = coastAt(Math.cos(a1), Math.sin(a1)), r0 = rings(a0), r1 = rings(a1);
-      function point(a, coast, ring) { return [Math.cos(a) * (coast + ring[0]), ring[1], Math.sin(a) * (coast + ring[0])]; }
-      var p0 = [point(a0, c0, r0[0]), point(a0, c0, r0[1]), point(a0, c0, r0[2])], p1 = [point(a1, c1, r1[0]), point(a1, c1, r1[1]), point(a1, c1, r1[2])];
-      // The land in the middle: a fan of streets.
-      vertex(0, 0, 0, 0, 1, 0, STREET_TONE, KIND_STREET); vertex(p1[0][0], 0, p1[0][2], 0, 1, 0, STREET_TONE, KIND_STREET); vertex(p0[0][0], 0, p0[0][2], 0, 1, 0, STREET_TONE, KIND_STREET);
-      // The promenade, then the beach or the quay, each a quad (two triangles, wound to face up and out).
-      // The bevelled lip, then the ledge's face.
-      var bands = [[0, 1], [1, 2]];
-      for (var b = 0; b < bands.length; b++) {
-        var inner = bands[b][0], outer = bands[b][1], tone0 = LEDGE_TONE, tone1 = LEDGE_TONE;
-        var rise = p0[inner][1] - p0[outer][1], run = r0[outer][0] - r0[inner][0], length = Math.hypot(rise, run), ny = run / length, out = rise / length;
-        var n0 = [Math.cos(a0) * out, ny, Math.sin(a0) * out], n1 = [Math.cos(a1) * out, ny, Math.sin(a1) * out], kind = KIND_SHORE;
-        vertex(p0[inner][0], p0[inner][1], p0[inner][2], n0[0], n0[1], n0[2], tone0, kind); vertex(p1[inner][0], p1[inner][1], p1[inner][2], n1[0], n1[1], n1[2], tone1, kind); vertex(p1[outer][0], p1[outer][1], p1[outer][2], n1[0], n1[1], n1[2], tone1, kind);
-        vertex(p0[inner][0], p0[inner][1], p0[inner][2], n0[0], n0[1], n0[2], tone0, kind); vertex(p1[outer][0], p1[outer][1], p1[outer][2], n1[0], n1[1], n1[2], tone1, kind); vertex(p0[outer][0], p0[outer][1], p0[outer][2], n0[0], n0[1], n0[2], tone0, kind);
+  /* The island's foundation: under every block a slab of land with its streets on top, then two tiers stepping down and out a block at
+     a time into the sea, each a ring of blocks round the one above, with a thin line of light along its top edge where it meets the next. */
+  var STREET_TONE = [0.74, 0.754, 0.775], TIER_TONES = [[0.86, 0.87, 0.89], [0.8, 0.815, 0.84]], TIER_TOPS = [-1.4, -2.8], landCells = [];
+  // Whether a point is on the island or its tiers (block cells of the land and the two rings round it).
+  var foundationCells = new Uint8Array(LAND * LAND);
+  function isFoundationAt(x, z) { var gx = Math.floor(x / C + LAND / 2), gz = Math.floor(z / C + LAND / 2); return gx >= 0 && gz >= 0 && gx < LAND && gz < LAND && foundationCells[gx * LAND + gz] > 0; }
+  function buildFoundation() {
+    var taken = new Uint8Array(LAND * LAND), ring = [];
+    landCells.forEach(function (cell) { taken[cell] = 1; });
+    for (var tier = 0; tier < TIER_TOPS.length; tier++) {
+      ring.length = 0;
+      for (var gx = 0; gx < LAND; gx++) for (var gz = 0; gz < LAND; gz++) {
+        if (taken[gx * LAND + gz]) continue;
+        var isNext = false;
+        for (var dx = -1; dx <= 1 && !isNext; dx++) for (var dz = -1; dz <= 1 && !isNext; dz++) {
+          var nx = gx + dx, nz = gz + dz;
+          if (nx >= 0 && nz >= 0 && nx < LAND && nz < LAND && taken[nx * LAND + nz] === tier + 1) isNext = true;
+        }
+        if (isNext) ring.push(gx * LAND + gz);
+      }
+      for (var i = 0; i < ring.length; i++) {
+        var cell = ring[i], cx = (Math.floor(cell / LAND) - LAND / 2 + 0.5) * C, cz = (cell % LAND - LAND / 2 + 0.5) * C, tone = TIER_TONES[tier];
+        taken[cell] = tier + 2;
+        put(city, cx, -7, cz, C, 7 + TIER_TOPS[tier], C, tone[0], tone[1], tone[2], 1, KIND_SHORE);
       }
     }
+    foundationCells.set(taken);
   }
 
   /* The city's rows sorted into a 6 by 6 grid of tiles, each with the box round everything in it, so a frame skips the tiles outside
@@ -1372,12 +1386,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The Relay fires: an event of EVENT_SEC on the world clock. Light gathers, the blades charge from the dais to the tips, the slit
      floods, a needle leaves the capstone's slot and the column snaps to full width; the release flashes, rings leave the capstone, a
      wave runs out over the city in square steps and on over the sea, and a ring sweeps the sky's ceiling; then the column lets go
-     upward and the city settles. Starts are FIRE_GAPS_SEC apart (cycled), each held for up to FIRE_FRAMING_WAIT_SEC until the capstone
-     will be in the clear part of the frame at its release; a tap on the Relay fires it early. The page opens on the opening event,
-     OPENING_EVENT_SEC in: its column up at hold, with no wave, flash or rings (-1 opens at rest). relayStateInto() is the whole event
-     as a pure function of its seconds. */
-  var GATHER_SEC = 2.0, CHARGE_FROM_SEC = 1.2, NEEDLE_AT_SEC = 2.6, BOOM_AT_SEC = 2.8, LET_GO_AT_SEC = 6.0, LET_GO_SEC = 1.4, EVENT_SEC = 10;
-  var OPENING_EVENT_SEC = 4.0, FIRST_FIRE_GAP_SEC = 11, FIRE_GAPS_SEC = [19, 14, 23, 16, 21], FIRE_FRAMING_WAIT_SEC = 4, FIRE_TAP_GAP_SEC = 8, HEAVY_EVENT_SEC = 3.1;
+     upward and the city settles: a pulse of light sent, about a second at full, never a sustained beam. Starts are FIRE_GAPS_SEC apart
+     (cycled), each held for up to FIRE_FRAMING_WAIT_SEC until the capstone will be in the clear part of the frame at its release, and
+     never while the camera is on a close pass; a tap on the Relay fires it early. The page opens at rest (OPENING_EVENT_SEC -1) and the
+     first firing comes about 7 s after the city shows; a value of 0 or more would open part way into one. relayStateInto() is the
+     whole event as a pure function of its seconds. */
+  var GATHER_SEC = 2.0, CHARGE_FROM_SEC = 1.2, NEEDLE_AT_SEC = 2.6, BOOM_AT_SEC = 2.8, LET_GO_AT_SEC = 3.9, LET_GO_SEC = 0.8, EVENT_SEC = 8;
+  var OPENING_EVENT_SEC = -1, FIRST_FIRE_GAP_SEC = 11, FIRE_GAPS_SEC = [19, 14, 23, 16, 21], FIRE_FRAMING_WAIT_SEC = 4, FIRE_TAP_GAP_SEC = 8, HEAVY_EVENT_SEC = 3.1;
   var eventSec = OPENING_EVENT_SEC >= 0 ? OPENING_EVENT_SEC : -7, isOpeningEvent = OPENING_EVENT_SEC >= 0, nextFireGapSec = OPENING_EVENT_SEC >= 0 ? FIRST_FIRE_GAP_SEC : 0, fireGapIndex = 0;
   // Where the running event started (a tap starts it at its charge, so its gather runs in from there).
   var eventFromSec = 0;
@@ -1398,7 +1413,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     out.headY = needle < 0 ? CAPSTONE_TOP_Y + out.capstoneLiftUnits : CAPSTONE_TOP_Y + CAPSTONE_LIFT_UNITS + 250 * needle + 2600 * needle * needle;
     out.bottomY = letGo < 0 ? CORE_Y : CORE_Y + 1800 * letGo * letGo;
     out.widthScale = !isOn || needle < 0 ? 0 : boom < 0 ? 0.35 : (0.35 + 0.65 * smooth(0, 0.12, boom)) * (1 + 0.4 * Math.exp(-4 * boom)) *
-      (letGo < 0 ? 1 + 0.05 * Math.sin(boom * 10.7) : lerp(1, 0.7, smooth(0, LET_GO_SEC, letGo)));
+      (letGo < 0 ? 1 : lerp(1, 0.7, smooth(0, LET_GO_SEC, letGo)));
     out.intensity = !isOn || needle < 0 ? 0 : 1 - smooth(LET_GO_SEC - 1, LET_GO_SEC, letGo);
     out.flash = !isOn || boom < 0 || isOpening ? 0 : Math.exp(-3.2 * boom);
     out.hot = !isOn || boom < 0 || isOpening ? 0 : 1 - smooth(0.1, 0.3, boom);
@@ -1407,7 +1422,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     out.waveStrength = !isOn || boom < 0 || isOpening ? 0 : Math.exp(-boom / 2.5) * (1 - smooth(EVENT_SEC - 3, EVENT_SEC, sec));
     out.skyRingUnits = boom < 0.3 ? -1 : 1500 * (boom - 0.3);
     out.skyRingStrength = !isOn || boom < 0.3 || isOpening ? 0 : Math.exp(-(boom - 0.3) / 1.5);
-    out.threadShare = (1 - out.intensity) * (1 + out.chargeShare); // 1 at rest, up to 2 in the charge, 0 while the column holds
+    out.threadShare = (1 - out.intensity) * 2 * out.chargeShare; // only while it charges: nothing at rest, gone once the column holds
     out.boomSec = isOn && !isOpening ? boom : -1;
     return out;
   }
@@ -1476,7 +1491,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the Relay, under its tips and round it, out low over the water, and a high sweep back round. */
   // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
   var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
-  var FOG_DAY = [0.8, 0.9, 0.96], ZENITH_DAY = [0.12, 0.38, 0.84], FOG_NIGHT = [0.07, 0.095, 0.19], ZENITH_NIGHT = [0.012, 0.02, 0.055];
+  var FOG_DAY = [0.72, 0.86, 0.97], ZENITH_DAY = [0.07, 0.29, 0.78], FOG_NIGHT = [0.07, 0.095, 0.19], ZENITH_NIGHT = [0.012, 0.02, 0.055];
   var FOG = FOG_DAY.slice(), ZENITH = ZENITH_DAY.slice(), FIRE_HAZE_DAY = [1.0, 0.8, 0.62], FIRE_HAZE_NIGHT = [0.42, 0.2, 0.1];
   var nightTarget = isNight() ? 1 : 0, night = nightTarget;
   // The theme can change in place (a setting, or the system's), and the city eases to day or night with it.
@@ -1490,14 +1505,14 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var SHOTS = [];
   function frameShots() {
     SHOTS = [
-      [0, [620, 140, 250], [0, 100, 0]],
-      [14, [380, 95, 300], [0, 140, 0]],
-      [28, [150, 120, 170], [0, 215, 0]],
-      [42, [-70, 170, 175], [0, 200, 0]],
-      [56, [-210, 110, 70], [0, 170, 0]],
-      [70, [-390, 42, -110], [0, 175, 0]],
-      [84, [-470, 200, -15], [0, 140, 0]],
-      [98, [330, 170, -320], [0, 130, 0]]
+      [0, [620, 140, 250], [0, 70, 0]],
+      [14, [470, 120, 400], [0, 60, 0]],
+      [28, [190, 170, 440], [0, 80, 0]],
+      [42, [-250, 200, 380], [0, 70, 0]],
+      [56, [-470, 90, 110], [0, 60, 0]],
+      [70, [-420, 55, -280], [-30, 45, 0]],
+      [84, [-120, 270, -500], [0, 30, 0]],
+      [98, [380, 190, -360], [0, 55, 0]]
     ];
   }
   function catmullInto(out, p0, p1, p2, p3, t) {
@@ -1592,7 +1607,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var t = (WATER_Y - seen.eye[1]) / dir[1];
     if (t > 4000) return null;
     var x = seen.eye[0] + dir[0] * t, z = seen.eye[2] + dir[2] * t;
-    return Math.hypot(x, z) > coastAt(x, z) + 8 ? [x, z] : null;
+    return isFoundationAt(x, z) ? null : [x, z]; // the sea, not the foundation's tiers
   }
   function play(clientX, clientY) {
     if (!isShown) return;
@@ -1629,9 +1644,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   var BUILD_STEPS = [
     once(buildSea),
-    once(buildShore),
     each(LAND, buildLandColumn),
     once(buildRelay),
+    once(buildFoundation),
     once(buildGates),
     each(function () { bayTowers = pickBayTowers(); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
     once(sortCityIntoTiles),
@@ -1794,7 +1809,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gpu.copy = program(full, compileShader(fs, COPY_FS), ["uTex"], { uTex: 0 });
     gpu.bright = program(full, compileShader(fs, BRIGHT_FS), ["uTex", "uThreshold", "uOrangeBoost"], { uTex: 0 });
     gpu.blur = program(full, compileShader(fs, BLUR_FS), ["uTex", "uStep"], { uTex: 0 });
-    gpu.composite = program(full, compileShader(fs, COMPOSITE_FS), ["uScene", "uSoft", "uBloom", "uFocusY", "uBloomStrength", "uAspect", "uSharpen", "uFlash"], { uScene: 0, uSoft: 1, uBloom: 2 });
+    gpu.composite = program(full, compileShader(fs, COMPOSITE_FS), ["uScene", "uSoft", "uBloom", "uFocusY", "uBloomStrength", "uAspect", "uSharpen", "uFlash", "uFlareUv", "uFlareStrength", "uGradeNight"], { uScene: 0, uSoft: 1, uBloom: 2 });
     gpu.cubeBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cubeBuffer); gl.bufferData(gl.ARRAY_BUFFER, cube, gl.STATIC_DRAW);
     gpu.waterVao = gl.createVertexArray(); gl.bindVertexArray(gpu.waterVao);
     gpu.waterBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.waterBuffer); gl.bufferData(gl.ARRAY_BUFFER, seaVertices.byteLength, gl.STATIC_DRAW);
@@ -1802,10 +1817,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 12, 8);
     gl.bindVertexArray(null);
     gpu.cityBuffer = instanceBuffer(city.capacity, gl.STATIC_DRAW); gpu.cityVao = instanceVao(gpu.cityBuffer);
-    gpu.shoreVao = gl.createVertexArray(); gl.bindVertexArray(gpu.shoreVao);
-    gpu.shoreBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.shoreBuffer); gl.bufferData(gl.ARRAY_BUFFER, shoreVertices.byteLength, gl.STATIC_DRAW);
-    [[0, 3, 0], [1, 3, 3], [4, 4, 6], [5, 4, 10]].forEach(function (input) { gl.enableVertexAttribArray(input[0]); gl.vertexAttribPointer(input[0], input[1], gl.FLOAT, false, SHORE_STRIDE * 4, input[2] * 4); });
-    gl.bindVertexArray(null);
     gpu.movers = ring(movers.capacity); gpu.trails = ring(trails.capacity); gpu.relay = ring(relayParts.capacity);
     // The shadow map, on its own texture unit for the context's life: smaller on a phone and where the city is shown small (Screens).
     gpu.shadowSize = Math.min(small || shownScale < 0.6 ? 2048 : 4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
@@ -1834,7 +1845,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function fillGpu() {
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.waterBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, seaVertices);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cityBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, city.data, 0, city.count * STRIDE);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gpu.shoreBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, shoreVertices);
     gpu.tileVaos = tiles.map(function (tile) { return instanceVao(gpu.cityBuffer, tile.first); });
     gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.shadowFb);
     gl.viewport(0, 0, gpu.shadowSize, gpu.shadowSize);
@@ -2107,7 +2117,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform2f(u.uShift, shift[0], shift[1]);
     gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform3fv(u.uSun, SUN); gl.uniform1f(u.uNight, night); gl.uniform1f(u.uTime, clock % 3600);
     gl.uniform3fv(u.uEye, eye); gl.uniform4f(u.uBeamSky, relay.bottomY, headY, extras * relay.intensity * lerp(0.5, 0.6, night), 0);
-    gl.uniform4f(u.uSkyRing, relay.skyRingUnits, extras * relay.skyRingStrength * lerp(0.35, 1, night), 0, 0);
+    gl.uniform4f(u.uSkyRing, relay.skyRingUnits, extras * relay.skyRingStrength, 0, 0);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -2118,7 +2128,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform1f(u.uTime, clock % 3600); gl.uniform4fv(u.uRipples, rippleData); gl.uniform1i(u.uRippleCount, ripples.length); gl.uniform1f(u.uNight, night);
     gl.uniform3fv(u.uFog, FOG); gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF);
     gl.uniform4f(u.uWave, relay.waveFrontUnits, relay.waveStrength, extras * relay.waveStrength, 0);
-    gl.uniform4f(u.uBeamReflect, relay.bottomY, headY, extras * relay.intensity * 0.7, 0);
+    gl.uniform4f(u.uBeamReflect, relay.bottomY, headY, extras * relay.intensity * lerp(1.1, 0.7, night), 0);
     gl.bindVertexArray(gpu.waterVao); gl.drawArrays(gl.TRIANGLES, 0, WATER_COUNT);
     gl.useProgram(gpu.box.program); u = gpu.box.at;
     gl.uniformMatrix4fv(u.uViewProj, false, vp);
@@ -2139,9 +2149,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     for (var si = 0; si < seenTiles.length; si++) { gl.bindVertexArray(gpu.tileVaos[seenTiles[si].index]); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_TOP_COUNT, seenTiles[si].count); }
     // The Relay's capstone and core, every face (the capstone is seen from below).
     gl.bindVertexArray(gpu.relay.vaos[gpu.relay.at]); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_COUNT, relayParts.count);
-    // The shore: its own vertices, with the inputs a row would give held at rest (no offset, unit size, unturned).
-    gl.bindVertexArray(gpu.shoreVao); gl.vertexAttrib3f(2, 0, 0, 0); gl.vertexAttrib3f(3, 1, 1, 1); gl.vertexAttrib2f(6, 0, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, SHORE_COUNT);
     gl.uniform1f(u.uLit, 0);
     gl.bindVertexArray(gpu.movers.vaos[gpu.movers.at]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, movers.count);
     gl.uniform1f(u.uOpaque, 0); gl.uniform1f(u.uEdge, 0);
@@ -2154,7 +2161,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       gl.useProgram(gpu.beam.program); u = gpu.beam.at;
       gl.uniformMatrix4fv(u.uViewProj, false, vp); gl.uniform3fv(u.uCam, eye); gl.uniform1f(u.uNight, night);
       gl.uniform3fv(u.uFog, FOG); gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF);
-      var threadBottomY = CAPSTONE_TOP_Y + relay.capstoneLiftUnits, slotY = 236 + relay.capstoneLiftUnits, widthScale = relay.widthScale * (small ? 1.25 : 1);
+      var threadBottomY = CAPSTONE_TOP_Y + relay.capstoneLiftUnits, slotY = (CAPSTONE_BOTTOM_Y + CAPSTONE_TOP_Y) / 2 + relay.capstoneLiftUnits, widthScale = relay.widthScale * (small ? 1.25 : 1);
       var isLit = relay.intensity + relay.flare > 0, quadBottomY = Math.min(threadBottomY, isLit ? Math.min(relay.bottomY, slotY - 100) : Infinity) - 30;
       gl.uniform4f(u.uBeamQuad, quadBottomY, 6000, isLit ? 90 * Math.max(widthScale, 1) : 12, 0);
       gl.uniform4f(u.uBeamColumn, relay.bottomY, headY, widthScale, 0);
@@ -2196,11 +2203,17 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     bindTex(2, targets.quarterA.tex);
     gl.uniform1f(u.uFocusY, focusAt[1] * 0.5 + 0.5);
     gl.uniform1f(u.uSharpen, sharpen);
-    gl.uniform1f(u.uBloomStrength, isSoft ? 0.1 + 0.28 * night + ((0.22 + 0.1 * night) * relay.flash + 0.06 * relay.intensity) * calm : 0);
-    gl.uniform1f(u.uFlash, lerp(0.05, 0.07, night) * relay.flash * calm);
+    gl.uniform1f(u.uBloomStrength, isSoft ? 0.1 + 0.28 * night + ((0.3 + 0.02 * night) * relay.flash + lerp(0.14, 0.06, night) * relay.intensity) * calm : 0);
+    gl.uniform1f(u.uFlash, lerp(0.065, 0.07, night) * relay.flash * calm);
     gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect));
+    // The lens flare's source: the capstone's slot on the screen, fading as it nears the frame's edges or goes behind the eye.
+    projectInto(flareAt, vp, setInto(flarePoint, 0, (CAPSTONE_BOTTOM_Y + CAPSTONE_TOP_Y) / 2 + relay.capstoneLiftUnits, 0));
+    var flareU = flareAt[0] * 0.5 + 0.5, flareV = flareAt[1] * 0.5 + 0.5, flareIn = flareAt[2] > 0 ? 1 - smooth(0.42, 0.6, Math.max(Math.abs(flareU - 0.5), Math.abs(flareV - 0.5))) : 0;
+    gl.uniform2f(u.uFlareUv, flareU, flareV); gl.uniform1f(u.uGradeNight, night);
+    gl.uniform1f(u.uFlareStrength, flareIn * (0.5 * relay.flare + 0.9 * relay.flash + 0.35 * relay.intensity) * lerp(0.85, 1, night) * calm);
     drawFull();
   }
+  var flarePoint = [0, 0, 0], flareAt = [0, 0, 0];
 
   /* The run: the city's phase, and one frame callback that does what it says. */
   var phase = "", phaseTimesMs = {}, isRunning = false, isTickPending = false, isInView = true, isWorldBuilt = false;
@@ -2663,7 +2676,7 @@ const CITY_STYLES = `
    placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
 /* Its height is the largest the window gets (lvh), not the visible one: a phone's address bar showing or hiding crops the stage's bottom
    instead of resizing it, so the city never scales with the bar. */
-.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #6695D9 0%, #C9E3F6 37%, #E5F8F8 44%, #CDE1EC 47%, #9EC8E6 100%); }
+.city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #5597F7 0%, #DAFCFC 37%, #B5E0FB 44%, #ABDAFA 47%, #2689D7 100%); }
 .city-stage.is-framed { position: absolute; inset: 0; height: auto; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* The placeholder and the still: the live city's first frame, at the screen's height and centred, moved as the camera's picture is
@@ -2672,12 +2685,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRuoCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg/AAAAFAHAJ0BKkgAHAA+pT6cSaYjJiEzOq34wBSJQBbI+iCWVVAPn7lXcdZJWMGWcFY0cPn4UIyCRfo1kGAyaV4z9vhY2KIA/pAKqqrqDdFwEbMofkSzDtH144HT7yXAiAEUm3nsUfSqu5H/xG/pVimw94e6p2nA3+NC559W+DncLur3VrmCW/tVjuwTM1OfTDYzWVMwxxVgNUzgTbdWHzMlNYs+tCWT9TuK7W/Zd1CwFa0oeBLLHZvaf12B/nEerECUBqautjycIogBSgyR8Ns4AMGpDZ13t4pUBjX7AMMU+TqgsrehcOqRwM9mv5imsEycD7rxaLHSkDoR3AAAAA==); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRqACAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggsgAAAJAFAJ0BKkgAHAA+tUqkSyckI6es2/lY8BaJZQDGBDRm1S3AmPrr5Seem6b9Fd+GBk3l23LAAP72cs7MJuwRdbxqWCR3awtFyXNpcB1fDxYd2rahcWzawWslS7P30oPpU3ODB6Ogvm0VeCyCO7iym8A4zdDj99j1A51K29Bd9SSGdbvppj1WXhTTahROgNNNBm7N3B4CC6N8iPZTEudSJUe+/7k9hphaLO0kH0uwZO5PAAA=); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRhwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggLgEAALAHAJ0BKkgAHAA+tVigTCcloyUpuqpI4BaJZAC2R4AkYBRkPOhdAoC0yMph7jICJ6MuFjdFsZVqdMTESzbv6mo51CUGmMAA/rE+1tevl2+Dx3WmD/vMI2wu9Rzf/+RBRkLt2bySwOlh8AedFoP0Kw6EiBSTBzK+vX+IPJj1+GiQMExRaNGxfkoz4nkY/N8e33XGmYL7cXgZnQhXD2+SL3hNRZe4B7b9WBiSk/ovHrRYfAMJN9fOT4B5j96wcoeO5RZI1nEptR6G6tQ0fJf8hw1OQMag6jB4xCHJ+A0yg8RnEr0LbFfJt7X6yTfFyAVLZD3j45GZ3VT4TTT3B81uuA9oAwhXd9+4J45imdgc1nV6iQtVbAaH2kmsKFBInJZOI10pdV+TEFzKSwqAAAAA); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRn4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggkAAAABAFAJ0BKkgAHAA+tVKgTCckoyKs1AlY4BaJZwDGuCpQXJTaQEGMWb/H2vKpqT/TuMAA/vVgWMqKKPgRWslReUU6Z/2NkUvNNFfU/ad+2Gh18ZTl3qaIih3LBni7cPwRJzEiEpZBz3Zbf1imSJE094njVFn+CzkilEaYXNWl0obGkW8nndLnnwADAWavGpAAAA==); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRtACAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg4gAAANAGAJ0BKiQAJAA+tUyiS6ckIyGqtVwA4BaJQBfAfuEGW9v/+DO0cft8pGWz6xregv9BJnxgr9k14POK29CowADKZEPk+RN1VbKeP9GnbNypKZ/xBWTkrLP5NG8d8PR4K+ulR8voCvLE2sFs3MOa2BlPVEQ2iGBticpIKXCvf7moEzzGK+dJdAqvsrZXQ3+K9m3Vw9lfgXQ4dTUOT7SoEU44OyfVVWa+ZxqC0JWBqUBICr0q8O44lDQbQL19KZ/g/7pw8NBok4Z4PHzC6lQQLNbENVuinr3Z7cnVEnFAwXdQAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRqQCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggtgAAABAGAJ0BKiQAJAA+tUqiSackI6EuOAsw4BaJZQDA3C6TCPPSDLKReziVCoyO6FKiK7ecSsMhtQFgUAD++l521ckTq8W5gDFLQP2V+Wk2Ev8Fzf9u+Ygzr5fNXXKcevf19/lNaP3hp4Yr98h/In5T7fbA/2XnzWc06D21Aa/qnAjtUSeU4lkbNDwdAzWqSlLH6CpmaoMIJjRm2muxhG0q0l7e/IGDAylkcV0jby7VZQc0UpBdgAAA); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRgADAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggEgEAAFAHAJ0BKiQAJAA+tUihSqckI6GuOAsw4BaJQBjV9lpr5/9KzAmgLj9A+RFHerPVZySQbQuvzVtjDMe8tBNP/A/kM8AA+wlIROCmN53Df/8l9f6Ki6AKhj//FvoVrOxjck0sONhYy9RK2vnLVAiDbPGGccQsyL6lhBkT62ldw2qn8llzb2oZ+HeuHI2vyllA+h3cw9obY4UEVTkWWhRvihIRqN1mvYSl26rJSq5V35ZvLJTvqy31Fm6PhwRm/MJjpS7PfSjfgpXZ9/JNcjcozAlcM955QB1zCUYfyiTKfbop/TRjefSrlVCyl+QSKejQT/b8gRIeOPfSt6B2ekt1JQaDLjFGR6TxS/EetEIHJAAAAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnwCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjgAAAJAEAJ0BKiQAJAA+tVCgSqclIyGuKADgFolnALOAJ9dsL/7P2/+/Huk3l7Y9AAD+9CHRmyLPt5NpCqle+BkaD7WMIoybCnbf11vPeTLzmSXeuxFxhtfl/mJdCgsXdzUwzNuSe3jlqfZuu9dGaUxIuKiL5HTIDMa/I6DVPmDJFBPo2B44GD4328mtRZGAAAA=); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
@@ -2705,7 +2718,7 @@ const CITY_STYLES = `
 [data-theme-choice="dark"] .city-stage { background: linear-gradient(180deg, #0B0D1C 0%, #131426 37%, #15172C 44%, #131427 47%, #0B0E1B 100%); }
 [data-theme-choice="dark"] .city-stage .city-still.is-day { display: none; }
 [data-theme-choice="dark"] .city-stage .city-still.is-night { display: block; }
-[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #6695D9 0%, #C9E3F6 37%, #E5F8F8 44%, #CDE1EC 47%, #9EC8E6 100%); }
+[data-theme-choice="light"] .city-stage { background: linear-gradient(180deg, #5597F7 0%, #DAFCFC 37%, #B5E0FB 44%, #ABDAFA 47%, #2689D7 100%); }
 [data-theme-choice="light"] .city-stage .city-still.is-day { display: block; }
 [data-theme-choice="light"] .city-stage .city-still.is-night { display: none; }
 
