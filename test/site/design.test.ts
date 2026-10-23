@@ -15,7 +15,7 @@ import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
-import { SHADER_HEAD } from "@zaisma/core";
+import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
@@ -469,6 +469,23 @@ describe("components", () => {
     expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
     // Every shader keeps its own mainImage: the pass calls it once a pixel.
     expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);
+  });
+
+  it("draw every backdrop on a page in one WebGL2 context, as a game's shader is drawn, sharpened up from fewer pixels", () => {
+    // A browser keeps only about 16 contexts and takes the oldest away past that, so many backdrops (the gallery) share one: the script
+    // asks for a WebGL context in one place, made once and kept, and copies each frame into each canvas's own 2D picture.
+    expect(BACKDROP_SCRIPT.match(/getContext\("webgl/g)?.length).toBe(1);
+    expect(BACKDROP_SCRIPT).toContain('if (shared) return shared.isLost ? null : shared;');
+    expect(BACKDROP_SCRIPT).toContain('board.getContext("webgl2"');
+    expect(BACKDROP_SCRIPT).toContain('canvas.getContext("2d", { alpha: false })');
+    // WebGL2's GLSL, with the same head and glass pass as a game's shader, compiled in the background where it can be.
+    expect(BACKDROP_SCRIPT).toContain(JSON.stringify(SHADER_HEAD));
+    expect(BACKDROP_SCRIPT).toContain(JSON.stringify(SHADER_UPSCALE_SOURCE));
+    expect(BACKDROP_SCRIPT).toContain("KHR_parallel_shader_compile");
+    expect(BACKDROP_SCRIPT).not.toContain("gl_FragColor");
+    // Fewer frames when nobody's touched the page for a while, and a game's frame is told, since it never sees the page's input.
+    expect(BACKDROP_SCRIPT).toContain(`IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000}`);
+    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: panes, isIdle: isIdle }");
   });
 
   it("open the Developer and Forum tabs only on a developer page", () => {
