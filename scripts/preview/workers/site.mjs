@@ -48,48 +48,9 @@ async function withFeedback(request, environment, answerPage, answer) {
   return new HTMLRewriter().on("head", { element: (head) => head.append(tags, { html: true }) }).transform(response);
 }
 
-// The test data's SQL (run.mjs, sql()): POST /__preview/sql with this run's token and { sql }, run as
-// `wrangler d1 execute --command` runs it (split into statements, one batch), answering each statement's rows.
-// Here, in the process that has the database open, it takes a few milliseconds instead of a wrangler of its own.
-const SQL_PATH = "/__preview/sql";
-
-/** The statements in SQL text, split on the semicolons outside quotes and comments. */
-function statementsOf(text) {
-  const statements = [""];
-  let quote = null;
-  for (let index = 0; index < text.length; index++) {
-    const character = text[index];
-    if (!quote && character === "-" && text[index + 1] === "-") {
-      // A comment, to the end of its line.
-      const lineEndIndex = text.indexOf("\n", index);
-      index = lineEndIndex === -1 ? text.length : lineEndIndex;
-      continue;
-    }
-    if (!quote && character === ";") {
-      statements.push("");
-      continue;
-    }
-    if (quote ? character === quote : character === "'" || character === '"' || character === "`") quote = quote ? null : character;
-    statements[statements.length - 1] += character;
-  }
-  return statements.map((statement) => statement.trim()).filter(Boolean);
-}
-
-async function answerSql(request, environment) {
-  if (request.method !== "POST" || !environment.PREVIEW_SQL_TOKEN || request.headers.get("x-preview-sql-token") !== environment.PREVIEW_SQL_TOKEN) return new Response("Not found", { status: 404 });
-  const { sql } = await request.json();
-  try {
-    const answers = await environment.DB.batch(statementsOf(sql).map((statement) => environment.DB.prepare(statement)));
-    return Response.json({ results: answers.map((answer) => answer.results ?? []) });
-  } catch (error) {
-    return Response.json({ error: String(error?.message ?? error) }, { status: 500 });
-  }
-}
-
 export default workerRetryingWhenLocked({
   ...site,
   fetch: (request, environment, context) => {
-    if (new URL(request.url).pathname === SQL_PATH) return answerSql(request, environment);
     const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environment), context);
     return withFeedback(request, environment, () => answer(request), answer);
   },

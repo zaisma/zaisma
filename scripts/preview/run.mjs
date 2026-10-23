@@ -4,10 +4,11 @@
 // or npm run preview:start to run it in the background on a free port (background.mjs).
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { transformSync } from "esbuild";
@@ -62,15 +63,12 @@ if (!existsSync(signInKeyFile)) {
   const { kty, n, e, d, p, q, dp, dq, qi } = await crypto.subtle.exportKey("jwk", pair.privateKey);
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
-// The test data's SQL goes to the site with this run's token (runSql(), below).
-const SQL_TOKEN = randomBytes(24).toString("hex");
 const siteSettings = {
   SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20",
   // Email codes go to the stand-in mailbox, never to a real address.
   EMAIL_OUTBOX_URL: `${MAIL}/`,
   // The feedback overlay and its comments (workers/site.mjs, withFeedback): the preview's entry only, never production.
   PREVIEW_FEEDBACK_ORIGIN: FEEDBACK,
-  PREVIEW_SQL_TOKEN: SQL_TOKEN,
   // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
   ANTHROPIC_API_KEY: "preview", ANTHROPIC_BASE_URL: `http://localhost:${PORTS.ai}`,
   // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
@@ -100,6 +98,53 @@ process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 // Also when set-up fails, so nothing is left running.
 process.on("exit", () => children.forEach((c) => c.kill()));
+
+/**
+ * The preview's database, D1's own SQLite file in STATE: test data is written straight into it, which takes milliseconds where each
+ * `wrangler d1 execute` took seconds to start. The servers keep it in WAL mode, so another process can write between their calls,
+ * as wrangler did.
+ */
+let databasePath = null;
+function openPreviewDatabase() {
+  if (!databasePath) {
+    const folder = join(STATE, "v3/d1/miniflare-D1DatabaseObject");
+    // The site's database is the one with accounts in it (other Workers' databases may sit beside it).
+    databasePath = readdirSync(folder).filter((name) => name.endsWith(".sqlite") && name !== "metadata.sqlite").map((name) => join(folder, name)).find((path) => {
+      const database = new DatabaseSync(path, { readOnly: true });
+      try {
+        return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'accounts'").get());
+      } finally {
+        database.close();
+      }
+    });
+    if (!databasePath) throw new Error(`No preview database with an accounts table in ${folder}.`);
+  }
+  return new DatabaseSync(databasePath, { timeout: 15_000 });
+}
+
+/** Runs SQL, one statement or several split by semicolons, on the preview's database: true when it all ran. */
+function runSql(sql) {
+  const database = openPreviewDatabase();
+  try {
+    database.exec(sql);
+    return true;
+  } catch (error) {
+    console.log(`  The test data's SQL failed: ${error.message}`);
+    return false;
+  } finally {
+    database.close();
+  }
+}
+
+/** The rows one query answers on the preview's database. */
+function querySql(sql) {
+  const database = openPreviewDatabase();
+  try {
+    return database.prepare(sql).all();
+  } finally {
+    database.close();
+  }
+}
 
 // How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
 let stepStartedMs = Date.now();
@@ -253,19 +298,6 @@ async function waitFor(url) {
   throw new Error(`${url} didn't start. Is something else using its port? The servers' output is in ${join(STATE, "servers.log")}.`);
 }
 
-/**
- * Runs SQL on the preview's database as `wrangler d1 execute --command` does (split into statements, run as one batch),
- * through the site's preview entry (workers/site.mjs): one request, instead of a wrangler process of its own each time.
- * Answers each statement's rows, or null when it failed, which the log says and the start goes on from.
- */
-async function runSql(text) {
-  const response = await fetch(`${SITE}/__preview/sql`, { method: "POST", headers: { "content-type": "application/json", "x-preview-sql-token": SQL_TOKEN }, body: JSON.stringify({ sql: text }) });
-  const answer = await response.json().catch(() => ({ error: `${response.status} ${response.statusText}` }));
-  if (response.ok) return answer.results;
-  console.log(`  This test data's SQL failed (${answer.error}): ${text.replace(/\s+/g, " ").slice(0, 160)}…`);
-  return null;
-}
-
 console.log("Applying database updates…");
 spawnSync(...wrangler(["d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 if (!fresh) givePasswords();
@@ -334,7 +366,7 @@ const mcpClientSql = `INSERT INTO mcp_clients (id, client_name, redirect_urls, r
   INSERT OR IGNORE INTO api_keys (id, account_id, name, secret_hash, access_level, created_at_ms, last_used_at_ms, kind, mcp_client_id, connected_app_host)
   SELECT 'previewconnection001', id, 'Claude', 'previewhash', 'full', ${Date.now() - 3 * 86400_000}, ${Date.now() - 3600_000}, 'connected_app', 'https://claude.ai/oauth/mcp-oauth-client-metadata', 'claude.ai'
   FROM accounts WHERE username = 'Preview_Studio'`;
-await runSql(`UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game', minimum_player_age_years = 16 WHERE slug = 'shard-dodge'; DELETE FROM live_rooms; DELETE FROM room_players; ${signInAppSql}; ${mcpClientSql}`);
+runSql(`UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game', minimum_player_age_years = 16 WHERE slug = 'shard-dodge'; DELETE FROM live_rooms; DELETE FROM room_players; ${signInAppSql}; ${mcpClientSql}`);
 // Tiny Farm (for everyone 13 and up) has a newest version held for lifelike gore, again this run: set the game for 16 and up
 // on its dashboard and it passes. The report is what the AI review would have saved.
 const goreReport = JSON.stringify({
@@ -346,13 +378,13 @@ const goreReport = JSON.stringify({
   ai: { model: "preview", verdict: "hold", summary: "A farm game with a horror boss fight.", input_token_count: 0, output_token_count: 0 },
   is_child_safety: false,
 }).replaceAll("'", "''");
-await runSql(`UPDATE games SET minimum_player_age_years = 13, account_requirement = 'none' WHERE slug = 'tiny-farm';
+runSql(`UPDATE games SET minimum_player_age_years = 13, account_requirement = 'none' WHERE slug = 'tiny-farm';
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewgoreboss0001', id, 'manifests/version_previewgoreboss0001', 1, 1000, 'held', '${goreReport}', ${Date.now()}, 'files', 'Adds the boss fight.', 0 FROM games WHERE slug = 'tiny-farm'`);
 // Lava Leap's cover keeps it off the lists ("No slop"), again this run: the listing check found words besides its title
 // (what the real AI would say; the stand-in can't read pictures). Marked checked, so the stand-in leaves it until it changes.
 const lavaReason = JSON.stringify({ code: "extra_text_on_cover", message: 'The cover has words besides the title: "NEW LEVELS!", "+1 JUMP / SEC", "100 STAGES".', content_rule: null }).replaceAll("'", "''");
-await runSql(`UPDATE game_images SET listing_reason = '${lavaReason}', cleared_at_ms = NULL WHERE kind = 'cover' AND review_status = 'approved' AND game_id = (SELECT id FROM games WHERE slug = 'lava-leap');
+runSql(`UPDATE game_images SET listing_reason = '${lavaReason}', cleared_at_ms = NULL WHERE kind = 'cover' AND review_status = 'approved' AND game_id = (SELECT id FROM games WHERE slug = 'lava-leap');
      UPDATE games SET listing_check_requested_at_ms = ${Date.now() - 1000}, listing_checked_at_ms = ${Date.now()} WHERE slug = 'lava-leap'`);
 // A re-upload of Shard Dodge by another developer (dashking), held for a person, again this run: Reject as a copy
 // on its admin page emails Preview_Studio (the preview mailbox) and writes it into Shard Dodge's history.
@@ -367,25 +399,25 @@ const reuploadReport = (originalId) =>
     is_child_safety: false,
     matched_game: { game_id: originalId, matched_file_count: 4, compared_file_count: 5 },
   }).replaceAll("'", "''");
-await runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('preview-dashking', 'player_previewdashking001', 'dashking', '18+', ${Date.now()}, ${Date.now()});
+runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('preview-dashking', 'player_previewdashking001', 'dashking', '18+', ${Date.now()}, ${Date.now()});
      INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_previewdashking001', 'person', 'preview-dashking', ${Date.now()});
      INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
-await seedFriendsNow();
+seedFriendsNow();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
-await seedPlayingNow();
+seedPlayingNow();
 // Country blocks, again this run: Night Drive in the United States, where the preview's own requests come from (its 451 page,
 // and the home leaves it out), and Four in a Row in the United Kingdom, which still plays here (its dashboard's alert).
 const countryBlock = (countryCode, words) =>
   JSON.stringify([{ country_code: countryCode, review_reason: { code: "country_law_notice", message: `A notice under ${countryCode} law names this: ${words}`, content_rule: null }, blocked_at_ms: Date.now() }]).replaceAll("'", "''");
-await runSql(`UPDATE games SET country_blocks = '${countryBlock("US", "A court order names the street race on level 2.")}' WHERE slug = 'night-drive';
+runSql(`UPDATE games SET country_blocks = '${countryBlock("US", "A court order names the street race on level 2.")}' WHERE slug = 'night-drive';
      UPDATE games SET country_blocks = '${countryBlock("GB", "Ofcom says the chant in the lobby stirs up racial hatred under the Public Order Act 1986.")}' WHERE slug = 'four-in-a-row'`);
 // Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
 // clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
-await runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
+runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
      UPDATE accounts SET bio = 'Come find me, 12 Elm St', profile_check_status = 'passed' WHERE username = 'Loud_Lynx' AND bio IS NULL;
      UPDATE accounts SET who_can_chat = 'nobody', who_can_join = 'nobody', who_sees_playing_now = 'nobody', who_sees_played_games = 'nobody', who_sees_online = 'nobody', who_can_send_friend_requests = 'nobody', chat_stopped_reason = 'removed', social_stopped_at_ms = ${Date.now()}, social_stopped_reason = 'personal_details' WHERE username = 'Stopped_Fox' AND social_stopped_at_ms IS NULL`);
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
@@ -393,11 +425,11 @@ await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
 await seedProtectAccount();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
-await seedSecurityLog();
+seedSecurityLog();
 // An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
-await seedAnnouncements();
+seedAnnouncements();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
-await seedLeakedKeys();
+seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
 await seedSecurityAlerts();
 // Two accounts for Confirm it's you: one that can't make a key until it adds a passkey, and one whose newest passkey waits a day.
@@ -407,7 +439,7 @@ await seedDeletingDeveloper();
 stepDone("account states");
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
 // presses of Play in the preview add to them.
-await runSql(pretendPlaysSql());
+runSql(pretendPlaysSql());
 stepDone("pretend plays");
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
 // pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
@@ -597,12 +629,10 @@ function givePasswords() {
   if (!existsSync(usersFile)) return;
   const saved = JSON.parse(readFileSync(usersFile, "utf8"));
   if (saved.passwords) return;
-  const d1 = (args) => spawnSync(...wrangler(["d1", "execute", "zaisma", "--local", "--persist-to", STATE, ...args]), { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } });
   const without = "password_changed_at_ms IS NULL AND username <> 'Old_Timer' AND username NOT LIKE 'Legacy%'";
-  const found = d1(["--json", "--command", `SELECT id FROM accounts WHERE ${without}`]);
-  const ids = JSON.parse(found.stdout)[0].results.map((row) => row.id);
+  const ids = querySql(`SELECT id FROM accounts WHERE ${without}`).map((row) => row.id);
   writeFileSync(usersFile, JSON.stringify({ users: saved, passwords: Object.fromEntries(ids.map((id) => [id, PASSWORD])) }));
-  d1(["--command", `UPDATE accounts SET password_changed_at_ms = ${Date.now()} WHERE ${without}`]);
+  runSql(`UPDATE accounts SET password_changed_at_ms = ${Date.now()} WHERE ${without}`);
   console.log(`Gave ${ids.length} test accounts from older preview data the password "${PASSWORD}".`);
 }
 
@@ -624,8 +654,8 @@ function withServer(example, name) {
 async function seed() {
   stepDone("servers up");
   const jar = new Map();
-  // An upload can wait minutes for its run in Chrome, so the site may have closed the connection kept open
-  // for the next call: that one is sent again on a fresh connection.
+  // An upload can wait a while for its scan, so the site may have closed the connection kept open for the next
+  // call: that one is sent again on a fresh connection.
   const fetch = (url, init) => globalThis.fetch(url, init).catch(() => globalThis.fetch(url, init));
   const go = async (path, init = {}) => {
     const res = await fetch(SITE + path, {
@@ -666,15 +696,24 @@ async function seed() {
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
-  // The preview's site has no developer rate limit (scripts/preview/workers/site.mjs), so seeding never waits on one.
-  // Waited for without blocking this process, which forwards the games and rooms ports the upload's run in Chrome opens.
-  const upload = (folder, slug, notes) =>
-    new Promise((done) =>
-      spawn(process.execPath, [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
-        env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
-        stdio: "ignore",
-      }).on("exit", (status) => done({ status })),
-    );
+  // The preview's site has no developer rate limit (scripts/preview/workers/site.mjs), so seeding never waits on one. The upload command
+  // asks after the scan every half second, not every few seconds, and waits for a run in Chrome only briefly: the seed waits for the
+  // runs it needs (waitForRunInChrome).
+  const uploadCommand = (folder, slug, notes) => [[join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], { env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key, ZAISMA_SCAN_CHECK_INTERVAL_MS: "500" }, stdio: "ignore" }];
+  // Never one that blocks this process: it forwards the games and rooms ports that the runs in Chrome open.
+  /** An upload without blocking: answers its exit code. */
+  const uploadInBackground = (folder, slug, notes) => new Promise((done) => spawn(process.execPath, ...uploadCommand(folder, slug, notes)).once("exit", (exitCode) => done(exitCode)));
+  const upload = uploadInBackground;
+  /** A game's newest version once its run in Chrome is over (it takes up to PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec, 120s). */
+  const waitForRunInChrome = async (slug) => {
+    let version;
+    for (let i = 0; i < 360; i++) {
+      [version] = (await api("GET", `/games/${slug}`)).versions;
+      if (!["waiting", "checking"].includes(version?.performance_check?.check_status)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return version;
+  };
   // Scans may still be running: approve as admin so the test data is ready at once.
   const approveNewest = async (slug) => {
     const { versions } = await api("GET", `/games/${slug}`);
@@ -683,14 +722,18 @@ async function seed() {
   };
 
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
-  await seedEngineSamples(api, upload);
-  stepDone("engine samples");
-  if (ENGINES_ONLY) return;
-  await seedStartedInChrome(api, upload);
+  // Their runs in Chrome go on while the rest of the test data is added, and are waited for at the end.
+  const finishEngineSamples = await seedEngineSamples(api, uploadInBackground, waitForRunInChrome);
+  if (ENGINES_ONLY) {
+    await finishEngineSamples();
+    stepDone("engine samples: runs in Chrome");
+    return;
+  }
+  const finishStartedInChrome = await seedStartedInChrome(api, upload, waitForRunInChrome);
   stepDone("started in Chrome");
   // The rest of the account's 20 runs in Chrome today are used, so the other test games' versions say they weren't
   // measured (and their uploads don't wait for Chrome).
-  await runSql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) INSERT OR IGNORE INTO performance_checks (version_id, owner_id, check_status, queued_at_ms, checked_at_ms) SELECT 'version_usedrun' || i, (SELECT owner_id FROM games WHERE slug = 'texture-tour'), 'checked', CAST(unixepoch('subsec') * 1000 AS INTEGER), NULL FROM n");
+  runSql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) INSERT OR IGNORE INTO performance_checks (version_id, owner_id, check_status, queued_at_ms, checked_at_ms) SELECT 'version_usedrun' || i, (SELECT owner_id FROM games WHERE slug = 'texture-tour'), 'checked', CAST(unixepoch('subsec') * 1000 AS INTEGER), NULL FROM n");
 
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
@@ -839,7 +882,7 @@ async function seed() {
   if (gardenVersion.scan_status !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
   await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
-  await runSql(`UPDATE versions SET scan_report = json_set(scan_report, '$.images.is_connected', json('false')) WHERE id = '${gardenVersion.id}'`);
+  runSql(`UPDATE versions SET scan_report = json_set(scan_report, '$.images.is_connected', json('false')) WHERE id = '${gardenVersion.id}'`);
   writeFileSync(join(STATE, "shield-knows-later"), "");
   await fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("17 3 * * *")}`);
   stepDone("image matching");
@@ -861,7 +904,7 @@ async function seed() {
   // Reports about players in Arena (Player reports Zaisma acts on): what's the game's call goes to its developer
   // (the dashboard's Player reports), and the four Zaisma acts on wait in the queue. Loud_Lynx is an account.
   await signedIn({ name: "Loud_Lynx", email: "lynx@example.test", year: "1993" }, "198.51.100.230");
-  const lynxId = (await runSql("SELECT player_id FROM accounts WHERE username = 'Loud_Lynx'"))[0][0].player_id;
+  const lynxId = querySql("SELECT player_id FROM accounts WHERE username = 'Loud_Lynx'")[0].player_id;
   const lynx = { id: lynxId, name: "Loud_Lynx" };
   const swiftFox = { id: "player_preview000000001", name: "Swift Fox 42" };
   const playerReports = [
@@ -919,6 +962,9 @@ async function seed() {
   await makeKeyWithPasskey(post, studioPasskey, [["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]);
   await makeKeyWithPasskey(post, studioPasskey, { name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" });
   stepDone("scoped keys");
+  await finishEngineSamples();
+  await finishStartedInChrome();
+  stepDone("runs in Chrome still going");
 }
 
 /**
@@ -926,37 +972,49 @@ async function seed() {
  * unchanged with the upload command and left to the scan, never approved by hand: a sample the scan
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
-async function seedEngineSamples(api, upload) {
+async function seedEngineSamples(api, uploadInBackground, waitForRunInChrome) {
   const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", "godot-threads": "Godot with threads", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
-  const samples = [];
+  // One sample at a time through the scan, which counts against the day's reviews; their runs in Chrome go on after it (a threaded build's
+  // takes its whole two minutes on the local Chrome, which can't start one). It answers a function that waits for those runs, then
+  // publishes each sample that passed and writes engines.json.
+  const started = [];
   for (const engine of engines) {
     // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.
-    await runSql("UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL");
+    runSql("UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL");
     const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
-    const uploaded = await upload(join("test/engines", engine, "build"), game.slug, "First version.");
-    let version = null;
-    for (let i = 0; i < 120 && uploaded.status === 0; i++) {
-      [version] = (await api("GET", `/games/${game.slug}`)).versions;
+    const sample = { engine, game, exitCode: null };
+    const uploading = uploadInBackground(join("test/engines", engine, "build"), game.slug, "First version.").then((exitCode) => (sample.exitCode = exitCode));
+    for (let i = 0; i < 240 && sample.exitCode === null; i++) {
+      const [version] = (await api("GET", `/games/${game.slug}`)).versions;
       if (version && version.scan_status !== "scanning") break;
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 500));
     }
-    const isPassed = version?.scan_status === "approved";
-    if (isPassed) {
-      await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
-      await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
-    }
-    // The upload waited for its run in Chrome too: what it saw, for engines:play to check.
-    samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
+    started.push({ sample, uploading });
+    stepDone(`engine ${engine}: uploaded and scanned`);
   }
-  writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+  return async () => {
+    const samples = [];
+    for (const { sample, uploading } of started) {
+      await uploading;
+      let [version] = (await api("GET", `/games/${sample.game.slug}`)).versions;
+      if (sample.exitCode === 0 && version?.scan_status === "approved") {
+        version = await waitForRunInChrome(sample.game.slug);
+        await api("POST", `/games/${sample.game.slug}/versions/${version.id}/publish`);
+        await api("PATCH", `/games/${sample.game.slug}`, { visibility: "unlisted" });
+      }
+      // What the scan and the run in Chrome saw, for engines:play to check.
+      samples.push({ engine: sample.engine, slug: sample.game.slug, upload_exit_code: sample.exitCode, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
+    }
+    writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+  };
 }
 /**
  * Started in Chrome: a WebGL game with two big 2048×2048 PNG textures, a 10 MB WAV and a level it asks for at start
  * but nobody uploaded, so its real run in the preview's Chrome gives a first frame, missing_file_at_start, and the
  * KTX2 and Opus notes. Published, so its game page warms up its first files too.
  */
-async function seedStartedInChrome(api, upload) {
+async function seedStartedInChrome(api, upload, waitForRunInChrome) {
   const folder = join(STATE, "uploads", "texture-tour");
   rmSync(folder, { recursive: true, force: true });
   mkdirSync(join(folder, "textures"), { recursive: true });
@@ -1022,11 +1080,14 @@ Promise.all([texture(0, "textures/rock.png"), texture(1, "textures/moss.png")]).
   );
   const { game } = await api("POST", "/games", { title: "Texture Tour", description: "Two big textures on a turning quad: the preview's test of how a version starts in Chrome.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   await upload(folder, game.slug, "First version.");
-  const [version] = (await api("GET", `/games/${game.slug}`)).versions;
-  if (version?.scan_status === "approved") {
-    await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
-    await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
-  }
+  // Its run in Chrome waits behind the engine samples': the seed goes on, and publishes it once the run is over.
+  return async () => {
+    const version = await waitForRunInChrome(game.slug);
+    if (version?.scan_status === "approved") {
+      await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
+      await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+    }
+  };
 }
 
 /** A square PNG of colored noise, which hardly compresses: a big texture KTX2 would shrink. */
@@ -1099,7 +1160,7 @@ async function seedHolds(api, upload, go, form) {
   await api("POST", `/games/${game.slug}/versions/${first.id}/publish`);
   await api("POST", `/games/${game.slug}/images?kind=screenshot`, picture([120, 120, 120], 4));
   await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
-  const [results] = await runSql(`SELECT id FROM games WHERE slug = '${game.slug}'`);
+  const results = querySql(`SELECT id FROM games WHERE slug = '${game.slug}'`);
   await go(`/admin/games/${results[0].id}/takedown`, form({ content_rule: "malware", reason: "Its bonus screen asks players for their Steam login." }));
 
   // Town Gossip: a live game held on a defamation notice, which can still get a fixed version.
@@ -1110,7 +1171,7 @@ async function seedHolds(api, upload, go, form) {
   await api("POST", `/games/${gossip.slug}/versions/${gossipFirst.id}/publish`);
   await api("POST", `/games/${gossip.slug}/images?kind=screenshot`, picture([120, 120, 120], 4));
   await api("PATCH", `/games/${gossip.slug}`, { visibility: "listed" });
-  const gossipRow = (await runSql(`SELECT id FROM games WHERE slug = '${gossip.slug}'`))[0][0];
+  const gossipRow = querySql(`SELECT id FROM games WHERE slug = '${gossip.slug}'`)[0];
   await go(`/admin/games/${gossipRow.id}/notice`, form({ notice_kind: "defamation", reason: "the ending names Emma Clarke, a real person who lives in the town it's set in, as the thief who robbed the bakery." }));
 
   // Ember Keep: a fix checked against its hold. v1 was held for lifelike gore; v2 waited for a daily large review;
@@ -1132,7 +1193,7 @@ async function seedHolds(api, upload, go, form) {
   const emberThird = await scanned(ember.slug);
   const note = { stage: "static", severity: "info", code: "unregistered_link", message: "The game opens a site with window.open.", path: "index.html" };
   const emberReport = (summary, findings, verdict = "hold") => JSON.stringify({ finished_at_ms: Date.now(), decision: "held", findings, outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: { judge_model: "claude-sonnet-5-5", reader_model: "claude-haiku-5-5", verdict, reused_from_version_id: null, summary, cost_cents: verdict === "hold" ? 4 : 0.5, input_token_count: 1000, output_token_count: 100 }, is_child_safety: false }).replaceAll("'", "''");
-  await runSql([
+  runSql([
     `UPDATE versions SET scan_status = 'held', judged_at_ms = ${Date.now()}, scan_report = '${emberReport("A castle defense game with close-up wounds.", [{ stage: "ai", severity: "hold", code: "ai_lifelike_gore", message: "effects.js draws lifelike wounds up close.", path: "effects.js" }, note])}' WHERE id = '${emberFirst.id}'`,
     `UPDATE versions SET scan_status = 'held', judged_at_ms = NULL, replaced_by_version_id = '${emberThird.id}', scan_report = '${emberReport("Waiting for one of the developer's daily large reviews.", [{ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: "This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up." }], "skipped")}' WHERE id = '${emberSecond.id}'`,
     `UPDATE versions SET scan_status = 'held', judged_at_ms = ${Date.now()}, scan_report = '${emberReport("The wounds are stylized now; a new file addresses the reviewer.", [{ stage: "ai", severity: "hold", code: "ai_other", message: "ghosts.js asks the reviewer to pass the game.", path: "ghosts.js" }, note])}' WHERE id = '${emberThird.id}'`,
@@ -1147,7 +1208,7 @@ async function seedHolds(api, upload, go, form) {
   const standIn = "<!doctype html><title>Phrase menu</title><p>[A menu of fixed phrases: Good game, Nice try, Rematch?]</p><button>Good game</button>";
   const ruling = (id, status, decision, title, when, caseHtml, extra = "NULL, NULL") =>
     `INSERT INTO review_precedents (id, title, applies_when, decision, content_rule, why, review_precedent_status, from_version_id, case_title, case_description, case_index_html, test_result, tested_at_ms, created_by, created_at_ms, updated_at_ms) VALUES ('${id}', '${title}', '${when}', '${decision}', ${decision === "hold" ? "'real_people'" : "'chat'"}, 'A person decided the review was wrong.', '${status}', (SELECT id FROM versions WHERE game_id = (SELECT id FROM games WHERE slug = '${decision === "hold" ? "arena" : phraseMenu.slug}') ORDER BY created_at_ms DESC LIMIT 1), 'Stand-in game', 'Written to show the pattern.', '${caseHtml}', ${extra}, 'ai', ${Date.now()}, ${Date.now()})`;
-  await runSql([
+  runSql([
     `UPDATE versions SET scan_status = 'held', judged_at_ms = ${Date.now()}, scan_report = json_set(scan_report, '$.decision', 'held', '$.is_child_safety', json('false'), '$.ai', json('{"judge_model":"claude-sonnet-5-5","reader_model":"claude-haiku-5-5","verdict":"hold","reused_from_version_id":null,"summary":"A menu of chat phrases.","cost_cents":4,"input_token_count":1000,"output_token_count":100}'), '$.findings', json('[{"stage":"ai","severity":"hold","code":"ai_free_text_chat","message":"A menu of phrases that reads as free chat."}]')) WHERE game_id = (SELECT id FROM games WHERE slug = '${phraseMenu.slug}')`,
     ruling("review_precedent_previewdraft0001", "proposed", "pass", "Menu of fixed phrases", "A menu of fixed phrases players pick from; nothing typed reaches another player.", standIn),
     ruling("review_precedent_previewdraft0002", "proposed", "hold", "Address of a real person in a level", "A level shows the street address of a real private person.", "<!doctype html><title>Level</title><p>[a made-up street address on example.invalid]</p>"),
@@ -1196,7 +1257,7 @@ async function seedHolds(api, upload, go, form) {
       "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000002', owner_id, 'hosting_charge', -200, id, unixepoch('now', '-2 hours') * 1000 FROM games WHERE slug = 'star-haul'",
       "UPDATE owners SET credit_balance_cents = 1460 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
     ].join("; ");
-    const inserted = await runSql(arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 9000000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 900000, 20000, 310, 15000000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 7650000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; " + hostingSql);
+    const inserted = runSql(arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 9000000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 900000, 20000, 310, 15000000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 7650000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; " + hostingSql);
     if (inserted) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -1350,13 +1411,13 @@ async function seedForum(you, go, form) {
   await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
   // Zaisma's workaround on the rooms known issue: 3 likes and 14 dislikes, which only count (the post stays shown, in place).
   const workaroundPostId = (await you("GET", `/forum/${roomsKnown}`)).posts.filter((post) => post.author.kind === "zaisma").at(-1)?.id;
-  if (workaroundPostId) await runSql(`UPDATE forum_posts SET like_count = 3, dislike_count = 14 WHERE id = '${workaroundPostId}'`);
+  if (workaroundPostId) runSql(`UPDATE forum_posts SET like_count = 3, dislike_count = 14 WHERE id = '${workaroundPostId}'`);
 
   // Spread the times over the last three weeks, in the order things happened.
   const end = Date.now();
   const k = (21 * 86400_000) / (end - start);
   const at = (col) => `${col} = CASE WHEN ${col} >= ${start} THEN CAST(${end} - (${end} - ${col}) * ${k} AS INTEGER) ELSE ${col} END`;
-  await runSql(`UPDATE forum_topics SET ${["created_at_ms", "updated_at_ms", "last_activity_at_ms", "news_at_ms", "seen_at_ms", "triaged_at_ms"].map(at).join(", ")}; UPDATE forum_posts SET ${at("created_at_ms")}; UPDATE forum_votes SET ${at("created_at_ms")}; UPDATE forum_follows SET ${at("seen_at_ms")};`);
+  runSql(`UPDATE forum_topics SET ${["created_at_ms", "updated_at_ms", "last_activity_at_ms", "news_at_ms", "seen_at_ms", "triaged_at_ms"].map(at).join(", ")}; UPDATE forum_posts SET ${at("created_at_ms")}; UPDATE forum_votes SET ${at("created_at_ms")}; UPDATE forum_follows SET ${at("seen_at_ms")};`);
 }
 
 /**
@@ -1391,7 +1452,7 @@ async function seedFriends(go, form) {
   await (await signedIn(hornet, "198.51.100.211"))(`/friends/add/${new URL(invited.headers.get("location"), SITE).searchParams.get("invite")}`, {});
   const hornetPlayerId = (await (await go("/friends")).text()).match(/Loud_Hornet[\s\S]*?\/friends\/(player_[a-z0-9]+)\/remove/)?.[1];
   if (hornetPlayerId) await go(`/friends/blocks/${hornetPlayerId}`, form({}));
-  await seedFriendsNow();
+  seedFriendsNow();
   // A 16-year-old who chose open and social while joining, not a friend.
   people.Bright_Reed = await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
   return people;
@@ -1434,7 +1495,7 @@ async function seedProfiles(go, form, people) {
  * Spectators: Arena's room has 2 watching (its Rooms tab), and Kit_Spark's full room takes spectators,
  * so Watch stays live beside a grayed Join.
  */
-async function seedFriendsNow() {
+function seedFriendsNow() {
   const later = 4102444800000;
   const account = (name) => `(SELECT id FROM accounts WHERE username = '${name}')`;
   const player = (name) => `(SELECT player_id FROM accounts WHERE username = '${name}')`;
@@ -1471,16 +1532,16 @@ async function seedFriendsNow() {
     ...quietRooms("cave-crew", "QCVX", 16),
     `UPDATE games SET quick_joined_at_ms = ${Date.now()} WHERE slug = 'four-in-a-row'`,
   ];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
-async function seedPlayingNow() {
+function seedPlayingNow() {
   const now = Date.now();
   const tickets = (slug, playerCount) =>
     Array.from({ length: playerCount }, (_, i) =>
       `INSERT OR REPLACE INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player) SELECT 'play_ticket_preview${slug.replaceAll("-", "")}${i}', id, ${now}, ${now}, '${new Date(now).toISOString().slice(0, 10)}', 0, 0 FROM games WHERE slug = '${slug}'`);
   const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2), ...tickets("cave-crew", 12), ...tickets("four-in-a-row", 3)];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /** A browser of its own, from this address: answers a function that posts as it. */
@@ -1518,8 +1579,7 @@ async function signedIn(person, ip) {
 async function seedDeletedAccountErase(api) {
   const mia = await signedIn({ name: "Mia_Plays", email: "mia@example.test", year: "1997" }, "198.51.100.212");
   await mia("/api/me/played", JSON.stringify({ played: [{ slug: "cave-crew", played_at_ms: Date.now() - 3600_000 }] }));
-  const [found] = await runSql("SELECT player_id FROM accounts WHERE username = 'Mia_Plays'");
-  const miaPlayerId = found[0]?.player_id;
+  const miaPlayerId = querySql("SELECT player_id FROM accounts WHERE username = 'Mia_Plays'")[0]?.player_id;
   if (!miaPlayerId) throw new Error("Couldn't find Mia_Plays's player ID.");
   await api("POST", "/games/cave-crew/database/batch", {
     statements: [
@@ -1565,7 +1625,7 @@ async function seedWrongPasswords() {
     `WITH RECURSIVE tries(try_number) AS (SELECT 1 UNION ALL SELECT try_number + 1 FROM tries WHERE try_number < 20) INSERT INTO wrong_passwords (account_id, tried_at_ms) SELECT accounts.id, ${nowMs} FROM accounts, tries WHERE accounts.username = 'Guessed_At'`,
     `UPDATE accounts SET wrong_password_notice_at_ms = ${nowMs} WHERE username IN ('Guessed_At', 'Guessed_Twice')`,
   ];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /**
@@ -1581,7 +1641,7 @@ async function seedProtectAccount() {
   }
   const farmer = "(SELECT id FROM accounts WHERE username = 'Saved_Farmer')";
   const sql = [`UPDATE saves SET updated_at_ms = ${Date.now() - 2 * 3600_000} WHERE account_id = ${farmer}`, `UPDATE accounts SET protection_offered_at_ms = NULL WHERE id = ${farmer}`];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /**
@@ -1590,7 +1650,7 @@ async function seedProtectAccount() {
  * connected and its database writes folded into one row; Moss_Runner has Keep where my account is used from off.
  * Rows are keyed by fold_key, so running this again adds none.
  */
-async function seedSecurityLog() {
+function seedSecurityLog() {
   const nowMs = Date.now();
   const hoursAgo = (hours) => nowMs - hours * 3600_000;
   const account = (username) => `(SELECT id FROM accounts WHERE username = '${username}')`;
@@ -1609,17 +1669,17 @@ async function seedSecurityLog() {
     row({ key: "preview:7", username: "Moss_Runner", kind: "signed_in_new_device", doneBy: "you", signInKind: "password", at: hoursAgo(1) }),
     "UPDATE accounts SET where_used_from_enabled = 0 WHERE username = 'Moss_Runner'",
   ];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /**
  * Short news on the home's banner (apps/site/src/announcements.ts): one current announcement with a link, from an
  * hour ago to 30 days ahead, refreshed every run under the same ID, so a player who closed it doesn't see it again.
  */
-async function seedAnnouncements() {
+function seedAnnouncements() {
   const nowMs = Date.now();
   const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
-  await runSql(sql);
+  runSql(sql);
 }
 
 /**
@@ -1648,7 +1708,7 @@ async function seedSecurityAlerts() {
     `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'https://cdn.evil.example', '/g/shard-dodge', ${hourNumber}, 37, ${nowMs - 3000_000}, ${nowMs})`,
     `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'inline', '/forum', ${hourNumber}, 3, ${nowMs - 600_000}, ${nowMs})`,
   ];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /**
@@ -1657,7 +1717,7 @@ async function seedSecurityAlerts() {
  * scanning found and Zaisma turned off, and one that ended yesterday, with the turn-off in Activity. Rewritten each run
  * so the times stay fresh. The secrets are made up, so none of these keys works.
  */
-async function seedLeakedKeys() {
+function seedLeakedKeys() {
   const nowMs = Date.now();
   const hoursAgo = (hours) => nowMs - hours * 3600_000;
   const account = "(SELECT id FROM accounts WHERE username = 'Preview_Studio')";
@@ -1672,7 +1732,7 @@ async function seedLeakedKeys() {
     `INSERT OR REPLACE INTO security_events (id, account_id, game_id, kind, done_by, api_key_id, api_key_name, subject_name, is_new_place, occurrence_count, fold_key, happened_at_ms, last_happened_at_ms)
      VALUES (900001, ${account}, NULL, 'api_key_turned_off', 'zaisma', 'previewleaked00000002', 'space-game CI', 'space-game CI', 0, 1, NULL, ${hoursAgo(2)}, ${hoursAgo(2)})`,
   ];
-  await runSql(sql.join("; "));
+  runSql(sql.join("; "));
 }
 
 /**
@@ -1699,7 +1759,7 @@ async function seedConfirmItsYou() {
     await addSoftwarePasskey(first, newSoftwarePasskey(new URL(SITE).hostname, SITE));
   }
   const waitUntilMs = Date.now() + 24 * 3600_000;
-  await runSql(`UPDATE passkeys SET approves_from_at_ms = ${waitUntilMs} WHERE id = (SELECT id FROM passkeys WHERE account_id = (SELECT id FROM accounts WHERE username = 'Waiting_Key') ORDER BY created_at_ms DESC LIMIT 1); UPDATE passkeys SET approves_from_at_ms = ${waitUntilMs} WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Passkey')`);
+  runSql(`UPDATE passkeys SET approves_from_at_ms = ${waitUntilMs} WHERE id = (SELECT id FROM passkeys WHERE account_id = (SELECT id FROM accounts WHERE username = 'Waiting_Key') ORDER BY created_at_ms DESC LIMIT 1); UPDATE passkeys SET approves_from_at_ms = ${waitUntilMs} WHERE account_id = (SELECT id FROM accounts WHERE username = 'New_Passkey')`);
 }
 
 /** Add a software passkey to the account this posts as (post(path, body): a form object, or a JSON string). */
@@ -1750,7 +1810,7 @@ async function seedSignInStates() {
     await go(back.headers.get("location"));
     await go("/join/username", { username: old.username, turnstile_token: TURNSTILE_TOKEN });
   }
-  await runSql("UPDATE accounts SET username = 'Legacy Ñandú' WHERE username = 'Legacy_Name'");
+  runSql("UPDATE accounts SET username = 'Legacy Ñandú' WHERE username = 'Legacy_Name'");
 }
 
 /** Another developer account, signed in with its own API key: answers an API call function. */

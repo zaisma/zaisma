@@ -74,7 +74,7 @@ async function start() {
   mkdirSync(RUN, { recursive: true });
   const log = openSync(LOG, "w");
   // Its own process group, so stopping it also stops wrangler and workerd under it.
-  const child = spawn(process.execPath, [join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
     cwd: ROOT,
     detached: true,
     stdio: ["ignore", log, log],
