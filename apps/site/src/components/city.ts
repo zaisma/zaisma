@@ -63,13 +63,13 @@ ${options.after ?? ""}</div>`;
 /*
  * The city script. From the draft's "Small seeded random" to its end, unchanged in look. What's new:
  * - It finds its canvas and the pane over it on the page, and works in the canvas's own box (the gallery frames it).
- * - Phones (a coarse pointer, or narrower than 760px) start at 1 pixel per CSS pixel instead of 1.5, and any screen draws at most
- *   about 3.2 million pixels, sharpened lightly where that's fewer than the screen has. It steps back up after a slow spell passes.
+ * - Quality tiers (TIERS): a wide screen starts at 1.5 pixels per CSS pixel and at most about 3.2 million pixels, a phone (a coarse
+ *   pointer, or narrower than 760px) at 1, sharpened lightly where that's fewer than the screen has. Below them, 30 frames a second,
+ *   then 2x anti-aliasing, then no bloom, depth of field, god rays or lens glint and half the flyers. It settles on a tier while it's
+ *   hidden, steps down when it can't keep pace and back up when it can. Slow even at the lowest, the still comes back and it stops.
  * - A tropical haze over everything, thick at the sea and thinning with height, warm toward the sun by day and dark blue at night.
  * - It starts once the page has painted, so the still and the pane never wait for it, and it's built in small steps between frames
  *   while the driver compiles its programs in the background, so nothing holds the page up.
- * - Below the draft's lowest resolution, two cheaper steps: bloom and depth of field off, then the god rays, the lens glint and
- *   half the flyers off. Slow even then, the still comes back and it stops.
  * - Taps work by touch as clicks do: a touch that didn't move is a tap; a drag scrolls the page.
  * - Night follows the theme the page shows where the canvas is (its color-scheme).
  *
@@ -852,8 +852,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   // Where a flyer's trail was, j steps back along its loop or lane.
   function behindInto(out, m, j) { return m.loop ? loopPointInto(out, m, m.theta - m.sign * m.step * 0.7 * j) : lanePointInto(out, m, m.p - m.sign * 0.85 * j); }
+  // A hidden flyer (the lowest tier shows half of them) neither moves nor shows.
   function updateFlyer(m, dt) {
-    if (settleGone(m, dt)) return;
+    if (m.isHidden || settleGone(m, dt)) return;
     for (var a = 0; a < 3; a++) { m.vel[a] += (-9 * m.off[a] - 3.2 * m.vel[a]) * dt; m.off[a] += m.vel[a] * dt; }
     m.pop *= Math.exp(-dt * 4);
     var ends = 1;
@@ -1088,7 +1089,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var d = Math.hypot(sx - clientX, sy - clientY);
       if (d < radius && d < bestDistance) { best = m; bestDistance = d; }
     }
-    flyers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 30); });
+    flyers.forEach(function (m) { if (!m.gone && !m.isHidden && m.grow >= 1) consider(m, 30); });
     hoppers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 26); });
     walkers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 18); });
     return best;
@@ -1220,7 +1221,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     seen.isSet = true;
   }
   /* The drawing: the programs and everything the GPU holds, made from the world and dropped with their context. */
-  var gl = null, gpu = null, targets = null, width = 0, height = 0, sharpen = 0, SHADOW_UNIT = 5;
+  var gl = null, gpu = null, targets = null, SHADOW_UNIT = 5;
+  // The canvas's box in CSS pixels, the canvas and its targets in pixels (the top tier's), and the part of them the tier draws.
+  var cssWidth = 0, cssHeight = 0, width = 0, height = 0, drawWidth = 0, drawHeight = 0, sharpen = 0;
   function compileShader(type, source) { var s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return s; }
   // A program handed to the driver to link with nothing asked of it yet, so a driver that compiles in the background
   // (KHR_parallel_shader_compile) does it while the city is built; it's finished (its link checked, its uniforms found) once it's ready.
@@ -1281,7 +1284,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.bindBuffer(gl.ARRAY_BUFFER, made.buffers[made.at]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, rows.data, 0, rows.count * STRIDE);
   }
   function makeGpu() {
-    gpu = { programs: [], parallel: gl.getExtension("KHR_parallel_shader_compile"), warmed: [], warmedCount: 0, warmFence: null, isFilled: false };
+    gpu = { programs: [], parallel: gl.getExtension("KHR_parallel_shader_compile"), warmed: [], warmedCount: 0, warmFence: null, isFilled: false,
+      maxSampleCount: gl.getParameter(gl.MAX_SAMPLES), timer: window.__city ? null : gl.getExtension("EXT_disjoint_timer_query_webgl2"), timings: [] };
     var vs = gl.VERTEX_SHADER, fs = gl.FRAGMENT_SHADER, full = compileShader(vs, FULL_VS);
     gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight"], { uShadow: SHADOW_UNIT });
     gpu.depth = program(compileShader(vs, DEPTH_VS), compileShader(fs, DEPTH_FS), ["uLightViewProj"]);
@@ -1301,12 +1305,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.bindVertexArray(null);
     gpu.cityBuffer = instanceBuffer(city.capacity, gl.STATIC_DRAW); gpu.cityVao = instanceVao(gpu.cityBuffer);
     gpu.movers = ring(movers.capacity); gpu.trails = ring(trails.capacity);
-    // The shadow map, on its own texture unit for the context's life.
-    gpu.shadowSize = Math.min(small ? 2048 : 4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    // The shadow map, on its own texture unit for the context's life: smaller on a phone and where the city is shown small (Screens).
+    gpu.shadowSize = Math.min(small || shownScale < 0.6 ? 2048 : 4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
     gl.activeTexture(gl.TEXTURE0 + SHADOW_UNIT);
     gpu.shadowTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, gpu.shadowTex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, gpu.shadowSize, gpu.shadowSize);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT16, gpu.shadowSize, gpu.shadowSize);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1319,10 +1323,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, gpu.shadowTex, 0);
     gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (gpu.timer) for (var i = 0; i < 4; i++) gpu.timings.push({ query: gl.createQuery(), tierIndex: 0, heavyIndex: -1, isPending: false });
+    targets = null; cssWidth = 0; cssHeight = 0;
     resize();
   }
-  // The built world into the GPU: the sea, the city's rows and its shadow map, then a fence, so the hidden frames that follow time
-  // only themselves.
+  // The built world into the GPU: the sea, the city's rows and its shadow map (whose framebuffer is then let go), then a fence, so the
+  // hidden frames that follow time only themselves.
   function fillGpu() {
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.waterBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, seaVertices);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.cityBuffer); gl.bufferSubData(gl.ARRAY_BUFFER, 0, city.data, 0, city.count * STRIDE);
@@ -1337,11 +1343,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.DEPTH_TEST);
-    gpu.isFilled = true;
+    gl.deleteFramebuffer(gpu.shadowFb); gpu.shadowFb = null;
+    gpu.isFilled = true; markReady("filled");
     gpu.warmFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.flush();
   }
 
-  /* Render targets: the scene with 4x anti-aliasing, resolved into a texture, then half and quarter size copies for the soft focus and the bloom. */
+  /* Render targets, sized for this screen's top tier: the scene with anti-aliasing (4 samples, or 2 on the plainer tiers, each set made
+     when it's first needed), resolved into a texture, then half and quarter size copies for the soft focus and the bloom. A lower tier
+     draws into the bottom-left of them and is stretched back to the full size before the passes after the scene, so a change of tier
+     makes nothing new (bar a sample count's first use) and the canvas keeps its size. */
   function colorTexture(w, h) {
     gl.activeTexture(gl.TEXTURE0);
     var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
@@ -1350,81 +1360,191 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     var fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return { tex: t, fb: fb, w: w, h: h };
   }
+  function freeColor(made) { gl.deleteTexture(made.tex); gl.deleteFramebuffer(made.fb); }
+  function freeMultisample(made) { gl.deleteRenderbuffer(made.color); gl.deleteRenderbuffer(made.depth); gl.deleteFramebuffer(made.fb); }
   function freeTargets() {
     if (!targets) return;
-    gl.deleteRenderbuffer(targets.msColor); gl.deleteRenderbuffer(targets.msDepth); gl.deleteFramebuffer(targets.msFb);
-    ["scene", "halfA", "halfB", "quarterA", "quarterB", "rays", "seen"].forEach(function (key) { gl.deleteTexture(targets[key].tex); gl.deleteFramebuffer(targets[key].fb); });
+    for (var count in targets.multisampled) freeMultisample(targets.multisampled[count]);
+    [targets.scene, targets.halfA, targets.halfB, targets.quarterA, targets.quarterB, targets.rays, targets.seen].forEach(freeColor);
+    if (targets.upscaled) freeColor(targets.upscaled);
+    targets = null;
   }
   function makeTargets(w, h) {
     freeTargets();
-    var samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES));
-    var msFb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, msFb);
-    var msColor = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, msColor);
-    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA8, w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msColor);
-    var msDepth = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, msDepth);
-    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH_COMPONENT24, w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, msDepth);
     var hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1), qw = Math.max(1, w >> 2), qh = Math.max(1, h >> 2);
-    targets = { msFb: msFb, msColor: msColor, msDepth: msDepth, scene: colorTexture(w, h),
+    targets = { w: w, h: h, multisampled: {}, upscaled: null, scene: colorTexture(w, h),
       halfA: colorTexture(hw, hh), halfB: colorTexture(hw, hh), quarterA: colorTexture(qw, qh), quarterB: colorTexture(qw, qh), rays: colorTexture(Math.max(1, w >> 3), Math.max(1, h >> 3)), seen: colorTexture(1, 1) };
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    multisampleFor(TIERS[tierIndex].sampleCount);
   }
+  function multisampleFor(sampleCount) {
+    var count = Math.min(sampleCount, gpu.maxSampleCount), made = targets.multisampled[count];
+    if (made) return made;
+    made = { fb: gl.createFramebuffer(), color: gl.createRenderbuffer(), depth: gl.createRenderbuffer() };
+    gl.bindFramebuffer(gl.FRAMEBUFFER, made.fb);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, made.color); gl.renderbufferStorageMultisample(gl.RENDERBUFFER, count, gl.RGBA8, targets.w, targets.h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, made.color);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, made.depth); gl.renderbufferStorageMultisample(gl.RENDERBUFFER, count, gl.DEPTH_COMPONENT24, targets.w, targets.h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, made.depth);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    targets.multisampled[count] = made;
+    return made;
+  }
+  function upscaledTarget() { if (!targets.upscaled) targets.upscaled = colorTexture(targets.w, targets.h); return targets.upscaled; }
 
-  // Sharp enough at 1.5 pixels per CSS pixel with the anti-aliasing and soft focus (1 on a phone, where the screen is small and the pixels
-  // dense), within a budget of pixels a mid-range laptop draws smoothly: a big screen gets fewer per CSS pixel instead of more work.
-  // A device that keeps missing frames steps down further, then turns the costliest light off (quality 1, then 2); once frames
-  // come easily again it steps back up, twice at most, so it never keeps swinging between the two.
-  var PIXEL_BUDGET = 3.2e6;
-  var renderScale = 1, slowFor = 0, fastFor = 0, frameAvg = 1 / 60, quality = 0, upsLeft = 2, isSteppedDown = false;
-  var sharpness = coarse || isNarrow() ? 1 : 1.5;
+  /* The quality tiers, best first: how many pixels each draws per CSS pixel and at most in all, its anti-aliasing samples, its bloom
+     levels (none: no bloom and no soft focus), whether the sun's rays and glint are drawn, the share of the flyers shown, its frames a
+     second, and its GPU cost per pixel against tier 0's (to jump straight to one that fits). A wide screen starts at the top, a phone
+     at PHONE_TOP_TIER, a device with little memory two lower; the city never goes above where it started. Hidden while it warms up, it
+     settles on a tier that keeps pace; shown, govern() steps down when it stops keeping pace and back up when there's room again. */
+  var TIERS = [
+    { pixelsPerCssPixel: 1.5, maximumPixelCount: 3.2e6, sampleCount: 4, bloomLevelCount: 4, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100 },
+    { pixelsPerCssPixel: 1.25, maximumPixelCount: 2.2e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100 },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 60, costPct: 100 },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 30, costPct: 100 },
+    { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 2, bloomLevelCount: 3, hasSunRays: true, shownFlyerPct: 100, framesPerSec: 30, costPct: 85 },
+    { pixelsPerCssPixel: 0.8, maximumPixelCount: 1.0e6, sampleCount: 2, bloomLevelCount: 0, hasSunRays: false, shownFlyerPct: 50, framesPerSec: 30, costPct: 70 }
+  ];
+  var PHONE_TOP_TIER = 2, LOWEST_TIER = TIERS.length - 1, topTier = 0, tierIndex = 0, tierLeftCounts = [0, 0, 0, 0, 0, 0], tierSinceMs = 0, fewerSamplesSinceMs = 0;
+  // How small the page is shown (Screens shows it scaled down in a frame): it needs no more pixels than that.
+  var shownScale = 1;
+  function pixelRatioFor(index) {
+    if (tool.isStill) return 1;
+    var tier = TIERS[index];
+    return Math.min((window.devicePixelRatio || 1) * shownScale, tier.pixelsPerCssPixel, Math.sqrt(tier.maximumPixelCount / Math.max(1, cssWidth * cssHeight)));
+  }
+  // The canvas and its targets at the top tier's size, measured only when the stage's size changes.
   function resize() {
     if (!gpu) return;
-    var ratio = tool.isStill ? 1 : Math.min(window.devicePixelRatio || 1, sharpness, Math.sqrt(PIXEL_BUDGET / Math.max(1, canvas.clientWidth * canvas.clientHeight))) * renderScale;
-    width = Math.max(1, Math.floor(canvas.clientWidth * ratio)); height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (targets && w === cssWidth && h === cssHeight) return;
+    cssWidth = w; cssHeight = h;
+    var ratio = pixelRatioFor(topTier);
+    width = Math.max(1, Math.floor(cssWidth * ratio)); height = Math.max(1, Math.floor(cssHeight * ratio));
     canvas.width = width; canvas.height = height;
-    // How much fewer pixels than the screen's: none sharpens nothing, half sharpens most.
-    sharpen = Math.min(0.5, Math.max(0, 1 - ratio / Math.min(window.devicePixelRatio || 1, sharpness)) * 0.9);
     makeTargets(width, height);
+    fitTier();
   }
-  window.addEventListener("resize", guarded(resize));
-  // The steps below the lowest resolution: bloom and depth of field off, then the god rays, the glint and half the flyers.
-  function stepDown() {
-    isSteppedDown = true;
-    if (renderScale > 0.55) { renderScale = Math.max(0.55, renderScale - 0.15); resize(); return; }
-    if (quality === 2) { giveUp(); return; }
-    quality++;
-    if (quality === 2) flyers = flyers.filter(function (m, i) { return i % 2 === 0; });
+  // The tier's part of the targets, and how much to sharpen it: none where it has as many pixels as the screen wants, more the fewer it has.
+  function fitTier() {
+    var ratio = pixelRatioFor(tierIndex), wanted = Math.min((window.devicePixelRatio || 1) * shownScale, TIERS[topTier].pixelsPerCssPixel);
+    drawWidth = Math.min(width, Math.max(1, Math.floor(cssWidth * ratio))); drawHeight = Math.min(height, Math.max(1, Math.floor(cssHeight * ratio)));
+    sharpen = tool.isStill ? 0 : Math.min(0.5, Math.max(0, 1 - ratio / wanted) * 0.9);
   }
-  function stepUp() {
-    upsLeft--;
-    if (quality > 0) quality--;
-    else { renderScale = Math.min(1, renderScale + 0.15); resize(); }
-    if (renderScale === 1 && quality === 0) isSteppedDown = false;
+  function showFlyerShare() { for (var i = 0; i < flyers.length; i++) flyers[i].isHidden = TIERS[tierIndex].shownFlyerPct < 100 && i % 2 === 1; }
+  function tierTo(index, now) {
+    if (index === tierIndex) return;
+    if (index > tierIndex) tierLeftCounts[tierIndex]++;
+    if (TIERS[index].sampleCount < TIERS[tierIndex].sampleCount) fewerSamplesSinceMs = now;
+    tierIndex = index; tierSinceMs = now;
+    fitTier(); showFlyerShare(); multisampleFor(TIERS[index].sampleCount);
+    slowSinceMs = 0; fastSinceMs = 0; resetIntervals(); gpuTimeCount = 0; gpuTimeNext = 0; warmIntervalCount = 0;
   }
-  // Only a steady slowdown (under about 42 frames a second for two seconds running) lowers the resolution; a one-off hitch never does.
-  function govern(raw) {
-    frameAvg = frameAvg * 0.95 + raw * 0.05;
-    slowFor = frameAvg > 0.024 ? slowFor + raw : 0;
-    fastFor = frameAvg < 0.0175 ? fastFor + raw : 0;
-    if (slowFor > 2) { slowFor = 0; fastFor = 0; frameAvg = 1 / 60; stepDown(); }
-    else if (fastFor > 5 && isSteppedDown && upsLeft > 0) { fastFor = 0; stepUp(); }
+
+  // Pacing: a frame is drawn once its interval has come (never more than 60 a second), half as often on a 30 frames a second tier, while
+  // the pane covers most of the screen, or while a field in the pane has the focus on a touch screen. Under the tool every frame is
+  // drawn, so its timings stay comparable.
+  var isBehindPane = false, isFieldFocused = false;
+  function frameDivider() { return window.__city ? 1 : TIERS[tierIndex].framesPerSec < 60 || isBehindPane || (coarse && isFieldFocused) ? 2 : 1; }
+  function targetIntervalMs() { return Math.max(vsyncMs, 1000 / 60 * frameDivider()); }
+  function isAtPace(intervalMs) { return intervalMs <= targetIntervalMs() + vsyncMs / 2; }
+  /* The GPU time a frame may take: most of its interval, the rest left to the browser (the glass's blur over the city among it, which
+     no timer here sees: frames that keep missing their interval step down whatever the timer says). Today's passes take about 13 ms
+     at 1440 x 900 drawn at 1.5 on an Apple M3, which keeps 60 frames a second there, so the share is wide enough to keep it. */
+  var GPU_BUDGET_SHARE = 0.9;
+  function frameBudgetMs() { return targetIntervalMs() * GPU_BUDGET_SHARE; }
+  function tierBudgetMs(index) { return Math.max(vsyncMs, 1000 / TIERS[index].framesPerSec) * GPU_BUDGET_SHARE; }
+
+  /* The city's own GPU timer, where the browser has one and not under the tool (which times the city itself): a ring of four queries,
+     each over one whole frame (before the scene to after the composite, never inside a pass), read once ready, and kept only when
+     taken at the tier it's at now and between 0.1 ms and three frame intervals (a hidden heavy frame's however long). */
+  var GPU_TIME_CAPACITY = 512, gpuTimes = new Float64Array(GPU_TIME_CAPACITY), gpuTimesAtMs = new Float64Array(GPU_TIME_CAPACITY), gpuTimeCount = 0, gpuTimeNext = 0;
+  // The hidden heavy frames' times, by heavy moment.
+  var heavyTimesMs = [[], []], heavyGpuCount = 0, gpuTimeBins = new Int32Array(201);
+  function beginTimer(heavyIndex) {
+    for (var i = 0; i < gpu.timings.length; i++) {
+      var timing = gpu.timings[i];
+      if (timing.isPending) continue;
+      gl.beginQuery(gpu.timer.TIME_ELAPSED_EXT, timing.query); timing.tierIndex = tierIndex; timing.heavyIndex = heavyIndex;
+      return timing;
+    }
+    return null;
+  }
+  function endTimer(timing) { if (timing) { gl.endQuery(gpu.timer.TIME_ELAPSED_EXT); timing.isPending = true; } }
+  function readTimings(now) {
+    var isDisjoint = gl.getParameter(gpu.timer.GPU_DISJOINT_EXT);
+    for (var i = 0; i < gpu.timings.length; i++) {
+      var timing = gpu.timings[i];
+      if (!timing.isPending) continue;
+      if (isDisjoint) { timing.isPending = false; continue; }
+      if (!gl.getQueryParameter(timing.query, gl.QUERY_RESULT_AVAILABLE)) continue;
+      timing.isPending = false;
+      var ms = gl.getQueryParameter(timing.query, gl.QUERY_RESULT) / 1e6;
+      if (timing.tierIndex !== tierIndex || ms < 0.1) continue;
+      // A heavy frame's time counts however long it is: it's the worst case a tier is settled on.
+      if (timing.heavyIndex >= 0) { heavyTimesMs[timing.heavyIndex].push(ms); heavyGpuCount++; }
+      if (ms > 3 * targetIntervalMs()) continue;
+      gpuTimes[gpuTimeNext] = ms; gpuTimesAtMs[gpuTimeNext] = now; gpuTimeNext = (gpuTimeNext + 1) % GPU_TIME_CAPACITY; gpuTimeCount = Math.min(GPU_TIME_CAPACITY, gpuTimeCount + 1);
+    }
+  }
+  function dropTimings() { for (var i = 0; i < gpu.timings.length; i++) gpu.timings[i].isPending = false; gpuTimeCount = 0; gpuTimeNext = 0; }
+  // The 95th percentile of the GPU times of the last 8 seconds, in quarter milliseconds; 0 until there are enough of them.
+  function gpuTimeP95(now) {
+    var total = 0;
+    gpuTimeBins.fill(0);
+    for (var i = 0; i < gpuTimeCount; i++) if (now - gpuTimesAtMs[i] <= 8000) { gpuTimeBins[Math.min(200, Math.floor(gpuTimes[i] * 4))]++; total++; }
+    if (total < 10) return 0;
+    for (var bin = 0, counted = 0; bin <= 200; bin++) { counted += gpuTimeBins[bin]; if (counted >= total * 0.95) return (bin + 1) / 4; }
+    return 50;
+  }
+
+  /* The governor, once it's shown: down a tier after a second of frames over the GPU budget (two seconds without the timer), or of
+     missing their interval even when the timer says they fit (the glass's blur over the city is in no GPU time it can read); back up
+     after four seconds (six without the timer) with half the budget free. It pays no mind to the first two seconds, the ease between
+     day and night, or the second after typing, a focus or the pane's steps changing (one thing at a time is new then). */
+  var INTERVAL_CAPACITY = 256, intervals = new Float64Array(INTERVAL_CAPACITY), intervalsAtMs = new Float64Array(INTERVAL_CAPACITY), intervalCount = 0, intervalNext = 0;
+  var slowSinceMs = 0, fastSinceMs = 0, quietUntilMs = 0;
+  function resetIntervals() { intervalCount = 0; intervalNext = 0; }
+  // The share of the frames of the last windowMs that missed their interval, or -1 with too few to say.
+  function missedPct(now, windowMs) {
+    var total = 0, missed = 0;
+    for (var i = 0; i < intervalCount; i++) if (now - intervalsAtMs[i] <= windowMs) { total++; if (!isAtPace(intervals[i])) missed++; }
+    return total < 10 ? -1 : 100 * missed / total;
+  }
+  function govern(now, intervalMs) {
+    intervals[intervalNext] = intervalMs; intervalsAtMs[intervalNext] = now; intervalNext = (intervalNext + 1) % INTERVAL_CAPACITY; intervalCount = Math.min(INTERVAL_CAPACITY, intervalCount + 1);
+    // Twenty seconds on fewer samples, and the 4-sample set is let go.
+    if (targets.multisampled[4] && TIERS[tierIndex].sampleCount < 4 && now - fewerSamplesSinceMs > 20000) { freeMultisample(targets.multisampled[4]); delete targets.multisampled[4]; }
+    if (tool.isStill || now - shownAt < 2000 || (night > 0.02 && night < 0.98) || now < quietUntilMs || now - tierSinceMs < 1000) { slowSinceMs = 0; fastSinceMs = 0; return; }
+    var isTimed = Boolean(gpu.timer), gpuMs = isTimed ? gpuTimeP95(now) : 0, budgetMs = frameBudgetMs(), missed = missedPct(now, 1000);
+    var isSlow = missed >= 25 || gpuMs > budgetMs, isFast = missed === 0 && (!isTimed || (gpuMs > 0 && gpuMs < budgetMs / 2));
+    if (isSlow) {
+      fastSinceMs = 0;
+      if (!slowSinceMs) slowSinceMs = now;
+      if (now - slowSinceMs >= (isTimed ? 1000 : 2000)) { if (tierIndex === LOWEST_TIER) giveUp(); else tierTo(tierIndex + 1, now); }
+    } else if (isFast) {
+      slowSinceMs = 0;
+      if (!fastSinceMs) fastSinceMs = now;
+      // Back up a tier, but never above where it started, and never into one it has had to leave twice.
+      if (now - fastSinceMs >= (isTimed ? 4000 : 6000)) { fastSinceMs = 0; if (tierIndex > topTier && tierLeftCounts[tierIndex - 1] < 2) tierTo(tierIndex - 1, now); }
+    } else { slowSinceMs = 0; fastSinceMs = 0; }
   }
 
   // One combination of program, target and state at a time, drawn into a single pixel while the city is hidden, so the driver makes
-  // each pipeline now, one a frame (no frame holds more than one), and never in the middle of a shown frame. A draw of nothing would be
-  // dropped before its pipeline is made, so each draws one instance or one triangle. The sun's passes are warmed as if it were in view.
+  // each pipeline now, a few a frame at most, and never in the middle of a shown frame. A draw of nothing would be dropped before its
+  // pipeline is made, so each draws one instance or one triangle. The sun's passes are warmed as if it were in view. The shadow map's
+  // program needs none: its one draw, filling the shadow map, is its warm-up.
   function warmAt(fb, made) { gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.viewport(0, 0, 1, 1); gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 1, 1); gl.useProgram(made.program); }
   function warmFull() { gl.bindVertexArray(null); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+  function sceneFb() { return multisampleFor(TIERS[tierIndex].sampleCount).fb; }
   var WARMS = [
-    ["depth", function () { warmAt(gpu.shadowFb, gpu.depth); gl.enable(gl.DEPTH_TEST); gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1); }],
-    ["sky", function () { warmAt(targets.msFb, gpu.sky); gl.depthMask(false); warmFull(); }],
-    ["water", function () { warmAt(targets.msFb, gpu.water); gl.enable(gl.DEPTH_TEST); gl.bindVertexArray(gpu.waterVao); gl.drawArrays(gl.TRIANGLES, 0, 3); }],
-    ["box", function () { warmAt(targets.msFb, gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1); }],
+    ["sky", function () { warmAt(sceneFb(), gpu.sky); gl.depthMask(false); warmFull(); }],
+    ["water", function () { warmAt(sceneFb(), gpu.water); gl.enable(gl.DEPTH_TEST); gl.bindVertexArray(gpu.waterVao); gl.drawArrays(gl.TRIANGLES, 0, 3); }],
+    ["box", function () { warmAt(sceneFb(), gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1); }],
     ["box", function () {
-      warmAt(targets.msFb, gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+      warmAt(sceneFb(), gpu.box); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
       gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false);
       gl.bindVertexArray(gpu.trails.vaos[0]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1);
     }],
@@ -1461,12 +1581,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
   }
   var sunPoint = [0, 0, 0], sunAt = [0, 0, 0], focusAt = [0, 0, 0];
-  // One frame of the world as the camera last aimed it (seen).
+  // One frame of the world as the camera last aimed it (seen), at the tier's size.
   function drawFrame() {
-    var vp = seen.viewProj, eye = seen.eye, aspect = width / height, u;
+    var tier = TIERS[tierIndex], multisampled = multisampleFor(tier.sampleCount), vp = seen.viewProj, eye = seen.eye, aspect = width / height, u;
     // 1. The scene, anti-aliased.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.msFb);
-    gl.viewport(0, 0, width, height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, multisampled.fb);
+    gl.viewport(0, 0, drawWidth, drawHeight);
     gl.clearColor(FOG[0], FOG[1], FOG[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
@@ -1500,15 +1620,23 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.bindVertexArray(gpu.trails.vaos[gpu.trails.at]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, trails.count);
     gl.disable(gl.BLEND); gl.depthMask(true); gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
 
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, targets.msFb);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, multisampled.fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, targets.scene.fb);
-    gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.blitFramebuffer(0, 0, drawWidth, drawHeight, 0, 0, drawWidth, drawHeight, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    // A lower tier's smaller picture, stretched back to the full size for the passes after the scene.
+    var source = targets.scene;
+    if (drawWidth < width || drawHeight < height) {
+      source = upscaledTarget();
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, targets.scene.fb);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, source.fb);
+      gl.blitFramebuffer(0, 0, drawWidth, drawHeight, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    }
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
 
-    // 2. A soft copy for the depth of field, and the bright parts for the bloom (both off from quality 1).
-    var isSoft = quality < 1;
+    // 2. A soft copy for the depth of field, and the bright parts for the bloom (both off on a tier with no bloom).
+    var isSoft = tier.bloomLevelCount > 0;
     if (isSoft) {
-      drawTo(targets.halfA); gl.useProgram(gpu.copy.program); bindTex(0, targets.scene.tex); drawFull();
+      drawTo(targets.halfA); gl.useProgram(gpu.copy.program); bindTex(0, source.tex); drawFull();
       drawTo(targets.quarterA); gl.useProgram(gpu.bright.program); bindTex(0, targets.halfA.tex); gl.uniform1f(gpu.bright.at.uThreshold, 0.97); drawFull();
       blurPasses(targets.halfA, targets.halfB, 1, 1.5);
       blurPasses(targets.quarterA, targets.quarterB, 2, 1.6);
@@ -1517,21 +1645,21 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // The sun on screen: where it is, and how much it's in view (fading out as it leaves the frame).
     projectInto(sunAt, vp, setInto(sunPoint, eye[0] + SUN[0] * 4000, eye[1] + SUN[1] * 4000, eye[2] + SUN[2] * 4000));
     var sunU = sunAt[0] * 0.5 + 0.5, sunV = sunAt[1] * 0.5 + 0.5, outside = Math.max(Math.abs(sunU - 0.5), Math.abs(sunV - 0.5)) - 0.5;
-    // The god rays and the glint go at quality 2.
-    var sunIn = quality < 2 ? (sunAt[2] > 0 ? 1 - smooth(0, 0.3, outside) : 0) * (1 - 0.8 * night) : 0;
+    // The god rays and the glint go on the lowest tier.
+    var sunIn = tier.hasSunRays ? (sunAt[2] > 0 ? 1 - smooth(0, 0.3, outside) : 0) * (1 - 0.8 * night) : 0;
     if (sunIn > 0) {
       drawTo(targets.seen); gl.useProgram(gpu.seen.program); u = gpu.seen.at;
-      bindTex(0, targets.scene.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
+      bindTex(0, source.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
       drawTo(targets.rays); gl.useProgram(gpu.rays.program); u = gpu.rays.at;
-      bindTex(0, targets.scene.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
+      bindTex(0, source.tex); gl.uniform2f(u.uSunUv, sunU, sunV); gl.uniform2f(u.uAspect, Math.min(1, aspect), Math.min(1, 1 / aspect)); drawFull();
     }
 
     // 3. The final picture, focused where the camera looks.
     projectInto(focusAt, vp, viewTarget);
     drawTo(null); gl.useProgram(gpu.composite.program); u = gpu.composite.at;
-    bindTex(0, targets.scene.tex);
+    bindTex(0, source.tex);
     // Without the soft copy, the sharp picture stands in for it (so nothing blurs), and no bloom is added.
-    bindTex(1, isSoft ? targets.halfA.tex : targets.scene.tex);
+    bindTex(1, isSoft ? targets.halfA.tex : source.tex);
     bindTex(2, targets.quarterA.tex);
     gl.uniform1f(u.uFocusY, focusAt[1] * 0.5 + 0.5);
     gl.uniform1f(u.uSharpen, sharpen);
@@ -1544,7 +1672,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 
   /* The run: the city's phase, and one frame callback that does what it says. */
   var phase = "", phaseTimesMs = {}, isRunning = false, isTickPending = false, isInView = true, isWorldBuilt = false;
-  var drawnFrameCount = 0, warmFrameCount = 0, lastFrameMs = 0, lastTickMs = 0, tickIntervalsMs = [], vsyncMs = 1000 / 60;
+  var drawnFrameCount = 0, lastDrawMs = 0, lastTickMs = 0, tickIntervalsMs = [], vsyncMs = 1000 / 60;
+  // When the drawing got ready, for the tool: every program linked, the world in the GPU, and its fence passed.
+  var readyTimesMs = {};
+  function markReady(name) { if (!(name in readyTimesMs)) readyTimesMs[name] = Math.round(performance.now()); }
   function setPhase(name) {
     phase = name;
     if (!(name in phaseTimesMs)) phaseTimesMs[name] = Math.round(performance.now());
@@ -1558,11 +1689,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       try { work(value); } catch (error) { console.warn("The city stopped: " + (error && error.message)); giveUp(); }
     };
   }
-  // Too slow even at the lowest step, or failed: back to the still, for good.
+  // Too slow even at the lowest tier, or failed: back to the still, for good.
   function giveUp() {
     if (phase === "still") return;
     setPhase("still"); isRunning = false; freeBuildLock();
-    canvas.classList.remove("on"); showStill();
+    canvas.classList.remove("on", "is-warming"); showStill();
   }
   var nextTick = guarded(tick);
   function requestTick() { if (!isTickPending) { isTickPending = true; requestAnimationFrame(nextTick); } }
@@ -1574,45 +1705,141 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     for (var i = 1; i < rates.length; i++) if (Math.abs(rates[i] - low) < Math.abs(best - low)) best = rates[i];
     vsyncMs = best;
   }
-  // While hidden and getting ready: programs finished as the driver readies them, one warm draw a tick, then the world into the GPU
-  // and its fence. True once frames can be drawn.
+  /* While hidden and getting ready: programs finished as the driver readies them; the world into the GPU, on a tick of its own, as soon
+     as it's built and the shadow map's program is ready; the warm draws, one on a tick, then one more on each tick that followed one on
+     time (up to WARM_DRAWS_PER_TICK_MAX), so a driver that makes pipelines quickly is done in a few ticks and one that makes them slowly
+     never holds more than one in a tick; then the fence. True once frames can be drawn, hidden (at the faintest opacity) until the
+     city has settled. */
+  var WARM_DRAWS_PER_TICK_MAX = 3, warmDrawsPerTick = 0;
   function warmUp(now) {
-    if (lastTickMs && tickIntervalsMs.length < 120) tickIntervalsMs.push(now - lastTickMs);
+    var tickIntervalMs = lastTickMs ? now - lastTickMs : 0;
+    if (tickIntervalMs && tickIntervalsMs.length < 120) tickIntervalsMs.push(tickIntervalMs);
     lastTickMs = now;
-    if (finishPrograms() || warmNext()) return false;
-    if (!isWorldBuilt || !areProgramsFinished()) return false;
-    if (!gpu.isFilled) { fillGpu(); return false; }
+    if (finishPrograms()) return false;
+    var isLinked = areProgramsFinished();
+    if (isLinked) markReady("linked");
+    if (isWorldBuilt && !gpu.isFilled && gpu.depth.isFinished) { fillGpu(); return false; }
+    warmDrawsPerTick = tickIntervalMs > 0 && tickIntervalMs < 21 ? Math.min(WARM_DRAWS_PER_TICK_MAX, warmDrawsPerTick + 1) : 1;
+    for (var drawn = 0; drawn < warmDrawsPerTick && warmNext(); drawn++) {}
+    if (drawn || !isLinked || !gpu.isFilled) return false;
     if (gpu.warmFence) {
       if (gl.getSyncParameter(gpu.warmFence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
-      gl.deleteSync(gpu.warmFence); gpu.warmFence = null; readVsync(); lastFrameMs = now;
+      gl.deleteSync(gpu.warmFence); gpu.warmFence = null; readVsync(); lastDrawMs = 0; markReady("fenced");
+      canvas.classList.add("is-warming");
     }
     return true;
+  }
+  /* The hidden frames: the loop's two heaviest moments for a few frames each (the costliest pipelines and caches are ready before it
+     shows, and the timer has the worst case to settle a tier on), then the moment it shows from. It shows once SMOOTH_FRAME_COUNT
+     frames in a row kept pace and its tier is settled, or gives up for the still when even the lowest tier can't keep pace, or after
+     WARM_LIMIT_MS hidden (never under the tool). Without the timer, the median of the last frames' intervals settles the tier: two
+     tiers down when it's twice the frame interval, one otherwise. */
+  var HEAVY_MOMENTS_SEC = [25, 36], HEAVY_FRAME_COUNT = 4, SMOOTH_FRAME_COUNT = 8, WARM_LIMIT_MS = 4000;
+  var warmFrameCount = 0, momentFrameCount = 0, smoothCount = 0, warmElapsedMs = 0, framesSinceHeavy = 0, isTierSettled = false;
+  var warmIntervals = new Float64Array(SMOOTH_FRAME_COUNT), sortedIntervals = new Float64Array(SMOOTH_FRAME_COUNT), warmIntervalCount = 0;
+  // The heavy moment a hidden frame shows, or -1 for the moment it will show from (a still for the tool draws only its own).
+  function heavyMomentIndex() { var heavy = Math.floor(warmFrameCount / HEAVY_FRAME_COUNT); return heavy < HEAVY_MOMENTS_SEC.length && !tool.isStill ? heavy : -1; }
+  // The heavier moment's GPU time: the median of its frames (one frame can be slow while the GPU wakes up), the larger of the two.
+  function heavyGpuMs() {
+    var worst = 0;
+    for (var i = 0; i < heavyTimesMs.length; i++) {
+      var times = heavyTimesMs[i].slice().sort(function (a, b) { return a - b; });
+      if (times.length) worst = Math.max(worst, times[Math.floor(times.length / 2)]);
+    }
+    return worst;
+  }
+  function settleWarm(now, intervalMs, isHeavy) {
+    warmFrameCount++;
+    if (!isHeavy) momentFrameCount++;
+    if (warmFrameCount === 1) return; // its interval is the wait for the fence
+    warmElapsedMs += Math.min(intervalMs, 100);
+    smoothCount = isAtPace(intervalMs) ? smoothCount + 1 : 0;
+    // With the timer: once the heavy frames' times are in, straight to the best tier whose cost fits its budget.
+    if (gpu.timer && !isTierSettled && momentFrameCount > 0) {
+      framesSinceHeavy++;
+      if (heavyGpuCount >= 3 || framesSinceHeavy > 12) { isTierSettled = true; if (heavyGpuCount) settleTier(now); }
+    }
+    // Without it, or where frames still miss their interval on the tier the timer chose (the glass's blur over the city is in no time
+    // it reads): down a tier when the median of the last frames' intervals misses, two when it's twice the interval.
+    if (!tool.isStill && (!gpu.timer || isTierSettled)) {
+      warmIntervals[warmIntervalCount % SMOOTH_FRAME_COUNT] = intervalMs; warmIntervalCount++;
+      if (warmIntervalCount >= SMOOTH_FRAME_COUNT) {
+        sortedIntervals.set(warmIntervals); sortedIntervals.sort();
+        var medianMs = (sortedIntervals[SMOOTH_FRAME_COUNT / 2 - 1] + sortedIntervals[SMOOTH_FRAME_COUNT / 2]) / 2;
+        if (!isAtPace(medianMs)) {
+          if (tierIndex === LOWEST_TIER) { giveUp(); return; }
+          tierTo(Math.min(LOWEST_TIER, tierIndex + (medianMs >= 2 * targetIntervalMs() ? 2 : 1)), now);
+          smoothCount = 0;
+        }
+      }
+    }
+    if (!window.zaismaCityTool && warmElapsedMs > WARM_LIMIT_MS) { giveUp(); return; }
+    // A still for the tool shows as soon as it has drawn its moment: it's never timed, and may be bigger than any screen.
+    if (momentFrameCount >= 2 && (tool.isStill || smoothCount >= SMOOTH_FRAME_COUNT && (isTierSettled || !gpu.timer))) show(now);
+  }
+  function pixelCountAt(index) { var ratio = pixelRatioFor(index); return Math.min(width, Math.floor(cssWidth * ratio)) * Math.min(height, Math.floor(cssHeight * ratio)); }
+  function settleTier(now) {
+    var heavyMs = heavyGpuMs(), here = pixelCountAt(tierIndex) * TIERS[tierIndex].costPct, best = LOWEST_TIER;
+    for (var i = topTier; i < TIERS.length; i++) {
+      if (tierLeftCounts[i] >= 2) continue;
+      if (heavyMs * pixelCountAt(i) * TIERS[i].costPct / here <= tierBudgetMs(i)) { best = i; break; }
+    }
+    if (best !== tierIndex) { tierTo(best, now); smoothCount = 0; }
+  }
+  function show(now) {
+    isShown = true; shownAt = now; setPhase("shown");
+    // A still for the tool shows at once, with no fade.
+    if (tool.isStill) canvas.style.transition = "none";
+    canvas.classList.remove("is-warming"); canvas.classList.add("on");
+    slowSinceMs = 0; fastSinceMs = 0; resetIntervals();
   }
   function tick(now) {
     isTickPending = false;
     if (!isRunning) return;
     requestTick();
+    if (gpu.timer) readTimings(now);
     if (!isShown && !warmUp(now)) return;
-    var raw = (now - lastFrameMs) / 1000, dt = Math.min(0.05, raw); lastFrameMs = now;
-    if (isShown && clock > 43 && raw < 0.25) { govern(raw); if (phase === "still") return; }
-    // Hidden while it warms up, it stays on its first frame (the placeholder's), so it fades in from exactly what was showing.
-    advance(isShown ? dt : 0, dt, now);
-    aimCamera(camTime, dt);
+    var intervalMs = now - lastDrawMs;
+    if (lastDrawMs && intervalMs < targetIntervalMs() - vsyncMs / 2) return;
+    var dt = Math.min(0.05, intervalMs / 1000); lastDrawMs = now;
+    if (isShown) { govern(now, intervalMs); if (phase !== "shown") return; }
+    var heavyIndex = isShown ? -1 : heavyMomentIndex(), heavySec = heavyIndex >= 0 ? HEAVY_MOMENTS_SEC[heavyIndex] : -1;
+    // Hidden, the world holds still on its first moment (the placeholder's), so it fades in from exactly what was showing; so does a still.
+    advance(isShown && !tool.isStill ? dt : 0, dt, now);
+    aimCamera(heavySec >= 0 ? heavySec : camTime, dt);
     uploadRing(gpu.movers, movers); uploadRing(gpu.trails, trails);
+    var timing = gpu.timer ? beginTimer(heavyIndex) : null;
     drawFrame();
+    if (timing) endTimer(timing);
     drawnFrameCount++;
-    // It shows once it runs smoothly: its first frames fill caches, and would stutter. Then it fades in from the sky.
-    if (!isShown) { warmFrameCount++; if ((warmFrameCount >= 12 && raw < 0.034) || warmFrameCount >= 120) { isShown = true; shownAt = now; canvas.classList.add("on"); setPhase("shown"); } }
+    if (!isShown) settleWarm(now, intervalMs, heavySec >= 0);
   }
   // It runs only while it can be seen: the page showing, and the canvas in view (the gallery's example can scroll away).
   function wake() {
     var should = (phase === "building" || phase === "warming" || phase === "shown") && !document.hidden && isInView;
+    if (gpu && gpu.timer && document.hidden) dropTimings();
     if (should === isRunning) return;
-    isRunning = should; lastTickMs = 0; lastFrameMs = performance.now();
+    isRunning = should; lastTickMs = 0; lastDrawMs = performance.now();
     if (isRunning) requestTick();
   }
   document.addEventListener("visibilitychange", guarded(wake));
   if (window.IntersectionObserver) new IntersectionObserver(guarded(function (entries) { isInView = entries[entries.length - 1].isIntersecting; wake(); })).observe(canvas);
+  if (window.ResizeObserver) new ResizeObserver(guarded(resize)).observe(stage); else window.addEventListener("resize", guarded(resize));
+  // What the governor pays no mind to for a second: typing, a focus moving, and the pane's steps swapping in.
+  function quiet() { quietUntilMs = performance.now() + 1000; }
+  ["input", "focusin", "keydown"].forEach(function (name) { document.addEventListener(name, quiet, true); });
+  document.addEventListener("focusin", function (event) { var el = event.target; isFieldFocused = Boolean(pane && pane.contains(el) && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); });
+  document.addEventListener("focusout", function () { isFieldFocused = false; });
+  var paneIn = pane && pane.querySelector(".pane-in");
+  if (paneIn && window.MutationObserver) new MutationObserver(quiet).observe(paneIn, { childList: true });
+  // Whether the pane covers most of the screen (a phone's pane scrolled up): the city behind it goes at half the rate.
+  if (pane && window.IntersectionObserver) {
+    var paneSteps = []; for (var step = 0; step <= 20; step++) paneSteps.push(step / 20);
+    new IntersectionObserver(function (entries) {
+      var entry = entries[entries.length - 1], root = entry.rootBounds, area = root ? root.width * root.height : window.innerWidth * window.innerHeight;
+      isBehindPane = area > 0 && entry.intersectionRect.width * entry.intersectionRect.height / area > 0.7;
+    }, { threshold: paneSteps }).observe(pane);
+  }
   // A mouse plays as it's pressed. A touch plays when it lifts without having moved, so a finger that drags scrolls the page instead.
   var touchStart = null;
   canvas.addEventListener("pointerdown", guarded(function (event) {
@@ -1626,8 +1853,9 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }));
   canvas.addEventListener("pointercancel", function () { touchStart = null; });
   if (window.zaismaCityTool) tool.report = function () {
-    return { phase: phase, phaseTimesMs: phaseTimesMs, tierIndex: quality, canvasPx: [canvas.width, canvas.height], vsyncMs: Math.round(vsyncMs * 10) / 10,
-      drawnFrameCount: drawnFrameCount, cityRowCount: city.count, cityChecksum: cityChecksum() };
+    return { phase: phase, phaseTimesMs: phaseTimesMs, tierIndex: tierIndex, canvasPx: [canvas.width, canvas.height], vsyncMs: Math.round(vsyncMs * 10) / 10,
+      isTimed: Boolean(gpu && gpu.timer), heavyGpuMs: Math.round(heavyGpuMs() * 10) / 10, gpuP95Ms: gpu && gpu.timer ? gpuTimeP95(performance.now()) : null,
+      drawnFrameCount: drawnFrameCount, readyTimesMs: readyTimesMs, cityRowCount: city.count, cityChecksum: cityChecksum() };
   };
 
   // At once, not after the page's load (the bot check's frame alone can hold that back a second): once the page has painted its
@@ -1637,9 +1865,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl = canvas.getContext("webgl2", { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "default", failIfMajorPerformanceCaveat: !window.zaismaCityTool });
     if (!gl) { giveUp(); return; }
     setPhase("building");
+    try { var frame = window.frameElement; if (frame && frame.offsetWidth) shownScale = Math.min(1, frame.getBoundingClientRect().width / frame.offsetWidth); } catch (error) {}
+    topTier = tool.isStill ? 0 : small || coarse ? PHONE_TOP_TIER : 0;
+    if (!tool.isStill && navigator.deviceMemory && navigator.deviceMemory <= 2) topTier = Math.min(LOWEST_TIER, topTier + 2);
+    tierIndex = topTier;
     makeGpu();
     wake();
-    whenFree(buildWorld, function () { isWorldBuilt = true; holdFraming(); setPhase("warming"); });
+    whenFree(buildWorld, function () { isWorldBuilt = true; holdFraming(); showFlyerShare(); setPhase("warming"); });
   }
   requestAnimationFrame(function () { later(start); });
 })();
@@ -1782,6 +2014,9 @@ const CITY_STYLES = `
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .city-stage .city.on { opacity: 1; transform: none; }
+/* While it settles, hidden, it draws at the faintest opacity rather than none, so the browser composites it, and the glass over it,
+   as it will once it shows. */
+.city-stage .city.is-warming { opacity: 0.01; transition: none; }
 @media (prefers-reduced-motion: reduce) { .city-stage .city-still, .city-stage .city { transition: none; } }
 /* Day for light, night for dark: only the one showing is ever loaded. */
 .city-stage .city-still.is-night { display: none; }
