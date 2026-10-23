@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, colorPicker, icon, tag, type ColorChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES } from "./actions.ts";
 
@@ -35,7 +36,7 @@ export interface SwitchTab {
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean; isVertical?: boolean }): Raw {
+export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean; isVertical?: boolean }): ControlMarkup {
   const isSmall = options.switchSize === "small";
   const inside = (tab: SwitchTab) =>
     tab.icon || tab.badgeCount ? html`${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span>${tab.badgeCount ? tag(tab.badgeCount, "count") : ""}` : html`${tab.label}`;
@@ -47,11 +48,11 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const own = options.isFramed
     ? html`<div class="switch-frame cut-carved ${options.switchSize}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<div class="switch-frame-row" data-fades-sideways><div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">`
     : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
-  return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  return controlMarkup(html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? html`<a href="${tab.href}"${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
       : html`<button type="button"${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${inside(tab)}</button>`,
-  )}</div>${options.isFramed ? raw("</div></div>") : ""}`;
+  )}</div>${options.isFramed ? raw("</div></div>") : ""}`, isSmall ? "small" : "regular");
 }
 
 /** The switch's slab sits under the one you're on, the ghost follows the pointer across the others, both with the spring. */
@@ -161,7 +162,7 @@ component({
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-.tab-switch { position: relative; display: flex; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
+.tab-switch { --control-height: var(--control-height-regular); position: relative; display: flex; height: var(--control-height); padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
 .tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape);
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
@@ -195,7 +196,7 @@ component({
 .tab-switch.is-focus-shown .focus-ring { opacity: 1; }
 .tab-switch .focus-ring .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The sort switch: the header's switch, smaller. */
-.tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
+.tab-switch.small { --control-height: var(--control-height-small); padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 .tab-switch.small > a, .tab-switch.small > button { --tab-room: 14px; font-size: 14px; }
 /* Tight: a switch whose tabs don't fit their room (two long ones, on a 320px phone) keeps them closer to their words (SWITCH_SCRIPT says so). */

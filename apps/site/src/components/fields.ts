@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, ICONS, icon, type IconName } from "./foundations.ts";
 import { cutButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
@@ -34,16 +35,16 @@ export interface CutFieldOptions {
 }
 
 /** A cut field of clearer glass with a drawn outline and a line icon saying what goes in it. A password gets Show. */
-export function cutField(options: CutFieldOptions): Raw {
+export function cutField(options: CutFieldOptions): ControlMarkup {
   const id = options.id ?? `field-${options.name}`;
   const isPassword = options.type === "password";
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
-  return html`<div class="cut-field"><label for="${id}">${options.label}</label>
+  return controlMarkup(html`<div class="cut-field"><label for="${id}">${options.label}</label>
 <span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id }) : ""}</span>
-${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint" id="${hintId}">${options.hint}</p>` : ""}</div>`;
+${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
 export interface SearchFieldOptions {
@@ -59,8 +60,8 @@ export interface SearchFieldOptions {
 }
 
 /** Search: a cut field of clearer glass. "/" jumps to it in the header. */
-export function searchField(options: SearchFieldOptions): Raw {
-  return html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${raw(ICONS.search.replace('class="ico"', 'class="ico glass-icon"'))}${CUT_LINE}</form>`;
+export function searchField(options: SearchFieldOptions): ControlMarkup {
+  return controlMarkup(html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${raw(ICONS.search.replace('class="ico"', 'class="ico glass-icon"'))}${CUT_LINE}</form>`, "regular");
 }
 
 export interface BirthdayFieldOptions {
@@ -76,11 +77,11 @@ export interface BirthdayFieldOptions {
 }
 
 /** One field that opens three glass wheels, month, day and year, under a lit band. Each starts blank, so nothing suggests an age. */
-export function birthdayField(options: BirthdayFieldOptions): Raw {
+export function birthdayField(options: BirthdayFieldOptions): ControlMarkup {
   const id = options.id ?? `bday-${options.name}`;
   const isOpen = options.state === "open";
   const isMarked = options.state === "marked";
-  return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
+  return controlMarkup(html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>Pick your birthday to go on.</p>
@@ -89,7 +90,7 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
 <span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
-</fieldset>`;
+</fieldset>`, "field", { hasOwnWords: true });
 }
 
 export interface DateTimeFieldOptions {
@@ -111,11 +112,11 @@ export interface DateTimeFieldOptions {
  * the minute in fives, all in the viewer's own time zone, said under it.
  * It submits ISO 8601 with the viewer's offset (DATE_TIME_SCRIPT fills it in).
  */
-export function dateTimeField(options: DateTimeFieldOptions): Raw {
+export function dateTimeField(options: DateTimeFieldOptions): ControlMarkup {
   const id = options.id ?? `when-${options.name}`;
   const isOpen = options.state === "open";
   const wheel = (part: string, label: string) => html`<div class="wheel" data-own-fade data-part="${part}" role="listbox" aria-label="${label}" tabindex="0"></div>`;
-  return html`<fieldset class="bday" data-date-time${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}>
+  return controlMarkup(html`<fieldset class="bday" data-date-time${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="bday-field cut-carved" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-zone">${CUT_LINE}${icon("clock")}<span class="bday-value">Choose a time</span><span class="bday-chev">${icon("chevron-down")}</span></button>
 <p class="date-time-zone" id="${id}-zone"></p>
@@ -124,7 +125,7 @@ export function dateTimeField(options: DateTimeFieldOptions): Raw {
 <span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.pickedAt ?? ""}" data-id="${id}">
-</fieldset>`;
+</fieldset>`, "field", { hasOwnWords: true });
 }
 
 /** Show/Hide: shows the password it controls, and hides it again. */
@@ -385,8 +386,9 @@ const FIELD_STYLES = `
 /* Fields: the header's search field, bigger. A cut field of clearer glass with a drawn outline and a line icon saying what goes in it;
    pointing clears it a little, and typing in it whitens it and draws the outline in orange. Words are 16px, so phones don't zoom in. */
 .cut-field { display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.cut-field > label { font: var(--type-label); color: var(--ink-2); }
-.field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
+/* Its words (label, error, hint) keep a pane's margin, --pad-words in from its box, which sits at the frame gap. */
+.cut-field > label { padding-inline: var(--pad-words); font: var(--type-label); color: var(--ink-2); }
+.field { --control-height: var(--control-height-field); position: relative; display: flex; align-items: center; height: var(--control-height); color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
   font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
@@ -401,8 +403,8 @@ const FIELD_STYLES = `
 .field > .cut-line polygon { stroke: var(--field-outline); }
 .field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
-.field-error { margin: 0; font: var(--type-words); color: var(--marked); }
-.field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
+.field-error { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--marked); }
+.field-hint { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
 .field.with-toggle input { padding-right: 90px; }
 /* Show/Hide: a small cut button, a toggle, at the field's end. */
 .field > .cut-btn { position: absolute; z-index: 5; right: 8px; top: 8px; }
@@ -433,7 +435,7 @@ component({
   summary: "Search on a page, and in the header. \"/\" jumps to it there, and nothing says so.",
   styles: `
 /* Search: a cut field of clearer glass. "/" jumps to it. */
-.find { position: relative; flex: 1; max-width: 460px; height: 44px; margin: 0; }
+.find { --control-height: var(--control-height-regular); position: relative; flex: 1; max-width: 460px; height: var(--control-height); margin: 0; }
 .find input[type="search"] {
   width: 100%; height: 100%; padding: 0 16px 0 44px;
   font: 500 16px var(--display); color: var(--ink); text-overflow: ellipsis;
@@ -464,7 +466,7 @@ component({
 /* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
 .bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 /* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
-.bday legend { padding: 0; margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
+.bday legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 52px; border: 0; cursor: pointer; text-align: left;
   font: 500 18px var(--display); color: var(--muted); --face-color: var(--field-face); background: var(--face-color); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
@@ -524,7 +526,7 @@ component({
   styles: `
 /* The date and time field: the birthday field with a clock, and the time zone said under it. The day wheel gets the room "Jan 15, 2027" needs,
    the hour "12 PM". */
-.date-time-zone { margin: 0; font: var(--type-facts); color: var(--muted); }
+.date-time-zone { margin: 0; padding-inline: var(--pad-words); font: var(--type-facts); color: var(--muted); }
 .date-time-zone:empty { display: none; }
 .date-time-wheels { grid-template-columns: 2.5fr 1.1fr 0.7fr; }
 /* The picked day stays at the wheel's own size, so a long one ("Jan 15, 2027") still fits a phone. */

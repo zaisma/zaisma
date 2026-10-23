@@ -70,15 +70,27 @@ export const WATCH_SCRIPT = `/* watch */(function () {
 
 /**
  * glass(el, corners) and cutLine(el), from the header draft, as window.zaismaGlass and window.zaismaCutLine.
- * On load, and for elements added later, they're applied to every [data-glass] (corners from data-glass-corners,
- * like "20 14 20 14") and every [data-cut-line] (a control: its slant, where it has one, in its value).
+ * On load, and for elements added later, they're applied to every [data-glass] (corners from data-glass-corners) and every
+ * [data-cut-line] (a control: its slant, where it has one, in its value).
+ * data-glass-corners names a slab's four cuts, top left, top right, bottom right, bottom left: "pane", "header" or "menu" for that
+ * kind's large and small cuts round it (the tokens --pane-cut-large and the rest), or four of a kind's "pane-large", "pane-small"
+ * and so on, or numbers ("pane-large pane-small 0 0": a tray's head). window.zaismaCorners(el) reads them as numbers.
  */
 export const GLASS_SCRIPT = `/* glass */(function () {
   var SVG = "http://www.w3.org/2000/svg";
-  // On a phone a pane's corners are cut a fifth smaller (24 and 20 become 19 and 16), so a narrow screen of panes isn't all corners.
-  // What sits in a pane follows, since the edge rule reads the same cuts.
-  var narrow = window.matchMedia("(max-width: 760px)");
-  function phoneCut(cut) { return narrow.matches ? Math.round(cut * 0.8) : cut; }
+  // The cut tokens, read from the page's root as they're asked for, and read again once the window has changed size (a phone's own values).
+  var cutTokens = {};
+  window.addEventListener("resize", function () { cutTokens = {}; });
+  function cutToken(name) {
+    if (!(name in cutTokens)) cutTokens[name] = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--" + name.replace(/-(large|small)$/, "-cut-$1"))) || 0;
+    return cutTokens[name];
+  }
+  function corners(el, fallback) {
+    var words = (el.getAttribute("data-glass-corners") || fallback).trim().split(/\\s+/);
+    if (words.length === 1 && /^[a-z]+$/.test(words[0])) words = [words[0] + "-large", words[0] + "-small", words[0] + "-large", words[0] + "-small"];
+    return words.map(function (word) { return /^[a-z]+-(large|small)$/.test(word) ? cutToken(word) : Number(word) || 0; });
+  }
+  window.zaismaCorners = corners;
   /* The sign-in pane's glass, for any slab: cut corners and the drawn rim (dark hairline, polished edge, bevel band, faint rainbow fringe, bright cut facets). */
   function cutPoints(w, h, c, inset) {
     // A corner that isn't cut stays square all the way in, so its bands meet in a plain mitre, not a facet of their own.
@@ -147,7 +159,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The rim is built once; while the slab changes size only its points move, so nothing is rebuilt mid-animation (rebuilding it each frame made the edges flicker).
   // A pane's cut corners are a clip-path in CSS terms (calc with 100%), so it follows the slab's size by itself and is only set again when the corners change.
   // A control made of glass ([data-cut-line] too, a glass button's face) takes its shape from the edge rule instead, like every other control.
-  function glass(el, corners) {
+  function glass(el, cornersOf) {
     var edge = el.querySelector(":scope > .edge"), id = "zg" + (made++), parts = null, lastCorners = "", isControl = el.hasAttribute("data-cut-line");
     if (!edge) { edge = document.createElementNS(SVG, "svg"); edge.setAttribute("class", "edge"); edge.setAttribute("aria-hidden", "true"); el.appendChild(edge); }
     function node(tag, attributes) { var n = document.createElementNS(SVG, tag); for (var name in attributes) n.setAttribute(name, attributes[name]); edge.appendChild(n); return n; }
@@ -191,7 +203,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         at = function (inset) { return insetShape(shape, inset); };
         lights = shape.map(function (p, i) { return FACING_LIGHT[facing(p, shape[(i + 1) % shape.length])]; });
       } else {
-        var c = corners().map(function (cut) { return Math.min(phoneCut(cut), Math.round(short * 0.3)); }), cornerKey = c.join(",");
+        var c = cornersOf().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); }), cornerKey = c.join(",");
         if (cornerKey !== lastCorners) {
           lastCorners = cornerKey;
           el.style.clipPath = "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))";
@@ -253,8 +265,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // Neighbors side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [16, 8, 16, 8];
   function glassCorners(pane) {
-    var cuts = (pane.getAttribute("data-glass-corners") || "20 14 20 14").trim().split(/ +/).map(Number), size = sizeOf(pane), short = Math.min(size[0], size[1]);
-    return cuts.map(function (cut) { return Math.min(phoneCut(cut), Math.round(short * 0.3)); });
+    var cuts = corners(pane, "header"), size = sizeOf(pane), short = Math.min(size[0], size[1]);
+    return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
   // What holds a control: the nearest pane, tray or control round it. data-on-no-pane stops the search (a gallery example's stage:
   // what's shown in it is shown on no pane, even when the stage sits on a tray).
@@ -428,7 +440,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     slabs.forEach(function (el) {
       if (done.has(el)) return; done.add(el);
       // Read as it's drawn, so a pane whose corners change (the home's pane, a tray's head only while its tray shows) is cut anew when it next changes size.
-      glass(el, function () { return (el.getAttribute("data-glass-corners") || "24 20 24 20").split(/\\s+/).map(Number); });
+      glass(el, function () { return corners(el, "pane"); });
     });
     // A control made of glass is drawn by glass, from the same edge rule.
     lines.forEach(function (el) {

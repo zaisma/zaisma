@@ -10,6 +10,7 @@ import { footer, header, rail, type HeaderTab } from "./components/navigation.ts
 import { cutButton, runButton } from "./components/actions.ts";
 import { pictureFrame } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
+import { stack } from "./components/layout.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 
@@ -422,7 +423,7 @@ const SHELL_STYLES = `
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
-body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
+body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; padding-bottom: var(--gap-block-block); }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }
 main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
@@ -478,7 +479,13 @@ export function metalButton(label: string, options: { href?: string; id?: string
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-/** formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. */
+/** The site running on this machine (the local preview, npm run dev), never zaisma.com or the tests' site. */
+export const isLocalSite = (env: Env): boolean => env.SITE_ORIGIN.startsWith("http://localhost");
+
+/**
+ * formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. On a local
+ * preview every page may be framed by the site's own, for the Screens page (components/screens.ts); live, only those that ask.
+ */
 export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'"): Headers {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
@@ -490,7 +497,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
-      `frame-ancestors ${frameAncestors}`,
+      `frame-ancestors ${frameAncestors === "'none'" && isLocalSite(env) ? "'self'" : frameAncestors}`,
       "base-uri 'none'",
       "object-src 'none'",
       // What the policy blocks is reported (security-alerts.ts, recordBlockedScripts): report-to for today's browsers, report-uri for the rest.
@@ -533,6 +540,8 @@ const THEME_SCRIPT = pageScript("theme", `(function () {
   function now() { return choice() === "system" ? (query.matches ? "dark" : "light") : choice(); }
   function apply() { var theme = now(); if (root.getAttribute("data-theme") === theme) return; root.setAttribute("data-theme", theme); listeners.forEach(function (listener) { listener(theme); }); }
   if (query.addEventListener) query.addEventListener("change", apply);
+  // A choice changed on the page itself (Screens sets each frame's) shows at once.
+  new MutationObserver(apply).observe(root, { attributes: true, attributeFilter: ["data-theme-choice"] });
   window.zaismaTheme = { now: now, choice: choice, onChange: function (listener) { listeners.push(listener); } };
   apply();
 })();
@@ -645,7 +654,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const body = glassPane({ paneSize: "medium", body: html`<h1>${title}</h1><p>${text}</p>${runButton("Back to games", { href: "/", isFullWidth: true })}` });
+  const body = glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>${title}</h1>` }, { kind: "block", markup: html`<p>${text}</p>` }, { kind: "control", markup: runButton("Back to games", { href: "/", isFullWidth: true }) }] }) });
   const response = layout(env, { title, body, isRebuilt: true });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
