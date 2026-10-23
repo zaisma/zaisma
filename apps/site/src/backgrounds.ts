@@ -53,9 +53,10 @@ export function backgroundMarkup(background: ShownBackground): Raw {
 /**
  * The backgrounds of every listed game that chose one, in one query, for a page that shows many games at once (the home sends
  * the whole shelf's). A game missing from the answer shows Zaisma's own on both screens; phones follow wide until a phone background is set.
+ * The games may still be on their way: the query doesn't need them, only matching its rows after, so the home starts both at once.
  */
-export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slug">[]): Promise<Map<string, Record<BackgroundScreen, ShownBackground>>> {
-  const { results } = await env.DB
+export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slug">[] | Promise<Pick<Game, "id" | "slug">[]>): Promise<Map<string, Record<BackgroundScreen, ShownBackground>>> {
+  const [{ results }, listedGames] = await Promise.all([env.DB
     .prepare(
       `SELECT game_backgrounds.game_id, game_backgrounds.screen, game_backgrounds.source, game_backgrounds.image_id, game_backgrounds.shader_id,
          game_images.id IS NOT NULL AS is_image_approved, game_shaders.id IS NOT NULL AS is_shader_approved,
@@ -67,8 +68,8 @@ export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slu
        LEFT JOIN game_shaders ON game_shaders.id = game_backgrounds.shader_id AND game_shaders.game_id = game_backgrounds.game_id AND game_shaders.review_status = 'approved'
        WHERE games.review_status = 'live' AND games.visibility = 'listed'`,
     )
-    .all<{ game_id: string; screen: BackgroundScreen; source: BackgroundSource; image_id: string | null; shader_id: string | null; is_image_approved: number; is_shader_approved: number } & { [Name in keyof BackgroundTone]: BackgroundTone[Name] | null }>();
-  const slugById = new Map(games.map((game) => [game.id, game.slug]));
+    .all<{ game_id: string; screen: BackgroundScreen; source: BackgroundSource; image_id: string | null; shader_id: string | null; is_image_approved: number; is_shader_approved: number } & { [Name in keyof BackgroundTone]: BackgroundTone[Name] | null }>(), games]);
+  const slugById = new Map(listedGames.map((game) => [game.id, game.slug]));
   const chosen = new Map<string, Partial<Record<BackgroundScreen, ShownBackground>>>();
   for (const row of results) {
     const slug = slugById.get(row.game_id);

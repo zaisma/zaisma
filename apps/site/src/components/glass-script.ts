@@ -3,17 +3,21 @@
 /**
  * The page's one watcher, which every component asks instead of watching by itself (window.zaismaWatch):
  * - page(callback): callback(changes) with every record of the page's one MutationObserver (children added or removed under the body, and
- *   a class, open or hidden attribute changing), in the order components asked.
+ *   a class, open or hidden attribute changing), in the order components asked. Drawings are left out (anything inside an svg: the edge
+ *   rule's rims and cut lines, icons, charts), and so is an attribute that ends a delivery as it started it (a class added that was already
+ *   there, or added and taken away again), so components hear only of what changed.
  * - size(element, callback, batch): callback() when the element's size changes (and once when it's first watched), from one ResizeObserver.
  *   A callback watching several elements runs once for the ones that changed together. batch(work), when given, wraps every callback of
  *   the same batch that is due together, so they can read the page once before any of them writes.
  * - resize(callback, batch) and scroll(callback): callback() on the window's resize, and on any scroll anywhere (captured, passive).
  * - each(selector, callback): callback(element) once for every element matching the selector, those on the page now and any added later
  *   (a pane whose content is swapped in place), so a component's wiring reaches new content as a page load's would.
+ * - scrollBoxes(): the boxes on the page that scroll up and down (overflow-y auto or scroll), in the page's order, found once. Only what the
+ *   page's stylesheets, the browser's own or an element's own style make scroll is asked for its style, never every element.
  * Where the browser has no ResizeObserver, size falls back to the window's resize.
  */
 export const WATCH_SCRIPT = `/* watch */(function () {
-  var pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false;
+  var pageCallbacks = [], sizeCallbacks = new Map(), resizeCallbacks = [], scrollCallbacks = [], sizes = null, hasResizeListener = false, hasScrollListener = false, scrollBoxes = null;
   function runPlain(work) { work(); }
   // Callbacks that share a batch (a function taking the work to do) run together inside it, each once: the edge rule measures a whole batch of controls before drawing any.
   function runBatched(entries) {
@@ -43,11 +47,33 @@ export const WATCH_SCRIPT = `/* watch */(function () {
         });
       }
       var entries = sizeCallbacks.get(element);
-      if (!entries) { entries = []; sizeCallbacks.set(element, entries); sizes.observe(element); }
+      // The border box, the size the edge rule draws to.
+      if (!entries) { entries = []; sizeCallbacks.set(element, entries); sizes.observe(element, { box: "border-box" }); }
       entries.push({ callback: callback, batch: batch });
     },
     resize: function (callback, batch) { watchWindow("resize", resizeCallbacks, callback, batch); },
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
+    scrollBoxes: function () {
+      if (scrollBoxes) return scrollBoxes;
+      // The browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest.
+      var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"], found = new Set();
+      function visit(rules) {
+        for (var i = 0; i < rules.length; i++) {
+          var rule = rules[i], style = rule.style;
+          if (style && rule.selectorText && /auto|scroll|var\\(/.test(style.overflowY + " " + style.getPropertyValue("overflow"))) selectors.push(rule.selectorText);
+          if (rule.cssRules) visit(rule.cssRules);
+        }
+      }
+      Array.prototype.forEach.call(document.styleSheets, function (sheet) { try { visit(sheet.cssRules); } catch (error) { /* a sheet from another site */ } });
+      selectors.forEach(function (selector) {
+        var matched;
+        // A rule for a pseudo-element (::before) can't be asked for: the element it's on is.
+        try { matched = document.querySelectorAll(selector); } catch (error) { try { matched = document.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return; } }
+        matched.forEach(function (box) { if (box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) found.add(box); });
+      });
+      scrollBoxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
+      return scrollBoxes;
+    },
     each: function (selector, callback) {
       var wired = new WeakSet();
       function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
@@ -63,8 +89,22 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       });
     }
   };
-  new MutationObserver(function (changes) { pageCallbacks.slice().forEach(function (callback) { callback(changes); }); })
-    .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "open", "hidden"] });
+  function heard(changes) {
+    var firstChanges = new Map();
+    return changes.filter(function (change) {
+      if (change.target instanceof SVGElement) return false;
+      if (change.type !== "attributes") return true;
+      var byName = firstChanges.get(change.target);
+      if (!byName) { byName = {}; firstChanges.set(change.target, byName); }
+      if (byName[change.attributeName]) return false;
+      byName[change.attributeName] = true;
+      return change.oldValue !== change.target.getAttribute(change.attributeName);
+    });
+  }
+  new MutationObserver(function (changes) {
+    var due = heard(changes);
+    if (due.length) pageCallbacks.slice().forEach(function (callback) { callback(due); });
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "open", "hidden"] });
 })();
 `;
 
@@ -78,13 +118,14 @@ export const WATCH_SCRIPT = `/* watch */(function () {
  */
 export const GLASS_SCRIPT = `/* glass */(function () {
   var SVG = "http://www.w3.org/2000/svg";
-  // The cut tokens, read from the page's root as they're asked for, and read again once the window has changed size (a phone's own values).
+  // The cut tokens, read from the page's root once, as the script starts and before anything is drawn: they're the same on every screen,
+  // so reading them later, between a pass's writes, would only make the browser work its styles out again.
   var cutTokens = {};
-  window.addEventListener("resize", function () { cutTokens = {}; });
   function cutToken(name) {
     if (!(name in cutTokens)) cutTokens[name] = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--" + name.replace(/-(large|small)$/, "-cut-$1"))) || 0;
     return cutTokens[name];
   }
+  ["pane", "header", "menu"].forEach(function (kind) { cutToken(kind + "-large"); cutToken(kind + "-small"); });
   function corners(el, fallback) {
     var words = (el.getAttribute("data-glass-corners") || fallback).trim().split(/\\s+/);
     if (words.length === 1 && /^[a-z]+$/.test(words[0])) words = [words[0] + "-large", words[0] + "-small", words[0] + "-large", words[0] + "-small"];
@@ -117,7 +158,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   var pass = null;
   function runPass(work, isBatch) {
     if (pass) { work(); return; }
-    pass = { rects: new Map(), sizes: new Map(), groups: new Map(), isBatch: Boolean(isBatch), isMeasured: false };
+    pass = { rects: new Map(), sizes: new Map(), groups: new Map(), scrollers: new Map(), isBatch: Boolean(isBatch), isMeasured: false };
     try { work(); } finally { pass = null; }
   }
   function runBatch(work) { runPass(work, true); }
@@ -126,6 +167,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     pass.isMeasured = true;
     document.querySelectorAll("[data-cut-line], [data-glass]").forEach(function (el) { pass.rects.set(el, el.getBoundingClientRect()); pass.sizes.set(el, [el.offsetWidth, el.offsetHeight]); });
     document.querySelectorAll("[data-cut-line]").forEach(function (el) { groupIn(holderOf(el)).push(el); });
+    // Boxes that scroll inside a pane, for the controls in them (contentRectOf), read with everything else, before anything is drawn.
+    document.querySelectorAll("body .own-scroll").forEach(function (el) { pass.scrollers.set(el, { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }); });
+  }
+  function scrollOf(el) {
+    var read = pass.scrollers.get(el);
+    if (!read) { read = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }; pass.scrollers.set(el, read); }
+    return read;
   }
   function groupIn(holder) {
     var group = pass.groups.get(holder);
@@ -144,23 +192,36 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
     return group;
   }
-  // Every control drawn by the edge rule, to draw again together when the window resizes or the fonts arrive.
+  // Every control drawn by the edge rule, to draw again together when the window's width changes or a font arrives.
   var edgeDraws = new Map(), isWaitingForFonts = false;
   function redrawEdges() {
     runBatch(function () { edgeDraws.forEach(function (draw, el) { if (el.isConnected) draw(); else edgeDraws.delete(el); }); });
   }
+  // A font that finishes loading can move every control, so all are drawn again then; a control drawn once the fonts are in has nothing
+  // to wait for. Where the browser can't say when a font loads, the fonts' ready promise stands in, once while they're loading.
+  var hasFontEvents = Boolean(document.fonts && document.fonts.addEventListener);
+  if (hasFontEvents) document.fonts.addEventListener("loadingdone", function () { redrawEdges(); findEdgedSoon(); });
   function drawEdgeAfterFonts() {
-    if (isWaitingForFonts || !document.fonts || !document.fonts.ready) return;
+    if (hasFontEvents || isWaitingForFonts || !document.fonts || !document.fonts.ready || document.fonts.status !== "loading") return;
     isWaitingForFonts = true;
     document.fonts.ready.then(function () { isWaitingForFonts = false; redrawEdges(); });
   }
-  window.zaismaWatch.resize(redrawEdges, runBatch);
+  // A change of the window's width can move every control (a row wrapping, a column folding), so all are drawn again together, after
+  // layout, in the same delivery as the panes it resized. A change of its height alone (a phone's toolbar hiding as the page scrolls) moves
+  // nothing whose own box and holder stayed the same size, and anything that did change size draws itself again.
+  var shownWidth = -1;
+  window.zaismaWatch.size(document.documentElement, function () {
+    var width = document.documentElement.clientWidth, isFirst = shownWidth < 0;
+    if (width === shownWidth) return;
+    shownWidth = width;
+    if (!isFirst) { redrawEdges(); findEdgedSoon(); }
+  }, runBatch);
   var made = 0;
   // The rim is built once; while the slab changes size only its points move, so nothing is rebuilt mid-animation (rebuilding it each frame made the edges flicker).
   // A pane's cut corners are a clip-path in CSS terms (calc with 100%), so it follows the slab's size by itself and is only set again when the corners change.
   // A control made of glass ([data-cut-line] too, a glass button's face) takes its shape from the edge rule instead, like every other control.
   function glass(el, cornersOf) {
-    var edge = el.querySelector(":scope > .edge"), id = "zg" + (made++), parts = null, lastCorners = "", isControl = el.hasAttribute("data-cut-line");
+    var edge = el.querySelector(":scope > .edge"), id = "zg" + (made++), parts = null, lastCorners = "", lastPane = "", isControl = el.hasAttribute("data-cut-line");
     if (!edge) { edge = document.createElementNS(SVG, "svg"); edge.setAttribute("class", "edge"); edge.setAttribute("aria-hidden", "true"); el.appendChild(edge); }
     function node(tag, attributes) { var n = document.createElementNS(SVG, tag); for (var name in attributes) n.setAttribute(name, attributes[name]); edge.appendChild(n); return n; }
     function build() {
@@ -210,6 +271,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         }
         // An open side (data-glass-open="top", a tray under its pane) draws its rim past the slab, where the clip hides it, so the glass runs straight on into what's above.
         var reach = el.getAttribute("data-glass-open") === "top" ? Math.ceil(band * 1.6) + 2 : 0;
+        // A rim drawn at this size, with these cuts, is already there: nothing is written again.
+        var paneKey = w + "x" + h + ":" + band + ":" + reach + ":" + cornerKey;
+        if (paneKey === lastPane) return;
+        if (lastPane) paneResized(el);
+        lastPane = paneKey;
         at = function (inset) { return cutPoints(w, h + reach, c, inset).map(function (p) { return [p[0], p[1] - reach]; }); };
         lights = SIDE_LIGHT;
       }
@@ -276,10 +342,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function contentRectOf(el, holder) {
     // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
     var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
-    if (!scroller || scroller === holder || !holder.contains(scroller) || scroller.scrollHeight <= scroller.clientHeight + 1) return p;
+    if (!scroller || scroller === holder || !holder.contains(scroller)) return p;
+    var scrolled = scrollOf(scroller);
+    if (scrolled.scrollHeight <= scrolled.clientHeight + 1) return p;
     // The holder's own box, run on by what's scrolled out of view above and below it, so a scroller that's only part of it (a sheet's body,
     // under its head) measures as one that fills it.
-    return { top: p.top - scroller.scrollTop, bottom: p.bottom + scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, left: p.left, right: p.right };
+    return { top: p.top - scrolled.scrollTop, bottom: p.bottom + scrolled.scrollHeight - scrolled.clientHeight - scrolled.scrollTop, left: p.left, right: p.right };
   }
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
@@ -449,9 +517,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         if (child instanceof SVGElement || child.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return;
         var r = child.getBoundingClientRect();
         if (!r.width || !r.height || !nearCorner(r)) return;
+        if (edgedCuts.has(child)) { found.push(child); return; }
         var css = getComputedStyle(child);
         if (css.display === "contents" || css.position === "fixed") return walk(child);
-        if (edgedCuts.has(child) || (css.clipPath === "none" && Math.min(r.width, r.height) >= EDGE_MIN_PX && hasEdge(child, css))) found.push(child);
+        if (css.clipPath === "none" && Math.min(r.width, r.height) >= EDGE_MIN_PX && hasEdge(child, css)) found.push(child);
         else walk(child);
       });
     }
@@ -460,20 +529,26 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   function cutEdged(el) {
     if (edgedCuts.has(el)) return;
+    var last = null;
     function draw() { runPass(drawCut); }
     function drawCut() {
       var size = sizeOf(el), w = size[0], h = size[1];
       if (!w || !h || !el.isConnected) return;
-      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false }));
-      if (shape.length > 4) { el.style.setProperty("--cut-shape", cssPolygon(shape)); el.style.clipPath = cssPolygon(shape); }
+      var shape = distinct(controlShape(w, h, 0, fitCuts(el, w, h), { start: false, end: false })), cut = shape.length > 4 ? cssPolygon(shape) : "";
+      if (cut === last) return;
+      last = cut;
+      if (cut) { el.style.setProperty("--cut-shape", cut); el.style.clipPath = cut; }
       else { el.style.removeProperty("--cut-shape"); el.style.removeProperty("clip-path"); }
     }
     edgedCuts.set(el, draw); edgeDraws.set(el, draw);
     window.zaismaWatch.size(el, draw, runBatch);
     draw();
   }
+  var PANE = "[data-glass]:not([data-cut-line])";
   function cutEdgedOnPage() {
-    runBatch(function () { document.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (pane) { edgedIn(pane).forEach(cutEdged); }); });
+    var panes = isEveryPaneDue ? Array.prototype.slice.call(document.querySelectorAll(PANE)) : Array.from(edgedPanes);
+    isEveryPaneDue = false; edgedPanes.clear();
+    runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
   }
   // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
   // { theme: "light" | "dark" | null } and { glass: { hueColor: "#rrggbb" | null } }, null going back to the default.
@@ -518,12 +593,23 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   }
   runBatch(function () { apply(document); });
   window.zaismaWatch.page(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
-  // Edged things are found once the page has laid out, and again whenever it may have moved them into a corner.
-  var edgedTimer = 0;
-  function findEdgedSoon() { clearTimeout(edgedTimer); edgedTimer = setTimeout(cutEdgedOnPage, 50); }
+  // Edged things are found once the page has laid out, and again whenever something may have moved them into a corner: in the panes round
+  // a change and in it, in a pane that changed size, and in every pane once the window's width changes or a font arrives.
+  var edgedTimer = 0, edgedPanes = new Set(), isEveryPaneDue = false;
+  function walkSoon() { clearTimeout(edgedTimer); edgedTimer = setTimeout(cutEdgedOnPage, 50); }
+  function findEdgedSoon(changes) {
+    if (Array.isArray(changes)) changes.forEach(function (change) { panesAround(change.target).forEach(function (pane) { edgedPanes.add(pane); }); });
+    else isEveryPaneDue = true;
+    walkSoon();
+  }
+  function paneResized(pane) { edgedPanes.add(pane); walkSoon(); }
+  function panesAround(target) {
+    if (target.nodeType !== 1) return [];
+    var found = Array.prototype.slice.call(target.querySelectorAll(PANE)), holder = target.closest(PANE);
+    while (holder) { found.push(holder); holder = holder.parentElement && holder.parentElement.closest(PANE); }
+    return found;
+  }
   findEdgedSoon();
   window.zaismaWatch.page(findEdgedSoon);
-  window.zaismaWatch.resize(findEdgedSoon);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(findEdgedSoon);
 })();
 `;

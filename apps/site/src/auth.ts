@@ -1,3 +1,4 @@
+import type { Account } from "@zaisma/core";
 import type { Env } from "./env.ts";
 
 /**
@@ -400,9 +401,11 @@ export function clearSessionCookies(env: Env): string[] {
 
 /**
  * The signed-in person, if any. An expired access token is swapped for a fresh one;
- * `cookies` then holds the new cookies to send back.
+ * `cookies` then holds the new cookies to send back. `accountRow` is their account's row as the check
+ * below read it (null with none yet), before any birthday since is applied: viewerOf passes it through
+ * accountWithBirthday, so a page reads the row once.
  */
-export async function currentSession(request: Request, env: Env): Promise<(Session & { cookies: string[] }) | null> {
+export async function currentSession(request: Request, env: Env): Promise<(Session & { cookies: string[]; accountRow: Account | null }) | null> {
   if (!authConfigured(env)) return null;
   const raw = readCookie(request, env, "zaisma");
   if (!raw) return null;
@@ -418,7 +421,7 @@ export async function currentSession(request: Request, env: Env): Promise<(Sessi
   if (!session) return null;
   // The backstop for a new password and Sign out on every device: a refreshed token keeps its session's
   // sign-in time, so a session from before the cut-off stays out even when Supabase didn't revoke it.
-  const ended = await env.DB.prepare("SELECT sessions_ended_at_ms FROM accounts WHERE id = ?").bind(session.userId).first<{ sessions_ended_at_ms: number | null }>();
-  if (ended?.sessions_ended_at_ms != null && session.signedInAtMs < ended.sessions_ended_at_ms) return null;
-  return session;
+  const accountRow = await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(session.userId).first<Account>();
+  if (accountRow?.sessions_ended_at_ms != null && session.signedInAtMs < accountRow.sessions_ended_at_ms) return null;
+  return { ...session, accountRow };
 }

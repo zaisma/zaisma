@@ -7,6 +7,7 @@ import { shownColor } from "./markup.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
+import { pageStyle } from "./page-styles.ts";
 import { SHADER_HELPERS, ZAISMA_SHADER } from "./components/shaders.ts";
 import { EDGE } from "./components/foundations.ts";
 
@@ -377,7 +378,7 @@ function withCookies(response: Response, cookies: string[]): Response {
 }
 
 export function page(env: Env, title: string, body: Raw, httpStatus = 200, account?: Account | null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + GAME_STYLES)}</style>${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, steelStyles: [DASHBOARD_STYLE], isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 
@@ -1520,6 +1521,9 @@ const GAME_STYLES = `
 .sections [aria-current]{background:none}
 .sections [aria-current]::before{left:10px;right:10px;top:auto;bottom:0;width:auto;height:3px}}
 `;
+
+/** The dashboard's styles as a cached file, until its pages are rebuilt, so moving between them doesn't send them again. */
+const DASHBOARD_STYLE = pageStyle("dashboard", () => STYLES + GAME_STYLES);
 
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
 // The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.

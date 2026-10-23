@@ -1,0 +1,13 @@
+# How long browsers keep the files zaisma.com serves from this folder (wrangler.jsonc, "assets"). Workers Static Assets reads
+# this file and never serves it. Pages, /css/ and /js/ are the Worker's own answers, which it leaves alone.
+
+# Logos, icons, flags and pictures: used from the browser's cache for a day with no request, then refreshed in the
+# background for a week, so a repeat visit never waits on them.
+/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# The font is named for its contents (README.md, Typeface), so it's kept for good. The rule above matches it too: its
+# Cache-Control is taken off first, or the two would be joined into one header.
+/fonts/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable

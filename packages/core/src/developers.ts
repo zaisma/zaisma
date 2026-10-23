@@ -953,6 +953,15 @@ export const isSquare = (widthPx: number, heightPx: number) => Math.abs(widthPx 
 export const imageKey = (image: Pick<GameImage, "game_id" | "id">) => `images/${image.game_id}/${image.id}`;
 /** Where a picture's share card JPEG is kept once it's made (the site's /img/:id/card.jpg), deleted with the picture. */
 export const cardImageKey = (image: Pick<GameImage, "game_id" | "id">) => `images/${image.game_id}/${image.id}.card.jpg`;
+
+/**
+ * The widths an approved picture is also kept at, as WebP made from it the first time a page asks (/img/<id>/w<width>.webp), so a page
+ * downloads the size it shows: a cover on a phone, a wide screen's background. Never wider than the picture itself.
+ */
+export const SIZED_IMAGE_WIDTHS_PX = [320, 480, 640, 960, 1440, 1920] as const;
+export const sizedImageKey = (image: Pick<GameImage, "game_id" | "id">, widthPx: number) => `images/${image.game_id}/${image.id}.w${widthPx}.webp`;
+/** Every copy kept of a picture besides itself: its share card and its sizes, deleted with it. */
+export const imageCopyKeys = (image: Pick<GameImage, "game_id" | "id">): string[] => [cardImageKey(image), ...SIZED_IMAGE_WIDTHS_PX.map((widthPx) => sizedImageKey(image, widthPx))];
 /** Where a cover or screenshot that matched known abuse material is kept for reporting. Never served or listed. */
 export const heldImageKey = (gameId: string, id: string) => `held-images/${gameId}/${id}`;
 
