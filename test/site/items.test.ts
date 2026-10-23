@@ -1,7 +1,12 @@
 import { env, SELF } from "cloudflare:test";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { accountById, createAccount, createApiKey, gameBySlug } from "@zaisma/core";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { unzipSync } from "fflate";
+import { accountById, createAccount, createApiKey, gameBySlug, gameRowDeletions, newGrant, recordGrant } from "@zaisma/core";
 import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server";
+import { accountDataZip } from "../../apps/site/src/account-data.ts";
+import { purchasesRoute } from "../../apps/site/src/items-api.ts";
+import type { Caller, CheckedCall } from "../../apps/site/src/developer.ts";
+import type { Env } from "../../apps/site/src/env.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { GAME, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
@@ -16,6 +21,9 @@ const ISSUER = "https://rooms.zaisma.test";
 let token = "";
 let nextId = 1;
 let playerId = "";
+// Each test is its own developer, so the developer API's 120 calls a minute (by account) never run out across tests.
+let developerNumber = 0;
+let developerId = "";
 
 async function api(path: string, init: { method?: string; body?: unknown; key?: string } = {}) {
   const response = await SELF.fetch(`${SITE}/api/dev${path}`, {
@@ -51,11 +59,12 @@ const receiptKeys = async () => [(await loadSigningKey(env.TEST_PASS_SIGNING_KEY
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM purchases; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
-  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  developerId = `dev-${++developerNumber}`;
+  await createAccount(env.DB, { id: developerId, username: "Pixel_Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
   playerId = (await accountById(env.DB, "player-1"))!.player_id;
-  await letPublish(env.DB, "dev-1");
-  token = (await createApiKey(env.DB, "dev-1", "claude")).token;
+  await letPublish(env.DB, developerId);
+  token = (await createApiKey(env.DB, developerId, "claude")).token;
   expect((await api("/games", { body: { title: "Sky Hopper", slug: "sky-hopper" } })).status).toBe(201);
 });
 
@@ -216,11 +225,103 @@ describe("grants", () => {
   });
 });
 
+describe("at the same moment", () => {
+  /** Fills the game with permanent items straight in the database, up to itemCount. */
+  async function fillTo(itemCount: number) {
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    const nowMs = Date.now();
+    const statements = Array.from({ length: itemCount }, (_, i) => env.DB.prepare("INSERT INTO game_items (game_id, item_name, title, item_kind, item_category, created_at_ms, updated_at_ms) VALUES (?, ?, 'Skin', 'permanent', 'cosmetic', ?, ?)").bind(game.id, `skin_${String(i).padStart(4, "0")}`, nowMs, nowMs));
+    for (let i = 0; i < statements.length; i += 100) await env.DB.batch(statements.slice(i, i + 100));
+  }
+
+  it("two grants of a permanent item make one purchase that owns it, so refunding it leaves nothing owned", async () => {
+    await setItem("supporter_cape", cape);
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    const grant = { playerId, gameItem: { item_name: "supporter_cape", item_kind: "permanent" as const }, itemCount: 1, gameAccountId: null, nowMs: Date.now() };
+    // Both made before either is recorded, as two calls that each found the item not owned yet.
+    const first = newGrant(game, grant);
+    const second = newGrant(game, grant);
+    expect(await recordGrant(env.DB, first)).toEqual({ purchase: first, isAlreadyOwned: false });
+    expect(await recordGrant(env.DB, second)).toMatchObject({ purchase: { id: first.id }, isAlreadyOwned: true });
+    const insertAgain = env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms) VALUES ('purchase_insertedagain', ?, 'supporter_cape', 'permanent', ?, 'grant', 'completed', 0)").bind(game.id, playerId);
+    await expect(insertAgain.run()).rejects.toThrow(/UNIQUE/);
+    await api(`/games/sky-hopper/purchases/${first.id}/refund`, { method: "POST" });
+    expect((await api(`/games/sky-hopper/players/${playerId}/items`)).answer.owned_item_names).toEqual([]);
+  });
+
+  it("refunds of one grant take it back once: one answers refunded, the other already_refunded", async () => {
+    await setItem("supporter_cape", cape);
+    const seen: string[] = [];
+    for (let round = 0; round < 10; round++) {
+      await env.DB.exec("DELETE FROM purchases;");
+      const granted = await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "supporter_cape" } });
+      const answers = await Promise.all([1, 2].map(() => api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}/refund`, { method: "POST" })));
+      seen.push(answers.map((answer) => answer.status).sort().join(" "));
+    }
+    expect(seen).toEqual(Array(10).fill("200 409"));
+  });
+
+  it("new items keep a game at 1,000", async () => {
+    await fillTo(999);
+    const itemCounts: number[] = [];
+    for (let round = 0; round < 5; round++) {
+      await Promise.all(["a", "b", "c"].map((suffix) => setItem(`skin_new_${round}_${suffix}`, cape)));
+      itemCounts.push((await env.DB.prepare("SELECT COUNT(*) AS item_count FROM game_items").first<{ item_count: number }>())!.item_count);
+      await env.DB.prepare("DELETE FROM game_items WHERE item_name LIKE 'skin_new_%'").run();
+    }
+    expect(itemCounts).toEqual(Array(5).fill(1000));
+  });
+
+  it("a refund policy cleared as an item goes on sale never leaves a price without a policy", async () => {
+    const onSaleWithoutPolicy: boolean[] = [];
+    for (let round = 0; round < 10; round++) {
+      await setRefundPolicy();
+      await Promise.all([setItem("revive", revive), api("/games/sky-hopper/purchase-settings", { method: "PATCH", body: { refund_policy: null } })]);
+      const game = await env.DB.prepare("SELECT refund_policy FROM games WHERE slug = 'sky-hopper'").first<{ refund_policy: string | null }>();
+      const sold = await env.DB.prepare("SELECT 1 AS is_sold FROM game_items WHERE price_minor_units IS NOT NULL").first();
+      onSaleWithoutPolicy.push(sold !== null && game!.refund_policy === null);
+      await env.DB.prepare("DELETE FROM game_items").run();
+    }
+    expect(onSaleWithoutPolicy).toEqual(Array(10).fill(false));
+  });
+});
+
+describe("a grant whose receipt can't be signed", () => {
+  it("is answered receipts_unavailable and not recorded, so trying again gives the item once", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    const signingDown = { ...(env as unknown as Env), RECEIPTS: { signAll: () => Promise.reject(new Error("rooms Worker unreachable")) } } as unknown as Env;
+    const caller = { accountId: developerId, ownerId: game.owner_id, actor: "claude", cookies: [], via: "api", access: { apiKeyId: null, apiKeyName: null }, where: {} } as unknown as Caller;
+    const checked = { pathValues: {}, query: new URLSearchParams(), body: { player_id: playerId, item_name: "revive", item_count: 5 }, game, webhook: null, signInApp: null } as unknown as CheckedCall;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const failed = await purchasesRoute(new Request(`${SITE}/api/dev/games/sky-hopper/purchases`, { method: "POST" }), signingDown, game, undefined, false, caller, checked).catch((error: { code?: string }) => error.code);
+    vi.restoreAllMocks();
+    expect(failed).toBe("receipts_unavailable");
+    expect((await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive", item_count: 5 } })).status).toBe(201);
+    const granted = (await api(`/games/sky-hopper/purchases?player_id=${playerId}`)).answer.purchases;
+    expect(granted.map((purchase: { item_count: number }) => purchase.item_count)).toEqual([5]);
+  });
+});
+
+describe("a deleted game", () => {
+  it("leaves its players' purchases in their Download your data", async () => {
+    await setItem("supporter_cape", cape);
+    const granted = await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "supporter_cape" } });
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    await env.DB.batch(gameRowDeletions(env.DB, game.id));
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 404 }));
+    const zip = unzipSync(new Uint8Array(await new Response(accountDataZip(env as never, (await accountById(env.DB, "player-1"))!)).arrayBuffer()));
+    vi.unstubAllGlobals();
+    const played = JSON.parse(new TextDecoder().decode(zip["games-played.json"]));
+    expect(played.purchases).toMatchObject([{ game_slug: null, id: granted.answer.purchase.id, item_name: "supporter_cape", purchase_status: "completed" }]);
+  });
+});
+
 describe("access", () => {
   it("lets every key read items and purchases, and only a full key change them", async () => {
     await setItem("supporter_cape", cape);
-    const readKey = (await createApiKey(env.DB, "dev-1", "read", { accessLevel: "read", gameSlugs: null })).token;
-    const uploadKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "upload", gameSlugs: null })).token;
+    const readKey = (await createApiKey(env.DB, developerId, "read", { accessLevel: "read", gameSlugs: null })).token;
+    const uploadKey = (await createApiKey(env.DB, developerId, "ci", { accessLevel: "upload", gameSlugs: null })).token;
     expect((await api("/games/sky-hopper/items", { key: readKey })).status).toBe(200);
     expect((await api("/games/sky-hopper/items/revive", { method: "PUT", body: revive, key: readKey })).answer.error).toMatchObject({ code: "key_not_allowed" });
     expect((await api("/games/sky-hopper/purchases", { key: uploadKey })).status).toBe(200);

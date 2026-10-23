@@ -32,6 +32,8 @@ const SWEEP_MS = 5 * 1000;
 const DEAD_MS = 75 * 1000;
 /** The most of a request read: the request, its pass and the JSON around them. */
 const MAXIMUM_REQUEST_BODY_SIZE_BYTES = REQUEST_LIMITS.maximumRequestSizeBytes + REQUEST_LIMITS.maximumPassSizeBytes + 1024;
+/** The most of one WebSocket message: a hello with the fullest pass and joinData at its limit, with room for its other fields. Messages after it are held to ROOM_LIMITS.maximumGameMessageSizeBytes. */
+const MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES = REQUEST_LIMITS.maximumPassSizeBytes + ROOM_LIMITS.maximumRoomDataSizeBytes + 4 * 1024;
 /** A reserved room nobody comes to is dropped after this. */
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
@@ -220,7 +222,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const schedules = startSchedules(definition, { database, secrets }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const httpServer = createServer((request, response) => answerHttp(request, response));
-  const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
+  const wss = new WebSocketServer({ server: httpServer, maxPayload: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES });
   httpServer.listen(port);
 
   /**

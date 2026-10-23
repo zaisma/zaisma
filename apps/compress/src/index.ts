@@ -18,6 +18,12 @@ export interface Env {
 const COPY_PART_SIZE_BYTES = 8 * 1024 * 1024;
 /** How much is handed to the compressor at a time, with a pause after each so other work in the process gets a turn. */
 const WRITE_SIZE_BYTES = 64 * 1024;
+/**
+ * At the best quality Brotli holds back what it's given and compresses it in one long step, over 7 seconds for an
+ * 8 MB file, which no pause between writes breaks up. Flushing after each megabyte keeps every step to about a second,
+ * with the same size of copy, so the preview's other Workers on the same thread keep answering.
+ */
+const FLUSH_SIZE_BYTES = 1024 * 1024;
 /** Tries before a file is served as it is for good. */
 const MAXIMUM_ATTEMPT_COUNT = 3;
 
@@ -105,6 +111,7 @@ export async function compressBlob(env: Env, job: CompressJob): Promise<{ brotli
   const digest = new crypto.DigestStream("SHA-256");
   const digestWriter = digest.getWriter();
   const reader = object.body.getReader();
+  let unflushedSizeBytes = 0;
   const isTooBig = () => copy.sizeBytes * 100 > object.size * BROTLI_LIMITS.maximumKeptSizePct;
   try {
     for (;;) {
@@ -115,6 +122,12 @@ export async function compressBlob(env: Env, job: CompressJob): Promise<{ brotli
       for (let offsetBytes = 0; offsetBytes < chunk.byteLength; offsetBytes += WRITE_SIZE_BYTES) {
         await new Promise<void>((resolve, reject) => brotli.write(chunk.subarray(offsetBytes, offsetBytes + WRITE_SIZE_BYTES), (error) => (error ? reject(error) : resolve())));
         await new Promise((resolve) => setTimeout(resolve, 0));
+        unflushedSizeBytes += Math.min(WRITE_SIZE_BYTES, chunk.byteLength - offsetBytes);
+        if (unflushedSizeBytes >= FLUSH_SIZE_BYTES) {
+          await new Promise<void>((resolve) => brotli.flush(constants.BROTLI_OPERATION_FLUSH, () => resolve()));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          unflushedSizeBytes = 0;
+        }
       }
       // Already too big to keep: the rest isn't read.
       if (isTooBig()) {
