@@ -626,7 +626,7 @@ export interface TextButtonOptions extends ButtonTarget {
  */
 export function textButton(label: string, options: TextButtonOptions = {}): ControlMarkup {
   const extra = html`${disabledAttribute(options)}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}`;
-  return controlMarkup(html`${opening(classes("text-btn", options.isLabelHidden && "icon-only", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="10">${CUT_LINE}<span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span class="text-label">${label}</span>`}</span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`, "regular", { isWordsAlone: !options.isLabelHidden });
+  return controlMarkup(html`${opening(classes("text-btn", options.isLabelHidden && "icon-only", options.state), options, options.isBusy, extra)}<span class="face" data-cut-line="10">${CUT_LINE}<span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span class="text-label">${label}</span>`}</span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`, "regular");
 }
 
 component({

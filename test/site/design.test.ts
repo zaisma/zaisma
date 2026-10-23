@@ -37,6 +37,7 @@ import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
+import gamePartsSource from "../../apps/site/src/components/game-parts.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
@@ -44,7 +45,7 @@ const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
-  "components/reading.ts": readingSource, "components/people.ts": peopleSource,
+  "components/reading.ts": readingSource, "components/people.ts": peopleSource, "components/game-parts.ts": gamePartsSource,
   "design-page.ts": galleryPageSource,
 };
 
@@ -561,6 +562,7 @@ const OWN_GLASS = new Map<string, string>([
   ['class="foot glass"', "the footer"],
   ['class="banner glass', "a banner"],
   ['class="top glass', "the header"],
+  ['class="glass game-bar-in"', "the bar over a game while it plays, like the header"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
@@ -816,7 +818,7 @@ describe("layout", () => {
   });
 
   it("is made of controls only from the controls' own functions, so a paragraph can't be passed as one", () => {
-    const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts"];
+    const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts", "components/game-parts.ts"];
     const makers = Object.entries(SOURCES).filter(([, source]) => /\bcontrolMarkup\(|new ControlMarkup\(/.test(source)).map(([file]) => file);
     expect(makers.filter((file) => !MAKERS.includes(file))).toEqual([]);
   });

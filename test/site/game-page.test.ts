@@ -56,7 +56,7 @@ describe("the game page's details", () => {
     await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES ('t-page', ?, 'Team', 'pagetester0123456789', ?)").bind(id, Date.now()).run();
     const text = await page("/t/pagetester0123456789");
     const pane = text.slice(placeOf(text, '<div class="split-side">'), placeOf(text, '<div class="split-main">'));
-    expect(pane).toMatch(/<div class="banner glass amber"[\s\S]*?You&#39;re testing this game with a link from its developer\./);
+    expect(pane).toMatch(/<div class="banner-in tone-warning[\s\S]*?You&#39;re testing this game with a link from its developer\./);
     expect(placeOf(pane, "You&#39;re testing this game")).toBeLessThan(placeOf(pane, 'id="play"'));
     expect(text).not.toContain('<section id="rooms">');
   });
@@ -64,7 +64,7 @@ describe("the game page's details", () => {
   it("tell a tester link that can't open what's wrong, on Zaisma's own glass", async () => {
     const missing = await SELF.fetch(`${SITE}/t/nosuchtest0123456789`);
     expect(missing.status).toBe(404);
-    expect(await missing.text()).toMatch(/<div class="state-note problem">[\s\S]*This link doesn&#39;t work/);
+    expect(await missing.text()).toMatch(/<div class="state-note problem[^"]*">[\s\S]*This link doesn&#39;t work/);
   });
 
   it("show a shader background from the game's own site, and none when the game starts at once", async () => {
