@@ -119,6 +119,8 @@ export interface PerformanceObservations {
   longTaskDurationsMs: number[];
   /** JavaScript heap plus WebAssembly memory after the first frame, or null when it couldn't be read. */
   memorySizeBytes: number | null;
+  /** The longest the run waited for a first frame: PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec, or the preview's shorter wait. */
+  maximumRunDurationSec: number;
 }
 
 /**
@@ -232,7 +234,7 @@ export function reportFromObservations(observations: PerformanceObservations, as
   for (const path of missingPaths.slice(0, maximumCount)) note("missing_file_at_start", `The game asked for ${path} while starting, and it isn't in this version.`, path);
   const blockedAddresses = [...new Set(requests.filter((request) => request.blockedReason !== null).map((request) => request.url.split(/[?#]/)[0]!))];
   for (const address of blockedAddresses.slice(0, maximumCount)) note("blocked_at_start", `${address} was blocked while starting.`, gamePathOf(address, gameBaseUrl));
-  if (firstDrawAtMs === null) note("no_frame_drawn", `Nothing was drawn in ${PERFORMANCE_CHECK_LIMITS.maximumRunDurationSec} seconds, even after a click.`);
+  if (firstDrawAtMs === null) note("no_frame_drawn", `Nothing was drawn in ${observations.maximumRunDurationSec} seconds, even after a click.`);
 
   const startDownloadSizeBytes = firstDrawAtMs === null ? null : startRequests.reduce((sumBytes, request) => sumBytes + request.downloadedSizeBytes, 0);
   if (startDownloadSizeBytes !== null && startDownloadSizeBytes >= PERFORMANCE_CHECK_LIMITS.bigStartDownloadSizeBytes) note("big_download_at_start", `Players download ${megabytesText(startDownloadSizeBytes)} before the first frame.`);

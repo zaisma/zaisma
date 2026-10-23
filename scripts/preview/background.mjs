@@ -9,7 +9,8 @@
 //                                        waits in line, says its place and why, and starts by itself when there's
 //                                        room. Its place is kept when this command ends; run it again to follow it.
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
-//                                        plays, for GitHub's Engine exports job) instead of all the test data.
+//                                        plays, for GitHub's Engine exports jobs, each ENGINE_SAMPLE_SHARD's share
+//                                        of them) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview (or takes it out of the line), and nothing of another checkout's.
 //   npm run preview:list                 every preview on this machine, from any checkout: its address, folder, how long
 //                                        it's been up, the memory it takes and the command that stops it; all of them

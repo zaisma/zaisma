@@ -7,13 +7,11 @@ import {
   DOCS_ONLY_PATH,
   DOCS_TESTS_CHECK_NAME,
   ENGINES_CHECK_NAME,
-  ENGINES_PATH,
   GITHUB_CHECK_NAME,
   applyEnginesProof,
   checkState,
   enginesBaseCommits,
   isDocsOnly,
-  isEnginesChanged,
   judgeCheckedCode,
   sameCodeCommits,
   // @ts-expect-error: a plain JavaScript script without types
@@ -28,13 +26,13 @@ describe("the workflow and ship agree", () => {
   it("on the required check's name and the docs tests' name", () => {
     expect(workflow).toContain(`name: ${GITHUB_CHECK_NAME}\n`);
     expect(workflow).toContain(`name: ${DOCS_TESTS_CHECK_NAME}\n`);
-    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME}\n`);
+    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 3)\n`);
   });
-  it("on which paths the engine exports play", () => {
-    expect(workflow).toContain(`grep -qE '${ENGINES_PATH.source.replaceAll("\\/", "/")}'`);
+  it("on what the engine exports run, from the repository's graph", () => {
+    expect(workflow).toContain("node scripts/affected-tests.mjs --github");
+    expect(workflow).toContain("EVENT_NAME: ${{ github.event_name }}");
   });
   it("on running the engine exports on every push to main, and failing the required check when they fail", () => {
-    expect(workflow).toContain(`if [ "$EVENT_NAME" != pull_request ] ||`);
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi`);
     // A skip passes only with the engines' own flag false; any other result but success leaves engines_ok false.
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi`);
@@ -58,15 +56,6 @@ describe("isDocsOnly", () => {
   });
 });
 
-describe("isEnginesChanged", () => {
-  it("is the code the engine samples play, and nothing else", () => {
-    for (const path of ["apps/site/src/developer.ts", "apps/games/src/index.ts", "apps/compress/src/index.ts", "packages/core/src/uploads.ts", "packages/sdk/zaisma.js", "packages/cli/zaisma.mjs", "packages/game-server/src/pass.ts", "migrations/0001_init.sql", "scripts/preview/run.mjs", "scripts/engines/play.mjs", "test/engines/godot/build/index.html", ".github/workflows/check.yml", "package.json", "package-lock.json"]) expect(isEnginesChanged([path]), path).toBe(true);
-    for (const path of ["apps/rooms/src/room.ts", "apps/photodna/src/index.ts", "docs/DEVELOPER-API.md", "scripts/ship.mjs", "scripts/ship-github-check.mjs", "test/site/uploads.test.ts", "test/shards.ts", "examples/arena/server.ts", "vitest.config.ts", "brand/README.md", ".github/workflows/watch.yml"]) expect(isEnginesChanged([path]), path).toBe(false);
-    expect(isEnginesChanged(["docs/DEVELOPER-API.md", "packages/cli/zaisma.mjs"])).toBe(true);
-    expect(isEnginesChanged([])).toBe(false);
-  });
-});
-
 describe("checkState", () => {
   const run = (name: string, status: string, conclusion: string | null) => ({ name, status, conclusion, html_url: `https://github.test/${name}` });
   it("reads the full check", () => {
@@ -85,6 +74,17 @@ describe("checkState", () => {
     expect(full([run(ENGINES_CHECK_NAME, "in_progress", null)]).engines).toBe("running");
     expect(full([run(ENGINES_CHECK_NAME, "completed", "failure")]).engines).toBe("failed");
     expect(full([]).engines).toBe("none");
+  });
+  it("reads the engine exports' shares together", () => {
+    const full = (engines: ReturnType<typeof run>[]) => checkState([run(GITHUB_CHECK_NAME, "completed", "success"), ...engines]);
+    const share = (index: number, status: string, conclusion: string | null) => run(`${ENGINES_CHECK_NAME} (${index} of 3)`, status, conclusion);
+    expect(full([share(1, "completed", "success"), share(2, "completed", "success"), share(3, "completed", "success")]).engines).toBe("passed");
+    expect(full([share(1, "completed", "success"), share(2, "completed", "failure"), share(3, "in_progress", null)]).engines).toBe("failed");
+    expect(full([share(1, "completed", "success"), share(2, "in_progress", null), share(3, "completed", "success")]).engines).toBe("running");
+    expect(full([share(1, "completed", "cancelled"), share(2, "completed", "success"), share(3, "completed", "success")]).engines).toBe("failed");
+    // A matrix job its pull request skipped: one run, under the name before its shares were known.
+    expect(full([run(`${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 3)`, "completed", "skipped")]).engines).toBe("skipped");
+    expect(full([run("Engine exports soon", "completed", "failure")]).engines).toBe("none");
   });
   it("tells a docs-only run apart", () => {
     expect(checkState([run(GITHUB_CHECK_NAME, "completed", "success"), run(DOCS_TESTS_CHECK_NAME, "completed", "success")]).state).toBe("docs_passed");
