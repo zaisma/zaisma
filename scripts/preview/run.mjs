@@ -37,7 +37,9 @@ const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
 const MCP_CLIENT_ID = "mcp_client_previewclaude";
 const SIGN_IN_APP_SECRET = "preview-client-secret";
 const SITE = `http://localhost:${PORTS.site}`;
-const GAMES = `http://localhost:${PORTS.games}`;
+// Games on another site than Zaisma's pages, as in production (zaisma.com and the game domain): 127.0.0.1 isn't localhost to a browser, so
+// a game or its background runs in a process of its own, and nothing it does can stall the page round it, here as for players.
+const GAMES = `http://127.0.0.1:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = `http://localhost:${PORTS.mail}`;

@@ -46,7 +46,9 @@ import {
  * cuts: [top left, top right, bottom right, bottom left], isSmoked }] } in the frame's own CSS pixels from its bottom left, on
  * scroll, resize and when the glass changes, never every frame (iGlassPanes and the glass pass, GLASS_LIGHT_PASS); and whether
  * nobody has touched the page for a while, { isIdle }, since the frame never sees the page's input: idle, it draws 15 frames a
- * second instead of 30. The preview runner is posted { manifest, textures: [{ imageId, bytes } or { imageId, url }] } (or
+ * second instead of 30; and { isPaused } while the page keeps it out of sight, ready to show again at once, when it draws nothing. Every
+ * pass builds in the background where the browser can (KHR_parallel_shader_compile), so a big shader never stops the page round the frame,
+ * and the page hears { isRunning } once the first frame is drawn. The preview runner is posted { manifest, textures: [{ imageId, bytes } or { imageId, url }] } (or
  * { source } for a single pass) and { qualityLevel: 0, 1, 2 or null for the device's own }.
  */
 
@@ -58,7 +60,7 @@ const RUNNER_SCRIPT = `(function () {
   var UNIFORMS = ["iResolution", "iTime", "iTimeDelta", "iFrame", "iQuality", "iChannel0", "iChannel1", "iChannel2", "iChannel3", "iChannelResolution", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaViewOffset"];
   var gl = null, kit = null, shown = null, startNumber = 0, lastStart = null;
   var scale = config.resolutionScale * config.drawShareNumber * Math.min(window.devicePixelRatio || 1, 1.5), drawn = { widthPx: 0, heightPx: 0 };
-  var chosenLevel = null, qualityLevel = startingLevel(), slowSec = 0, isHeld = false, lastMs = 0, frameIndex = 0, lastTimeSec = null, isIdle = false, stillWantedAtMs = 0;
+  var chosenLevel = null, qualityLevel = startingLevel(), slowSec = 0, isHeld = false, lastMs = 0, frameIndex = 0, lastTimeSec = null, isIdle = false, isPaused = false, stillWantedAtMs = 0;
   var panes = { rects: new Float32Array(config.paneLimit * 4), cuts: new Float32Array(config.paneLimit * 4), count: 0, css: [] };
   function tell(message) { if (window.parent !== window) window.parent.postMessage(Object.assign({ zaismaBackground: true }, message), config.site); }
   function showStill() { canvas.hidden = true; if (still.getAttribute("data-src")) { still.src = still.getAttribute("data-src"); still.hidden = false; } }
@@ -71,13 +73,13 @@ const RUNNER_SCRIPT = `(function () {
 
   // The context and what every shader shares in it: the triangle, the vertex shader, the upscale, a black texture for empty channels.
   function setUpContext() {
-    kit = { samplers: {}, canDrawFloat: Boolean(gl.getExtension("EXT_color_buffer_float")) };
+    kit = { samplers: {}, canDrawFloat: Boolean(gl.getExtension("EXT_color_buffer_float")), parallel: gl.getExtension("KHR_parallel_shader_compile") };
     gl.bindVertexArray(gl.createVertexArray());
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     kit.vertex = compile(gl.VERTEX_SHADER, config.vertexSource);
-    kit.upscale = build(config.upscaleSource, ["zaismaDrawn", "zaismaDrawnSize", "zaismaCanvasSize"]);
+    kit.upscale = startBuild(config.upscaleSource);
     kit.black = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, kit.black);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -93,15 +95,31 @@ const RUNNER_SCRIPT = `(function () {
   }
   function compile(kind, source) { var shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader); return shader; }
   function firstLine(log, fallback) { return (log || "").split("\\n").map(function (line) { return line.trim(); }).filter(Boolean)[0] || fallback; }
-  // A fragment shader built into a program with its uniforms' places, or its first compiler error.
-  function build(fragmentSource, names) {
-    var fragment = compile(gl.FRAGMENT_SHADER, fragmentSource);
-    if (!gl.getShaderParameter(fragment, gl.COMPILE_STATUS)) return { error: firstLine(gl.getShaderInfoLog(fragment), "It didn't compile.") };
-    var program = gl.createProgram(); gl.attachShader(program, kit.vertex); gl.attachShader(program, fragment); gl.bindAttribLocation(program, 0, "corner"); gl.linkProgram(program);
-    gl.deleteShader(fragment);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return { error: firstLine(gl.getProgramInfoLog(program), "It didn't link.") };
-    var at = {}; names.forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
-    return { program: program, at: at };
+  /*
+   * A fragment shader set compiling and linking into a program. Where the browser can (KHR_parallel_shader_compile) the driver builds it
+   * on threads of its own, and nothing asks how it went until it says it's done (whenBuilt), so a big shader never stops the page: asking
+   * any sooner would wait for the whole compile then and there, and the page round the frame with it where they share a process.
+   */
+  function startBuild(fragmentSource) {
+    var fragment = compile(gl.FRAGMENT_SHADER, fragmentSource), program = gl.createProgram();
+    gl.attachShader(program, kit.vertex); gl.attachShader(program, fragment); gl.bindAttribLocation(program, 0, "corner"); gl.linkProgram(program);
+    return { program: program, fragment: fragment };
+  }
+  // Calls done once every program in the list has built, checking again every frame's time meanwhile; at once without the extension.
+  function whenBuilt(list, done) {
+    if (!kit.parallel || list.every(function (pending) { return pending.at || gl.getProgramParameter(pending.program, kit.parallel.COMPLETION_STATUS_KHR); })) done();
+    else setTimeout(function () { whenBuilt(list, done); }, 16);
+  }
+  // A built program with its uniforms' places, or its first compiler error; asked only once it's done.
+  function finishBuild(pending, names) {
+    if (pending.at || pending.error) return pending;
+    if (!gl.getProgramParameter(pending.program, gl.LINK_STATUS)) {
+      pending.error = gl.getShaderParameter(pending.fragment, gl.COMPILE_STATUS) ? firstLine(gl.getProgramInfoLog(pending.program), "It didn't link.") : firstLine(gl.getShaderInfoLog(pending.fragment), "It didn't compile.");
+      gl.deleteShader(pending.fragment); return pending;
+    }
+    gl.deleteShader(pending.fragment);
+    pending.at = {}; names.forEach(function (name) { pending.at[name] = gl.getUniformLocation(pending.program, name); });
+    return pending;
   }
   // How a channel samples (shaderChannelSampling in core, worked out for each kind, filter and wrap): one sampler each.
   function samplerFor(channel) {
@@ -157,40 +175,52 @@ const RUNNER_SCRIPT = `(function () {
   function start(manifest, textureSources) {
     var number = ++startNumber;
     if (!context()) { showStill(); tell({ error: "no_webgl" }); return; }
-    var list = passesOf(manifest), built = [];
-    for (var p = 0; p < list.length; p++) {
-      var made = build(config.head + list[p].source + "\\n" + (list[p].bufferName ? config.bufferPass : config.glassPass), UNIFORMS);
-      if (made.error) {
-        built.forEach(function (pass) { gl.deleteProgram(pass.program); });
-        tell({ compileError: (list[p].bufferName ? "buffer " + list[p].bufferName + ": " : "") + made.error });
-        if (!config.isPreview) showStill();
+    var list = passesOf(manifest), pendings = list.map(function (pass) { return startBuild(config.head + pass.source + "\\n" + (pass.bufferName ? config.bufferPass : config.glassPass)); });
+    // The textures load while the passes build.
+    var texturesLoaded = Promise.all(textureSources.map(loadTexture));
+    whenBuilt(pendings.concat([kit.upscale]), function () {
+      var built = [];
+      // A newer shader was posted while these built: it's the one that runs.
+      if (number !== startNumber || !context()) {
+        pendings.forEach(function (pending) { gl.deleteProgram(pending.program); });
+        texturesLoaded.then(function (textures) { textures.forEach(function (texture) { if (texture) gl.deleteTexture(texture.texture); }); });
         return;
       }
-      built.push({ bufferName: list[p].bufferName, channels: list[p].channels, program: made.program, at: made.at, targets: null, front: 0 });
-    }
-    Promise.all(textureSources.map(loadTexture)).then(function (textures) {
-      // A newer shader was posted while these loaded: it's the one that runs.
-      if (number !== startNumber || !context()) { built.forEach(function (pass) { gl.deleteProgram(pass.program); }); textures.forEach(function (texture) { if (texture) gl.deleteTexture(texture.texture); }); return; }
-      dropShown();
-      lastStart = { manifest: manifest, textureSources: textureSources };
-      built.forEach(function (pass) {
-        pass.channels = pass.channels.map(function (channel) {
-          var bufferPassIndex = -1, textureIndex = -1;
-          if (channel.input_kind === "buffer") built.forEach(function (other, index) { if (other.bufferName === channel.buffer_name) bufferPassIndex = index; });
-          if (channel.input_kind === "texture") textures.forEach(function (texture, index) { if (texture && texture.imageId === channel.image_id) textureIndex = index; });
-          return { channelIndex: channel.channel_index, bufferPassIndex: bufferPassIndex, textureIndex: textureIndex, sampler: samplerFor(channel) };
-        });
-      });
-      shown = { passes: built, textures: textures, imageTarget: null, hasBuffers: built.length > 1, readsQuality: list.some(function (pass) { return /\\biQuality\\b/.test(withoutComments(pass.source)); }) };
-      drawn = { widthPx: 0, heightPx: 0 }; frameIndex = 0; lastTimeSec = null; isHeld = false; slowSec = 0;
-      canvas.hidden = false; still.hidden = true;
-      size(); tell({ isRunning: true });
-      // The developer's own preview has no saved still yet, so it's handed one to measure its glass from: a single pass's frame at the
-      // still's time at once, a shader with buffers its frame once it has run that long.
-      if (config.isPreview) {
-        if (!shown.hasBuffers) { draw({ atTimeSec: config.stillTimeSec }); tell({ stillDataUrl: canvas.toDataURL("image/jpeg", 0.8) }); draw(); }
-        else stillWantedAtMs = performance.now() + config.stillTimeSec * 1000;
+      finishBuild(kit.upscale, ["zaismaDrawn", "zaismaDrawnSize", "zaismaCanvasSize"]);
+      for (var p = 0; p < list.length; p++) {
+        var made = finishBuild(pendings[p], UNIFORMS);
+        if (made.error) {
+          pendings.forEach(function (pending) { gl.deleteProgram(pending.program); });
+          tell({ compileError: (list[p].bufferName ? "buffer " + list[p].bufferName + ": " : "") + made.error });
+          if (!config.isPreview) showStill();
+          return;
+        }
+        built.push({ bufferName: list[p].bufferName, channels: list[p].channels, program: made.program, at: made.at, targets: null, front: 0 });
       }
+      texturesLoaded.then(function (textures) {
+        // A newer shader was posted while these loaded: it's the one that runs.
+        if (number !== startNumber || !context()) { built.forEach(function (pass) { gl.deleteProgram(pass.program); }); textures.forEach(function (texture) { if (texture) gl.deleteTexture(texture.texture); }); return; }
+        dropShown();
+        lastStart = { manifest: manifest, textureSources: textureSources };
+        built.forEach(function (pass) {
+          pass.channels = pass.channels.map(function (channel) {
+            var bufferPassIndex = -1, textureIndex = -1;
+            if (channel.input_kind === "buffer") built.forEach(function (other, index) { if (other.bufferName === channel.buffer_name) bufferPassIndex = index; });
+            if (channel.input_kind === "texture") textures.forEach(function (texture, index) { if (texture && texture.imageId === channel.image_id) textureIndex = index; });
+            return { channelIndex: channel.channel_index, bufferPassIndex: bufferPassIndex, textureIndex: textureIndex, sampler: samplerFor(channel) };
+          });
+        });
+        shown = { passes: built, textures: textures, imageTarget: null, hasBuffers: built.length > 1, readsQuality: list.some(function (pass) { return /\\biQuality\\b/.test(withoutComments(pass.source)); }) };
+        drawn = { widthPx: 0, heightPx: 0 }; frameIndex = 0; lastTimeSec = null; isHeld = false; slowSec = 0;
+        canvas.hidden = false; still.hidden = true;
+        size(); tell({ isRunning: true });
+        // The developer's own preview has no saved still yet, so it's handed one to measure its glass from: a single pass's frame at the
+        // still's time at once, a shader with buffers its frame once it has run that long.
+        if (config.isPreview) {
+          if (!shown.hasBuffers) { draw({ atTimeSec: config.stillTimeSec }); tell({ stillDataUrl: canvas.toDataURL("image/jpeg", 0.8) }); draw(); }
+          else stillWantedAtMs = performance.now() + config.stillTimeSec * 1000;
+        }
+      });
     });
   }
   // Sized to the window: the passes at drawn's size, the canvas runtimeUpscaleNumber times it. A new size starts every buffer empty.
@@ -274,7 +304,7 @@ const RUNNER_SCRIPT = `(function () {
   function frame(nowMs) {
     requestAnimationFrame(frame);
     var gapGoalMs = 1000 / (isIdle ? config.idleFramesPerSec : config.maximumFps);
-    if (!shown || document.hidden || isHeld || reduced.matches || nowMs - lastMs < gapGoalMs - 1) return;
+    if (!shown || document.hidden || isHeld || isPaused || reduced.matches || nowMs - lastMs < gapGoalMs - 1) return;
     var gapMs = nowMs - lastMs; lastMs = nowMs;
     if (gapMs < 1000) {
       slowSec = gapMs > gapGoalMs * 1.5 ? slowSec + gapMs / 1000 : Math.max(0, slowSec - gapMs / 2000);
@@ -294,6 +324,8 @@ const RUNNER_SCRIPT = `(function () {
     }
     // Idle: nobody has touched the page for a minute, so fewer frames; back at once on the first input.
     if (typeof message.isIdle === "boolean") isIdle = message.isIdle;
+    // Paused: the page keeps this frame out of sight, ready to show again at once (the home's recent games), so it draws nothing till then.
+    if (typeof message.isPaused === "boolean" && message.isPaused !== isPaused) { isPaused = message.isPaused; if (!isPaused) { lastMs = 0; draw(); } }
     if (!config.isPreview) return;
     if ("qualityLevel" in message) {
       chosenLevel = message.qualityLevel === 0 || message.qualityLevel === 1 || message.qualityLevel === 2 ? message.qualityLevel : null;
