@@ -128,8 +128,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { showStill(); return; }
   var gl = canvas.getContext("webgl2", { antialias: false, alpha: false, depth: false, powerPreference: "high-performance" });
   if (!gl) { showStill(); return; }
+  /* For tools only (scripts/city.mjs), set before the page loads: startSec starts the camera at that moment of its loop and isHeld holds
+     it there, for screenshots; isStill renders a still (brand/sign-in/): unshifted, at the canvas's full size, the phone's view with isPhoneView. */
+  var tool = window.zaismaCityTool || {};
   // The phone layout's city: fewer flyers, a smaller shadow map and a wider view (the still for phones is rendered the same way).
-  var small = isNarrow();
+  var small = tool.isStill ? Boolean(tool.isPhoneView) : isNarrow();
   var coarse = window.matchMedia("(pointer: coarse)").matches;
   // The size of the city's box, in CSS pixels, and where it is on the screen.
   function box() { return canvas.getBoundingClientRect(); }
@@ -1037,7 +1040,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var sharpen = 0, width = 0, height = 0, renderScale = 1, slowFor = 0, fastFor = 0, frameAvg = 1 / 60, quality = 0, upsLeft = 2, isSteppedDown = false;
     var sharpness = coarse || isNarrow() ? 1 : 1.5;
     function resize() {
-      var ratio = Math.min(window.devicePixelRatio || 1, sharpness, Math.sqrt(PIXEL_BUDGET / Math.max(1, canvas.clientWidth * canvas.clientHeight))) * renderScale;
+      var ratio = tool.isStill ? 1 : Math.min(window.devicePixelRatio || 1, sharpness, Math.sqrt(PIXEL_BUDGET / Math.max(1, canvas.clientWidth * canvas.clientHeight))) * renderScale;
       width = Math.max(1, Math.floor(canvas.clientWidth * ratio)); height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
       canvas.width = width; canvas.height = height;
       // How much fewer pixels than the screen's: none sharpens nothing, half sharpens most.
@@ -1134,10 +1137,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // It starts where the still is framed, so the live city takes over from it with nothing moving.
     // The framing is measured once and then held: page scroll, the browser's bars and resizes never move the camera's picture.
     var shiftHeld = shiftFor();
+    if (tool.isStill) shiftHeld = [0, 0];
     function shiftTarget() { return shiftHeld; }
     var shift = shiftTarget();
 
-    var clock = 40, camTime = 0, last = performance.now(), isShown = false, warmFrameCount = 0, shownAt = 0;
+    var clock = 40, camTime = tool.startSec || 0, last = performance.now(), isShown = false, warmFrameCount = 0, shownAt = 0;
     running = true;
     var ripples = [], rippleData = new Float32Array(48), seen = null;
     function projectW(m, p) {
@@ -1254,7 +1258,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       updateMovers(warmDt);
       // The camera sets off gently once it's shown, over the entrance's second and a half, rather than at full pace from a standstill.
       var setOff = isShown ? Math.min(1, (now - shownAt) / 1500) : 0;
-      camTime += warmDt * paceAt(camTime) * setOff * setOff * (3 - 2 * setOff);
+      if (!tool.isHeld) camTime += warmDt * paceAt(camTime) * setOff * setOff * (3 - 2 * setOff);
       var view = shot(camTime);
       var aim = shiftTarget();
       shift[0] += (aim[0] - shift[0]) * Math.min(1, dt * 2.5); shift[1] += (aim[1] - shift[1]) * Math.min(1, dt * 2.5);

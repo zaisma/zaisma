@@ -57,12 +57,13 @@ function playwrightChromes() {
 }
 
 /**
- * Headless Chrome at path with WebGL in software (CI runners have no GPU), and a DevTools connection to it: send(method, params,
- * sessionId), listen(sessionId, onEvent) and close().
+ * Headless Chrome at path with WebGL in software (CI runners have no GPU), or on the machine's own GPU with isGpu (scripts/city.mjs
+ * times and renders the city on it), and a DevTools connection to it: send(method, params, sessionId), listen(sessionId, onEvent) and close().
  */
-export async function openChrome(path, profilePrefix) {
+export async function openChrome(path, profilePrefix, { isGpu = false } = {}) {
   const profile = mkdtempSync(join(tmpdir(), profilePrefix));
-  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const webgl = isGpu ? ["--enable-gpu", "--ignore-gpu-blocklist", ...(process.platform === "darwin" ? ["--use-angle=metal"] : [])] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...webgl, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const address = await new Promise((resolve, reject) => {
     let output = "";
     child.stderr.on("data", (chunk) => {
