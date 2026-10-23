@@ -128,6 +128,20 @@ describe("a shared game link", () => {
     expect((await SELF.fetch(`${SITE}/img/image_cover1/other.jpg`)).status).toBe(404);
     expect((await SELF.fetch(`${SITE}/img/image_missing/card.jpg`)).status).toBe(404);
   });
+
+  it("serves an approved picture at its kept sizes (the picture itself where they can't be made), and answers a browser holding it with 304", async () => {
+    await approvedImage("cover", "image_cover1");
+    const sized = await SELF.fetch(`${SITE}/img/image_cover1/w640.webp`);
+    expect(sized.status).toBe(200);
+    expect(sized.headers.get("content-type")).toMatch(/^image\/(webp|png|jpeg)$/);
+    const etag = sized.headers.get("etag");
+    expect(etag).toBeTruthy();
+    await sized.arrayBuffer();
+    const again = await SELF.fetch(`${SITE}/img/image_cover1/w640.webp`, { headers: { "If-None-Match": etag! } });
+    expect(again.status).toBe(304);
+    await again.arrayBuffer();
+    for (const wrong of ["w641.webp", "w640.png", "w.webp"]) expect((await SELF.fetch(`${SITE}/img/image_cover1/${wrong}`)).status, wrong).toBe(404);
+  });
 });
 
 describe("search engines", () => {

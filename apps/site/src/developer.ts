@@ -33,6 +33,9 @@ import {
   imageById,
   imageKey,
   cardImageKey,
+  imageCopyKeys,
+  SIZED_IMAGE_WIDTHS_PX,
+  sizedImageKey,
   qrCodeSvg,
   heldImageKey,
   iso,
@@ -1116,7 +1119,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if (kind !== "screenshot" && waitingImages.length) {
       // Only the newest cover of each kind waits for review.
       for (const old of waitingImages) {
-        await env.GAMES.delete([imageKey(old), cardImageKey(old)]);
+        await env.GAMES.delete([imageKey(old), ...imageCopyKeys(old)]);
         await deleteImageRow(env.DB, old.id);
       }
     }
@@ -1145,7 +1148,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     checkIdKind("image", imageId, "image_id", imageFix);
     const image = await imageById(env.DB, imageId);
     if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${imageId}.`, field: "image_id", fix: imageFix });
-    await env.GAMES.delete([imageKey(image), cardImageKey(image)]);
+    await env.GAMES.delete([imageKey(image), ...imageCopyKeys(image)]);
     await dropChosenBackground(env.DB, game.id, { imageId: image.id });
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
@@ -2650,10 +2653,12 @@ async function isOwnerSignedIn(request: Request, env: Env, gameOwnerId: string |
 
 async function serveImage(request: Request, env: Env, imagePath: string): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
-  // /img/:id, or /img/:id/card.jpg: the picture made into a share card JPEG.
-  const [id = "", card] = imagePath.split("/");
-  const isCard = card === "card.jpg";
-  if (!isIdOf("image", id) || (card !== undefined && !isCard) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
+  // /img/:id, /img/:id/card.jpg (the picture made into a share card JPEG) or /img/:id/w<width>.webp (one of its sizes, SIZED_IMAGE_WIDTHS_PX).
+  const [id = "", copy] = imagePath.split("/");
+  const isCard = copy === "card.jpg";
+  const sizedWidthPx = Number(/^w(\d+)\.webp$/.exec(copy ?? "")?.[1]);
+  const isSized = (SIZED_IMAGE_WIDTHS_PX as readonly number[]).includes(sizedWidthPx);
+  if (!isIdOf("image", id) || (copy !== undefined && !isCard && !isSized) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
   const image = await imageById(env.DB, id);
   if (!image || image.review_status === "rejected") return notFound();
   const game = await env.DB.prepare("SELECT review_status, owner_id FROM games WHERE id = ?").bind(image.game_id).first<{ review_status: string; owner_id: string | null }>();
@@ -2672,12 +2677,17 @@ async function serveImage(request: Request, env: Env, imagePath: string): Promis
       });
     }
   }
-  const stored = await env.GAMES.get(imageKey(image));
+  // A size is made once and kept; before the picture is approved, or where it can't be made, the picture itself is sent.
+  const sized = isSized && image.review_status === "approved" ? await sizedImage(env, image, sizedWidthPx) : null;
+  const stored = sized ?? (await env.GAMES.get(imageKey(image)));
   if (!stored) return notFound();
+  // A picture is never changed in place, so a browser holding it asks whether it's still the same and gets a few bytes back, not the picture again.
+  if (request.headers.get("If-None-Match") === stored.httpEtag) return new Response(null, { status: 304, headers: { ETag: stored.httpEtag, "Cache-Control": cacheControl } });
   return new Response(request.method === "HEAD" ? null : stored.body, {
     headers: {
-      "Content-Type": image.content_type,
+      "Content-Type": sized ? "image/webp" : image.content_type,
       "Content-Length": String(stored.size),
+      ETag: stored.httpEtag,
       "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -2704,6 +2714,25 @@ async function cardImage(env: Env, image: GameImage): Promise<R2ObjectBody | nul
     return null;
   }
   return env.GAMES.get(cardImageKey(image));
+}
+
+/**
+ * An approved picture at one of its sizes (SIZED_IMAGE_WIDTHS_PX): scaled down to that width, never up, and saved as WebP, made once with
+ * Cloudflare Images and kept next to the picture. null when there's no Images binding or it fails, and the picture itself is sent.
+ */
+async function sizedImage(env: Env, image: GameImage, widthPx: number): Promise<R2ObjectBody | null> {
+  const kept = await env.GAMES.get(sizedImageKey(image, widthPx));
+  if (kept || !env.IMAGES) return kept;
+  const original = await env.GAMES.get(imageKey(image));
+  if (!original) return null;
+  try {
+    const made = await env.IMAGES.input(original.body).transform({ width: widthPx, fit: "scale-down" }).output({ format: "image/webp", quality: 85 });
+    await env.GAMES.put(sizedImageKey(image, widthPx), await new Response(made.image()).arrayBuffer(), { httpMetadata: { contentType: "image/webp" } });
+  } catch (error) {
+    console.error("sized image failed", image.id, widthPx, error);
+    return null;
+  }
+  return env.GAMES.get(sizedImageKey(image, widthPx));
 }
 
 /** The game's link, or one of its rooms', and its QR code as an SVG document, for posters, booths and trailers. */
