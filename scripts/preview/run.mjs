@@ -834,6 +834,7 @@ async function seedEngineSamples(api, upload) {
     spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
     const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
+    stepDone(`engine ${engine}: upload`);
     let version = null;
     for (let i = 0; i < 120 && uploaded.status === 0; i++) {
       [version] = (await api("GET", `/games/${game.slug}`)).versions;
@@ -846,6 +847,7 @@ async function seedEngineSamples(api, upload) {
       await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
     }
     // The upload waited for its run in Chrome too: what it saw, for engines:play to check.
+    stepDone(`engine ${engine}: scan and publish`);
     samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [], performance_check: version?.performance_check ?? null });
   }
   writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
