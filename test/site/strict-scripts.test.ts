@@ -80,7 +80,7 @@ describe("every page runs only the site's own script files", () => {
   });
 
   it("signing in, making an account, profiles, the forum, the rules and the design gallery", async () => {
-    for (const path of ["/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/panes?theme=dark"]) {
+    for (const path of ["/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/layout", "/design/panes?theme=dark"]) {
       await checkPage(`${SITE}${path}`);
     }
   });
@@ -127,8 +127,10 @@ describe("the site's script files", () => {
   it("are each loaded by some page", () => {
     // A script no page loads is left over; pages behind a sign-in load the rest, in accounts.test.ts.
     const signedInOnly = ["key-wizard", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "passkey-confirm", "social-settings", "local-times", "upload", "friends", "joined", "back-to-app", "show-password", "username-check", "protect-account", "qr-png", "background-preview"];
+    // Screens (components/screens.ts) puts these in each page it shows, rather than a page linking them.
+    const putInByScreens = ["layout-measure", "layout-inspect"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));
-    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name))).toEqual([]);
+    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name))).toEqual([]);
   });
 });
 
