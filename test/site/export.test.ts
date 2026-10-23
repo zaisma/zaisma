@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { unzipSync } from "fflate";
 import { accountById, addImage, bumpSave, canonicalSave, createAccount, createApiKey, gameBySlug, imageKey, newId, saveHash, saveKey, sha256Hex } from "@zaisma/core";
@@ -8,6 +8,9 @@ import { GAME_EXPORT } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
+import worker from "../../apps/site/src/index.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
 
 // Export everything (apps/site/src/game-export.ts): everything about a game as one .zip, through the
 // API and MCP, made as it downloads.
@@ -17,12 +20,14 @@ let token = "";
 let nextId = 1;
 let gameId = "";
 
-async function api(path: string, init: { method?: string; body?: unknown; bytes?: string; key?: string } = {}) {
-  const res = await SELF.fetch(`${SITE}/api/dev${path}`, {
+/** bindings: in place of the tests' own, like a rate limiter that counts with no clock (test/rate-limits.ts). */
+async function api(path: string, init: { method?: string; body?: unknown; bytes?: string; key?: string; bindings?: Partial<typeof env> } = {}) {
+  const request = new Request<unknown, IncomingRequestCfProperties>(`${SITE}/api/dev${path}`, {
     method: init.method ?? (init.body || init.bytes !== undefined ? "POST" : "GET"),
     headers: { authorization: `Bearer ${init.key ?? token}`, ...(init.body ? { "content-type": "application/json" } : {}) },
     body: init.body ? JSON.stringify(init.body) : init.bytes,
   });
+  const res = init.bindings ? await worker.fetch(request, { ...env, ...init.bindings }, createExecutionContext()) : await SELF.fetch(request);
   if (res.headers.get("content-type") === "application/zip") return { status: res.status, answer: null, zip: new Uint8Array(await res.arrayBuffer()) };
   const answer = (await res.json()) as any;
   if (!res.ok) expect(errorProblems(answer, res.status)).toEqual([]);
@@ -148,10 +153,14 @@ describe("export everything", () => {
     await letPublish(env.DB, "dev-limit");
     const busy = (await createApiKey(env.DB, "dev-limit", "claude")).token;
     expect((await api("/games", { body: { title: "Busy Game" }, key: busy })).status).toBe(201);
-    expect((await api("/games/busy-game/export/download", { key: busy })).status).toBe(200);
-    expect((await api("/games/busy-game/export/download", { key: busy })).status).toBe(200);
-    const third = await api("/games/busy-game/export/download", { key: busy });
+    // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 3 downloads can straddle.
+    expect(configuredRateLimit(siteWranglerText, "EXPORT_LIMIT")).toEqual({ limit: 2, period: 60 });
+    const exportLimit = countingRateLimiter(2);
+    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } })).status).toBe(200);
+    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } })).status).toBe(200);
+    const third = await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } });
     expect(third.status).toBe(429);
     expect(third.answer.error.code).toBe("slow_down");
+    expect(exportLimit.keys).toEqual(["dev-limit", "dev-limit", "dev-limit"]);
   });
 });
