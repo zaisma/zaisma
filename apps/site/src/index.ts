@@ -7,7 +7,7 @@ import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { message } from "./html.ts";
+import { SPECULATION_RULES, SPECULATION_RULES_PATH, message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handleGithubSecretScanning } from "./leaked-keys.ts";
 import { recordBlockedScripts } from "./security-alerts.ts";
@@ -68,6 +68,11 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   // Pages' script files (page-scripts.ts): every module that makes one is imported above, so all are known.
   if (path.startsWith("/js/")) return method === "GET" || method === "HEAD" ? pageScriptResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path.startsWith("/css/")) return method === "GET" || method === "HEAD" ? pageStyleResponse(path) : new Response("Method not allowed", { status: 405 });
+  // The speculation rules every page's Speculation-Rules header names (html.ts), the same for everyone.
+  if (path === SPECULATION_RULES_PATH) {
+    if (method !== "GET" && method !== "HEAD") return new Response("Method not allowed", { status: 405 });
+    return new Response(JSON.stringify(SPECULATION_RULES), { headers: { "Content-Type": "application/speculationrules+json", "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff" } });
+  }
   if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);

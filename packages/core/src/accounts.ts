@@ -208,8 +208,13 @@ const now = () => Date.now();
 /** An account, with any birthday since it was last read applied first (birthdayChange). */
 export async function accountById(database: D1Database, id: string, nowMs = Date.now()): Promise<Account | null> {
   const account = await database.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<Account>();
-  const change = account && birthdayChange(account, nowMs);
-  if (!account || !change) return account;
+  return account && accountWithBirthday(database, account, nowMs);
+}
+
+/** The same for an account's row a caller already read (the session's check reads it whole), so the row is read once. */
+export async function accountWithBirthday(database: D1Database, account: Account, nowMs = Date.now()): Promise<Account> {
+  const change = birthdayChange(account, nowMs);
+  if (!change) return account;
   await birthdayStatement(database, account, change, nowMs).run();
   return { ...account, ...change, updated_at_ms: nowMs };
 }

@@ -24,7 +24,7 @@ import {
 /** scripts/ship-checks.mjs: what `npm run ship` tries on the live site after every deploy ("Security checks on every ship." in docs/DECISIONS.md). */
 
 const ROOT = join(import.meta.dirname, "../..");
-const HSTS = "max-age=31536000; includeSubDomains";
+const HSTS = "max-age=31536000; includeSubDomains; preload";
 const SITE_POLICY = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'";
 const GAME_PAGE_POLICY = SITE_POLICY.replace("script-src 'self'", "script-src 'self' https://challenges.cloudflare.com");
 const GAME_POLICY = "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; form-action 'none'; base-uri 'self'; object-src 'none'; frame-ancestors https://zaisma.com";

@@ -1,3 +1,4 @@
+import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -14,6 +15,9 @@ export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
 const DATA = JSON.parse(document.getElementById("home-data").textContent);
 const GAMES = DATA.games;
 if (!GAMES.length) return;
+// A picture Zaisma serves (/img/<id>) at the sizes it keeps (SIZED_IMAGE_WIDTHS_PX), up to largestPx, for the browser to pick the one it shows.
+const SIZES = ${JSON.stringify([...SIZED_IMAGE_WIDTHS_PX])};
+function sizedSet(url, largestPx) { return /^\/img\/[A-Za-z0-9_-]+$/.test(url || "") ? SIZES.filter((widthPx) => widthPx <= largestPx).map((widthPx) => url + "/w" + widthPx + ".webp " + widthPx + "w").join(", ") : ""; }
 const bySlug = Object.fromEntries(GAMES.map((game) => [game.slug, game]));
 const PLAYED_KEY = "zaisma:played", NEWS_KEY = "zaisma:closed-news";
 const isReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -52,7 +56,10 @@ function layerFor(background) {
   // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
   if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); }
   if (background.source === "image") {
-    layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async"; layer.src = background.imageUrl;
+    layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async";
+    // The size the screen shows, not the picture as it was uploaded.
+    const set = sizedSet(background.imageUrl, 1920); if (set) { layer.srcset = set; layer.sizes = "100vw"; }
+    layer.src = background.imageUrl;
   } else {
     layer.setAttribute("data-backdrop", "frame"); layer.setAttribute("data-backdrop-still", background.stillUrl);
     layer.setAttribute("sandbox", "allow-scripts allow-same-origin"); layer.setAttribute("loading", "eager"); layer.tabIndex = -1; layer.title = "Background"; layer.src = background.frameUrl;
@@ -155,6 +162,7 @@ function coverFor(game, list, at) {
   // As Game cover makes it: the picture, or for a game with none, Zaisma's mark in the well with the game's title under it.
   if (game.cover) {
     const image = make("img");
+    const set = sizedSet(game.cover, 960); if (set) { image.srcset = set; image.sizes = "(max-width: 760px) 200px, 260px"; }
     image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
     art.append(image);
   } else {
