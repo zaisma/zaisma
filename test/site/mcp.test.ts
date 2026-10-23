@@ -577,8 +577,10 @@ describe("background tools", () => {
   it("send a shader, choose it once it passed, and remove it, each answering its output schema", async () => {
     await tool("create_game", { title: "Worlds" });
     const source = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  fragColor = vec4(fragCoord / iResolution.xy, 0.5, 1.0);\n}";
-    const { shader, next_steps: nextSteps } = await tool("add_shader", { slug: "worlds", screen: "wide", source });
-    expect(shader).toMatchObject({ screen: "wide", review_status: "pending", size_bytes: source.length });
+    // The old shape, the source alone, points at image.
+    expect(await tool("add_shader", { slug: "worlds", screen: "wide", source })).toMatchObject({ code: "unknown_field", field: "source", fix: expect.stringContaining("Did you mean image?") });
+    const { shader, next_steps: nextSteps } = await tool("add_shader", { slug: "worlds", screen: "wide", image: { source } });
+    expect(shader).toMatchObject({ screen: "wide", review_status: "pending", size_bytes: source.length, buffers: [], texture_image_ids: [] });
     expect(nextSteps[0].tool).toBe("get_game");
     expect(await tool("set_background", { slug: "worlds", screen: "wide", source: "shader", shader_id: shader.id })).toMatchObject({ code: "background_not_ready" });
     await env.DB.prepare("UPDATE game_shaders SET review_status = 'approved', checked_at_ms = 1 WHERE id = ?").bind(shader.id).run();
