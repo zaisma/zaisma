@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAccount, createApiKey, createSignInApp, personOwner } from "@zaisma/core";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
@@ -9,6 +9,9 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageScriptNames, strictScriptProblems } from "../strict-scripts.ts";
 import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 import { pageProblems } from "./page-rules.ts";
+import worker from "../../apps/site/src/index.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
 
 /** AI apps connect to the MCP by signing in (docs/DECISIONS.md, "AI apps connect to the MCP by signing in."). */
 
@@ -61,10 +64,15 @@ beforeEach(async () => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+// Each browser and registration gets its own address, so the per-address limits don't spill between tests: counted out,
+// never drawn at random, since two that drew the same address would share a limit now and then.
+let addressCount = 0;
+const nextAddress = (prefix: string) => `${prefix}.${Math.floor(addressCount / 250) % 250}.${addressCount++ % 250}`;
+
 /** A browser with a cookie jar, signed in to an account through a Supabase session. */
 class Browser {
   jar = new Map<string, string>();
-  ip = `10.1.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  ip = nextAddress("10.1");
   async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
     const response = await SELF.fetch(`${SITE}${path}`, {
       method: init.method ?? (form ? "POST" : "GET"),
@@ -148,8 +156,9 @@ async function tapFor(browser: Browser, device: Device): Promise<Record<string, 
 // --- The OAuth calls an AI app makes ---
 
 /** Register an app as claude.ai's servers would (RFC 7591). */
-async function registerApp(body: Record<string, unknown> = { client_name: "Claude", redirect_uris: [CALLBACK] }, ip = `10.2.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`) {
-  const response = await SELF.fetch(`${SITE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": ip }, body: JSON.stringify(body) });
+async function registerApp(body: Record<string, unknown> = { client_name: "Claude", redirect_uris: [CALLBACK] }, ip = nextAddress("10.2"), bindings: Partial<typeof env> | null = null) {
+  const request = new Request<unknown, IncomingRequestCfProperties>(`${SITE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": ip }, body: JSON.stringify(body) });
+  const response = bindings ? await worker.fetch(request, { ...env, ...bindings }, createExecutionContext()) : await SELF.fetch(request);
   return { status: response.status, answer: (await response.json()) as Record<string, any> };
 }
 
@@ -267,9 +276,15 @@ describe("registration", () => {
   });
 
   it("allows 10 registrations a minute from one address", async () => {
+    expect(configuredRateLimit(siteWranglerText, "REGISTER_LIMIT")).toEqual({ limit: 10, period: 60 });
+    // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 11 calls can straddle.
+    const registerLimit = countingRateLimiter(10);
     const ip = "10.3.3.3";
-    for (let i = 0; i < 10; i++) expect((await registerApp(undefined, ip)).status).toBe(201);
-    expect((await registerApp(undefined, ip)).status).toBe(429);
+    for (let i = 0; i < 10; i++) expect((await registerApp(undefined, ip, { REGISTER_LIMIT: registerLimit })).status).toBe(201);
+    expect((await registerApp(undefined, ip, { REGISTER_LIMIT: registerLimit })).status).toBe(429);
+    expect(new Set(registerLimit.keys)).toEqual(new Set([ip]));
+    // Another address has its own count.
+    expect((await registerApp(undefined, "10.3.3.4", { REGISTER_LIMIT: registerLimit })).status).toBe(201);
   });
 });
 

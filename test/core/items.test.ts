@@ -46,6 +46,12 @@ describe("prices", () => {
     expect(priceFor({ price_minor_units: null, currency_code: null, local_prices: [] }, "US")).toBeNull();
   });
 
+  it("are in the player's own currency where Cloudflare names a place apart from its country, and in Bulgaria's euro", () => {
+    const everywhere = { price_minor_units: 1999, currency_code: "gbp", local_prices: [{ currency_code: "eur", price_minor_units: 2299 }, { currency_code: "usd", price_minor_units: 2499 }] };
+    for (const countryCode of ["BG", "RE", "GP", "MQ", "GF", "YT", "AX"]) expect(priceFor(everywhere, countryCode), countryCode).toEqual({ currencyCode: "eur", priceMinorUnits: 2299 });
+    for (const countryCode of ["PR", "GU", "VI", "AS", "MP", "EC", "SV"]) expect(priceFor(everywhere, countryCode), countryCode).toEqual({ currencyCode: "usd", priceMinorUnits: 2499 });
+  });
+
   it("are written as people read them, yen whole", () => {
     expect(priceText("usd", 199)).toBe("$1.99");
     expect(priceText("jpy", 300)).toBe("¥300");
