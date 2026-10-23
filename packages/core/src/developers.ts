@@ -1,11 +1,11 @@
-import { newRandomPart, sha256Hex } from "./ids.ts";
+import { idKindInWords, idKindOf, isIdOf, newRandomPart, sha256Hex } from "./ids.ts";
 import type { ReviewReason } from "./review.ts";
 import { checkAllowedHosts } from "./reach.ts";
 import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
 import { checkShownText } from "./shown-text.ts";
 import { randomKey } from "./game-access.ts";
-import { GLASS_LIGHT_PASS } from "./glass-light.ts";
+import { BUFFER_PASS, GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "./glass-light.ts";
 import { ACCOUNT_REQUIREMENTS, MINIMUM_PLAYER_AGES, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type MinimumPlayerAge, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -876,9 +876,13 @@ export async function gamesWithDetailsWaitingForReview(database: D1Database): Pr
 /**
  * cover: landscape, the game's card and picture. square: an optional second cover for phones. share: an optional picture for shared links, in place of the cover.
  * background and phone_background: the game's world behind Zaisma's glass, on wide screens and on phones (Backgrounds, below), with no title on it.
+ * shader_texture: a picture a background shader reads through a channel (ShaderManifest, below); image matching checks it like any
+ * picture, and what the shader draws with it is checked in the shader's frames, so it gets no listing check of its own.
  */
-export type ImageKind = "cover" | "square" | "screenshot" | "share" | "background" | "phone_background";
-export const IMAGE_KINDS: readonly ImageKind[] = ["cover", "square", "screenshot", "share", "background", "phone_background"];
+export type ImageKind = "cover" | "square" | "screenshot" | "share" | "background" | "phone_background" | "shader_texture";
+export const IMAGE_KINDS: readonly ImageKind[] = ["cover", "square", "screenshot", "share", "background", "phone_background", "shader_texture"];
+/** Kinds a game keeps several of, so a new one never replaces an older one when it's approved. */
+export const MANY_IMAGE_KINDS: readonly ImageKind[] = ["screenshot", "shader_texture"];
 export type ImageReviewStatus = "pending" | "approved" | "rejected";
 
 /** A row of the game_images table: the same names the developer API shows. */
@@ -1041,7 +1045,7 @@ export async function settleImage(database: D1Database, image: GameImage, reject
     return [];
   }
   const { results: replaced } =
-    image.kind !== "screenshot"
+    !MANY_IMAGE_KINDS.includes(image.kind)
       ? await database.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND review_status = 'approved' AND id != ?").bind(image.game_id, image.kind, image.id).all<GameImage>()
       : { results: [] as GameImage[] };
   await database.batch([
@@ -1080,15 +1084,19 @@ export interface GameShader {
   id: string;
   game_id: string;
   screen: BackgroundScreen;
+  /** Its passes' sources together. */
   size_bytes: number;
   review_status: ImageReviewStatus;
   /** Why it wasn't approved, as JSON (a ReviewReason); NULL otherwise. */
   review_reason: string | null;
-  /** The check's median time to draw one frame, in milliseconds; NULL until it ran. */
-  check_frame_ms: number | null;
+  /** What the check measured at each quality level it timed, as JSON (ShaderQualityCheck[], readQualityChecks); NULL until it ran. It replaced check_frame_ms (0134), which nothing reads. */
+  quality_checks: string | null;
   /** The most flashes the check counted in any one second; NULL until it ran. */
   flash_count: number | null;
   checked_at_ms: number | null;
+  /** How many buffers it has, and how many textures its channels name (0134). */
+  buffer_count: number;
+  texture_count: number;
   /** Its tone, for a background (0116): its average color (#RRGGBB), whether the glass over it is smoked, and how strong the glass's tint is; NULL until measured. */
   average_color: string | null;
   is_glass_smoked: number | null;
@@ -1107,73 +1115,364 @@ export interface GameBackground {
 }
 
 /**
- * Shaders: Shadertoy's form, `void mainImage(out vec4 fragColor, in vec2 fragCoord)` reading iResolution and iTime only, as one
- * small text file. The check draws it at checkWidthPx × checkHeightPx before anyone sees it; players' browsers draw it at about
- * half resolution and at most 30 frames a second, stepping down, then holding a still frame, on a device that can't keep up.
+ * Shaders: Shadertoy's form, `void mainImage(out vec4 fragColor, in vec2 fragCoord)`, in WebGL2's GLSL (GLSL ES 3.00), so most
+ * Shadertoy shaders paste in and run: an image pass, up to four buffers that keep their picture between frames (Shadertoy's Buffers A
+ * to D) and up to four textures the developer sends, read through iChannel0 to iChannel3 (ShaderManifest). One shader serves every
+ * device: it reads iQuality (0 for phones and slow devices, 1, 2 for desktops), and the check holds each level to its own time.
+ * The check draws it before anyone sees it; players' browsers draw it at fewer pixels and at most 30 frames a second, stepping down a
+ * level, then to fewer pixels, then holding a still frame, on a device that can't keep up.
  */
 export const SHADER_LIMITS = {
-  maximumSizeBytes: 16_384,
+  /** Each pass's source, the image pass's and each buffer's: storage costs nothing, and the check's time is what protects devices. */
+  maximumPassSizeBytes: 65_536,
+  /** Buffers A to D. */
+  maximumBufferCount: 4,
+  /** iChannel0 to iChannel3, on each pass. */
+  maximumChannelCount: 4,
+  /** Textures one shader's channels name, all its passes together. */
+  maximumShaderTextureCount: 4,
+  /** Pictures of kind shader_texture a game keeps. */
+  maximumGameTextureCount: 16,
+  /** A texture's size: PNG, JPEG or WebP. */
+  maximumTextureSidePx: 4096,
+  maximumTextureSizeBytes: 8 * 1024 * 1024,
   checkWidthPx: 640,
   checkHeightPx: 360,
-  /** Frames the check draws and times, each at iTime = frame × checkFrameStepSec. */
+  /** Frames the check draws and times at each quality level, in order from iTime 0 (buffers need their history), each frameStepSec on. */
   checkFrameCount: 90,
   checkFrameStepSec: 1 / 30,
   /**
    * Software rendering's speed varies up to twice over from one browser to the next, so the check first times Zaisma's own
-   * background in the same browser and scales the shader's median frame to it: check_frame_ms is what a frame takes on a
-   * renderer that draws Zaisma's own in referenceFrameMs.
+   * background as it was when the levels were set (CHECK_REFERENCE_SHADER in shader-check.ts) in the same browser, and scales the
+   * shader's median frame to it: check_frame_ms is what a frame takes on a renderer that draws that reference in referenceFrameMs.
    */
   referenceFrameMs: 25,
   /**
-   * The most check_frame_ms may be. Calibrated Oct 21, 2026 on Cloudflare Browser Rendering (SwiftShader) at 640 × 360, scaled, three
-   * runs each: the looks drafts' shaders take night-market 11–13, neon-drift 14–19, rift-runners 14–17, starward 19–22, last-signal
-   * 19–28, emberfall 20–24, zaisma 24–25, zaisma-dark 21–25 and frostline 43–47 ms; a 256-step ray-march 90–109 ms. The slowest × 2
-   * (95 ms) let the ray-march through, so it's the slowest × 1.5, rounded up to 5 ms.
+   * Each quality level's most check_frame_ms. A shader that never reads iQuality is timed once, against level 0's. Level 0 is phones'
+   * and keeps the limit set Oct 21, 2026 on Cloudflare Browser Rendering (SwiftShader) at 640 × 360, scaled: the looks drafts' shaders
+   * took 11–47 ms (frostline the slowest, 43–47) and a 256-step ray-march 90–109 ms; the slowest × 1.5, rounded up to 5 ms. Desktops are
+   * four times and more faster than phones, so level 1 gets twice that and level 2 four times (Oct 23, 2026).
    */
-  maximumCheckFrameMs: 75,
+  qualityLevels: [
+    { qualityLevel: 0, maximumCheckFrameMs: 75 },
+    { qualityLevel: 1, maximumCheckFrameMs: 150 },
+    { qualityLevel: 2, maximumCheckFrameMs: 300 },
+  ],
+  /** The level each screen's still is drawn at: wide screens are desktops' and tablets', phone is phones'. */
+  stillQualityLevelByScreen: { wide: 2, phone: 0 } as Record<BackgroundScreen, number>,
   /** WCAG 2.3.1: no more than three flashes in any one second. */
   maximumFlashCountPerSec: 3,
   /** When the still frame is drawn. */
   stillTimeSec: 2,
+  /** The still's size, wide (phone turns it round): a single pass draws it at once at full size. */
+  stillWidthPx: 1920,
+  stillHeightPx: 1080,
+  /** A shader with buffers draws its whole history again for the still and the sampled frames, so at this size. */
+  bufferedStillWidthPx: 960,
+  bufferedStillHeightPx: 540,
+  /** After the still, a shader with buffers steps its history this far a frame to reach its sampled frames, so the check keeps to its time. */
+  sampledHistoryStepSec: 0.5,
   /** Frames saved for the developer and the safety checks, spread over the first 30 seconds. */
   sampledFrameCount: 6,
   sampledFramesOverSec: 30,
+  /** How long one shader may take on the renderer altogether before it's called too slow. */
+  checkTimeoutSec: 240,
+  /** Checks before sending (POST /games/:slug/shader-checks) a developer can run in a day; the upload command's local check has no limit. */
+  maximumShaderChecksPerDay: 100,
+  /** How long a check before sending keeps its sheet picture. */
+  checkSheetKeptDurationSec: 24 * 3600,
   /** Shaders kept per screen besides the chosen one: older pending and unchosen ones go. */
   keptShaderCount: 4,
   runtimeMaximumFps: 30,
   runtimeResolutionScale: 0.5,
 };
 
-/** Where a shader's source lives in the games bucket, with its still and sampled frames beside it. */
+/** What the check measured at one quality level: its median frame, scaled to the renderer's speed, against that level's most. */
+export interface ShaderQualityCheck {
+  quality_level: number;
+  check_frame_ms: number;
+  maximum_check_frame_ms: number;
+}
+
+/** A shader's quality checks as its row keeps them; [] until the check ran. */
+export function readQualityChecks(stored: string | null): ShaderQualityCheck[] {
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    return Array.isArray(parsed) ? (parsed as ShaderQualityCheck[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Buffers A to D, as a shader names them. */
+export type ShaderBufferName = "a" | "b" | "c" | "d";
+export const SHADER_BUFFER_NAMES: readonly ShaderBufferName[] = ["a", "b", "c", "d"];
+/** What a channel reads: one of the shader's buffers, or one of the game's pictures of kind shader_texture. */
+export type ShaderChannelInputKind = "buffer" | "texture";
+export const SHADER_CHANNEL_INPUT_KINDS: readonly ShaderChannelInputKind[] = ["buffer", "texture"];
+/** linear: smooth (a texture's with mipmaps, for noise and painted pictures). nearest: each texel as it is. */
+export type ShaderChannelFilter = "linear" | "nearest";
+export const SHADER_CHANNEL_FILTERS: readonly ShaderChannelFilter[] = ["linear", "nearest"];
+/** clamp: the edge's texel goes on past the edge. repeat: the picture tiles. */
+export type ShaderChannelWrap = "clamp" | "repeat";
+export const SHADER_CHANNEL_WRAPS: readonly ShaderChannelWrap[] = ["clamp", "repeat"];
+
+/** One iChannel of a pass: the same names the developer API takes and shows. */
+export interface ShaderChannel {
+  /** 0 to 3: iChannel0 to iChannel3. */
+  channel_index: number;
+  input_kind: ShaderChannelInputKind;
+  /** The buffer it reads, with input_kind buffer; null otherwise. A buffer reading itself, or one drawn after it, gets that buffer's last frame. */
+  buffer_name: ShaderBufferName | null;
+  /** The picture it reads, with input_kind texture: an approved shader_texture of the game; null otherwise. */
+  image_id: string | null;
+  filter: ShaderChannelFilter;
+  wrap: ShaderChannelWrap;
+}
+/** One pass: its mainImage, and what its channels read. */
+export interface ShaderPass {
+  source: string;
+  channels: ShaderChannel[];
+}
+export interface ShaderBuffer extends ShaderPass {
+  buffer_name: ShaderBufferName;
+}
+/**
+ * A whole shader, as the API takes it and the games bucket keeps it (shaderManifestKey): the image pass, which draws the background,
+ * and up to four buffers, each drawn to a picture kept between frames. Each frame the runner draws the buffers in order (a to d), then
+ * the image pass. The image pass's source is also kept alone (shaderKey), the shader's source_url.
+ */
+export interface ShaderManifest {
+  image: ShaderPass;
+  buffers: ShaderBuffer[];
+}
+
+/** A shader sent before buffers and textures (0134): its one pass, with no channels. */
+export const shaderManifestFromSource = (source: string): ShaderManifest => ({ image: { source, channels: [] }, buffers: [] });
+
+/** One pass as a runner draws it, in order: bufferName null is the image pass, drawn last onto the canvas. */
+export interface ShaderDrawPass {
+  bufferName: ShaderBufferName | null;
+  source: string;
+  channels: ShaderChannel[];
+}
+
+/** The passes a runner draws each frame, in order: the buffers, a to d, then the image pass. */
+export function shaderPassesInDrawOrder(manifest: ShaderManifest): ShaderDrawPass[] {
+  const buffers = [...manifest.buffers].sort((first, second) => SHADER_BUFFER_NAMES.indexOf(first.buffer_name) - SHADER_BUFFER_NAMES.indexOf(second.buffer_name));
+  return [...buffers.map((buffer) => ({ bufferName: buffer.buffer_name, source: buffer.source, channels: buffer.channels })), { bufferName: null, source: manifest.image.source, channels: manifest.image.channels }];
+}
+
+/** The whole fragment shader a pass compiles: the image pass with the glass round it, a buffer pass without. */
+export const wrapShaderPass = (pass: Pick<ShaderDrawPass, "bufferName" | "source">): string => (pass.bufferName === null ? wrapShader(pass.source) : wrapShaderBuffer(pass.source));
+
+/** The pictures a shader's channels read, each once, in the order they first come. */
+export function shaderTextureImageIds(manifest: ShaderManifest): string[] {
+  const ids: string[] = [];
+  for (const pass of shaderPassesInDrawOrder(manifest)) for (const channel of pass.channels) if (channel.image_id && !ids.includes(channel.image_id)) ids.push(channel.image_id);
+  return ids;
+}
+
+/** A shader's text without its comments, so what a comment says is never taken for code. */
+const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, "");
+
+/** Whether a shader reads iQuality, so the check times each level and runners pick one; one that doesn't is timed once. */
+export const shaderReadsQuality = (manifest: ShaderManifest): boolean => shaderPassesInDrawOrder(manifest).some((pass) => /\biQuality\b/.test(withoutComments(pass.source)));
+
+/**
+ * How a runner samples a channel, in WebGL2's names (gl[name]): a texture has mipmaps, so linear is trilinear; a buffer has none.
+ * The check (shader-check.ts) and every runner sample the same way, so a shader looks the same wherever it runs.
+ */
+export function shaderChannelSampling(channel: Pick<ShaderChannel, "input_kind" | "filter" | "wrap">): { minificationFilterName: string; magnificationFilterName: string; wrapName: string; hasMipmaps: boolean } {
+  const hasMipmaps = channel.input_kind === "texture";
+  const minificationFilterName = channel.filter === "nearest" ? "NEAREST" : hasMipmaps ? "LINEAR_MIPMAP_LINEAR" : "LINEAR";
+  return { minificationFilterName, magnificationFilterName: channel.filter === "nearest" ? "NEAREST" : "LINEAR", wrapName: channel.wrap === "repeat" ? "REPEAT" : "CLAMP_TO_EDGE", hasMipmaps };
+}
+
+/**
+ * What runners pass to createImageBitmap for a texture: flipped, so it's upright with fragCoord's bottom left (Shadertoy's way), and
+ * its colors as they are, unpremultiplied, since shaders read textures as data too.
+ */
+export const SHADER_TEXTURE_BITMAP_OPTIONS = { imageOrientation: "flipY", premultiplyAlpha: "none", colorSpaceConversion: "none" } as const;
+
+/** A buffer's picture: half floats where the browser can draw to them (EXT_color_buffer_float), else 8 bits a channel. */
+export const SHADER_BUFFER_FORMATS = {
+  float: { internalFormatName: "RGBA16F", formatName: "RGBA", typeName: "HALF_FLOAT" },
+  fallback: { internalFormatName: "RGBA8", formatName: "RGBA", typeName: "UNSIGNED_BYTE" },
+};
+
+/** Where a shader's image pass's source lives in the games bucket, with its manifest, still and sampled frames beside it. */
 export const shaderKey = (gameId: string, id: string) => `shaders/${gameId}/${id}.glsl`;
+export const shaderManifestKey = (gameId: string, id: string) => `shaders/${gameId}/${id}.json`;
 export const shaderStillKey = (gameId: string, id: string) => `shaders/${gameId}/${id}.still.png`;
 export const shaderFrameKey = (gameId: string, id: string, frameIndex: number) => `shaders/${gameId}/${id}.frame-${frameIndex}.png`;
 /** Every key a shader has in the games bucket. */
-export const shaderKeys = (gameId: string, id: string) => [shaderKey(gameId, id), shaderStillKey(gameId, id), ...Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => shaderFrameKey(gameId, id, frameIndex))];
+export const shaderKeys = (gameId: string, id: string) => [shaderKey(gameId, id), shaderManifestKey(gameId, id), shaderStillKey(gameId, id), ...Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => shaderFrameKey(gameId, id, frameIndex))];
 
-/** What's wrong with a shader's text before it's drawn, or null: Shadertoy's mainImage, with nothing a runner doesn't give it. */
+/** What's wrong with one pass's text before it's drawn, or null: Shadertoy's mainImage, with nothing a runner doesn't give it. */
 export function shaderSourceProblem(source: string): string | null {
-  if (!/\bvoid\s+mainImage\s*\(/.test(source)) return "It has no mainImage function: void mainImage(out vec4 fragColor, in vec2 fragCoord).";
-  if (/^\s*#\s*version\b/m.test(source)) return "It has a #version line; Zaisma gives the shader its own.";
-  if (/^\s*#\s*extension\b/m.test(source)) return "It has an #extension line; shaders get no extensions.";
-  if (/\bsampler\w*|\btexture\w*\s*\(/.test(source)) return "It reads a texture; shaders get no textures, only iResolution and iTime.";
+  const code = withoutComments(source);
+  if (!/\bvoid\s+mainImage\s*\(/.test(code)) return "It has no mainImage function: void mainImage(out vec4 fragColor, in vec2 fragCoord).";
+  if (/^\s*#\s*version\b/m.test(code)) return "It has a #version line; Zaisma gives the shader its own (WebGL2's #version 300 es).";
+  if (/^\s*#\s*extension\b/m.test(code)) return "It has an #extension line; shaders get no extensions.";
+  if (/\bvoid\s+main\s*\(/.test(code) || /\bgl_FragColor\b/.test(code)) return "It has its own main() or writes gl_FragColor; Zaisma writes main() round mainImage, which writes fragColor.";
+  if (/\btexture2D\w*\s*\(/.test(code)) return "It calls texture2D, WebGL1's name; WebGL2's GLSL calls it texture.";
+  if (/\biMouse\b/.test(code)) return "It reads iMouse; backgrounds get no mouse.";
+  if (/\b(iChannelTime|iSampleRate)\b/.test(code)) return "It reads iChannelTime or iSampleRate; backgrounds get no sound or video, only buffers and textures.";
   return null;
 }
 
 /**
- * The whole fragment shader a background compiles: precision, the two inputs, the developer's mainImage, and the glass pass
- * round it (GLASS_LIGHT_PASS). The check, the game domain's runner and the dashboard's preview all compile this, so a shader
- * that passed the check runs the same everywhere.
+ * Checks a shader as the API takes it: { image: { source, channels }, buffers: [{ buffer_name, source, channels }] }, closed all the
+ * way down. Each channel names a buffer the shader has or a picture by its ID (the API checks it's an approved shader_texture of the
+ * game). Returns the shader with every default filled in, or what's wrong.
+ */
+export function checkShaderManifest(given: { image?: unknown; buffers?: unknown }): ShaderManifest | InputProblem {
+  if (given.image === undefined || given.image === null) return { code: "missing_field", field: "image", message: "image is missing: the shader's image pass.", fix: SHADER_IMAGE_FIX };
+  if (given.buffers !== undefined && given.buffers !== null && !Array.isArray(given.buffers)) return { code: "bad_buffers", field: "buffers", message: "buffers isn't a list.", fix: SHADER_BUFFERS_FIX };
+  const givenBuffers = (given.buffers ?? []) as unknown[];
+  if (givenBuffers.length > SHADER_LIMITS.maximumBufferCount) return { code: "too_many_buffers", field: "buffers", message: `The shader has ${givenBuffers.length} buffers; the most is ${SHADER_LIMITS.maximumBufferCount}.`, fix: "Use buffers a to d at most; one buffer's four channels (red, green, blue, alpha) can carry more than one value." };
+  const bufferNames: ShaderBufferName[] = [];
+  for (const [bufferIndex, givenBuffer] of givenBuffers.entries()) {
+    const name = isPlainObject(givenBuffer) ? givenBuffer.buffer_name : undefined;
+    if (!SHADER_BUFFER_NAMES.includes(name as ShaderBufferName) || bufferNames.includes(name as ShaderBufferName)) {
+      return { code: "bad_buffers", field: `buffers[${bufferIndex}].buffer_name`, message: isPlainObject(givenBuffer) ? `buffers[${bufferIndex}]'s buffer_name ${JSON.stringify(name ?? null)} isn't a, b, c or d${bufferNames.includes(name as ShaderBufferName) ? " the shader hasn't used already" : ""}.` : `buffers[${bufferIndex}] isn't an object.`, fix: SHADER_BUFFERS_FIX };
+    }
+    bufferNames.push(name as ShaderBufferName);
+  }
+  const image = checkShaderPass(given.image, "image", null, bufferNames);
+  if ("field" in image) return image;
+  const buffers: ShaderBuffer[] = [];
+  for (const [bufferIndex, givenBuffer] of givenBuffers.entries()) {
+    const pass = checkShaderPass(givenBuffer, `buffers[${bufferIndex}]`, bufferNames[bufferIndex]!, bufferNames);
+    if ("field" in pass) return pass;
+    buffers.push({ buffer_name: bufferNames[bufferIndex]!, ...pass });
+  }
+  const manifest: ShaderManifest = { image, buffers };
+  const textureIds = shaderTextureImageIds(manifest);
+  if (textureIds.length > SHADER_LIMITS.maximumShaderTextureCount) {
+    return { code: "too_many_shader_textures", field: "image.channels", message: `The shader's channels name ${textureIds.length} textures; a shader reads up to ${SHADER_LIMITS.maximumShaderTextureCount}.`, fix: "Name at most 4 different textures across the image pass and its buffers; several channels can read the same one." };
+  }
+  return manifest;
+}
+
+const SHADER_SOURCE_FIX = "Send Shadertoy's form in WebGL2's GLSL: helper functions, then void mainImage(out vec4 fragColor, in vec2 fragCoord), with no main(), #version or #extension lines. It reads iResolution, iTime, iTimeDelta, iFrame, iQuality, iChannel0 to iChannel3, iChannelResolution and iGlassPanes.";
+const SHADER_IMAGE_FIX = `Send image: { "source": "void mainImage(out vec4 fragColor, in vec2 fragCoord) { … }", "channels": [] }. ${SHADER_SOURCE_FIX}`;
+const SHADER_BUFFERS_FIX = 'Send buffers as a list of up to 4, each { "buffer_name": "a", "source": "void mainImage(…) { … }", "channels": [] }, buffer_name a, b, c or d, each once; or leave buffers out.';
+const SHADER_CHANNEL_FIX =
+  'Give each channel { "channel_index": 0, "input_kind": "buffer", "buffer_name": "a" } or { "channel_index": 1, "input_kind": "texture", "image_id": "image_…" }, optionally with "filter" (linear or nearest) and "wrap" (clamp or repeat); channel_index 0 to 3, each once in a pass.';
+const SHADER_PASS_FIELDS = ["source", "channels"];
+const SHADER_CHANNEL_FIELDS = ["channel_index", "input_kind", "buffer_name", "image_id", "filter", "wrap"];
+
+const isPlainObject = (given: unknown): given is Record<string, unknown> => typeof given === "object" && given !== null && !Array.isArray(given);
+
+/** One pass of a shader: its source and channels, checked. bufferName null is the image pass. */
+function checkShaderPass(given: unknown, field: string, bufferName: ShaderBufferName | null, bufferNames: ShaderBufferName[]): ShaderPass | InputProblem {
+  if (!isPlainObject(given)) return bufferName === null ? { code: "not_a_shader", field, message: "image isn't an object with the pass's source and channels.", fix: SHADER_IMAGE_FIX } : { code: "bad_buffers", field, message: `${field} isn't an object.`, fix: SHADER_BUFFERS_FIX };
+  const fields = bufferName === null ? SHADER_PASS_FIELDS : ["buffer_name", ...SHADER_PASS_FIELDS];
+  const unknown = Object.keys(given).find((key) => !fields.includes(key));
+  if (unknown !== undefined) return { code: "unknown_field", field: `${field}.${unknown}`, message: `${unknown} isn't a field of ${bufferName === null ? "the image pass" : "a buffer"}.`, fix: `Leave it out. ${bufferName === null ? "The image pass" : "A buffer"} takes: ${fields.join(", ")}.` };
+  const source = given.source;
+  if (typeof source !== "string" || !source.trim()) return { code: "not_a_shader", field: `${field}.source`, message: `${field}.source isn't the pass's GLSL text.`, fix: SHADER_SOURCE_FIX };
+  if (new TextEncoder().encode(source).byteLength > SHADER_LIMITS.maximumPassSizeBytes) {
+    return { code: "shader_too_big", field: `${field}.source`, message: `${field}.source is over ${SHADER_LIMITS.maximumPassSizeBytes / 1024} KB.`, fix: "Take out unused functions and long comments, or move work into a buffer of its own (each pass gets 64 KB)." };
+  }
+  const problem = shaderSourceProblem(source);
+  if (problem) return { code: "not_a_shader", field: `${field}.source`, message: `${field}.source isn't a background shader's pass: ${problem}`, fix: SHADER_SOURCE_FIX };
+  if (given.channels !== undefined && given.channels !== null && !Array.isArray(given.channels)) return { code: "bad_shader_channel", field: `${field}.channels`, message: `${field}.channels isn't a list.`, fix: SHADER_CHANNEL_FIX };
+  const givenChannels = (given.channels ?? []) as unknown[];
+  if (givenChannels.length > SHADER_LIMITS.maximumChannelCount) return { code: "bad_shader_channel", field: `${field}.channels`, message: `${field} has ${givenChannels.length} channels; a pass has iChannel0 to iChannel3.`, fix: SHADER_CHANNEL_FIX };
+  const channels: ShaderChannel[] = [];
+  for (const [channelIndex, givenChannel] of givenChannels.entries()) {
+    const channelField = `${field}.channels[${channelIndex}]`;
+    const channel = checkShaderChannel(givenChannel, channelField, bufferNames);
+    if ("field" in channel) return channel;
+    if (channels.some((other) => other.channel_index === channel.channel_index)) return { code: "bad_shader_channel", field: `${channelField}.channel_index`, message: `${field} has channel_index ${channel.channel_index} twice.`, fix: SHADER_CHANNEL_FIX };
+    channels.push(channel);
+  }
+  return { source, channels };
+}
+
+function checkShaderChannel(given: unknown, field: string, bufferNames: ShaderBufferName[]): ShaderChannel | InputProblem {
+  const refuse = (refusedField: string, message: string): InputProblem => ({ code: "bad_shader_channel", field: refusedField, message, fix: SHADER_CHANNEL_FIX });
+  if (!isPlainObject(given)) return refuse(field, `${field} isn't an object.`);
+  const unknown = Object.keys(given).find((key) => !SHADER_CHANNEL_FIELDS.includes(key));
+  if (unknown !== undefined) return { code: "unknown_field", field: `${field}.${unknown}`, message: `${unknown} isn't a field of a channel.`, fix: `Leave it out. A channel takes: ${SHADER_CHANNEL_FIELDS.join(", ")}.` };
+  const channelIndex = given.channel_index;
+  if (typeof channelIndex !== "number" || !Number.isInteger(channelIndex) || channelIndex < 0 || channelIndex >= SHADER_LIMITS.maximumChannelCount) return refuse(`${field}.channel_index`, `${field}.channel_index isn't 0, 1, 2 or 3.`);
+  const inputKind = given.input_kind as ShaderChannelInputKind;
+  if (!SHADER_CHANNEL_INPUT_KINDS.includes(inputKind)) return refuse(`${field}.input_kind`, `${field}.input_kind ${JSON.stringify(given.input_kind ?? null)} isn't buffer or texture.`);
+  const bufferName = given.buffer_name ?? null;
+  const imageId = given.image_id ?? null;
+  if (inputKind === "buffer") {
+    if (!bufferNames.includes(bufferName as ShaderBufferName)) {
+      return refuse(`${field}.buffer_name`, bufferName === null ? `${field} reads a buffer but names none.` : `${field} reads buffer ${JSON.stringify(bufferName)}, which the shader doesn't have${bufferNames.length ? ` (it has ${bufferNames.join(", ")})` : ""}.`);
+    }
+    if (imageId !== null) return refuse(`${field}.image_id`, `${field} reads a buffer, so it takes no image_id.`);
+  } else {
+    if (typeof imageId !== "string" || !isIdOf("image", imageId)) {
+      const sentKind = typeof imageId === "string" ? idKindOf(imageId) : null;
+      if (sentKind) return { code: "wrong_id_kind", field: `${field}.image_id`, message: `That's ${idKindInWords(sentKind)}; ${field}.image_id takes an image ID.`, fix: "get_game lists the game's images: add_image with kind shader_texture sends a texture." };
+      return refuse(`${field}.image_id`, `${field} reads a texture but names no image_id.`);
+    }
+    if (bufferName !== null) return refuse(`${field}.buffer_name`, `${field} reads a texture, so it takes no buffer_name.`);
+  }
+  const filter = (given.filter ?? "linear") as ShaderChannelFilter;
+  if (!SHADER_CHANNEL_FILTERS.includes(filter)) return refuse(`${field}.filter`, `${field}.filter ${JSON.stringify(given.filter)} isn't linear or nearest.`);
+  // Shadertoy's defaults: textures tile, buffers clamp at their edges.
+  const wrap = (given.wrap ?? (inputKind === "texture" ? "repeat" : "clamp")) as ShaderChannelWrap;
+  if (!SHADER_CHANNEL_WRAPS.includes(wrap)) return refuse(`${field}.wrap`, `${field}.wrap ${JSON.stringify(given.wrap)} isn't clamp or repeat.`);
+  return { channel_index: channelIndex, input_kind: inputKind, buffer_name: inputKind === "buffer" ? (bufferName as ShaderBufferName) : null, image_id: inputKind === "texture" ? (imageId as string) : null, filter, wrap };
+}
+
+/**
+ * What comes before every pass's own source: WebGL2's GLSL, full precision (buffers often keep positions and speeds, not colors), and
+ * every input a pass reads. Shadertoy's names (docs/NAMING.md, shader): iResolution (pixels), iTime and iTimeDelta (seconds), iFrame
+ * (frames since the runner started), iChannel0 to iChannel3 with each one's iChannelResolution. Zaisma's own: iQuality (0 for phones and
+ * slow devices, 1, 2 for desktops), and where Zaisma's glass sits, iGlassPanes (left, bottom, right, top, in the shader's pixels from its
+ * bottom left, smallest first) and iGlassPaneCount (none in the check). `#line 1` makes a compiler's line numbers the developer's own.
+ */
+export const SHADER_HEAD = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform vec3 iResolution;
+uniform float iTime;
+uniform float iTimeDelta;
+uniform int iFrame;
+uniform float iQuality;
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+uniform vec3 iChannelResolution[4];
+uniform vec4 iGlassPanes[${MOST_GLASS_PANE_COUNT}];
+uniform int iGlassPaneCount;
+#line 1
+`;
+
+/**
+ * The whole fragment shader an image pass compiles: the head, the developer's mainImage, and the glass pass round it
+ * (GLASS_LIGHT_PASS). The check, the game domain's runner and the dashboard's preview all compile this, so a shader that passed the
+ * check runs the same everywhere.
  */
 export function wrapShader(source: string): string {
   return SHADER_HEAD + source + "\n" + GLASS_LIGHT_PASS;
 }
-/** What comes before a shader's own source: precision, and the two inputs it reads. */
-export const SHADER_HEAD = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nuniform vec3 iResolution;\nuniform float iTime;\n";
+/** The whole fragment shader a buffer pass compiles: the head and the developer's mainImage, drawn to the buffer with no glass. */
+export function wrapShaderBuffer(source: string): string {
+  return SHADER_HEAD + source + "\n" + BUFFER_PASS;
+}
+/** The vertex shader every pass draws with: one triangle over the whole canvas, from the corners [-1, -1, 3, -1, -1, 3]. */
+export const SHADER_VERTEX_SOURCE = "#version 300 es\nin vec2 corner;\nvoid main() { gl_Position = vec4(corner, 0.0, 1.0); }";
 
-export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes">): Promise<GameShader> {
-  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, check_frame_ms: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
-  await database.prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)").bind(row.id, row.game_id, row.screen, row.size_bytes, row.review_status, row.created_at_ms).run();
+export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes" | "buffer_count" | "texture_count">): Promise<GameShader> {
+  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, quality_checks: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
+  await database
+    .prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, buffer_count, texture_count, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(row.id, row.game_id, row.screen, row.size_bytes, row.buffer_count, row.texture_count, row.review_status, row.created_at_ms)
+    .run();
   return row;
 }
 
@@ -1196,14 +1495,14 @@ export async function shadersWaitingForPerson(database: D1Database): Promise<(Ga
 }
 
 /**
- * The shader check's result: approved (rejectedReason null) or rejected, with what it measured. A shader the check drew but
- * left for a person keeps pending, with its numbers (waitsForPerson).
+ * The shader check's result: approved (rejectedReason null) or rejected, with what it measured at each quality level. A shader the check
+ * drew but left for a person keeps pending, with its numbers (waitsForPerson).
  */
-export async function settleShader(database: D1Database, shader: Pick<GameShader, "id">, rejectedReason: ReviewReason | null, checkFrameMs: number | null, flashCount: number | null, waitsForPerson = false): Promise<void> {
+export async function settleShader(database: D1Database, shader: Pick<GameShader, "id">, rejectedReason: ReviewReason | null, qualityChecks: ShaderQualityCheck[] | null, flashCount: number | null, waitsForPerson = false): Promise<void> {
   const reviewStatus = rejectedReason ? "rejected" : waitsForPerson ? "pending" : "approved";
   await database
-    .prepare("UPDATE game_shaders SET review_status = ?, review_reason = ?, check_frame_ms = ?, flash_count = ?, checked_at_ms = ? WHERE id = ?")
-    .bind(reviewStatus, rejectedReason ? JSON.stringify(rejectedReason) : null, checkFrameMs, flashCount, now(), shader.id)
+    .prepare("UPDATE game_shaders SET review_status = ?, review_reason = ?, quality_checks = ?, flash_count = ?, checked_at_ms = ? WHERE id = ?")
+    .bind(reviewStatus, rejectedReason ? JSON.stringify(rejectedReason) : null, qualityChecks ? JSON.stringify(qualityChecks) : null, flashCount, now(), shader.id)
     .run();
 }
 

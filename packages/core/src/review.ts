@@ -402,13 +402,13 @@ export const REVIEW_CODES = {
   shader_does_not_compile: {
     meaning: "The shader didn't compile; the message gives the first compiler error.",
     contentRule: null,
-    fix: "Fix the line the error names and send it again with add_shader: void mainImage(out vec4 fragColor, in vec2 fragCoord), reading iResolution and iTime only. The dashboard's Background section previews a shader file before it's sent.",
+    fix: "Fix the line the error names (a buffer's errors start with its name; line numbers are the pass's own) and send it again with add_shader: WebGL2's GLSL, void mainImage(out vec4 fragColor, in vec2 fragCoord). check_shader draws a shader before it's sent.",
     hasOwnMessage: true,
   },
   shader_too_slow: {
-    meaning: "The shader took too long to draw a frame in the check; the message says how long, and the most it can take.",
+    meaning: "The shader took too long to draw a frame in the check, at one of its quality levels; the message says which, how long, and the most it can take.",
     contentRule: null,
-    fix: "Do less for each pixel (fewer loop steps, octaves or lights) and send it again with add_shader. Zaisma draws backgrounds at about half resolution and 30 frames a second, so fine detail costs more than it shows.",
+    fix: "Do less for each pixel at that level (fewer loop steps, octaves or lights where iQuality is lower) and send it again with add_shader; check_shader times it first. Zaisma draws backgrounds at fewer pixels and 30 frames a second, so fine detail costs more than it shows.",
     hasOwnMessage: true,
   },
   shader_flashes: {

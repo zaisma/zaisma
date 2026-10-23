@@ -16,6 +16,8 @@ A name has up to three parts: **what it's about**, **what kind of value**, **in 
 | Calendar day | `<what>_date`, or `date` | `"YYYY-MM-DD"`, UTC | `date: "2026-10-14"` |
 | Length of time | `<what>_duration_<unit>`, or a duration word below in place of `duration` | number | `play_duration_min`, `idle_timeout_sec` |
 | Count | `<thing>_count` | integer | `file_count`, `player_count` |
+| Place in a list | `<what>_index` | integer from 0 | `channel_index: 2` |
+| Step on a fixed scale | `<what>_level`, its values listed in the schema | integer | `quality_level: 2` |
 | Rate | `<things>_per_<unit>` | number | `ticks_per_sec`, `posts_per_day` |
 | Size | `size_bytes`, `<what>_size_bytes` | integer | `size_bytes: 52000` |
 | On-screen length | `width_px`, `height_px`, `<what>_px` | number | `width_px: 1920` |
@@ -96,7 +98,7 @@ The same rules hold inside, with these on top. `test/node/naming.test.ts` checks
 - **Same words, two styles.** Database rows and API data are snake_case (`review_status`, `size_bytes`); variables, functions and types are camelCase or PascalCase (`reviewStatus`, `sizeBytes`). Never mix them in one shape: a stored JSON object is snake_case all the way down.
 - **Columns take the API's names**, so the API passes data through instead of renaming it: `games.review_status`, `versions.patch_notes`, `game_images.width_px`. When the API shows something differently (an ISO time, a list made from text), only the value's form changes, never its name.
 - **Stored times are `<event>_at_ms`**: epoch milliseconds, in columns and in variables (`createdAtMs`). `_at` always means an ISO string. `iso()` (`packages/core/src/time.ts`) is the only conversion between them.
-- **Yes/no columns are named like booleans** (`cloud_saves_enabled`, `is_listed`), even though D1 stores them as 0 or 1. Every other number column ends in `_count`, a unit, `_ms` or `_per_<unit>`.
+- **Yes/no columns are named like booleans** (`cloud_saves_enabled`, `is_listed`), even though D1 stores them as 0 or 1. Every other number column ends in `_count`, a unit, `_ms`, `_per_<unit>`, `_index` or `_level`.
 - **Whole words everywhere**, callback parameters included: `games.map((game) => …)`, `catch (error)`, `(first, second) => …` in a sort. `i` is the one short name, for a loop index.
 - **Names the platform sets keep its spelling**: Worker bindings and secrets in `Env` (`DB`, `GAMES`), `env` and `ctx` in Worker handlers, and Web and Cloudflare API fields (`httpMetadata`, `etag`). Our own variables holding them still get whole words (`response`, not `res`).
 - **No old names are left.** `test/naming-baseline.json` is empty, and the check fails on any name that breaks these rules. Should a name ever have to wait, it goes in that list (`npm run naming:baseline` writes it), and the check then fails on any new one and on any listed one that's gone, so the list only shrinks.

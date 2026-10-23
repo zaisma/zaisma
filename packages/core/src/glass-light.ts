@@ -1,7 +1,9 @@
 /*
  * The glass pass every shader background runs inside (apps/site/src/components/foundations.ts, BACKDROP_SCRIPT, and the game
  * domain's background runner): a shader is one mainImage function, and this is the main round it. Kept in core so Zaisma's
- * own pages, the game domain and the shader check all compile the same thing (wrapShader in developers.ts).
+ * own pages, the game domain and the shader check all compile the same thing (wrapShader in developers.ts). WebGL2's GLSL
+ * (GLSL ES 3.00): it writes zaismaFragColor, and reads where the glass sits from iGlassPanes and iGlassPaneCount, which
+ * SHADER_HEAD declares so a shader can read them too.
  */
 
 /** How many pieces of glass the runner tells a shader about: the largest ones in view. */
@@ -12,14 +14,13 @@ export const MOST_GLASS_PANE_COUNT = 16;
  * it draws what's behind a little magnified and bent inward along the cut edge, as through thick glass; fainter under smoked glass.
  * The light the glass gathers along its edge is the pane's own rim (GLASS_SCRIPT's caustics), so it moves with the pane as the page
  * scrolls; the backdrop sits still under the page and could only follow a frame late. Everything is in the canvas's own pixels, from
- * its bottom left.
+ * its bottom left. iGlassPanes (each pane's left, bottom, right and top) and iGlassPaneCount come from SHADER_HEAD.
  */
 export const GLASS_LIGHT_PASS = `
-uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];     // each pane: left, bottom, right, top
-uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // its cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
-uniform float zaismaPaneCount;
+uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // each pane's cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
 uniform float zaismaPixel;      // canvas pixels per CSS pixel
 uniform vec2 zaismaViewOffset;  // where the canvas sits in the scene it shows a part of (the gallery's framed examples), in its pixels
+out vec4 zaismaFragColor;
 // Signed distance to a pane's cut shape (negative inside), and the outward normal of its nearest side.
 float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
   vec2 h = (r.zw - r.xy) * 0.5, q = f - (r.xy + r.zw) * 0.5, a = abs(q) - h;
@@ -35,19 +36,26 @@ void main() {
   vec2 f = gl_FragCoord.xy, at = f;
   // The panes come smallest first, so a pane on a tray bends the light under it, not the tray.
   for (int i = 0; i < ${MOST_GLASS_PANE_COUNT}; i++) {
-    if (float(i) >= zaismaPaneCount) break;
+    if (i >= iGlassPaneCount) break;
     vec4 cuts = zaismaPaneCuts[i]; float smoke = step(4096.0, cuts.w); cuts.w = mod(cuts.w, 4096.0);
-    vec2 n; float d = zaismaPaneShape(f, zaismaPanes[i], cuts, n);
+    vec2 n; float d = zaismaPaneShape(f, iGlassPanes[i], cuts, n);
     float strength = mix(1.0, 0.5, smoke), rim = 18.0 * zaismaPixel;
     if (d < 0.0) {
       float depth = -d, edge = 1.0 - smoothstep(0.0, rim, depth);
-      vec2 center = (zaismaPanes[i].xy + zaismaPanes[i].zw) * 0.5;
+      vec2 center = (iGlassPanes[i].xy + iGlassPanes[i].zw) * 0.5;
       // Thick glass: what's behind is magnified a little and bent inward along the rim, most at the very edge.
       at = center + (f - center) * (1.0 - 0.018 * strength) - n * rim * 0.45 * strength * edge * edge;
       break;
     }
   }
-  vec4 color; mainImage(color, at + zaismaViewOffset);
-  vec3 col = color.rgb;
-  gl_FragColor = vec4(col, 1.0);
+  vec4 color = vec4(0.0); mainImage(color, at + zaismaViewOffset);
+  zaismaFragColor = vec4(color.rgb, 1.0);
+}`;
+
+/** The main round a buffer pass's mainImage: no glass, and the buffer keeps all four channels it writes, alpha too. */
+export const BUFFER_PASS = `
+out vec4 zaismaFragColor;
+void main() {
+  vec4 color = vec4(0.0); mainImage(color, gl_FragCoord.xy);
+  zaismaFragColor = color;
 }`;

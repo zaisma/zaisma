@@ -63,7 +63,10 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
     if (tokens.some((t) => SHORT.has(t))) say("no short forms like dt, msg, opts or pos");
     if (tokens.length > 1 && (tokens[0] === "max" || tokens[0] === "min")) say("spell out maximum_ or minimum_");
     if (types.includes("integer") || types.includes("number")) {
-      if (!name.endsWith("_count") && !UNITS.some((u) => name.endsWith(`_${u}`)) && !RATE.test(name)) say("a number ends in _count, a unit suffix or _per_<unit>");
+      // A place in a list from 0 (channel_index), and a step on a fixed scale given as its list of values (quality_level).
+      const isIndex = name.endsWith("_index") && types.includes("integer");
+      const isLevel = name.endsWith("_level") && Array.isArray(s.enum);
+      if (!name.endsWith("_count") && !UNITS.some((u) => name.endsWith(`_${u}`)) && !RATE.test(name) && !isIndex && !isLevel) say("a number ends in _count, a unit suffix, _per_<unit>, _index (a whole number) or _level (with its values listed)");
     }
     if (name.endsWith("_at") !== (s.format === "date-time")) say("a point in time is named *_at and is an ISO date-time string");
     if ((name === "date" || name.endsWith("_date")) !== (s.format === "date")) say("a calendar day is named date or *_date, format date");

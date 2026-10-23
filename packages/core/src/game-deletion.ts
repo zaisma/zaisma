@@ -137,7 +137,7 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     database.prepare("DELETE FROM performance_checks WHERE version_id IN (SELECT id FROM versions WHERE game_id = ?)").bind(gameId),
     ...[
       "play_days", "play_returns", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
-      "game_server_errors", "game_server_schedules", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
+      "game_server_errors", "game_server_schedules", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_images_before_0134", "game_shaders", "game_backgrounds", "domains",
       "game_items", "purchases", "audit_log", "reports", "versions",
     ].map(deleteFrom),
     database.prepare("DELETE FROM games WHERE id = ?").bind(gameId),
