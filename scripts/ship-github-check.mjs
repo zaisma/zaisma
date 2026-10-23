@@ -2,8 +2,9 @@
 // like scripts/ship-checks.mjs, so a test can import it (ship.mjs deploys when imported).
 //
 // Ship deploys only code a full check passed on (.github/workflows/check.yml). That's the commit's own
-// run, or the run of a commit with exactly the same code, so a merge never waits for the same tests
-// twice:
+// run (for a commit the merge queue landed, its merge group's, on that very commit: main's own push run
+// then only passes on it), or the run of a commit with exactly the same code, so a merge never waits for
+// the same tests twice:
 // - a pull request's branch, when main's merge commit has its code: the ruleset makes a branch up to
 //   date before it merges, its run tests the branch exactly as it is, and main never moves back (the
 //   ruleset blocks force pushes);
@@ -54,22 +55,34 @@ export function sameCodeCommits(runGit, commitSha, { searchCommitCount = SAME_CO
 }
 
 /**
- * What one commit's check runs (GitHub's check-runs API, latest of each name) say about its code:
- * "passed" and "failed" for the full tests and typecheck, "docs_passed" and "docs_failed" when only the
- * docs tests ran, "running", or "none". `engines` is the Engine exports jobs' state, all their shares together: "passed",
- * "failed" (any share), "running", "skipped" (a pull request that changed nothing they run) or "none".
+ * What one commit's check runs (GitHub's check-runs API with filter=all: every run and every attempt) say about its code:
+ * "passed" and "failed" for the full tests and typecheck, "docs_passed" and "docs_failed" when only the docs tests ran,
+ * "running", or "none". Each check counts by its latest run (one still going counts first). A commit the merge queue landed has
+ * two workflow runs, its merge group's and main's own push, which skips the checking jobs the queue already ran; a rerun that
+ * found the code already checked does the same. So `engines`, the Engine exports jobs' state with all their shares together,
+ * counts the latest run of each share that ran, and is "skipped" (a pull request that changed nothing they run) only when none
+ * did: "passed", "failed" (any share), "running", "skipped" or "none". And only docs tests ran when tests never did.
  */
 export function checkState(checkRuns) {
-  const check = checkRuns.find((checkRun) => checkRun.name === GITHUB_CHECK_NAME);
+  const check = latestOf(checkRuns.filter((checkRun) => checkRun.name === GITHUB_CHECK_NAME));
   if (!check) return { state: "none", url: null, engines: "none" };
-  const engineRuns = checkRuns.filter((checkRun) => isEnginesCheck(checkRun.name));
+  const isRan = (checkRun) => !(checkRun.status === "completed" && checkRun.conclusion === "skipped");
+  const allEngineRuns = checkRuns.filter((checkRun) => isEnginesCheck(checkRun.name));
+  const ranEngineRuns = allEngineRuns.filter(isRan);
+  const engineRuns = ranEngineRuns.length ? [...new Set(ranEngineRuns.map((checkRun) => checkRun.name))].map((name) => latestOf(ranEngineRuns.filter((checkRun) => checkRun.name === name))) : allEngineRuns;
   const isEngines = (conclusion) => engineRuns.length > 0 && engineRuns.every((engineRun) => engineRun.status === "completed" && engineRun.conclusion === conclusion);
   const engines = !engineRuns.length ? "none" : engineRuns.some((engineRun) => engineRun.status === "completed" && !["success", "skipped"].includes(engineRun.conclusion)) ? "failed" : engineRuns.some((engineRun) => engineRun.status !== "completed") ? "running" : isEngines("success") ? "passed" : isEngines("skipped") ? "skipped" : "failed";
   if (check.status !== "completed") return { state: "running", url: check.html_url, engines };
-  const docsTests = checkRuns.find((checkRun) => checkRun.name === DOCS_TESTS_CHECK_NAME);
-  const isDocsRun = Boolean(docsTests && docsTests.status === "completed" && docsTests.conclusion !== "skipped");
+  const isDocsRun = checkRuns.some((checkRun) => checkRun.name === DOCS_TESTS_CHECK_NAME && checkRun.status === "completed" && isRan(checkRun)) && !checkRuns.some((checkRun) => checkRun.name.startsWith("Tests (") && isRan(checkRun));
   const isPassed = check.conclusion === "success";
   return { state: `${isDocsRun ? "docs_" : ""}${isPassed ? "passed" : "failed"}`, url: check.html_url, engines };
+}
+
+/** The latest of these runs of one check: one still going, else the last to finish (the first given, when they don't say when). */
+function latestOf(checkRuns) {
+  const going = checkRuns.find((checkRun) => checkRun.status !== "completed");
+  if (going) return going;
+  return checkRuns.reduce((latest, checkRun) => (latest && (Date.parse(checkRun.completed_at ?? "") || 0) <= (Date.parse(latest.completed_at ?? "") || 0) ? latest : checkRun), undefined);
 }
 
 /**
