@@ -141,6 +141,9 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
     include: [`test/${name}/**/*.test.ts`],
     exclude: ALONE_TEST_FILES,
     setupFiles: ["test/apply-migrations.ts"],
+    // Four files share a runner's cores, so a test that waits on many round trips (a room's sockets, a Durable Object's alarm) gets
+    // 15 seconds before it counts as hung, not vitest's 5.
+    testTimeout: 15_000,
     // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
     deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
     ...testOptions,
