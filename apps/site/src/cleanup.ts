@@ -4,6 +4,7 @@ import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, R
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
+import { deleteOldPasskeyChallenges } from "./passkeys.ts";
 import { deleteOldLogs } from "./logs-api.ts";
 import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
@@ -147,6 +148,7 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   // Email codes past their 10 minutes and the day of requests their limits count; wrong passwords older than a
   // day, and device marks a year past their last sign-in.
   await deleteOldEmailCodes(env, nowMs);
+  await deleteOldPasskeyChallenges(env, nowMs);
   await deleteOldDeviceMarks(env, nowMs);
   // How sessions last proved it's them: only the day's matter (session-proofs.ts).
   await deleteOldProofs(env, nowMs);

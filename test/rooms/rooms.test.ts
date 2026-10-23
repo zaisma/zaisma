@@ -652,6 +652,20 @@ describe("rooms", () => {
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
   });
 
+  it("lets a player into an empty room while connections with no pass wait to say hello", async () => {
+    await addGame("arena");
+    // More silent connections than the room has places for players and spectators.
+    const silent = [];
+    for (let i = 0; i < 30; i++) silent.push(await connect("arena", "HUSH22"));
+    expect(silent.map((client) => client.res.status)).toEqual(silent.map(() => 101));
+    // The oldest were let go to make way for newer ones, and the room never filled.
+    expect(await silent[0]!.closed).toBe(4001);
+    const a = await join("arena", "HUSH22");
+    expect((await a.next()).players).toHaveLength(1);
+    a.ws.close(1000);
+    for (const client of silent) client.ws.close(1000);
+  });
+
   it("relays bytes between players, saying whose they are, and wants a hello as text", async () => {
     await addGame("arena");
     const a = await join("arena", "BYTES2");
