@@ -95,6 +95,14 @@ process.on("SIGTERM", stop);
 // Also when set-up fails, so nothing is left running.
 process.on("exit", () => children.forEach((c) => c.kill()));
 
+// How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
+let stepStartedMs = Date.now();
+function stepDone(label) {
+  const nowMs = Date.now();
+  console.log(`  ${label}: ${((nowMs - stepStartedMs) / 1000).toFixed(1)}s`);
+  stepStartedMs = nowMs;
+}
+
 function wrangler(app, args, opts = {}) {
   // Quiet servers write to <app>.log in the preview folder, for when something doesn't start.
   const log = opts.quiet ? openSync(join(STATE, `${app}.log`), "w") : "inherit";
@@ -296,12 +304,15 @@ await seedSecurityAlerts();
 await seedConfirmItsYou();
 // A developer whose account can be deleted with its games, made again once it's gone.
 await seedDeletingDeveloper();
+stepDone("account states");
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
 // presses of Play in the preview add to them.
 spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendPlaysSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+stepDone("pretend plays");
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
 // pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
 await openTestRooms(ROOMS, GAMES, SITE).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
+stepDone("test rooms");
 const pretend = () => spawn("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendRoomsSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 pretend();
 setInterval(pretend, 30 * 60_000);
@@ -511,6 +522,7 @@ function withServer(example, name) {
 }
 
 async function seed() {
+  stepDone("servers up");
   const jar = new Map();
   // An upload waits for its run in Chrome with Node blocked (spawnSync), so the site may have closed the
   // connection kept open for the next call: that one is sent again on a fresh connection.
@@ -545,6 +557,7 @@ async function seed() {
   const page = await (await makeKeyWithPasskey(post, studioPasskey, { name: "preview", access_level: "full", game_scope: "all" })).text();
   const key = page.match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
   if (!key) throw new Error("Couldn't make the preview account's API key.");
+  stepDone("account and key");
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
     const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
@@ -568,8 +581,10 @@ async function seed() {
 
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
   await seedEngineSamples(api, upload);
+  stepDone("engine samples");
   if (ENGINES_ONLY) return;
   await seedStartedInChrome(api, upload);
+  stepDone("started in Chrome");
   // The rest of the account's 20 runs in Chrome today are used, so the other test games' versions say they weren't
   // measured (and their uploads don't wait for Chrome).
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
@@ -605,6 +620,7 @@ async function seed() {
         await go(`/admin/images/${sq.id}/approve`, form({ reason: "" }));
       }
     }
+    stepDone(`game: ${g.title}`);
   }
   // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the looks drafts' Neon Drift shader, drawn by
   // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
@@ -635,6 +651,7 @@ async function seed() {
     if (!(await isShaderChecked())) await go(`/admin/shaders/${shader.id}/approve`, form({ reason: "Preview test data" }));
     await api("PUT", `/games/${slug}/backgrounds/wide`, { source: "shader", shader_id: shader.id });
   }
+  stepDone("backgrounds and shaders");
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).
@@ -679,6 +696,7 @@ async function seed() {
   }
   // Cave Crew plays best in landscape, which phones and tablets get a note about.
   await api("PATCH", "/games/cave-crew", { screen_orientation: "landscape" });
+  stepDone("links, items and Lava Leap");
   // Screenshots and a second version with patch notes, so the game page has everything.
   for (const n of [1, 2]) {
     const { image } = await api("POST", "/games/shard-dodge/images?kind=screenshot", picture([70, 140, 220], n));
@@ -686,6 +704,7 @@ async function seed() {
   }
   upload("examples/hello-game", "shard-dodge", "New night level, faster hops and a fix for the double-jump bug.");
   await api("POST", `/games/shard-dodge/versions/${await approveNewest("shard-dodge")}/publish`);
+  stepDone("Shard Dodge second version");
 
   // Image matching: an update with a picture the stand-in Arachnid Shield matches, held for a person
   // (the game stays on its first version), and a screenshot it refuses. Both are harmless test pictures.
@@ -722,6 +741,7 @@ async function seed() {
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.is_connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
   writeFileSync(join(STATE, "shield-knows-later"), "");
   await fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("17 3 * * *")}`);
+  stepDone("image matching");
 
   // Reports for the report queue, sent like the plate beside a game sends them. The stand-in AI sorts them within half a minute.
   const reports = [
@@ -754,6 +774,7 @@ async function seed() {
   }
   // Stopped_Fox: a person turned off its social side after a report, so its account page and /friends say why.
   await signedIn({ name: "Stopped_Fox", email: "stopped@example.test", year: "1994" }, "198.51.100.231");
+  stepDone("reports");
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
   const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
@@ -773,22 +794,30 @@ async function seed() {
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: new URL(tester.link_url).pathname, team: new URL(team.link_url).pathname, arena: new URL(arena.link_url).pathname }));
   // Star Haul: a game with a $2 budget that used it this month, so its hosting is paused (seedHolds writes the month).
   await api("POST", "/games", { title: "Star Haul", slug: "star-haul", description: "Haul cargo between stations before the pirates catch you.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] });
+  stepDone("testers");
 
   await seedHolds(api, upload, go, form);
+  stepDone("holds");
 
   // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
   // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.
   await seedForum(api, go, form);
+  stepDone("forum");
 
   // Friends for the preview account: four who said yes to its invites, and one invite still waiting.
   const people = await seedFriends(go, form);
+  stepDone("friends");
   await seedProfiles(go, form, people);
+  stepDone("profiles");
   await seedSignInStates();
+  stepDone("sign-in states");
   await seedDeletedAccountErase(api);
+  stepDone("deleted account");
 
   // Scoped API keys, so the account page lists what each can do: CI that uploads two games, and a custom key.
   await makeKeyWithPasskey(post, studioPasskey, [["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]);
   await makeKeyWithPasskey(post, studioPasskey, { name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" });
+  stepDone("scoped keys");
 }
 
 /**
