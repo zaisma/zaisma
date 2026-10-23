@@ -19,9 +19,10 @@ export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((sc
 
 /**
  * The same, for the page's <head>, holding its first paint until they've run: a page whose look the scripts finish (the
- * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads.
+ * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads. The browser fetches them
+ * first, ahead of the page's other scripts, which would otherwise share the line with them as the first paint waits.
  */
-export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render"></script>`).join(""));
+export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
 
 /**
  * A script in the page's <head> that runs as it's read, before anything below it: one that sets what the first paint shows (the home's
@@ -519,11 +520,14 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
 /**
  * A signed-in player's page checks in while it's on screen, so friends see them online (friends-now.ts);
  * a game page says which game once Play is pressed (body data-presence-game), and that it left as it closes.
+ * The last check-in is kept for the tab: a page opened within a minute of it checks in when the next one is due, so moving from
+ * page to page keeps the same beat as one page left open. A page that says which game checks in at once.
  */
-const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body;
-const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();const g=b.dataset.presenceGame;
+const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body,KEY="zaisma:presence-at";
+try{last=Number(sessionStorage.getItem(KEY))||0}catch{}if(last>Date.now())last=0;
+const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();try{sessionStorage.setItem(KEY,String(last))}catch{}const g=b.dataset.presenceGame;
 fetch("/api/presence",{method:"POST",body:JSON.stringify(g?{game_slug:g}:{}),keepalive:true}).then(r=>{if(r.status===401)off=true}).catch(()=>{})};
-beat();setInterval(beat,${PRESENCE_CHECK_IN_MS});document.addEventListener("visibilitychange",()=>{if(Date.now()-last>60000)beat()});
+const start=()=>{beat();setInterval(beat,${PRESENCE_CHECK_IN_MS})};if(b.dataset.presenceGame||Date.now()-last>60000)start();else setTimeout(start,last+${PRESENCE_CHECK_IN_MS}-Date.now());document.addEventListener("visibilitychange",()=>{if(Date.now()-last>60000)beat()});
 new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-presence-game"]});
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
@@ -592,6 +596,8 @@ export interface LayoutOptions {
   isRebuilt?: boolean;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
+  /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
+  steelStyles?: PageStyle[];
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
@@ -607,11 +613,11 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
-${styleTags(SITE_STYLE)}
+${styleTags(SITE_STYLE, ...(options.steelStyles ?? []))}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
@@ -625,8 +631,21 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
+  // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
+  const extra: Record<string, string> = { "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
+  return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
 }
+
+/** Where pages' speculation rules are served (index.ts). */
+export const SPECULATION_RULES_PATH = "/speculation-rules.json";
+
+/**
+ * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms) is fetched ahead once the pointer rests
+ * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
+ * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
+ * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
+ */
+export const SPECULATION_RULES = { prefetch: [{ source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" }] };
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the

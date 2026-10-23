@@ -84,6 +84,10 @@ export interface GameCoverOptions {
   facts: GlanceFacts;
   /** The game in the pane beside the list: its orange line stays drawn. */
   isCurrent?: boolean;
+  /** Its art loads with the page, not once it nears the screen: for the covers a page opens with in view, like the home's first. */
+  isEager?: boolean;
+  /** Its art is fetched before the page's other pictures: for the one cover likely the largest thing in the first view. */
+  hasHighPriority?: boolean;
 }
 
 /**
@@ -93,7 +97,7 @@ export interface GameCoverOptions {
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}" alt="" loading="lazy" decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}" alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
