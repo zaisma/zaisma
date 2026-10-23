@@ -20,7 +20,7 @@ import { cutPolygon } from "./tokens.ts";
  * stands in then, loaded only then and faded in once it has wholly loaded.
  *
  * The stills are renders of the city itself (brand/sign-in/, served at /sign-in/): its first live frame, the camera at
- * [430, 120, 300] looking at [0, 20, 0] with the city's seed 7274, unshifted, at midday for light and at night for dark. Wide ones
+ * [620, 140, 250] looking at [0, 100, 0] with the city's seed 7274, unshifted, at midday for light and at night for dark. Wide ones
  * are 3900×1500 at the wide view's 0.72 rad height of view, phone ones 1500×1500 at the phone's 0.95, both wider than a screen,
  * so shown at the screen's height and moved as the camera's picture is shifted they match the first live frame. WebP, quality 0.82.
  */
@@ -256,30 +256,38 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor;\n" +
     "layout(location=2) in vec3 iOff; layout(location=3) in vec3 iScale; layout(location=4) in vec4 iCol; layout(location=5) in vec4 iMaterial; layout(location=6) in vec2 iRot;\n" +
     "uniform mat4 uViewProj; uniform mat4 uLightViewProj;\n" +
-    "out vec3 vNor; out vec4 vCol; out vec3 vWorld; out vec4 vLight; flat out vec4 vMaterial; out vec3 vLocal; flat out vec3 vSize; flat out vec3 vFace;\n" + PLACE_GLSL +
+    "out vec3 vNor; out vec4 vCol; out vec3 vWorld; out vec4 vLight; flat out vec4 vMaterial; out vec3 vLocal; flat out vec3 vSize; flat out vec3 vFace; flat out vec2 vOrigin;\n" + PLACE_GLSL +
     "void main(){ vec3 nn = aNor; vec3 w = iOff + placeCorner(aPos, iScale, iMaterial, iRot, nn);\n" +
-    " vWorld = w; vNor = nn; vCol = iCol; vLocal = aPos; vSize = iScale; vFace = aNor; vMaterial = iMaterial;\n" +
+    " vWorld = w; vNor = nn; vCol = iCol; vLocal = aPos; vSize = iScale; vFace = aNor; vMaterial = iMaterial; vOrigin = iOff.xz;\n" +
     " vLight = uLightViewProj * vec4(w + nn * 0.12, 1.0);\n" +
     " gl_Position = uViewProj * vec4(w, 1.0); }";
   // What each row is made of (its material's kind, in the row's material slot), so one program draws the whole city.
-  // What each row is (the kind in its material slot): plain, carved with glowing grooves and a band at its top, a band only, or a beacon at its tip.
-  var KIND_PLAIN = 0, KIND_CARVED = 1, KIND_BANDED = 2, KIND_BEACON = 3, KIND_PAVEMENT = 4, KIND_STREET = 8, KIND_SHORE = 9;
+  // What each row is (the kind in its material slot): plain, carved with glowing grooves and a band at its top, a band only, or a beacon at
+  // its tip; the Relay's graphite (seams up its slit, rungs, a spine and a burning foot), a light (glowing on every face; seed 0 the
+  // Relay's own, seed 1 the pylons'), and a pylon's shaft (the Relay's seam, and a band under its top). Below 8 a row is built.
+  var KIND_PLAIN = 0, KIND_CARVED = 1, KIND_BANDED = 2, KIND_BEACON = 3, KIND_PAVEMENT = 4, KIND_RELAY = 5, KIND_LIGHT = 6, KIND_PYLON = 7, KIND_STREET = 8, KIND_SHORE = 9;
   // The city's light on its pale boxes: a warm afternoon sun with crisp shadows, sky light from above and bounce from below, streets
   // darker at the bottom of their canyons, a weak fill from the side away from the sun so a building's two shaded sides never match, and walls a little lighter toward the top. At
   // night a cool moon lights the same shapes, softer.
   var BOX_FS = "#version 300 es\nprecision highp float; precision highp sampler2DShadow;\n" +
-    "in vec3 vNor; in vec4 vCol; in vec3 vWorld; in vec4 vLight; flat in vec4 vMaterial; in vec3 vLocal; flat in vec3 vSize; flat in vec3 vFace;\n" +
+    "in vec3 vNor; in vec4 vCol; in vec3 vWorld; in vec4 vLight; flat in vec4 vMaterial; in vec3 vLocal; flat in vec3 vSize; flat in vec3 vFace; flat in vec2 vOrigin;\n" +
     "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight; uniform float uPulse;\n" +
+    "uniform vec4 uRelay;\n" +
     "out vec4 outColor;\n" + FOG_GLSL +
     "float shadowAt(){ vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5; if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;\n" +
     " return texture(uShadow, vec3(p.xy, p.z - 0.0004)); }\n" +
+    // A line of half-width hw at e from its middle, where a pixel is px: never drawn thinner than most of a pixel (it fades instead of
+    // thinning), so a fine seam never shimmers.
+    "float lineAt(float e, float hw, float px){ float w = max(hw, 0.7 * px); return (1.0 - smoothstep(w - 0.5 * px, w + 0.5 * px, abs(e))) * hw / w; }\n" +
     "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb; int kind = int(vMaterial.x + 0.5);\n" +
     " vec3 toEye = uCam - vWorld; vec3 v = normalize(toEye); vec3 col; vec3 glow = vec3(0.0);\n" +
     " if (uLit > 0.5) {\n" +
     "  bool isWall = abs(vFace.y) < 0.5; bool isBuilt = kind < 8;\n" +
+    // A tapered row's faces narrow toward its top: across x and deep in z, how wide it is at this height (vLocal is the corner before the taper).
+    "  float widthX = vSize.x * (1.0 - abs(vMaterial.z) * vLocal.y), depthZ = vSize.z * (1.0 - abs(vMaterial.w) * vLocal.y);\n" +
     // A bevel along every upright edge and round the top of the walls: the face turns halfway to its neighbour within a third of a unit
     // of the edge, so edges catch the light (or fall into shade) the way a cut edge would, with no line drawn.
-    "  if (isWall && isBuilt) { float across = abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x, width = abs(vFace.x) > 0.5 ? vSize.z : vSize.x;\n" +
+    "  if (isWall && isBuilt) { float across = abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x, width = abs(vFace.x) > 0.5 ? depthZ : widthX;\n" +
     "   float toSide = (0.5 - abs(across)) * width, toTop = (1.0 - vLocal.y) * vSize.y, bevel = min(0.32, width * 0.06);\n" +
     "   vec3 side = normalize(cross(vec3(0.0, 1.0, 0.0), n)) * sign(across) * (abs(vFace.x) > 0.5 ? -vFace.x : vFace.z);\n" +
     "   float atSide = 1.0 - smoothstep(bevel - fwidth(toSide), bevel + fwidth(toSide), toSide), atTop = 1.0 - smoothstep(bevel - fwidth(toTop), bevel + fwidth(toTop), toTop);\n" +
@@ -301,6 +309,25 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "   float carved = max(max(groove, band), tip);\n" +
     "   vec3 carve = vec3(1.0, 0.5, 0.1);\n" +
     "   col = mix(col, carve * mix(0.85, 0.3, uNight), carved * mix(0.75, 1.0, uNight)); glow += carve * carved * uNight * 1.5; }\n" +
+    // The Relay and its circuit. By day a line is orange paint that glows a little; at night it glows. A light glows on every face. The
+    // Relay's seams run up the slit's edges on its front and back, its rungs cross the slit faces every 12 units, a spine runs down each
+    // outer face and its foot burns over the light it floats on; rungs and spines light up to the charge's height, and the slit faces
+    // flood between uRelay.y and uRelay.z. A pylon has the same seam on its ends and a band under its top.
+    "  if (kind >= 5 && kind <= 7) {\n" +
+    "   vec3 carve = vec3(1.0, 0.5, 0.1); float up = vLocal.y * vSize.y, upPx = fwidth(up), paint = 0.0, light = 0.0;\n" +
+    "   if (kind == 6) { paint = 0.7; light = (vMaterial.y < 0.5 ? 0.5 + 0.2 * uPulse + 2.0 * uRelay.w : 1.0) * mix(0.3, 1.6, uNight); }\n" +
+    "   else if (isWall) {\n" +
+    "    float seamAt = (0.5 - vLocal.x) * widthX - 1.0, seam = abs(vFace.z) > 0.5 ? lineAt(seamAt, 0.35, fwidth(seamAt)) : 0.0;\n" +
+    "    paint += seam * 0.85; light += seam * mix(0.5, 1.6, uNight);\n" +
+    "    if (kind == 5) {\n" +
+    "     float sideAt = vLocal.z * depthZ, isSlit = step(0.5, vFace.x), isOuter = step(vFace.x, -0.5);\n" +
+    "     float ribs = isSlit * lineAt(mod(up, 12.0) - 6.0, 0.2, upPx) * step(1.5, 0.5 * depthZ - abs(sideAt)) + isOuter * lineAt(sideAt, 0.2, fwidth(sideAt));\n" +
+    "     float charged = 1.0 - smoothstep(uRelay.x - 3.0, uRelay.x, vWorld.y), ribLight = mix(mix(0.15, 0.3, uNight), mix(1.2, 2.2, uNight), charged);\n" +
+    "     float foot = vSize.y > 100.0 ? 1.0 - smoothstep(0.5 - upPx, 0.5 + upPx, up) : 0.0, flood = isSlit * step(uRelay.y, vWorld.y) * step(vWorld.y, uRelay.z);\n" +
+    "     paint += ribs * 0.75 * min(1.0, ribLight) + foot * 0.4 + flood; light += ribs * ribLight + foot * mix(0.5, 1.0, uNight) + flood * 2.5;\n" +
+    "    } else { float band = lineAt(vSize.y - up - 3.0, 0.2, upPx); paint += band * 0.75; light += band * mix(0.35, 1.6, uNight); }\n" +
+    "   }\n" +
+    "   col = mix(col, carve * 0.9, clamp(paint, 0.0, 1.0) * (1.0 - uNight)); glow += carve * light; }\n" +
     " }\n" +
     " else { float diff = max(dot(n, uSun), 0.0);\n" +
     "  float rim = pow(1.0 - max(dot(n, v), 0.0), 2.5);\n" +
@@ -405,6 +432,24 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " vec2 v = (vUv - 0.5) * uAspect; c *= 1.0 - dot(v, v) * 0.12;\n" +
     " c += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;\n" +
     " o = vec4(c, 1.0); }";
+  /* The Relay's light: one quad standing on its axis (x = z = 0), turned round the vertical to face the eye, with no buffer (its corners
+     come from the vertex's number). Every pixel works out where its view ray passes closest to the axis, how far off it, at what height
+     and how slanted, and draws the light there in closed form. The quad sits at the axis's depth, so the blades' near halves hide it and
+     it shows only through the slit and above the tips. At rest it's a thin thread rising from the capstone. It's drawn premultiplied
+     over the scene, so by day it covers the sky (orange stays orange on blue) and at night it nearly adds, leaving the sky mask alone. */
+  var BEAM_VS = "#version 300 es\nuniform mat4 uViewProj; uniform vec3 uCam; uniform vec4 uBeamColumn; out vec3 vWorld;\n" +
+    "void main(){ vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)); vec2 toEye = normalize(uCam.xz + vec2(1e-3, 0.0)); vec2 side = vec2(-toEye.y, toEye.x);\n" +
+    " float across = (corner.x * 2.0 - 1.0) * uBeamColumn.z; vWorld = vec3(side.x * across, mix(uBeamColumn.x, uBeamColumn.y, corner.y), side.y * across);\n" +
+    " gl_Position = uViewProj * vec4(vWorld, 1.0); }";
+  var BEAM_FS = "#version 300 es\nprecision highp float; in vec3 vWorld;\n" +
+    "uniform vec3 uCam; uniform float uNight; uniform vec4 uThread; out vec4 o;\n" + FOG_GLSL +
+    "void main(){ vec3 dir = normalize(vWorld - uCam); float flatShare = max(dot(dir.xz, dir.xz), 1e-6), t = -dot(uCam.xz, dir.xz) / flatShare;\n" +
+    " float d = length(uCam.xz + dir.xz * t), y = uCam.y + dir.y * t, slant = min(inversesqrt(flatShare), 1.6), px = fwidth(d);\n" +
+    // The thread: a core-only line from the capstone up, never thinner than most of a pixel (it fades instead), fading with height.
+    " float sigma = max(uThread.z, 0.7 * px), thread = uThread.x * uThread.z / sigma * exp(-d * d / (sigma * sigma)) * slant * smoothstep(uThread.y, uThread.y + 3.0, y) * exp(-max(y - uThread.y, 0.0) / 2600.0);\n" +
+    " vec3 coreTone = mix(vec3(1.0, 0.62, 0.2), vec3(1.0, 0.74, 0.42), uNight);\n" +
+    " float haze = hazeAt(uCam, vec3(0.0, y, 0.0)), cover = clamp(thread, 0.0, 1.0) * mix(0.9, 0.12, uNight);\n" +
+    " o = vec4(min(coreTone * thread, vec3(1.6)) * (1.0 - 0.5 * haze), cover * (1.0 - 0.6 * haze)); }";
 
   // The sea's facets: rings of triangles that grow with distance, so they look the same size on screen out to the horizon.
   var RINGS = 34, SEGMENTS = 64, R0 = 200, GROW = Math.pow(9000 / R0, 1 / RINGS), WATER_COUNT = RINGS * SEGMENTS * 6, seaVertices = new Float32Array(WATER_COUNT * 3);
@@ -443,7 +488,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   function hashAt(x, z, salt) { var h = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453; return h - Math.floor(h); }
   function coastAt(x, z) { var a = Math.atan2(z, x); return 300 + 26 * Math.sin(3 * a + 0.7) + 18 * Math.sin(5 * a + 2.1) + 9 * Math.sin(9 * a + 4); }
   var downtown = [], allBuildings = [];
-  var carvedCount = 0, CARVED_LIMIT = 6;
+  var carvedCount = 0, CARVED_LIMIT = 0;
   function building(x, z, w, d, h, roofy) {
     var col = white();
     // A few of the tallest are carved: glowing grooves up two faces and a band round the top.
@@ -466,38 +511,54 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (Math.abs(x) < 152 && Math.abs(z) < 152) downtown.push(record);
     return top;
   }
-  /* The landmark, on its plaza at the middle of the city: a plinth, then a shaft of square plates, each a little narrower and turned a
-     little further than the one below, so it twists a quarter turn on its way up, paused twice by a recessed plate with a glowing band;
-     then a crown narrowing fast to a slanted top, and one thin spire with a light at its tip. Grooves glow up two faces of every plate,
-     so they twist with it. It's the tallest by far, so it's the first of the towers the camera and the flyers go round. */
-  var PLAZA_HALF = C, LANDMARK_PLATES = 22, PLATE_HEIGHT = 6;
-  function buildLandmark() {
-    var tone = [0.97, 0.972, 0.98], y = PAVE_H;
-    put(city, 0, y, 0, 26, 2.4, 26, tone[0], tone[1], tone[2], 1); y += 2.4;
-    for (var k = 0; k < LANDMARK_PLATES; k++) {
-      var f = k / (LANDMARK_PLATES - 1), width = lerp(19, 12.5, f), isGap = k === 7 || k === 15;
-      put(city, 0, y, 0, width * (isGap ? 0.84 : 1), PLATE_HEIGHT, width * (isGap ? 0.84 : 1), tone[0], tone[1], tone[2], 1, isGap ? KIND_BANDED : KIND_CARVED, isGap ? 0 : 1, 0, 0, f * Math.PI / 2);
-      y += PLATE_HEIGHT;
+  /* The Relay, on its court at the middle of the city: a stepped dais, and on it two graphite blades leaning in over a slit, each floating
+     on a band of light over its socket. Their slit faces are straight and their outer faces lean in, so the slit narrows from 28 at the
+     feet to 10 at the flat tips; over the tips floats a capstone, and in the slit's foot a glowing core (both move, so they're rows of
+     their own: relayParts). Local +x of a blade is its slit face. Its record is as tall as the beam's capstone rises, so the camera and
+     the loops keep clear of it. */
+  var RELAY_TONE = [0.6, 0.615, 0.65], COURT_HALF_X = 28, COURT_HALF_Z = 42;
+  var CORE_Y = 12, RELAY_FOOT_Y = 9.25, RELAY_TIP_Y = 213, CAPSTONE_BOTTOM_Y = 228, CAPSTONE_TOP_Y = 244, CAPSTONE_LIFT_UNITS = 10;
+  var LIGHT_TONE = [1.0, 0.5, 0.1];
+  function buildRelay() {
+    var t = RELAY_TONE, k = 0.92;
+    put(city, 0, STREET_Y, 0, COURT_HALF_X * 2 + 0.8, PAVE_H, COURT_HALF_Z * 2 + 0.8, 0.95, 0.955, 0.965, 1, KIND_PAVEMENT);
+    put(city, 0, PAVE_H, 0, 54, 1.6, 82, 0.9, 0.905, 0.915, 1, KIND_BANDED, 0, 0.03, 0.02);
+    put(city, 0, 1.85, 0, 42, 2.4, 74, 0.93, 0.935, 0.945, 1, KIND_BANDED, 0, 0.06, 0.035);
+    put(city, 0, 4.25, 0, 39, 0.14, 3.2, LIGHT_TONE[0], LIGHT_TONE[1], LIGHT_TONE[2], 1, KIND_LIGHT, 0); // the channel under the slit
+    for (var side = -1; side <= 1; side += 2) {
+      put(city, 0, 4.25, side * 24, 30, 3, 22, t[0] * k, t[1] * k, t[2] * k, 1, KIND_PLAIN, 0, 0.1, 0.1); // the socket
+      put(city, 0, 7.25, side * 23, 24, 2, 16, LIGHT_TONE[0], LIGHT_TONE[1], LIGHT_TONE[2], 1, KIND_LIGHT, 0); // the light it floats on
+      // The blade: its outer face leans in (a one-sided taper) and the whole blade leans 2.5 degrees into the slit.
+      put(city, 0, RELAY_FOOT_Y, side * 19.5, 20, RELAY_TIP_Y - RELAY_FOOT_Y, 26, t[0], t[1], t[2], 1, KIND_RELAY, 0, -0.85, 0.6, -side * Math.PI / 2, -0.044);
     }
-    var crown = [[11.2, 5, KIND_BANDED, 0, 0], [9, 4, KIND_PLAIN, 0, 0], [7.5, 8, KIND_PLAIN, 0, -0.92]];
-    for (var c = 0; c < crown.length; c++) {
-      put(city, 0, y, 0, crown[c][0], crown[c][1], crown[c][0], tone[0], tone[1], tone[2], 1, crown[c][2], 0, crown[c][3], crown[c][4], Math.PI / 2);
-      y += crown[c][1];
-    }
-    var crownTop = y - 4;
-    put(city, 0, crownTop, 0, 1.1, 34, 1.1, 0.95, 0.955, 0.965, 1, KIND_BEACON, 0, 0.85, 0.85);
-    var record = { x: 0, z: 0, w: 27, d: 27, top: crownTop, isLandmark: true }; // no bays in the landmarks
+    var record = { x: 0, z: 0, w: 28, d: 70, top: CAPSTONE_TOP_Y + CAPSTONE_LIFT_UNITS, isLandmark: true }; // no bays in the landmarks
     allBuildings.push(record); downtown.push(record);
   }
-  // The towers that answer it: about half to two-thirds its height, on the far side from the pane in the first frame, each carved and
-  // cut to a slanted top. [x, z, height, slant across, slant deep]
-  var SECOND_TOWERS = [[-49, -21, 104, 0, -0.9], [-21, 49, 90, -0.9, 0], [35, -63, 78, 0, -0.9]];
-  function secondTowerAt(x, z) { for (var i = 0; i < SECOND_TOWERS.length; i++) if (SECOND_TOWERS[i][0] === x && SECOND_TOWERS[i][1] === z) return SECOND_TOWERS[i]; return null; }
-  function buildSecondTower(t) {
-    var w = BLOCK - 1.4, tone = [0.95, 0.954, 0.962];
-    put(city, t[0], PAVE_H, t[1], w, t[2], w, tone[0], tone[1], tone[2], 1, KIND_CARVED);
-    put(city, t[0], PAVE_H + t[2], t[1], w, 12, w, tone[0], tone[1], tone[2], 1, KIND_PLAIN, 0, t[3], t[4]);
-    var record = { x: t[0], z: t[1], w: w, d: w, top: PAVE_H + t[2] + 6, isLandmark: true };
+  // The Relay's moving rows, written again each frame: the capstone's two halves (lifted and parted while it fires) and the core.
+  var relayParts = group(3), coreTurnRad = 0;
+  function updateRelayParts(liftUnits, partUnits) {
+    var t = RELAY_TONE;
+    relayParts.count = 0;
+    for (var side = -1; side <= 1; side += 2) put(relayParts, 0, CAPSTONE_BOTTOM_Y + liftUnits, side * (4.75 + partUnits), 4.5, CAPSTONE_TOP_Y - CAPSTONE_BOTTOM_Y, 9, t[0], t[1], t[2], 1, KIND_RELAY, 0, -0.5, 0.4, -side * Math.PI / 2);
+    put(relayParts, 0, CORE_Y + 0.6 * Math.sin(0.8 * clock), 0, 3.2, 16, 3.2, LIGHT_TONE[0], LIGHT_TONE[1], LIGHT_TONE[2], 1, KIND_LIGHT, 0, 0, 0, coreTurnRad);
+  }
+  /* The pylons: the Relay's children, white, round it in the crown of the city. Each is two shafts either side of a slit of light, with
+     the Relay's seam up their ends and a band under their tops, cut together to one slanted top that falls toward the Relay. [x, z,
+     height to the top of the cut] */
+  var PYLONS = [[7, 91, 96], [63, -63, 84], [-77, 35, 72]];
+  // The yaw that turns a row's local -z toward the Relay, along whichever axis is longer (x on a tie).
+  function bowYawRad(x, z) { return Math.abs(x) >= Math.abs(z) ? (x > 0 ? -Math.PI / 2 : Math.PI / 2) : (z > 0 ? 0 : Math.PI); }
+  function pylonAt(x, z) { for (var i = 0; i < PYLONS.length; i++) if (PYLONS[i][0] === x && PYLONS[i][1] === z) return PYLONS[i]; return null; }
+  function buildPylon(p) {
+    var x = p[0], z = p[1], h = p[2], yaw = bowYawRad(x, z), tx = Math.cos(yaw), tz = Math.sin(yaw), tone = [0.94, 0.944, 0.952];
+    put(city, x, PAVE_H, z, BLOCK + 0.8, 1.5, BLOCK + 0.8, tone[0], tone[1], tone[2], 1, KIND_BANDED);
+    for (var side = -1; side <= 1; side += 2) {
+      // Each shaft turned so its local +x, where its seam runs, faces the slit; both cuts share one yaw, so the top is one plane.
+      put(city, x + side * 2.85 * tx, 1.75, z + side * 2.85 * tz, 4.3, h - 10, 10, tone[0], tone[1], tone[2], 1, KIND_PYLON, 0, 0, 0, side > 0 ? yaw + Math.PI : yaw);
+      put(city, x + side * 2.85 * tx, h - 8.25, z + side * 2.85 * tz, 4.3, 10, 10, tone[0], tone[1], tone[2], 1, KIND_PLAIN, 0, 0, -0.95, yaw);
+    }
+    put(city, x, 1.75, z, 0.5, h - 11.5, 9.6, LIGHT_TONE[0], LIGHT_TONE[1], LIGHT_TONE[2], 1, KIND_LIGHT, 1, 0, 0, yaw);
+    var record = { x: x, z: z, w: BLOCK + 0.8, d: BLOCK + 0.8, top: h + 1.75, isLandmark: true };
     allBuildings.push(record); downtown.push(record);
   }
   // Smaller centres in the districts, so the city rises in a few places beyond downtown.
@@ -508,12 +569,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var cx = (gx - LAND / 2 + 0.5) * C, cz = (gz - LAND / 2 + 0.5) * C;
       var dist = Math.hypot(cx, cz);
       if (dist > coastAt(cx, cz)) continue;
+      // The court round the Relay is one slab of its own; the pylons stand alone on their blocks.
+      if (Math.abs(cx) < COURT_HALF_X && Math.abs(cz) < COURT_HALF_Z) continue;
       put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, 0.93, 0.935, 0.945, 1, KIND_PAVEMENT); // the block's pavement, on the land the shore mesh lays
       var inCore = Math.max(Math.abs(cx), Math.abs(cz)) < HALF;
-      // The plaza round the landmark keeps its pavement and nothing else; the towers that answer it stand alone on their blocks.
-      if (Math.abs(cx) < PLAZA_HALF && Math.abs(cz) < PLAZA_HALF) continue;
-      var second = secondTowerAt(cx, cz);
-      if (second) { buildSecondTower(second); continue; }
+      var pylon = pylonAt(cx, cz);
+      if (pylon) { buildPylon(pylon); continue; }
       if (dist > 45 && rand() < 0.05) { // a park: a lawn of light stone with a few blocky trees
         put(city, cx, PAVE_H, cz, BLOCK - 1.5, 0.16, BLOCK - 1.5, 0.9, 0.915, 0.92, 1);
         for (var tree = 0; tree < 8; tree++) {
@@ -528,7 +589,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       for (var li = 0; li < lots.length; li++) {
         var lot = lots[li], w = lot[2] - 0.9 - rand() * 1.2, d = lot[3] - 0.9 - rand() * 1.2, h;
         if (inCore) {
-          // Downtown rises toward the landmark but stays well under the towers that answer it, so the skyline steps down from them.
+          // Downtown rises toward the Relay but stays well under the pylons, so the skyline steps down from them.
           var core = smooth(150, 0, dist);
           h = lerp(8, 50, core * core) * (0.55 + rand() * 0.6) + rand() * 3;
           if (h > 60) h = 60 + (h - 60) * 0.3;
@@ -1066,8 +1127,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var yaw = m.axis === "x" ? (m.sign > 0 ? 0 : Math.PI) : (m.sign > 0 ? Math.PI / 2 : -Math.PI / 2);
     var flip = m.hop >= 0 ? -Math.PI * 2 * smooth(0, 1, m.hop) : 0;
     setInto(m.at, at[0], at[1] + size * 0.4, at[2]); m.drawYaw = yaw;
+    // The court is the Relay's alone: a walker crossing it goes out of sight until it's across.
+    m.isInCourt = Math.abs(at[0]) < COURT_HALF_X + 1 && Math.abs(at[2]) < COURT_HALF_Z + 1;
     size *= nearScale(at) * hoverScale(m);
-    if (size > 0.02) put(movers, at[0] + jt[0], at[1] + Math.abs(jt[1]), at[2] + jt[2], size * 1.15 / Math.sqrt(squash), size * 0.5 * squash, size * 0.7 / Math.sqrt(squash), col[0], col[1], col[2], 1, 0, 0, 0.4, 0.5, yaw, flip);
+    if (size > 0.02 && !m.isInCourt) put(movers, at[0] + jt[0], at[1] + Math.abs(jt[1]), at[2] + jt[2], size * 1.15 / Math.sqrt(squash), size * 0.5 * squash, size * 0.7 / Math.sqrt(squash), col[0], col[1], col[2], 1, 0, 0, 0.4, 0.5, yaw, flip);
   }
   // A list of short-lived things with the finished ones taken out, in place.
   function keepLiving(list) { var kept = 0; for (var i = 0; i < list.length; i++) if (list[i].life > 0) list[kept++] = list[i]; list.length = kept; }
@@ -1125,13 +1188,22 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
   }
 
+  /* The Relay's state for the frame: at rest its core turns slowly in the slit's foot and a thin thread of light rises from its capstone. */
+  var relay = { chargeHeightUnits: 0, floodBottomUnits: 0, floodTopUnits: 0, chargeShare: 0, capstoneLiftUnits: 0, capstonePartUnits: 0, coreSpinRadPerSec: 0.2, threadStrength: 0 };
+  function updateRelay(stepSec) {
+    // By day it covers the sky almost wholly, or orange over blue would read grey.
+    relay.threadStrength = lerp(0.9, 0.5, night) * (1 + 0.2 * Math.sin(2 * Math.PI * clock / 4));
+    coreTurnRad = (coreTurnRad + relay.coreSpinRadPerSec * stepSec) % (Math.PI * 2);
+    updateRelayParts(relay.capstoneLiftUnits, relay.capstonePartUnits);
+  }
+
   /* Light and its crisp shadow map, drawn once: the city doesn't move. */
   var SUN_AZIMUTH_RAD = Math.atan2(0.36, -0.45), SUN_ELEVATION_RAD = 40 * Math.PI / 180;
   var SUN = [Math.cos(SUN_AZIMUTH_RAD) * Math.cos(SUN_ELEVATION_RAD), Math.sin(SUN_ELEVATION_RAD), Math.sin(SUN_AZIMUTH_RAD) * Math.cos(SUN_ELEVATION_RAD)];
   var SPAN = 360;
   var lightViewProj = mul(ortho(-SPAN, SPAN, -SPAN, SPAN, 1, 1600), lookAt([SUN[0] * 700, SUN[1] * 700, SUN[2] * 700], [0, 0, 0], [0, 1, 0]));
 
-  /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the landmark, round its crown, out low over the water, and a high sweep back round. */
+  /* The camera: one seamless cinematic loop of shots, no cuts. In from the sea toward the Relay, under its tips and round it, out low over the water, and a high sweep back round. */
   // The haze: how thick it is at the sea (per unit of distance), and how fast it thins with height (1 / its scale height).
   var FOG_DENSITY_DAY = 0.0015, FOG_DENSITY_NIGHT = 0.0009, FOG_FALLOFF = 1 / 70, fogDensity = FOG_DENSITY_DAY;
   var FOG_DAY = [0.7, 0.82, 0.94], ZENITH_DAY = [0.17, 0.43, 0.86], FOG_NIGHT = [0.11, 0.14, 0.25], ZENITH_NIGHT = [0.025, 0.045, 0.12];
@@ -1142,25 +1214,20 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   new MutationObserver(followTheme).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice", "data-theme"] });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", followTheme);
   var LOOP_SEC = 112;
-  var sunFlat = norm([SUN[0], 0, SUN[2]]), across = [-sunFlat[2], 0, sunFlat[0]], UP_TILT = 0.72;
-  var aim = [sunFlat[0] * Math.cos(UP_TILT), Math.sin(UP_TILT), sunFlat[2] * Math.cos(UP_TILT)];
-  var sunRise = SUN[1] / Math.hypot(SUN[0], SUN[2]); // how far the sun's line climbs per unit across the ground
-  function off(base, back, side, y) { return [base[0] - sunFlat[0] * back + across[0] * side, y, base[2] - sunFlat[2] * back + across[2] * side]; }
-  function ahead(eye, d) { return [eye[0] + aim[0] * d, eye[1] + aim[1] * d, eye[2] + aim[2] * d]; }
-  var SHOTS = []; // [seconds, eye, looking at], round the tallest tower once the city is built
+  /* [seconds, eye, looking at]: in from the sea 22 degrees off the slit's plane (the slit open, only the Relay over the horizon), in over
+     the approach looking up, under the tips (the gap and the floating capstone), round its side, a close pass, the look up low over the
+     water, face on through the slit, and a high sweep home. */
+  var SHOTS = [];
   function frameShots() {
-    var T = towers[0] || { x: 0, z: 0, top: 80 };
-    var tower = [T.x, 0, T.z], underY = Math.max(24, T.top - 6 - 45 * sunRise);
-    var sunA = off(tower, 45, -22, underY), sunB = off(tower, 45, 22, underY + 6);
     SHOTS = [
-      [0, [430, 120, 300], [0, 40, 0]],
-      [14, [320, 80, 330], [0, 55, 0]],
-      [28, [150, 105, 190], [0, T.top * 0.8, 0]],
-      [42, [-70, 150, 175], [0, T.top * 0.75, 0]],
-      [56, [-210, 95, 70], [0, T.top * 0.45, 0]],
-      [70, [-390, 42, -110], [-60, 30, 0]],
-      [84, [-160, 230, -420], [0, 25, 0]],
-      [98, [330, 170, -320], [0, 35, 0]]
+      [0, [620, 140, 250], [0, 100, 0]],
+      [14, [380, 95, 300], [0, 140, 0]],
+      [28, [150, 120, 170], [0, 215, 0]],
+      [42, [-70, 170, 175], [0, 200, 0]],
+      [56, [-210, 110, 70], [0, 170, 0]],
+      [70, [-390, 42, -110], [0, 175, 0]],
+      [84, [-470, 200, -15], [0, 140, 0]],
+      [98, [330, 170, -320], [0, 130, 0]]
     ];
   }
   function catmullInto(out, p0, p1, p2, p3, t) {
@@ -1242,7 +1309,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     var reach = coarse ? 1.5 : 1;
     flyers.forEach(function (m) { if (!m.gone && !m.isHidden && m.grow >= 1) consider(m, 30 * reach); });
     hoppers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 26 * reach); });
-    walkers.forEach(function (m) { if (!m.gone && m.grow >= 1) consider(m, 18 * reach); });
+    walkers.forEach(function (m) { if (!m.gone && m.grow >= 1 && !m.isInCourt) consider(m, 18 * reach); });
     return best;
   }
   function seaPoint(clientX, clientY) {
@@ -1294,7 +1361,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     once(buildSea),
     once(buildShore),
     each(LAND, buildLandColumn),
-    once(buildLandmark),
+    once(buildRelay),
     each(function () { bayTowers = downtown.filter(function (b) { return !b.isLandmark && b.top > 50 && Math.min(b.w, b.d) > 6.5; }); return bayTowers.length; }, function (i) { buildBays(bayTowers[i]); }),
     once(sortCityIntoTiles),
     each(function () { return Math.ceil(allBuildings.length / 400); }, function (item) { for (var i = item * 400; i < Math.min(allBuildings.length, (item + 1) * 400); i++) markRoof(allBuildings[i]); }),
@@ -1348,6 +1415,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     for (var ci = 0; ci < 3; ci++) { FOG[ci] = lerp(FOG_DAY[ci], FOG_NIGHT[ci], night); ZENITH[ci] = lerp(ZENITH_DAY[ci], ZENITH_NIGHT[ci], night); }
     fogDensity = lerp(FOG_DENSITY_DAY, FOG_DENSITY_NIGHT, night);
     updateMovers(stepSec);
+    updateRelay(stepSec);
     // The camera sets off gently once it's shown, over the entrance's second and a half, rather than at full pace from a standstill.
     var setOff = isShown ? Math.min(1, (now - shownAt) / 1500) : 0;
     if (!tool.isHeld) camTime += stepSec * paceAt(camTime) * setOff * setOff * (3 - 2 * setOff);
@@ -1441,10 +1509,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gpu = { programs: [], parallel: gl.getExtension("KHR_parallel_shader_compile"), warmed: [], warmedCount: 0, warmFence: null, isFilled: false,
       maxSampleCount: gl.getParameter(gl.MAX_SAMPLES), timer: window.__city ? null : gl.getExtension("EXT_disjoint_timer_query_webgl2"), timings: [] };
     var vs = gl.VERTEX_SHADER, fs = gl.FRAGMENT_SHADER, full = compileShader(vs, FULL_VS);
-    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight", "uPulse"], { uShadow: SHADOW_UNIT });
+    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight", "uPulse", "uRelay"], { uShadow: SHADOW_UNIT });
     gpu.depth = program(compileShader(vs, DEPTH_VS), compileShader(fs, DEPTH_FS), ["uLightViewProj"]);
     gpu.sky = program(full, compileShader(fs, SKY_FS), ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight"]);
     gpu.water = program(compileShader(vs, WATER_VS), compileShader(fs, WATER_FS), ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff"]);
+    gpu.beam = program(compileShader(vs, BEAM_VS), compileShader(fs, BEAM_FS), ["uViewProj", "uCam", "uNight", "uFog", "uFogDensity", "uFogFalloff", "uBeamColumn", "uThread"]);
     gpu.copy = program(full, compileShader(fs, COPY_FS), ["uTex"], { uTex: 0 });
     gpu.bright = program(full, compileShader(fs, BRIGHT_FS), ["uTex", "uThreshold"], { uTex: 0 });
     gpu.blur = program(full, compileShader(fs, BLUR_FS), ["uTex", "uStep"], { uTex: 0 });
@@ -1462,7 +1531,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gpu.shoreBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gpu.shoreBuffer); gl.bufferData(gl.ARRAY_BUFFER, shoreVertices.byteLength, gl.STATIC_DRAW);
     [[0, 3, 0], [1, 3, 3], [4, 4, 6], [5, 4, 10]].forEach(function (input) { gl.enableVertexAttribArray(input[0]); gl.vertexAttribPointer(input[0], input[1], gl.FLOAT, false, SHORE_STRIDE * 4, input[2] * 4); });
     gl.bindVertexArray(null);
-    gpu.movers = ring(movers.capacity); gpu.trails = ring(trails.capacity);
+    gpu.movers = ring(movers.capacity); gpu.trails = ring(trails.capacity); gpu.relay = ring(relayParts.capacity);
     // The shadow map, on its own texture unit for the context's life: smaller on a phone and where the city is shown small (Screens).
     gpu.shadowSize = Math.min(small || shownScale < 0.6 ? 2048 : 4096, gl.getParameter(gl.MAX_TEXTURE_SIZE));
     gl.activeTexture(gl.TEXTURE0 + SHADOW_UNIT);
@@ -1709,6 +1778,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false);
       gl.bindVertexArray(gpu.trails.vaos[0]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, 1);
     }],
+    ["beam", function () {
+      warmAt(sceneFb(), gpu.beam); gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false);
+      gl.uniform4f(gpu.beam.at.uBeamColumn, 0, 1, 1, 1); gl.bindVertexArray(null); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }],
     ["copy", function () { bindTex(0, targets.scene.tex); warmAt(targets.halfA.fb, gpu.copy); warmFull(); }],
     ["bright", function () { bindTex(0, targets.halfA.tex); warmAt(targets.quarterA.fb, gpu.bright); warmFull(); }],
     ["blur", function () { bindTex(0, targets.halfA.tex); warmAt(targets.halfB.fb, gpu.blur); warmFull(); }],
@@ -1773,6 +1846,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform3fv(u.uSun, SUN); gl.uniform3fv(u.uCam, eye); gl.uniform3fv(u.uFog, FOG);
     gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF); gl.uniform1f(u.uNight, night);
     gl.uniform1f(u.uLit, 1); gl.uniform1f(u.uOpaque, 1); gl.uniform1f(u.uEdge, 1); gl.uniform1f(u.uPulse, 0.5 + 0.5 * Math.sin(clock * 2.4));
+    gl.uniform4f(u.uRelay, relay.chargeHeightUnits, relay.floodBottomUnits, relay.floodTopUnits, relay.chargeShare);
     gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
     // The tiles the camera sees, nearest first.
     viewPlanesInto(viewPlanes, vp); seenTiles.length = 0;
@@ -1780,6 +1854,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       tile.distance = Math.hypot((tile.low[0] + tile.high[0]) / 2 - eye[0], (tile.low[2] + tile.high[2]) / 2 - eye[2]); tile.index = ti; seenTiles.push(tile); }
     seenTiles.sort(byDistance);
     for (var si = 0; si < seenTiles.length; si++) { gl.bindVertexArray(gpu.tileVaos[seenTiles[si].index]); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_TOP_COUNT, seenTiles[si].count); }
+    // The Relay's capstone and core, every face (the capstone is seen from below).
+    gl.bindVertexArray(gpu.relay.vaos[gpu.relay.at]); gl.drawArraysInstanced(gl.TRIANGLES, 0, BOX_COUNT, relayParts.count);
     // The shore: its own vertices, with the inputs a row would give held at rest (no offset, unit size, unturned).
     gl.bindVertexArray(gpu.shoreVao); gl.vertexAttrib3f(2, 0, 0, 0); gl.vertexAttrib3f(3, 1, 1, 1); gl.vertexAttrib2f(6, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, SHORE_COUNT);
@@ -1788,6 +1864,17 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniform1f(u.uOpaque, 0); gl.uniform1f(u.uEdge, 0);
     gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE); gl.depthMask(false); // see-through things leave the sky mask alone
     gl.bindVertexArray(gpu.trails.vaos[gpu.trails.at]); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, trails.count);
+    // The Relay's light, premultiplied over what's drawn, both sides.
+    if (relay.threadStrength > 0) {
+      gl.disable(gl.CULL_FACE); gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
+      gl.useProgram(gpu.beam.program); u = gpu.beam.at;
+      gl.uniformMatrix4fv(u.uViewProj, false, vp); gl.uniform3fv(u.uCam, eye); gl.uniform1f(u.uNight, night);
+      gl.uniform3fv(u.uFog, FOG); gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF);
+      var threadBottomY = CAPSTONE_TOP_Y + relay.capstoneLiftUnits;
+      gl.uniform4f(u.uBeamColumn, threadBottomY - 30, 6000, 12, 0);
+      gl.uniform4f(u.uThread, relay.threadStrength, threadBottomY, 1.2, 0);
+      gl.bindVertexArray(null); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
     gl.disable(gl.BLEND); gl.depthMask(true); gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
 
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, multisampled.fb);
@@ -1893,7 +1980,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   // Once the city's fade in is over, nothing behind it is composited any more.
   function markLiveAfter(delayMs) { clearTimeout(liveTimer); liveTimer = setTimeout(guarded(function () { if (phase === "shown") { stage.classList.add("is-live"); freeSnapshot(); } }), delayMs); }
   // The moment as it is, drawn at once, with nothing moved.
-  function drawNow() { aimCamera(camTime, 0); uploadRing(gpu.movers, movers); uploadRing(gpu.trails, trails); drawFrame(); }
+  function drawNow() { aimCamera(camTime, 0); uploadRings(); drawFrame(); }
+  function uploadRings() { uploadRing(gpu.movers, movers); uploadRing(gpu.trails, trails); uploadRing(gpu.relay, relayParts); }
   // Before it has shown, failed or too slow even at the lowest tier: back to the still, for good, and the context given back.
   function giveUp() {
     if (phase === "still") return;
@@ -2082,7 +2170,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // Hidden, the world holds still on its first moment (the placeholder's), so it fades in from exactly what was showing; so does a still.
     advance(isShown && !tool.isStill ? dt : 0, dt, now);
     aimCamera(heavySec >= 0 ? heavySec : camTime, dt);
-    uploadRing(gpu.movers, movers); uploadRing(gpu.trails, trails);
+    uploadRings();
     var timing = gpu.timer ? beginTimer(heavyIndex) : null;
     drawFrame();
     if (timing) endTimer(timing);
