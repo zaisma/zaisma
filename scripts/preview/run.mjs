@@ -231,7 +231,7 @@ async function startServers() {
   // test rooms alone filled it at about 10 MB a minute. Nothing in the preview reads it; an older preview's store goes.
   // And the runtime does a full garbage collection each time it does a small one (--gc-global): each of those calls leaves
   // memory in the runtime that only a full one frees, and with heaps this small V8 hardly ever does one, so the runtime
-  // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stays flat, for 2 to 5% of a core.
+  // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
   rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
   serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
