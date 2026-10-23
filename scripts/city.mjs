@@ -12,8 +12,10 @@
 //   node scripts/city.mjs report  [--at 0] [--sizes phone,desktop] [--themes light,dark]
 //       What the city says of itself once it shows (window.zaismaCityTool.report()): its phase and when it reached each, its tier,
 //       its canvas, the screen's frame interval, the frames it drew, and its rows with their checksum. frames --json includes it too.
+//   Every command takes --base <site> to run against another site (the live one: https://zaisma.com) with no preview here, and with it
+//       --own-script, which puts this checkout's city script in place of the site's, to measure a change against what's live.
 //
-// Sizes: phone (320 x 667 at 2x, touch), desktop (1440 x 900), retina (1440 x 900 at 2x) and big (2560 x 1440). The city reads
+// Sizes: phone (320 x 667 at 2x, touch), phone3 (the same at 3x), desktop (1440 x 900), retina (1440 x 900 at 2x) and big (2560 x 1440). The city reads
 // window.zaismaCityTool, set here before each page loads, to start or hold its camera, pin its Relay's firing and render a still.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,6 +26,7 @@ import { chromeToRun, previewSites } from "./layout-check.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SIZES = {
   phone: { widthPx: 320, heightPx: 667, pixelRatio: 2, isPhone: true },
+  phone3: { widthPx: 320, heightPx: 667, pixelRatio: 3, isPhone: true },
   desktop: { widthPx: 1440, heightPx: 900, pixelRatio: 1, isPhone: false },
   retina: { widthPx: 1440, heightPx: 900, pixelRatio: 2, isPhone: false },
   big: { widthPx: 2560, heightPx: 1440, pixelRatio: 1, isPhone: false },
@@ -94,6 +97,13 @@ async function openCity(chrome, url, { size, theme, tool = {}, throttle = 1, isB
   await send("Emulation.setTouchEmulationEnabled", size.isPhone ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "no-preference" }] });
   if (throttle > 1) await send("Emulation.setCPUThrottlingRate", { rate: throttle });
+  // --base with --own-script: the site's pages with this checkout's city script in place of the site's, to compare against it.
+  if (ownScript) {
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*/js/city.*.js" }] });
+    chrome.listen(sessionId, (method, params) => {
+      if (method === "Fetch.requestPaused") send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: "Content-Type", value: "text/javascript" }], body: Buffer.from(ownScript).toString("base64") });
+    });
+  }
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `window.zaismaCityTool = ${JSON.stringify(tool)};${INSTRUMENT}${isBare ? HIDE_PANE : ""}` });
   const loaded = new Promise((done) => {
     const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -201,11 +211,17 @@ async function stills(chrome, site) {
 }
 
 const [command, ...args] = process.argv.slice(2);
+/** This checkout's city script (CITY_SCRIPT's text in city.ts), for --own-script. */
+const ownScript = args.includes("--own-script") ? (() => {
+  const source = readFileSync(join(ROOT, "apps/site/src/components/city.ts"), "utf8"), start = source.indexOf('pageScript("city", String.raw`') + 'pageScript("city", String.raw`'.length;
+  return source.slice(start, source.indexOf("`);", start));
+})() : null;
 if (!["shots", "frames", "stills", "report"].includes(command)) {
   console.log("Usage: node scripts/city.mjs shots|frames|stills|report [options] (see the top of scripts/city.mjs)");
   process.exit(1);
 }
-const sites = previewSites();
+// --base points it at another site (the live one), which needs no preview here.
+const sites = option(args, "base", null) ? {} : previewSites();
 if (!sites) throw new Error("The preview didn't start: see .wrangler/preview-run/preview.log.");
 const chrome = await openChrome(await chromeToRun(), "zaisma-city-", { isGpu: !args.includes("--software") });
 try {
