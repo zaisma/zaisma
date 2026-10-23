@@ -49,6 +49,20 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
     .bind(today, isHourly ? 1 : 0, monthStart, monthStart)
     .all<{ id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null }>();
   const owners = new Map<string, Credit>();
+  // On the 1st, the month before is judged again for the use its rooms reported after its last run.
+  if (new Date(nowMs).getUTCDate() === 1) {
+    const lastMonthEndMs = Date.parse(`${monthStart}T00:00:00Z`) - 1;
+    const { results: lastMonthGames } = await env.DB.prepare("SELECT id, slug, title, owner_id, monthly_budget_cents FROM games WHERE owner_id IS NOT NULL AND id IN (SELECT game_id FROM room_usage WHERE date = ?)")
+      .bind(new Date(lastMonthEndMs).toISOString().slice(0, 10))
+      .all<{ id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null }>();
+    for (const game of lastMonthGames) {
+      try {
+        await judgeGame(env, game, owners, lastMonthEndMs, { isClosedMonth: true });
+      } catch (error) {
+        console.error("Hosting job: a game's month before failed", game.id, error);
+      }
+    }
+  }
   for (const game of games) {
     try {
       await judgeGame(env, game, owners, nowMs);
@@ -58,8 +72,8 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
   }
 }
 
-/** One game's month: charge, pause or clear, alert. */
-async function judgeGame(env: Env, game: { id: string; title: string; owner_id: string; monthly_budget_cents: number | null }, owners: Map<string, Credit>, nowMs: number): Promise<void> {
+/** One game's month: charge, pause or clear, alert. A month that has ended is only charged: nothing it says reaches the game or its developer. */
+async function judgeGame(env: Env, game: { id: string; title: string; owner_id: string; monthly_budget_cents: number | null }, owners: Map<string, Credit>, nowMs: number, options = { isClosedMonth: false }): Promise<void> {
   const [use, month] = await Promise.all([hostingUseThisMonth(env.DB, game.id, nowMs), gameHostingMonth(env.DB, game.id, nowMs)]);
   const budgetCents = game.monthly_budget_cents;
   let credit = owners.get(game.owner_id) ?? (await creditOf(env.DB, game.owner_id));
@@ -72,11 +86,17 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
     const owedCents = Math.max(0, Math.floor(use.totalCents - FREE_HOSTING_CENTS_PER_MONTH) - chargedCents - writtenOffCents);
     if (owedCents > 0 && credit.balanceCents < owedCents) credit = await topUpAutomatically(env, game.owner_id, credit, nowMs);
     const chargeableCents = Math.max(0, Math.min(owedCents, budgetCents - chargedCents, credit.balanceCents));
-    if (chargeableCents > 0 && (await addHostingCharge(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: chargeableCents, nowMs }))) {
-      chargedCents += chargeableCents;
-      const balanceBeforeCents = credit.balanceCents;
-      credit = { ...credit, balanceCents: credit.balanceCents - chargeableCents };
-      await tellCreditLow(env, game.owner_id, credit, balanceBeforeCents, nowMs);
+    if (chargeableCents > 0) {
+      if (await addHostingCharge(env.DB, { ownerId: game.owner_id, gameId: game.id, amountCents: chargeableCents, monthStartDate: month.month_start_date, monthChargedCents: month.charged_cents, nowMs })) {
+        chargedCents += chargeableCents;
+        const balanceBeforeCents = credit.balanceCents;
+        credit = { ...credit, balanceCents: credit.balanceCents - chargeableCents };
+        await tellCreditLow(env, game.owner_id, credit, balanceBeforeCents, nowMs);
+      } else if ((await gameHostingMonth(env.DB, game.id, nowMs)).charged_cents !== month.charged_cents) {
+        // Another run of the job charged this month since it was read: that run judges it.
+        owners.delete(game.owner_id);
+        return;
+      }
     }
     const isPastFree = use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH;
     if (chargedCents >= budgetCents && isPastFree) reason = "budget_used";
@@ -98,6 +118,7 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   )
     .bind(game.id, month.month_start_date, use.totalCents, chargedCents, writtenOffCents, pausedAtMs, reason)
     .run();
+  if (options.isClosedMonth) return;
   // Told again every run while paused: a restore of the database rolls back what it was told.
   if (pausedAtMs !== null || month.paused_at_ms !== null) await tellDatabase(env, game.id, pausedAtMs);
 

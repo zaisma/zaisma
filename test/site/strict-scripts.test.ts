@@ -137,7 +137,7 @@ describe("the site's script files", () => {
 describe("zaisma.com's transport", () => {
   it("sends Strict-Transport-Security over https", async () => {
     const response = await SELF.fetch(`${SITE}/`);
-    expect(response.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+    expect(response.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains; preload");
   });
 
   it("sends plain http on its own address to https, keeping the path and query", async () => {
@@ -167,7 +167,7 @@ describe("Zaisma's own scrollbar, never the browser's", () => {
   it("is hidden wherever Zaisma's rail takes its place", async () => {
     const page = await (await SELF.fetch(`${SITE}/signin`)).text();
     const styles = await (await SELF.fetch(`${SITE}${page.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
-    expect(styles).toMatch(/\.own-scroll(:where\([^)]*\)[^{]*)?\{ ?scrollbar-width: none; ?\}/);
+    expect(styles).toMatch(/\.own-scroll(:where\([^)]*\)[^{]*)? ?\{ ?scrollbar-width: none; ?\}/);
     expect(styles).toMatch(/\.own-scroll(:where\([^)]*\))?[^{]*::-webkit-scrollbar[^{]*\{ ?display: none; ?\}/);
   });
 });

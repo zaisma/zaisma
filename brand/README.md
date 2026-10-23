@@ -27,7 +27,7 @@ PNG copies of the main files are included at 2048 px (mark) and 2400 px (wordmar
 
 ## Typeface
 
-Headings use **Jost** (`fonts/jost.woff2`, variable weight), a free geometric typeface close to Futura. It's under the SIL Open Font License (`fonts/OFL.txt`). Body text uses the system font.
+Headings use **Jost** (`fonts/jost.7726a5cd.woff2`, variable weight), a free geometric typeface close to Futura. It's under the SIL Open Font License (`fonts/OFL.txt`). Body text uses the system font. The file is named for its contents (the first 8 hex digits of its SHA-256), so browsers keep it for good (`_headers`): a changed font gets a new name, and `test/node/brand-files.test.ts` checks that every page asks for one that's there.
 
 ## Flags
 

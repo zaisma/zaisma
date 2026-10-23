@@ -95,8 +95,8 @@ describe("the site's code", () => {
  * puts there, then change the count.
  */
 const REVIEWED_SINK_COUNTS: Record<string, number> = {
-  "access-choices": 3, "account-gate": 1, "account-link": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "block-sheet": 2, "bot-check": 1, city: 3, "city-pane": 5,
-  components: 27, "design-loops": 3, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 8, "game-updates": 2, home: 6, "layout-inspect": 1,
+  "access-choices": 3, "account-gate": 1, "account-link": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "block-sheet": 2, "bot-check": 2, city: 3, "city-pane": 5,
+  components: 27, "design-loops": 3, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 8, "game-updates": 2, home: 8, "layout-inspect": 1,
   "passkey-add": 4, "passkey-confirm": 1, passkeys: 1, "play-counter": 1, "players-sheet": 3, profile: 1, "qr-png": 1, "report-sheet": 1, saves: 2, screens: 1, "sign-in-while-playing": 1, site: 4, upload: 1,
 };
 

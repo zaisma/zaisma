@@ -19,9 +19,10 @@ export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((sc
 
 /**
  * The same, for the page's <head>, holding its first paint until they've run: a page whose look the scripts finish (the
- * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads.
+ * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads. The browser fetches them
+ * first, ahead of the page's other scripts, which would otherwise share the line with them as the first paint waits.
  */
-export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render"></script>`).join(""));
+export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
 
 /**
  * A script in the page's <head> that runs as it's read, before anything below it: one that sets what the first paint shows (the home's
@@ -97,15 +98,10 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
     var(--brush) 0 0/320px 320px,var(--face);
   box-shadow:var(--rim),var(--drop)}
 
-  background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,rgba(40,44,51,.94),rgba(24,26,31,.94));
-  -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 #000,0 2px 0 rgba(255,255,255,.035),0 12px 30px rgba(0,0,0,.38)}
-
 /* A section heading is engraved, with a machined rule running out to the edge. */
-.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin:48px 0 18px}
-.sec-head h2,.rule-h{display:flex;align-items:center;gap:18px;flex:1 1 auto;margin:0}
+.rule-h{display:flex;align-items:center;gap:18px;flex:1 1 auto;margin:0}
 .rule-h{margin:48px 0 18px}
-.sec-head h2::after,.rule-h::after{content:"";flex:1;min-width:40px;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.32),rgba(230,233,238,0));box-shadow:0 1px 0 rgba(0,0,0,.7)}
+.rule-h::after{content:"";flex:1;min-width:40px;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.32),rgba(230,233,238,0));box-shadow:0 1px 0 rgba(0,0,0,.7)}
 .engraved{height:2px;border:0;margin:0;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) bottom/100% 1px no-repeat}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px}
@@ -434,8 +430,17 @@ main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
 main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 0 18px; }
 `;
 
-/** Every page's styles in one cached file: the components' look, the shell and Steel. */
-export const SITE_STYLE = pageStyle("site", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
+/**
+ * A page's styles in one cached file. A page built only in Zaisma's look gets the components' look and the shell, as written: with no Steel
+ * on it, every rule outsideSteel guards holds and none of Steel's can, so it looks exactly the same without the 2,000 guards a browser
+ * would otherwise check on each element, or Steel's own rules. A page with Steel on it (a body not rebuilt yet, or a component placed in
+ * one with not-steel) gets them all.
+ */
+export const SITE_STYLE = pageStyle("site", () => COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "") + SHELL_STYLES);
+export const STEEL_SITE_STYLE = pageStyle("site-steel", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
+
+/** Whether a page's markup has Steel in it: a body not rebuilt yet (class steel), or a component placed in one (not-steel). */
+export const hasSteel = (markup: string): boolean => /\bclass="[^"]*\b(?:not-)?steel\b/.test(markup);
 
 // Every page's own script: the metal hover, the page's colors following the game pointed at, and
 // buttons that show they're working.
@@ -519,11 +524,14 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
 /**
  * A signed-in player's page checks in while it's on screen, so friends see them online (friends-now.ts);
  * a game page says which game once Play is pressed (body data-presence-game), and that it left as it closes.
+ * The last check-in is kept for the tab: a page opened within a minute of it checks in when the next one is due, so moving from
+ * page to page keeps the same beat as one page left open. A page that says which game checks in at once.
  */
-const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body;
-const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();const g=b.dataset.presenceGame;
+const PRESENCE_SCRIPT = pageScript("presence", `(()=>{if(!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie))return;let last=0,off=false;const b=document.body,KEY="zaisma:checked-in-at-ms";
+try{last=Number(sessionStorage.getItem(KEY))||0}catch{}if(last>Date.now())last=0;
+const beat=()=>{if(off||document.visibilityState!=="visible")return;last=Date.now();try{sessionStorage.setItem(KEY,String(last))}catch{}const g=b.dataset.presenceGame;
 fetch("/api/presence",{method:"POST",body:JSON.stringify(g?{game_slug:g}:{}),keepalive:true}).then(r=>{if(r.status===401)off=true}).catch(()=>{})};
-beat();setInterval(beat,${PRESENCE_CHECK_IN_MS});document.addEventListener("visibilitychange",()=>{if(Date.now()-last>60000)beat()});
+const start=()=>{beat();setInterval(beat,${PRESENCE_CHECK_IN_MS})};if(b.dataset.presenceGame||Date.now()-last>60000)start();else setTimeout(start,last+${PRESENCE_CHECK_IN_MS}-Date.now());document.addEventListener("visibilitychange",()=>{if(Date.now()-last>60000)beat()});
 new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-presence-game"]});
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
@@ -592,9 +600,12 @@ export interface LayoutOptions {
   isRebuilt?: boolean;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
+  /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
+  steelStyles?: PageStyle[];
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
+  const sheet = options.isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
@@ -607,11 +618,11 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="${FONT_PATH}" as="font" type="font/woff2" crossorigin>
 ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
-${styleTags(SITE_STYLE)}
+${styleTags(sheet, ...(options.steelStyles ?? []))}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
@@ -619,14 +630,32 @@ ${options.stage ?? backdrop()}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
-<main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
+<main${options.isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
+  // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made.
+  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
+  // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
+  const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
+  return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
 }
+
+/** Jost, named for its contents (brand/fonts), so it's cached for good: the same path tokens.ts's @font-face loads. */
+const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
+
+/** Where pages' speculation rules are served (index.ts). */
+export const SPECULATION_RULES_PATH = "/speculation-rules.json";
+
+/**
+ * Every page's speculation rules: a link to a game's page (/g/<slug>, not its report or rooms) is fetched ahead once the pointer rests
+ * on it or presses it ("moderate"), so the page is there when the click lands; browsers without them just follow the link. Fetched only,
+ * never prerendered: a prerendered game page would run its scripts (checking in, the play count, the game's site warming up) for a page
+ * the player may never open. A same-origin file, so the page's Content-Security-Policy allows it as it is.
+ */
+export const SPECULATION_RULES = { prefetch: [{ source: "document", where: { and: [{ href_matches: "/g/*" }, { not: { href_matches: "/g/*/*" } }] }, eagerness: "moderate" }] };
 
 /**
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the

@@ -99,7 +99,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
  * glass over it whatever the theme, since the theme changes only Zaisma's own backgrounds.
  */
 export const TOKEN_STYLES = `
-@font-face { font-family: Jost; src: url(/fonts/jost.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: Jost; src: url(/fonts/jost.7726a5cd.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
 @property --tint-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }

@@ -2,7 +2,7 @@ import type { Env } from "./env.ts";
 import { pageScript } from "./page-scripts.ts";
 
 /**
- * Cloudflare's invisible check (Turnstile): a real browser, not a script. It runs as the page opens and
+ * Cloudflare's invisible check (Turnstile): a real browser, not a script. It runs in the background and
  * never shows a puzzle; its answer is a one-use token the page sends along. Play uses it to count plays
  * (plays.ts), making an account uses it to stop mass sign-ups, and passwords from new devices and asking
  * for email codes use it to stop scripts guessing and sending (account.ts).
@@ -38,14 +38,32 @@ export async function isRealBrowser(env: Env, token: unknown, action: TurnstileA
 
 /**
  * The browser side for forms: each box with data-bot-check (its action) and data-site-key runs the check
- * as the page opens and puts its answer in its form's hidden `turnstile_token` field. Pressing the button
- * before the answer is in waits for it (up to 15 seconds), then sends the form either way; the server says
- * so if the check didn't pass.
+ * once the player starts on its form (focus, a press or a key, or sending it), so a visit that never uses the
+ * form, or signs in with a passkey, never loads Cloudflare's script. The answer goes in its form's hidden
+ * `turnstile_token` field. Pressing the button before the answer is in waits for it (up to 15 seconds), then
+ * sends the form either way; the server says so if the check didn't pass.
  */
 export const BOT_CHECK_SCRIPT = pageScript("bot-check", `(() => {
-  const checks = [...document.querySelectorAll("[data-bot-check]")].map((box) => {
+  const CHECK_ORIGIN = "https://challenges.cloudflare.com";
+  // Cloudflare's script, fetched once, the first time a form needs it, with its connection opened at the same moment
+  // for the check's own frame.
+  let loading = null;
+  const load = () => (loading ||= new Promise((resolve, reject) => {
+    if (window.turnstile) return resolve();
+    const hint = document.createElement("link");
+    hint.rel = "preconnect";
+    hint.href = CHECK_ORIGIN;
+    document.head.appendChild(hint);
+    const script = document.createElement("script");
+    script.src = CHECK_ORIGIN + "/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject();
+    document.head.appendChild(script);
+  }));
+  document.querySelectorAll("[data-bot-check]").forEach((box) => {
     const form = box.closest("form"), field = form.querySelector('input[name="turnstile_token"]');
-    let waiting = null, broken = false;
+    let waiting = null, broken = false, isStarted = false;
     const settle = () => { const send = waiting; waiting = null; if (send) send(); };
     const answered = (token) => { field.value = token || ""; settle(); };
     const giveUp = () => { broken = true; settle(); };
@@ -54,7 +72,10 @@ export const BOT_CHECK_SCRIPT = pageScript("bot-check", `(() => {
         turnstile.render(box, { sitekey: box.dataset.siteKey, action: box.dataset.botCheck, appearance: "interaction-only", "refresh-expired": "auto", callback: answered, "expired-callback": () => (field.value = ""), "error-callback": giveUp, "timeout-callback": giveUp });
       } catch { broken = true; }
     };
+    const start = () => { if (isStarted) return; isStarted = true; load().then(go, giveUp); };
+    for (const type of ["focusin", "pointerdown", "keydown"]) form.addEventListener(type, start, { once: true });
     form.addEventListener("submit", (event) => {
+      start();
       if (field.value || broken) return;
       event.preventDefault();
       if (waiting) return;
@@ -62,16 +83,5 @@ export const BOT_CHECK_SCRIPT = pageScript("bot-check", `(() => {
       const timer = setTimeout(giveUp, 15000);
       waiting = () => { clearTimeout(timer); form.requestSubmit(submitter); };
     });
-    return { go, giveUp };
   });
-  if (!checks.length) return;
-  if (window.turnstile) checks.forEach((check) => check.go());
-  else {
-    const script = document.createElement("script");
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-    script.async = true;
-    script.onload = () => checks.forEach((check) => check.go());
-    script.onerror = () => checks.forEach((check) => check.giveUp());
-    document.head.appendChild(script);
-  }
 })();`);

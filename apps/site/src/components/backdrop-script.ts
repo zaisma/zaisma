@@ -8,8 +8,8 @@ import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER 
  * (backgrounds.ts) is "frame", an iframe of its shader runner on the game's site, which is told where the glass over it is and whether the
  * page is idle ({ panes, isIdle }), or "picture", an img; either measures its glass (data-adapts-glass) from the still in data-backdrop-still
  * (or the picture), never the frame. Either way this keeps the canvas sized to its box, follows the theme (a shader's iDark eases from one to
- * the other), runs at most 30 frames a second (15 after a minute with no input on the page, 30 again on the first), stops while the page is
- * hidden or the canvas is out of view, and under reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD
+ * the other), runs at most 30 frames a second, rests on a still after a minute with no input on the page (a game's frame drops to 15 a
+ * second), stops while the page is hidden or the canvas is out of view, and under reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD
  * and the glass pass round its mainImage, with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
  * a phone), then sharpened as it's scaled up to its canvas (SHADER_UPSCALE_SOURCE); it gets fewer pixels, then a still frame, on a device that
  * can't keep up. Without WebGL2 a shader backdrop keeps its CSS gradient in the theme's colors.
@@ -20,7 +20,15 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var DRAW_SHARE = ${SHADER_LIMITS.runtimeDrawShareNumber}, UPSCALE_NUMBER = ${SHADER_LIMITS.runtimeUpscaleNumber}, IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000};
   var FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeMaximumFps)}, IDLE_FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeIdleFramesPerSec)};
   var still = window.matchMedia("(prefers-reduced-motion: reduce)");
-  var layers = [], lastMs = 0, running = false;
+  var layers = [], lastMs = 0, running = false, isWaking = false;
+  // Until the first frame, which runs before the page's first paint, a layer set up draws in that frame rather than at once, so its shader
+  // builds while the page does its other work; one set up later (the home's game backgrounds) draws at once, never showing empty.
+  var isFirstPaintDue = true;
+  /*
+   * Frames are asked for only while something will be drawn: a shader or scene moving in view, a fade, or glass that moved over it. Otherwise
+   * the loop rests and asks the browser for nothing, so a page holding still costs nothing, until one of those starts again and wakes it.
+   */
+  function wake() { if (running) return; running = true; isWaking = true; requestAnimationFrame(frame); }
   function rgb(value) {
     var digits = value.trim().replace("#", "");
     if (digits.length === 3) digits = digits.split("").map(function (d) { return d + d; }).join("");
@@ -38,7 +46,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
    * resizes or a piece of glass changes size; never every frame. A piece of glass is over the backdrop of the nearest box holding one.
    */
   var isListStale = true, isPlaceStale = true, candidates = [], watched = typeof WeakSet === "function" ? new WeakSet() : null;
-  function markPlaceStale() { isPlaceStale = true; }
+  function markPlaceStale() { isPlaceStale = true; wake(); }
   function hostOf(el) { return el.closest(":has(> .backdrop)"); }
   function readList() {
     isListStale = false; isPlaceStale = true;
@@ -150,17 +158,12 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     try { frameWindow.postMessage({ panes: panes, isIdle: isIdle }, new URL(layer.canvas.src).origin); } catch (error) { /* a frame without its page yet */ }
   }
   /*
-   * Idle: after a minute with no input on the page, backdrops draw 15 frames a second instead of 30, and a game's frame is told so; the
-   * first input brings 30 back at once.
+   * Idle: after a minute with no input on the page (touched, below), a game's frame is told so and draws 15 frames a second instead of 30,
+   * and the first input brings 30 back at once. A timer marks it, since the loop may be resting then.
    */
-  var isIdle = false, lastInputMs = Date.now();
-  function noteInput() {
-    lastInputMs = Date.now();
-    if (!isIdle) return;
-    isIdle = false; tellFramesIdle();
-  }
+  var isIdle = false, idleTimer = 0;
+  function goIdle() { isIdle = true; tellFramesIdle(); }
   function tellFramesIdle() { layers.forEach(function (layer) { if (layer.kind === "frame") tellFrame(layer); }); }
-  ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "scroll"].forEach(function (name) { window.addEventListener(name, noteInput, { passive: true, capture: true }); });
   /*
    * Every shader on the page draws in one WebGL2 context, off screen, and each frame is copied into its own canvas. A browser keeps only
    * about 16 contexts at once (across the site's tabs and frames) and takes the oldest away past that, which a page of many backdrops (the
@@ -186,7 +189,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
     prepare();
     board.addEventListener("webglcontextlost", function (event) { event.preventDefault(); shared.isLost = true; });
-    board.addEventListener("webglcontextrestored", function () { shared.programs = {}; shared.isLost = false; prepare(); layers.forEach(function (layer) { layer.isDrawn = false; }); });
+    board.addEventListener("webglcontextrestored", function () { shared.programs = {}; shared.isLost = false; prepare(); layers.forEach(function (layer) { layer.isDrawn = false; }); wake(); });
     return shared;
   }
   // A program set compiling and linking; settle() reads how it went once it's done, without waiting on it where the browser can.
@@ -244,7 +247,11 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     programFor(context, source);
     return function (timeS, colors, layer) {
       var context = sharedContext(), built = context && programFor(context, source);
-      if (!built || !settle(built) || !settle(context.upscale)) return false;
+      if (!built || !settle(built) || !settle(context.upscale)) {
+        // Neither the shader with the glass pass nor alone built here: the layer is lost, and the CSS gradient under it stays.
+        if (built && (built.status === "failed" || context.upscale.status === "failed")) layer.isLost = true;
+        return false;
+      }
       // The canvas's own picture is taken only now: taken before its first frame, it would show black over the gradient under it.
       picture = picture || canvas.getContext("2d", { alpha: false });
       if (!picture) return false;
@@ -289,23 +296,56 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     return { base: mix(from.base, to.base, eased), a: mix(from.a, to.a, eased), b: mix(from.b, to.b, eased), c: mix(from.c, to.c, eased), isDark: eased < 0.5 ? from.isDark : to.isDark,
       darkShare: (from.darkShare !== undefined ? from.darkShare : from.isDark ? 1 : 0) + ((to.isDark ? 1 : 0) - (from.darkShare !== undefined ? from.darkShare : from.isDark ? 1 : 0)) * eased };
   }
+  /*
+   * The backdrop's clock: the wall clock, not the page's own, so moving to another page it carries on where it was instead of starting over.
+   * Once nobody has touched the page for a minute (no pointer, key, wheel or scroll), it slows to a stop over a second and the backdrop rests
+   * on that still, costing nothing; the next touch eases it back. It then runs as far behind the wall clock as it rested, kept for the tab,
+   * so the next page goes on from the same picture.
+   */
+  var EASE_MS = 1000, LAG_KEY = "zaisma:backdrop-lag-s", lastInputMs = performance.now(), clockRate = 1, clockMs = performance.now(), isAsleep = false;
+  var clockS = Date.now() / 1000; try { clockS -= Number(sessionStorage.getItem(LAG_KEY)) || 0; } catch (error) { /* storage blocked */ }
+  function tickClock(nowMs) {
+    var stepMs = Math.max(0, nowMs - clockMs); clockMs = nowMs;
+    clockRate = nowMs - lastInputMs > IDLE_AFTER_MS ? Math.max(0, clockRate - stepMs / EASE_MS) : Math.min(1, clockRate + stepMs / EASE_MS);
+    clockS += clockRate * stepMs / 1000;
+    isAsleep = clockRate === 0;
+  }
+  function touched() {
+    lastInputMs = performance.now();
+    clearTimeout(idleTimer); idleTimer = setTimeout(goIdle, IDLE_AFTER_MS);
+    if (isIdle) { isIdle = false; tellFramesIdle(); }
+    if (!isAsleep) return;
+    isAsleep = false; clockMs = lastInputMs;
+    layers.forEach(function (layer) { layer.isDrawn = false; });
+    wake();
+  }
+  ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"].forEach(function (type) { window.addEventListener(type, touched, { passive: true, capture: true }); });
+  idleTimer = setTimeout(goIdle, IDLE_AFTER_MS);
+  window.addEventListener("pagehide", function () { try { sessionStorage.setItem(LAG_KEY, String(Date.now() / 1000 - clockS)); } catch (error) { /* storage blocked */ } });
   function draw(layer, nowMs) {
     if (layer.isOuter) return;
-    // The wall clock, not the page's own: moving to another page, the backdrop carries on where it was instead of starting over.
-    var timeS = still.matches ? 20 : (Date.now() / 1000) % 3600;
+    var timeS = still.matches ? 20 : clockS % 3600;
     layer.colors = shownColors(layer, nowMs);
     var isDrawnNow = true;
-    if (layer.drawShader) isDrawnNow = layer.drawShader(timeS, layer.colors, layer);
+    if (layer.drawShader) { isDrawnNow = layer.drawShader(timeS, layer.colors, layer); if (layer.isLost) { layer.canvas.classList.remove("is-drawn"); return; } }
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colors: layer.colors, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
     layer.isDrawn = isDrawnNow && !layer.from;
   }
+  // Whether a layer still has frames to draw: a shader or scene moving in view, or one that hasn't drawn its still yet.
+  function isMoving(layer) {
+    if (layer.isOuter || !layer.isInView || layer.isLost || layer.canvas.hasAttribute("data-backdrop-paused")) return false;
+    return !((layer.isHeld || still.matches || isAsleep) && layer.isDrawn);
+  }
   function frame(nowMs) {
-    requestAnimationFrame(frame);
-    if (!isIdle && Date.now() - lastInputMs > IDLE_AFTER_MS) { isIdle = true; tellFramesIdle(); }
+    running = false;
+    // A hidden page draws nothing; showing it again wakes the loop.
+    if (document.hidden) return;
     // At most 30 frames a second (15 when idle), but at once when the glass over it has moved (a scroll), so what's under a pane never trails it.
     var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
-    if (document.hidden || (nowMs - lastMs < gapGoalMs && !isPlaceStale)) return;
-    var gapMs = nowMs - lastMs; lastMs = nowMs;
+    if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
+    // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
+    var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isFirstPaintDue = false;
+    tickClock(nowMs);
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
     layers.forEach(function (layer) {
@@ -319,7 +359,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       if (layer.drawShader && (isMoved || !layer.glass)) placeGlass(layer);
       // Still (reduced motion, or held on a slow device), it's drawn again only when the glass over it moves.
-      if ((layer.isHeld || still.matches) && layer.isDrawn) return;
+      if ((layer.isHeld || still.matches || isAsleep) && layer.isDrawn) return;
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
         layer.slowS = gapMs > gapGoalMs * 1.5 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
@@ -327,6 +367,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       draw(layer, nowMs);
     });
+    if (isPlaceStale || isListStale || layers.some(isMoving)) { running = true; requestAnimationFrame(frame); }
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {
@@ -337,13 +378,14 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       layer.from = layer.colors; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false; layer.isGlassAdapted = false;
       if (layer.isInView) draw(layer, nowMs);
     });
+    wake();
   }
   // A game's own frame or picture: nothing to draw here, only the glass over it to place, tell and measure.
   function setUpOuter(el, kind) {
     var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null };
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
-    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } }; window.addEventListener("message", layer.onMessage); }
+    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markPlaceStale(); } }; window.addEventListener("message", layer.onMessage); }
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
       // A background whose tone was measured when it was added says its glass (background-tone.ts): nothing to measure here.
@@ -352,13 +394,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
       if (!el.hasAttribute("data-adapts-glass") || !stillUrl) return;
       var picture = new Image();
-      picture.onload = function () { if (el.getAttribute("data-backdrop-still") !== stillUrl && kind !== "picture") return; layer.still = picture; layer.isGlassAdapted = false; isPlaceStale = true; };
+      picture.onload = function () { if (el.getAttribute("data-backdrop-still") !== stillUrl && kind !== "picture") return; layer.still = picture; layer.isGlassAdapted = false; markPlaceStale(); };
       picture.src = stillUrl;
     }
     loadStill();
     new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src", "data-glass-kind"] });
-    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(el);
-    if (!running) { running = true; requestAnimationFrame(frame); }
+    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.isInView) markPlaceStale(); }).observe(el);
+    markPlaceStale();
   }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
@@ -384,15 +426,17 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       if (width === canvas.width && height === canvas.height) return;
       canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
-      if (canvas.backdropLayer) draw(layer, performance.now());
+      if (canvas.backdropLayer && !isFirstPaintDue) draw(layer, performance.now());
     };
     layer.size();
     window.zaismaWatch.size(canvas, layer.size);
-    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(canvas);
+    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.onView) layer.onView(); if (layer.isInView) wake(); }).observe(canvas);
+    // A page pausing a layer and letting it go again (the home, as a game's background covers Zaisma's) wakes the loop.
+    new MutationObserver(wake).observe(canvas, { attributes: true, attributeFilter: ["data-backdrop-paused"] });
     layers.push(layer);
     // The first frame is drawn at once, so the canvas never shows empty while it waits for the next animation frame.
-    draw(layer, performance.now());
-    if (!running) { running = true; requestAnimationFrame(frame); }
+    if (!isFirstPaintDue) draw(layer, performance.now());
+    wake();
   }
   document.querySelectorAll("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']").forEach(setUp);
   /*
@@ -401,12 +445,12 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
    * glass go back to the theme's own, for a page that returns to Zaisma's backdrop from a game's. A layer with data-backdrop-paused is not drawn.
    */
   window.zaismaBackdrop = {
-    add: function (el) { isListStale = true; setUp(el); },
+    add: function (el) { isListStale = true; setUp(el); wake(); },
     remove: function (el) {
       var layer = el.backdropLayer; if (!layer) return;
       layers = layers.filter(function (each) { return each !== layer; });
       if (layer.onMessage) window.removeEventListener("message", layer.onMessage);
-      el.backdropLayer = null; isPlaceStale = true;
+      el.backdropLayer = null; markPlaceStale();
     },
     forgetGlass: function () {
       document.querySelectorAll(":has(> .backdrop)").forEach(function (host) { host.shownGlass = null; });
@@ -423,8 +467,10 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     isListStale = changes.some(function (change) {
       return change.type === "attributes" ? change.target.hasAttribute("data-glass") : Array.prototype.some.call(change.addedNodes, hasGlass) || Array.prototype.some.call(change.removedNodes, hasGlass);
     });
+    if (isListStale) wake();
   });
-  document.addEventListener("toggle", function () { isListStale = true; }, true);
+  document.addEventListener("toggle", function () { isListStale = true; wake(); }, true);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) wake(); });
   // The theme can change in place (a data-theme-choice switch, or the system's), and the colors follow it.
   new MutationObserver(refresh).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice"] });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);

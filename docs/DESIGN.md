@@ -338,7 +338,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs. A choice that's hard to take back asks first, in a confirm sheet.
   - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string }`, `items: DropdownItem[]`, `isOpen?: boolean`
 - **Game cover** (`gameCover(options: GameCoverOptions)`, `panes.ts`): A game in a list: the studio's art, bare, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.
-  - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`
+  - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`, `isEager?: boolean`, `hasHighPriority?: boolean`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it. Its title, Close and its buttons stay in view while the rest scrolls.
   - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `buttons?: ControlMarkup[]`, `action?: string`, `placement?: "center" | "foot"`, `isShown?: boolean`
 - **Confirm sheet** (`confirmSheet(options: ConfirmSheetOptions)`, `panes.ts`): One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. A delete's confirm is Delete button's own, the only red one.
