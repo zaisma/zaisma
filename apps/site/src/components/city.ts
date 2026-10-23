@@ -63,9 +63,10 @@ ${options.after ?? ""}</div>`;
 /*
  * The city script. From the draft's "Small seeded random" to its end, unchanged in look. What's new:
  * - It finds its canvas and the pane over it on the page, and works in the canvas's own box (the gallery frames it).
- * - Quality tiers (TIERS): a wide screen starts at 1.5 pixels per CSS pixel and at most about 3.2 million pixels, a phone (a coarse
- *   pointer, or narrower than 760px) at 1, sharpened lightly where that's fewer than the screen has. Below them, 30 frames a second,
- *   then 2x anti-aliasing, then no bloom or depth of field and half the flyers. It settles on a tier while it's
+ * - Quality tiers (TIERS): a wide screen starts at 1.5 pixels per CSS pixel and at most about 3.2 million pixels, sharpened lightly
+ *   where that's fewer than the screen has; a phone (a coarse pointer, or narrower than 760px) at its screen's own pixels up to 2 per
+ *   CSS pixel and 1.4 million, then the wide screen's tiers down to 1. Below them, 30 frames a second, then 2x anti-aliasing, then no
+ *   bloom or depth of field and half the flyers. It settles on a tier while it's
  *   hidden, steps down when it can't keep pace and back up when it can. Slow even at the lowest, the still comes back and it stops.
  * - A tropical haze over everything, thick at the sea and thinning with height, warm toward the sun by day and dark blue at night.
  * - It starts once the page has painted, so the still and the pane never wait for it, and it's built in small steps between frames
@@ -320,7 +321,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // void's own tone (uFog), so only the orange carvings and the players draw it.
     "  col = mix(uFog, col, mix(0.26, 1.0, uNight));\n" +
     // The foundation's tiers: a thin line of cool light along the top edge of each, faint by day and glowing at night: the island's edge.
-    "  if (isWall && kind == 9) { float fromTop = (1.0 - vLocal.y) * vSize.y, edgeLine = 1.0 - smoothstep(0.12, 0.12 + max(fwidth(fromTop), 0.02) * 1.5, fromTop);\n" +
+    "  if (isWall && kind == 9) { float fromTop = (1.0 - vLocal.y) * vSize.y, edgeLine = lineAt(fromTop, 0.12, max(fwidth(fromTop), 1e-4));\n" +
     "   vec3 edgeTone = mix(vec3(0.85, 0.97, 1.0), vec3(0.35, 0.7, 1.0), uNight); col = mix(col, edgeTone, edgeLine * 0.25 * (1.0 - uNight)); glow += edgeTone * edgeLine * 0.4 * uNight; }\n" +
     // When the Relay fires: how long ago its wave passed this row's origin (each point, on the ground's own mesh), so a row lights whole,
     // like a pixel: hit flashes and fades fast, hold lingers, pass is the moment it goes by.
@@ -330,10 +331,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     // Before it fires, a front runs in along the arms to the dais (uWave.z, uWave.w): armPass is the moment it passes this row's origin.
     "  float armSince = max(abs(vOrigin.x), abs(vOrigin.y)) - uWave.z, armPass = uWave.w > 0.0 && armSince >= 0.0 ? exp(-armSince / 40.0) * uWave.w : 0.0;\n" +
     // The carvings: thin grooves up the middle of two opposite faces, and a band round the top, a faint warm line by day that glows at night.
+    // Drawn with lineAt, so where they're thinner than a pixel they fade instead of blinking.
     "  if (isWall && kind >= 1 && kind <= 3) {\n" +
     "   float upUnits = vLocal.y * vSize.y, fromTop = vSize.y - upUnits, across = abs(abs(vFace.x) > 0.5 ? vLocal.z : vLocal.x) * (abs(vFace.x) > 0.5 ? vSize.z : vSize.x);\n" +
-    "   float groove = kind == 1 && abs(vFace.x) > 0.5 ? 1.0 - smoothstep(0.16, 0.16 + fwidth(across) * 1.5, across) : 0.0;\n" +
-    "   float band = kind <= 2 && vMaterial.y < 0.5 ? 1.0 - smoothstep(0.2, 0.2 + fwidth(fromTop) * 1.5, abs(fromTop - 0.8)) : 0.0;\n" +
+    "   float groove = kind == 1 && abs(vFace.x) > 0.5 ? lineAt(across, 0.16, max(fwidth(across), 1e-4)) : 0.0;\n" +
+    "   float band = kind <= 2 && vMaterial.y < 0.5 ? lineAt(fromTop - 0.8, 0.2, max(fwidth(fromTop), 1e-4)) : 0.0;\n" +
     "   float tip = kind == 3 ? smoothstep(0.88, 0.94, vLocal.y) * (0.6 + 0.4 * uPulse) : 0.0;\n" +
     "   float carved = max(max(groove, band), tip); carvedMask = carved;\n" +
     "   col = mix(col, carve * mix(0.85, 0.3, uNight), carved * mix(0.75, 1.0, uNight)); glow += carve * carved * uNight * 1.5; }\n" +
@@ -1962,10 +1964,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* The quality tiers, best first: how many pixels each draws per CSS pixel and at most in all, its anti-aliasing samples, its bloom
      levels (none: no bloom and no soft focus), the share of the flyers shown, its frames a
      second, its GPU cost per pixel against tier 0's (to jump straight to one that fits), and whether the Relay's firing has its extras
-     (the sea's reflection and lift, the sky's glow, ring and lattice, and the beam's light on faces). A wide screen starts at the top, a
-     phone at PHONE_TOP_TIER, a device with little memory two lower; the city never goes above where it started. Hidden while it warms
+     (the sea's reflection and lift, the sky's glow, ring and lattice, and the beam's light on faces). A phone starts at the top, at its
+     screen's own pixels: at one per CSS pixel on a screen with two or three, every edge is stepped and a fine glowing line a rendered
+     pixel wide blinks as it slides between them. Two samples do there: its GPU time goes on its pixels, not on its samples. A wide screen starts at WIDE_TOP_TIER, a device with little memory two lower; the city never goes above where it started. Hidden while it warms
      up, it settles on a tier that keeps pace; shown, govern() steps down when it stops keeping pace and back up when there's room again. */
   var TIERS = [
+    { pixelsPerCssPixel: 2, maximumPixelCount: 1.4e6, sampleCount: 2, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
     { pixelsPerCssPixel: 1.5, maximumPixelCount: 3.2e6, sampleCount: 4, bloomLevelCount: 4, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
     { pixelsPerCssPixel: 1.25, maximumPixelCount: 2.2e6, sampleCount: 4, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
     { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 4, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 60, costPct: 100, hasBeamExtras: true },
@@ -1973,7 +1977,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     { pixelsPerCssPixel: 1, maximumPixelCount: 1.4e6, sampleCount: 2, bloomLevelCount: 3, shownFlyerPct: 100, framesPerSec: 30, costPct: 85, hasBeamExtras: true },
     { pixelsPerCssPixel: 0.8, maximumPixelCount: 1.0e6, sampleCount: 2, bloomLevelCount: 0, shownFlyerPct: 50, framesPerSec: 30, costPct: 70, hasBeamExtras: false }
   ];
-  var PHONE_TOP_TIER = 2, LOWEST_TIER = TIERS.length - 1, topTier = 0, tierIndex = 0, tierLeftCounts = [0, 0, 0, 0, 0, 0], tierSinceMs = 0, fewerSamplesSinceMs = 0;
+  var PHONE_TOP_TIER = 0, WIDE_TOP_TIER = 1, LOWEST_TIER = TIERS.length - 1, topTier = WIDE_TOP_TIER, tierIndex = WIDE_TOP_TIER, tierLeftCounts = [0, 0, 0, 0, 0, 0, 0], tierSinceMs = 0, fewerSamplesSinceMs = 0;
   // How small the page is shown (Screens shows it scaled down in a frame): it needs no more pixels than that.
   var shownScale = 1;
   function pixelRatioFor(index) {
@@ -1991,11 +1995,17 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     width = Math.max(1, Math.floor(cssWidth * ratio)); height = Math.max(1, Math.floor(cssHeight * ratio));
     canvas.width = width; canvas.height = height;
     makeTargets(width, height);
+    // The phone's bloom was made at a pixel per CSS pixel: at k times that it blurs k times as far (in more passes, as blurs add in
+    // squares), so it glows as wide on the screen.
+    var k = topTier === PHONE_TOP_TIER ? Math.max(1, ratio) : 1;
+    bloomBlur = { steps: Math.round(2 * k), spread: 1.6 * Math.sqrt(k) };
     fitTier();
   }
+  var bloomBlur = { steps: 2, spread: 1.6 };
   // The tier's part of the targets, and how much to sharpen it: none where it has as many pixels as the screen wants, more the fewer it has.
   function fitTier() {
-    var ratio = pixelRatioFor(tierIndex), wanted = Math.min((window.devicePixelRatio || 1) * shownScale, TIERS[topTier].pixelsPerCssPixel);
+    // A phone that steps down is sharpened only below a pixel per CSS pixel, as before it had more: sharpening a stretched picture makes fine lines blink.
+    var ratio = pixelRatioFor(tierIndex), wanted = Math.min((window.devicePixelRatio || 1) * shownScale, topTier === PHONE_TOP_TIER ? 1 : TIERS[topTier].pixelsPerCssPixel);
     drawWidth = Math.min(width, Math.max(1, Math.floor(cssWidth * ratio))); drawHeight = Math.min(height, Math.max(1, Math.floor(cssHeight * ratio)));
     sharpen = tool.isStill ? 0 : Math.min(0.5, Math.max(0, 1 - ratio / wanted) * 0.9);
   }
@@ -2241,7 +2251,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       drawTo(targets.halfA); gl.useProgram(gpu.copy.program); bindTex(0, source.tex); drawFull();
       drawTo(targets.quarterA); gl.useProgram(gpu.bright.program); bindTex(0, targets.halfA.tex); gl.uniform1f(gpu.bright.at.uThreshold, 0.97);
       gl.uniform1f(gpu.bright.at.uOrangeBoost, 2.6 * (1 - 0.5 * relay.intensity)); drawFull();
-      blurPasses(targets.quarterA, targets.quarterB, 2, 1.6);
+      blurPasses(targets.quarterA, targets.quarterB, bloomBlur.steps, bloomBlur.spread);
     }
 
 
@@ -2597,7 +2607,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     loseExtension = gl.getExtension("WEBGL_lose_context");
     setPhase("building");
     try { var frame = window.frameElement; if (frame && frame.offsetWidth) shownScale = Math.min(1, frame.getBoundingClientRect().width / frame.offsetWidth); } catch (error) {}
-    topTier = tool.isStill ? 0 : small || coarse ? PHONE_TOP_TIER : 0;
+    topTier = tool.isStill ? WIDE_TOP_TIER : small || coarse ? PHONE_TOP_TIER : WIDE_TOP_TIER;
     if (!tool.isStill && navigator.deviceMemory && navigator.deviceMemory <= 2) topTier = Math.min(LOWEST_TIER, topTier + 2);
     tierIndex = topTier;
     makeGpu();
