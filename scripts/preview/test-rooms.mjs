@@ -6,6 +6,10 @@ import WebSocket from "ws";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newCode = () => Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join("");
 let address = 0;
+/** Paused while the preview sleeps (run.mjs): test players wait to come back until it's awake, so they don't wake it. */
+export const testPlayers = { isPaused: false };
+/** Runs this in a while, or once the preview is awake again. */
+const later = (next, ms) => setTimeout(() => (testPlayers.isPaused ? later(next, 2000) : next()), ms);
 /** A made-up address of its own for each request and connection, so test players never use up your own limits. */
 const madeUpAddress = () => `198.51.100.${(address++ % 254) + 1}`;
 /** The preview's zaisma.com, where test players get their keys to passes like a browser does. */
@@ -61,12 +65,12 @@ function stayIn(rooms, origin, game, code, pass, first) {
   });
   ws.on("error", () => {});
   // Back in after a restart; a refusal (4001) or an ended match (4000) is final.
-  ws.on("close", (why) => why !== 4000 && why !== 4001 && setTimeout(() => stayIn(rooms, origin, game, code, pass, first), 2000));
+  ws.on("close", (why) => why !== 4000 && why !== 4001 && later(() => stayIn(rooms, origin, game, code, pass, first), 2000));
 }
 
 /** Another lobby player, trying again while the rooms server restarts (it does when files change). */
 function lobbyAgain(rooms, origin, code, ms) {
-  setTimeout(() => lobbyBot(rooms, origin, code).catch(() => lobbyAgain(rooms, origin, code, 2000)), ms);
+  later(() => lobbyBot(rooms, origin, code).catch(() => lobbyAgain(rooms, origin, code, 2000)), ms);
 }
 
 /**

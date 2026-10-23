@@ -30,7 +30,7 @@ const READY_LINE = "Zaisma preview is running.";
 const READY_TIMEOUT_MS = 9 * 60_000;
 const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
-const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
+const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
 const siteFor = (offset) => `http://localhost:${8800 + offset}`;
 const show = (path) => relative(process.cwd(), path) || ".";
 
@@ -57,7 +57,8 @@ async function start() {
     reset = true;
   }
   const state = readState();
-  if (!reset && state && isAlive(state.pid) && (await answers(siteFor(state.offset))) && readLog().includes(READY_LINE)) {
+  // Asleep, it answers once it has woken up (run.mjs): a few seconds, longer on a busy machine.
+  if (!reset && state && isAlive(state.pid) && readLog().includes(READY_LINE) && (await answers(siteFor(state.offset), 120_000))) {
     printReady(state.offset, "already running");
     return;
   }
@@ -155,7 +156,8 @@ function list() {
     totalMegabytes += groupMegabytes;
     const folder = processFolder(group) ?? processFolder(listener.pid) ?? "(its folder is unknown)";
     const upFor = processes.get(group)?.upFor ?? processes.get(listener.pid)?.upFor ?? "?";
-    console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}`);
+    const isAsleep = /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(folder, ".wrangler/preview-run/preview.log")));
+    console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}${isAsleep ? "  asleep: opening a page wakes it" : ""}`);
     console.log(`    up ${upForText(upFor)}, ${(groupMegabytes / 1024).toFixed(1)} GB in ${members.length} processes. Stop it: npm --prefix "${folder}" run preview:stop`);
   }
   console.log(`\nAll together: ${(totalMegabytes / 1024).toFixed(1)} GB.`);
@@ -229,9 +231,9 @@ function canListen(port) {
   });
 }
 
-async function answers(url) {
+async function answers(url, timeoutMs = 5000) {
   try {
-    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
     return true;
   } catch {
     return false;
@@ -256,7 +258,8 @@ Admin pages (${site}/admin) need no sign-in here. Email codes: http://localhost:
 
 Every test page and state, with what it shows: ${show(PAGES)}
 Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
-Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset`);
+It sleeps after 30 minutes with nobody looking, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
+Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset   Every preview on this machine: npm run preview:list`);
 }
 
 function fail(message, logText) {
@@ -283,7 +286,11 @@ function readSeeded() {
 }
 
 function readLog() {
-  return existsSync(LOG) ? readFileSync(LOG, "utf8") : "";
+  return readText(LOG);
+}
+
+function readText(file) {
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
 
 function isAlive(pid) {

@@ -20,13 +20,14 @@ import { startFakeSite } from "./fake-site.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
-import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
+import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET };
+// servers is the one wrangler's own port, behind the site, games and rooms ports (forward(), below).
+const PORTS = { servers: 8799 + OFFSET, site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -136,13 +137,92 @@ function writeConfig(name, config) {
   return file;
 }
 
-/** Sends every connection to this port on to the one wrangler's, which tells the Workers apart by port (workers/router.mjs). */
+// Asleep when nobody's looked (Julius, Oct 23, 2026): after IDLE_MINUTES with no request but the preview's own (its jobs'
+// ticks and test data), the servers and the feedback server stop, and only this process stays, holding the ports. The next
+// request wakes them: a page a browser opens gets a short "Waking the preview…" page that loads the real one once they're
+// up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps.
+const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 30);
+let lastVisitAtMs = Date.now();
+let serversProcess = null;
+let feedbackProcess = null;
+let wakingUp = null;
+let fallingAsleep = null;
+const isAwake = () => serversProcess !== null && wakingUp === null;
+const WAKING_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Waking the preview…</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#16191d;color:#eceef0;font:15px/1.5 system-ui,sans-serif">
+<p>Waking the preview… it slept after ${IDLE_MINUTES} minutes with nobody looking. The page opens by itself in a few seconds.</p>
+<script>(async()=>{for(;;){try{await fetch(location.href,{method:"HEAD",cache:"no-store"});break}catch{}await new Promise(r=>setTimeout(r,1000))}location.reload()})()</script>`;
+
+/** Starts the servers (and the feedback server), and resolves once they answer. */
+function wake() {
+  wakingUp ??= (async () => {
+    await fallingAsleep;
+    // The site, games, rooms and compress Workers run in one wrangler dev: one Node, one bundler and one runtime for all
+    // four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and
+    // two runtimes each. Its output goes to servers.log, for when something doesn't start. Each checkout's preview finds
+    // its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
+    const serversLog = openSync(join(STATE, "servers.log"), "a");
+    serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } });
+    // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
+    const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
+    feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
+    children.push(serversProcess, feedbackProcess);
+    await waitFor(`http://localhost:${PORTS.servers}`);
+    lastVisitAtMs = Date.now();
+    testPlayers.isPaused = false;
+  })().finally(() => (wakingUp = null));
+  return wakingUp;
+}
+
+/** Stops the servers and the feedback server, until the next request. */
+async function sleep() {
+  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${IDLE_MINUTES} minutes. Opening one wakes it.`);
+  testPlayers.isPaused = true;
+  const stopped = [serversProcess, feedbackProcess].map((child) => new Promise((done) => (child.exitCode !== null ? done() : (child.once("exit", done), child.kill()))));
+  serversProcess = feedbackProcess = null;
+  fallingAsleep = Promise.all(stopped).finally(() => (fallingAsleep = null));
+  await fallingAsleep;
+}
+
+/** The requests in servers.log since it was last read, besides the preview's own: someone looked at a page. */
+let readLogSizeBytes = 0;
+function noteVisits() {
+  const file = join(STATE, "servers.log");
+  if (!existsSync(file)) return;
+  const text = readFileSync(file, "utf8");
+  if (text.length < readLogSizeBytes) readLogSizeBytes = 0;
+  const isVisited = text
+    .slice(readLogSizeBytes)
+    .split("\n")
+    .some((line) => /\[wrangler:info\] [A-Z]+ \//.test(line) && !/ \/__(scheduled|preview\/sql)\b/.test(line));
+  readLogSizeBytes = text.length;
+  if (isVisited) lastVisitAtMs = Date.now();
+}
+
+/**
+ * Sends every connection to this port on to the one wrangler's, which tells the Workers apart by the port it was sent to
+ * (workers/router.mjs). Asleep, a connection wakes the servers first.
+ */
 function forward(port) {
+  const onward = (socket) => {
+    const servers = net.connect(PORTS.servers, "localhost");
+    socket.pipe(servers).pipe(socket);
+    socket.on("error", () => servers.destroy());
+    servers.on("error", () => socket.destroy());
+  };
   const server = net.createServer((socket) => {
-    const onward = net.connect(PORTS.site, "localhost");
-    socket.pipe(onward).pipe(socket);
-    socket.on("error", () => onward.destroy());
-    onward.on("error", () => socket.destroy());
+    if (isAwake()) return onward(socket);
+    socket.on("error", () => {});
+    socket.once("data", (firstChunk) => {
+      socket.pause();
+      const head = firstChunk.toString("latin1");
+      const isPageLoad = /^GET /.test(head) && /^(sec-fetch-dest: document|accept: text\/html)/im.test(head);
+      if (serversProcess === null) console.log(`Waking up at ${new Date().toLocaleTimeString()}: someone opened ${head.split(" ")[1] ?? "a page"}.`);
+      const awake = wake();
+      if (isPageLoad) return socket.end(`HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncache-control: no-store\r\nconnection: close\r\n\r\n${WAKING_PAGE}`);
+      socket.unshift(firstChunk);
+      awake.then(() => onward(socket), () => socket.destroy());
+    });
   });
   server.listen(port);
   return server;
@@ -196,12 +276,8 @@ startFakeDns(PORTS.dns);
 startFakeMail(PORTS.mail, STATE);
 startFakeTurnstile(PORTS.turnstile);
 startFakeSite(PORTS.signInSite, SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID);
-// The feedback server keeps a process of its own, with its own log: it opens Chrome to take pictures of pages.
-const feedbackLog = openSync(join(STATE, "feedback.log"), "w");
-children.push(spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] }));
-// The site, games, rooms and compress Workers run in one wrangler dev: one Node, one bundler and one runtime for all
-// four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and two
-// runtimes each. It listens on the site's port behind workers/router.mjs; the games and rooms ports are forwarded to it.
+writeFileSync(join(STATE, "feedback.log"), "");
+// workers/router.mjs comes first in the one wrangler dev and sends each port's requests to its Worker.
 const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
@@ -210,12 +286,10 @@ const routerConfig = writeConfig("router", {
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
-// Its output goes to servers.log in the preview folder, for when something doesn't start. Each checkout's preview finds
-// its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
-const serversLog = openSync(join(STATE, "servers.log"), "w");
-children.push(spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } }));
-const forwards = [forward(PORTS.games), forward(PORTS.rooms)];
+writeFileSync(join(STATE, "servers.log"), "");
+const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)];
 process.on("exit", () => forwards.forEach((server) => server.close()));
+await wake();
 await waitFor(SITE);
 await waitFor(GAMES);
 await waitFor(ROOMS);
@@ -224,6 +298,12 @@ if (fresh) {
   await seed();
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
 }
+if (IDLE_MINUTES > 0)
+  setInterval(() => {
+    if (!isAwake()) return;
+    noteVisits();
+    if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) void sleep();
+  }, 15_000);
 if (ENGINES_ONLY) {
   const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
   console.log(`
@@ -335,17 +415,17 @@ await openTestRooms(ROOMS, GAMES, SITE).catch((err) => console.log(`Couldn't ope
 stepDone("test rooms");
 const pretend = () => runSql(pretendRoomsSql());
 pretend();
-setInterval(pretend, 30 * 60_000);
+setInterval(() => isAwake() && pretend(), 30 * 60_000);
 // The playing-now tickets, renewed every 2 minutes so they stay inside the 6-minute window while the preview runs.
-setInterval(seedPlayingNow, 2 * 60_000);
+setInterval(() => isAwake() && seedPlayingNow(), 2 * 60_000);
 
 // The site's every-5-minutes job (scheduled publishing, report triage), run every 20 seconds here.
 const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
-setInterval(tick, 20_000);
+setInterval(() => isAwake() && tick(), 20_000);
 tick();
 // The rooms' every-minute job: games' schedules after a publish (Arena tidies its best scores daily).
 const roomsTick = () => fetch(`${ROOMS}/__scheduled?cron=${encodeURIComponent("* * * * *")}`).catch(() => {});
-setInterval(roomsTick, 20_000);
+setInterval(() => isAwake() && roomsTick(), 20_000);
 roomsTick();
 
 // Kept as paths, so the links follow this run's port (older preview data kept whole links).
