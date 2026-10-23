@@ -5,17 +5,22 @@
 //                                        free port offset (8800, 8900, …), waits until it's ready and
 //                                        prints its links and sign-ins. Already running: just prints them.
 //                                        Stopped or broken: stops what's left and starts it again.
+//                                        Over the memory cap on every preview on this machine (memory.mjs): it
+//                                        waits in line, says its place and why, and starts by itself when there's
+//                                        room. Its place is kept when this command ends; run it again to follow it.
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports job) instead of all the test data.
-//   npm run preview:stop                 stops this checkout's preview, and nothing of another checkout's.
-//   npm run preview:list                 every preview running on this machine, from any checkout: its address, folder,
-//                                        how long it's been up, the memory it takes and the command that stops it.
+//   npm run preview:stop                 stops this checkout's preview (or takes it out of the line), and nothing of another checkout's.
+//   npm run preview:list                 every preview on this machine, from any checkout: its address, folder, how long
+//                                        it's been up, the memory it takes and the command that stops it; all of them
+//                                        against the cap, and the line.
 // Its output goes to .wrangler/preview-run/preview.log; the servers' own log is .wrangler/preview/servers.log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, nextTurn, OFFSETS, placeText, readLine, sizeText, waitingInOrder, withLock, writeLine } from "./memory.mjs";
 import { PASSWORD, SIGN_INS } from "./sign-ins.mjs";
 
 const ROOT = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "../.."));
@@ -27,8 +32,8 @@ const PAGES = join(RUN, "pages.txt");
 const SEEDED = join(ROOT, ".wrangler/preview/seeded");
 // run.mjs prints this once everything is up and the test data is in.
 const READY_LINE = "Zaisma preview is running.";
+// From its turn in the line for memory: the wait in line has no limit.
 const READY_TIMEOUT_MS = 9 * 60_000;
-const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
 const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
 const siteFor = (offset) => `http://localhost:${8800 + offset}`;
@@ -36,7 +41,7 @@ const show = (path) => relative(process.cwd(), path) || ".";
 
 const [command = "start", ...flags] = process.argv.slice(2);
 if (command === "start") await start();
-else if (command === "stop") console.log((await stop()) ? "Stopped this checkout's preview." : "This checkout's preview wasn't running.");
+else if (command === "stop") console.log({ stopped: "Stopped this checkout's preview.", left_line: "Took this checkout's preview out of the line for memory." }[await stop()] ?? "This checkout's preview wasn't running.");
 else if (command === "list") list();
 else {
   console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], npm run preview:stop or npm run preview:list`);
@@ -56,10 +61,23 @@ async function start() {
     console.log("The test data is the engine samples only, so this start makes the full test data.");
     reset = true;
   }
+  let cap;
+  try {
+    cap = memoryCap();
+  } catch (error) {
+    fail(error.message);
+  }
   const state = readState();
-  // Asleep, it answers once it has woken up (run.mjs): a few seconds, longer on a busy machine.
+  // Asleep, it answers once it has woken up (run.mjs): a few seconds, longer on a busy machine, or once its turn to wake comes.
   if (!reset && state && isAlive(state.pid) && readLog().includes(READY_LINE) && (await answers(siteFor(state.offset), 120_000))) {
     printReady(state.offset, "already running");
+    return;
+  }
+  // Waiting in line for memory: it keeps its place, and this follows it again.
+  if (!reset && state && isAlive(state.pid) && isWaitingInLine(state.pid)) {
+    console.log(`This checkout's preview is waiting in line for memory, to start on ${siteFor(state.offset)}…`);
+    await follow(state.pid, state.offset, "Waiting in line");
+    printReady(state.offset, "started");
     return;
   }
   if (await stop()) console.log("Stopped what was left of this checkout's last preview.");
@@ -69,23 +87,43 @@ async function start() {
     console.log("The last start stopped while adding test data, so this one starts with fresh test data.");
     reset = true;
   }
-  const offset = await freeOffset(state?.offset);
-  if (offset === undefined) fail(`No free ports: every offset from 8800 to 9700 is taken. See what holds them with: lsof -nP -iTCP:8800 -sTCP:LISTEN`);
   mkdirSync(RUN, { recursive: true });
   const log = openSync(LOG, "w");
-  // Its own process group, so stopping it also stops wrangler and workerd under it.
-  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
-    cwd: ROOT,
-    detached: true,
-    stdio: ["ignore", log, log],
-    env: { ...process.env, PREVIEW_PORT_OFFSET: String(offset) },
-  });
-  child.unref();
+  const startPreview = async (takenOffsets) => {
+    const offset = await freeOffset(state?.offset, takenOffsets);
+    if (offset === undefined) return {};
+    // Its own process group, so stopping it also stops wrangler and workerd under it.
+    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
+      cwd: ROOT,
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...process.env, PREVIEW_PORT_OFFSET: String(offset) },
+    });
+    child.unref();
+    return { child, offset };
+  };
+  // With a cap, the offset is picked and the start joins the line under the line's lock, so two checkouts starting at once
+  // never pick the same one, and a preview waiting in line keeps its offset while it holds no port yet.
+  const { child, offset } = cap.capBytes
+    ? await withLock(async () => {
+        const line = readLine();
+        const entries = line.entries.filter((entry) => isAlive(entry.pid));
+        const started = await startPreview(new Set(entries.map((entry) => entry.offset)));
+        if (started.child) writeLine({ ...line, entries: [...entries, { pid: started.child.pid, folder: ROOT, offset: started.offset, kind: "start", asked_at_ms: Date.now(), turn_given_at_ms: null }] });
+        return started;
+      })
+    : await startPreview(new Set());
+  if (offset === undefined) fail(`No free ports: every offset from 8800 to 9700 is taken. See what holds them with: lsof -nP -iTCP:8800 -sTCP:LISTEN`);
   writeFileSync(STATE_FILE, JSON.stringify({ pid: child.pid, offset, started_at: new Date().toISOString() }));
   console.log(`Starting the preview on ${siteFor(offset)}${reset ? " with fresh test data (a few minutes)" : ""}${enginesOnly ? ", the engine samples only" : ""}…`);
+  await follow(child.pid, offset);
+  printReady(offset, "started");
+}
 
-  const startedAtMs = Date.now();
-  let shownLength = 0;
+/** Prints the preview's progress lines from its log until it's ready: all of them, or from the last one starting with fromLast. */
+async function follow(pid, offset, fromLast) {
+  let clockStartedAtMs = Date.now();
+  let shownLength = fromLast ? Math.max(0, readLog().lastIndexOf(fromLast)) : 0;
   while (true) {
     await new Promise((r) => setTimeout(r, 500));
     const text = readLog();
@@ -96,24 +134,32 @@ async function start() {
       shownLength = upTo;
     }
     if (text.includes(READY_LINE) && (await answers(siteFor(offset)))) break;
-    if (!isAlive(child.pid)) {
+    if (!isAlive(pid)) {
       await stop();
       fail("The preview stopped while starting.", text);
     }
-    if (Date.now() - startedAtMs > READY_TIMEOUT_MS) {
+    if (isWaitingInLine(pid)) clockStartedAtMs = Date.now();
+    if (Date.now() - clockStartedAtMs > READY_TIMEOUT_MS) {
       await stop();
-      fail(`The preview wasn't ready after ${READY_TIMEOUT_MS / 60_000} minutes, so it was stopped.`, text);
+      fail(`The preview wasn't ready ${READY_TIMEOUT_MS / 60_000} minutes after it started, so it was stopped.`, text);
     }
   }
-  printReady(offset, "started");
 }
 
-/** Stops this checkout's preview: its process group, then anything of this checkout's still holding a preview port. True when something was running. */
+/** Whether this process (a preview's run.mjs) is in the line for memory, its turn still to come. */
+function isWaitingInLine(pid) {
+  return readLine().entries.some((entry) => entry.pid === pid && entry.turn_given_at_ms === null);
+}
+
+/**
+ * Stops this checkout's preview: its process group, then anything of this checkout's still holding a preview port, and takes it
+ * out of the line for memory. "stopped" when something was running, "left_line" when it was waiting in line, else false.
+ */
 async function stop() {
   const state = readState();
   let stopped = false;
   if (state && hasGroup(state.pid)) {
-    stopped = true;
+    stopped = isWaitingInLine(state.pid) ? "left_line" : "stopped";
     killGroup(state.pid, "SIGTERM");
     for (let i = 0; i < 20 && hasGroup(state.pid); i++) await new Promise((r) => setTimeout(r, 250));
     killGroup(state.pid, "SIGKILL");
@@ -121,51 +167,64 @@ async function stop() {
   // Servers that outlived their group (an older preview started by hand, or one killed hard).
   const left = ourListeners();
   if (left.length) {
-    stopped = true;
+    stopped ||= "stopped";
     for (const pid of left) killPid(pid, "SIGTERM");
     await new Promise((r) => setTimeout(r, 1000));
     for (const pid of ourListeners()) killPid(pid, "SIGKILL");
   }
+  // Its run.mjs is gone, so the line would drop it at its next look anyway; this lets the next one's turn come at once.
+  if (existsSync(join(LINE_DIRECTORY, "line.json"))) await leaveLine((entry) => entry.folder === ROOT || entry.pid === state?.pid);
   rmSync(STATE_FILE, { force: true });
   return stopped;
 }
 
-/** Prints every preview running on this machine: what listens on a preview's site port, with everything in its process group. */
+/**
+ * Prints every preview on this machine, from any checkout: each one's run.mjs and everything under it, with the memory it
+ * takes (memory.mjs measures it), all of them against the memory cap, then the line for memory.
+ */
 function list() {
-  const sitePorts = new Map(OFFSETS.map((offset) => [8800 + offset, offset]));
-  // One per port (lsof lists a port once for each address it listens on).
-  const running = [...new Map(listeners().filter((listener) => sitePorts.has(listener.port)).map((listener) => [listener.port, listener])).values()];
-  if (!running.length) return console.log("No preview is running on this machine.");
-  const processes = new Map();
-  for (const line of (spawnSync("ps", ["-axo", "pid=,pgid=,etime="], { encoding: "utf8" }).stdout ?? "").split("\n")) {
-    const [pid, pgid, upFor] = line.trim().split(/\s+/);
-    if (pid) processes.set(Number(pid), { pgid: Number(pgid), upFor });
+  let cap;
+  try {
+    cap = memoryCap();
+  } catch (error) {
+    fail(error.message);
   }
-  // top's memory is what each process takes, swapped and compressed parts too (ps counts only what's in memory now).
-  const megabytes = new Map();
-  for (const line of (spawnSync("top", ["-l", "1", "-stats", "pid,mem"], { encoding: "utf8" }).stdout ?? "").split("\n")) {
-    const match = /^(\d+)\s+([\d.]+)([KMG])/.exec(line.trim());
-    if (match) megabytes.set(Number(match[1]), Number(match[2]) * { K: 1 / 1024, M: 1, G: 1024 }[match[3]]);
+  const line = readLine();
+  const entries = line.entries.filter((entry) => isAlive(entry.pid));
+  const { previews } = measurePreviews(entries);
+  const awakeSizeBytes = line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES;
+  const capText = cap.capBytes ? `of the ${sizeText(cap.capBytes)} memory cap (${capSourceText(cap.source)})` : `with no memory cap (${cap.source === "not_macos" ? "there's none off macOS" : `${capSourceText(cap.source)} is 0`})`;
+  if (!previews.length) return console.log(`No preview is running on this machine, and none is waiting in line. Memory: 0 MB ${capText}.`);
+  const waiting = waitingInOrder(entries);
+  // A preview's entry is its run.mjs's (another process can hold the offset an entry waits for).
+  const entryOf = (preview) => entries.find((entry) => entry.pid === preview.rootPid);
+  const shownFolder = (folder) => (folder === ROOT ? `${folder} (this checkout)` : (folder ?? "(its folder is unknown)"));
+  const { usedBytes, keptBytes } = nextTurn({ entries, previews, capBytes: cap.capBytes, awakeSizeBytes });
+  const running = previews.filter((preview) => preview.isListening || entryOf(preview)?.turn_given_at_ms !== null);
+  if (running.length) console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
+  for (const preview of running) {
+    const entry = entryOf(preview);
+    const isAsleep = !preview.isAwake && /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(preview.folder ?? "", ".wrangler/preview-run/preview.log")));
+    const stateText =
+      entry?.turn_given_at_ms !== null && entry?.kind === "start" ? `starting, about ${sizeText(Math.max(0, awakeSizeBytes - preview.sizeBytes))} more kept for it`
+      : entry?.turn_given_at_ms !== null && entry?.kind === "wake" ? "waking up"
+      : entry ? `asleep, ${placeText(waiting.indexOf(entry) + 1)} in line to wake`
+      : isAsleep ? "asleep: opening a page wakes it"
+      : !preview.isAwake ? "starting"
+      : "";
+    console.log(`  ${siteFor(preview.offset)}  ${shownFolder(preview.folder)}${stateText ? `  ${stateText}` : ""}`);
+    console.log(`    up ${preview.upFor ? upForText(preview.upFor) : "?"}, ${sizeText(preview.sizeBytes)} in ${preview.processCount === 1 ? "1 process" : `${preview.processCount} processes`}. Stop it: npm --prefix "${preview.folder}" run preview:stop`);
   }
-  let totalMegabytes = 0;
-  console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
-  for (const listener of running.sort((a, b) => a.port - b.port)) {
-    const group = processes.get(listener.pid)?.pgid;
-    const members = [...processes].filter(([, each]) => each.pgid === group).map(([pid]) => pid);
-    const groupMegabytes = members.reduce((sum, pid) => sum + (megabytes.get(pid) ?? 0), 0);
-    totalMegabytes += groupMegabytes;
-    const folder = processFolder(group) ?? processFolder(listener.pid) ?? "(its folder is unknown)";
-    const upFor = processes.get(group)?.upFor ?? processes.get(listener.pid)?.upFor ?? "?";
-    const isAsleep = /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(folder, ".wrangler/preview-run/preview.log")));
-    console.log(`  ${siteFor(sitePorts.get(listener.port))}  ${folder === ROOT ? `${folder} (this checkout)` : folder}${isAsleep ? "  asleep: opening a page wakes it" : ""}`);
-    console.log(`    up ${upForText(upFor)}, ${sizeText(groupMegabytes)} in ${members.length === 1 ? "1 process" : `${members.length} processes`}. Stop it: npm --prefix "${folder}" run preview:stop`);
+  console.log(`\nAll together: ${sizeText(usedBytes)}${keptBytes ? `, and ${sizeText(keptBytes)} kept for previews starting or waking` : ""}, ${capText}.`);
+  if (cap.capBytes) console.log(`The cap: PREVIEW_MEMORY_CAP_BYTES for one shell, or { "memory_cap_bytes": … } in ${join(LINE_DIRECTORY, "settings.json")} for this machine.`);
+  if (!waiting.length) return;
+  console.log(`\nWaiting in line for memory, each starting by itself when there's room (an awake preview takes about ${sizeText(awakeSizeBytes)} here):\n`);
+  for (const [index, entry] of waiting.entries()) {
+    const preview = previews.find((each) => each.offset === entry.offset);
+    const askedText = `asked ${durationText(Date.now() - entry.asked_at_ms)} ago`;
+    console.log(`  ${index + 1}. ${siteFor(entry.offset)}  ${shownFolder(entry.folder)}  ${entry.kind === "wake" ? `to wake: someone opened a page, ${askedText}` : `to start, ${askedText}${preview ? ` (${sizeText(preview.sizeBytes)} while it waits)` : ""}`}`);
+    console.log(`     Take it out: npm --prefix "${entry.folder}" run preview:stop`);
   }
-  console.log(`\nAll together: ${sizeText(totalMegabytes)}.`);
-}
-
-/** Megabytes in words: "1.2 GB", or "44 MB" under a gigabyte. */
-function sizeText(megabytes) {
-  return megabytes >= 1024 ? `${(megabytes / 1024).toFixed(1)} GB` : `${Math.round(megabytes)} MB`;
 }
 
 /** ps's elapsed time ([[days-]hours:]minutes:seconds) in words: "3 h 12 min". */
@@ -176,34 +235,18 @@ function upForText(elapsed) {
   return parts.length ? parts.join(" ") : `${seconds} s`;
 }
 
-/** The folder a process runs in. */
-function processFolder(pid) {
-  if (!pid) return null;
-  const line = (spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" }).stdout ?? "").split("\n").find((each) => each.startsWith("n"));
-  return line ? line.slice(1) : null;
-}
-
-/** The first offset with none of its ports taken, trying this checkout's last one first so links stay the same. */
-async function freeOffset(last) {
+/**
+ * The first offset with none of its ports taken and not held by a preview waiting in line, trying this checkout's last one
+ * first so links stay the same.
+ */
+async function freeOffset(last, heldOffsets) {
   const taken = new Set(listeners().map((listener) => listener.port));
-  for (const offset of [...new Set([last, ...OFFSETS])].filter((offset) => OFFSETS.includes(offset))) {
+  for (const offset of [...new Set([last, ...OFFSETS])].filter((offset) => OFFSETS.includes(offset) && !heldOffsets.has(offset))) {
     const ports = portsFor(offset);
     if (ports.some((port) => taken.has(port))) continue;
     // lsof only sees this user's processes; a listen check catches the rest.
     if ((await Promise.all(ports.map(canListen))).every(Boolean)) return offset;
   }
-}
-
-/** Every TCP port something of this user's listens on, with its process. */
-function listeners() {
-  const out = spawnSync("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], { encoding: "utf8" }).stdout ?? "";
-  const found = [];
-  let pid;
-  for (const line of out.split("\n")) {
-    if (line.startsWith("p")) pid = Number(line.slice(1));
-    else if (line.startsWith("n")) found.push({ pid, port: Number(line.slice(line.lastIndexOf(":") + 1)) });
-  }
-  return found;
 }
 
 /** Processes listening on a preview port whose folder is this checkout. */
@@ -245,10 +288,13 @@ async function answers(url, timeoutMs = 5000) {
   }
 }
 
-function printReady(offset, how) {
+function printReady(offset, startedHow) {
   const site = siteFor(offset);
   const text = readLog();
   if (text.includes(READY_LINE)) writeFileSync(PAGES, text.slice(text.indexOf(READY_LINE)));
+  // run.mjs says how long it waited in line for memory, when it did.
+  const waited = startedHow === "started" && /^Room for it after (.+?) in line/m.exec(text.slice(0, text.indexOf(READY_LINE)))?.[1];
+  const how = waited ? `started after ${waited} in line for memory` : startedHow;
   if (readSeeded().startsWith("engines-only")) {
     console.log(`\nPreview ${how}: ${site}  (the engine samples only; this checkout only, nothing touches the live site)\n\nPlay them: npm run engines:play   Stop: npm run preview:stop   All the test data: npm run preview:start -- --reset\nLog: ${show(LOG)}`);
     return;
@@ -296,15 +342,6 @@ function readLog() {
 
 function readText(file) {
   return existsSync(file) ? readFileSync(file, "utf8") : "";
-}
-
-function isAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Whether anything of this checkout's is left in the process group the preview started (its leader may be gone, and the number reused). */
