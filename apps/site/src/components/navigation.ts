@@ -282,13 +282,32 @@ export function rail(scrollKind: "box" | "page" | "side"): Raw {
  * point at one for its name, click it to go there.
  */
 export const RAIL_SCRIPT = `/* rail */(function () {
+  /*
+   * Rails are laid out together, once a frame, in steps that read the page and then write it: every rail's place is read and then set, then
+   * every rail's track and marks are read, then every thumb and mark is set. So a page full of rails reads its layout twice a frame, not a
+   * few times for every rail. The first is laid out before the page's first paint, as the browser runs a frame's work before painting it.
+   */
+  var dueRails = new Set(), isRailFrameAsked = false;
+  function layOutSoon(rail) {
+    dueRails.add(rail);
+    if (isRailFrameAsked) return;
+    isRailFrameAsked = true;
+    requestAnimationFrame(function () {
+      isRailFrameAsked = false;
+      var rails = Array.from(dueRails); dueRails.clear();
+      var places = rails.map(function (rail) { return rail.place(); });
+      rails.forEach(function (rail, i) { rail.putPlace(places[i]); });
+      var measures = rails.map(function (rail, i) { return rail.measure(places[i]); });
+      rails.forEach(function (rail, i) { rail.put(places[i], measures[i]); });
+    });
+  }
   // Any box that scrolls up and down gets its rail by itself, so a new component never has to remember one. A box that
   // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
-  document.querySelectorAll("body *").forEach(function (box) {
+  window.zaismaWatch.scrollBoxes().forEach(function (box) {
     var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
     if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return;
     var style = getComputedStyle(box);
-    if (!/^(auto|scroll)$/.test(style.overflowY) || style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
+    if (style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
     var parent = box.parentElement; if (!parent || parent === document.body) return;
     if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
     box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
@@ -318,8 +337,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         });
     if (!isPage && parts.length) scroller.setAttribute("data-rail-marks-own", "");
     // Where a part sits along the box (or the page), from its start, as the box would scroll to show it.
-    function spot(part) {
-      if (isPage) return part.getBoundingClientRect().top + window.scrollY - offset();
+    function spot(part, scrollPadding) {
+      if (isPage) return part.getBoundingClientRect().top + window.scrollY - (scrollPadding === undefined ? offset() : scrollPadding);
       var box = scroller.getBoundingClientRect(), r = part.getBoundingClientRect();
       return isSide ? r.left - box.left + scroller.scrollLeft : r.top - box.top + scroller.scrollTop;
     }
@@ -341,13 +360,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       if (isSide) {
         marks.forEach(function (m) {
           if (m.mark.hidden) return;
-          var at = parseFloat(m.mark.style.left) || 0, half = m.name.offsetWidth / 2, center = Math.max(half, Math.min(track - half, at));
+          var at = parseFloat(m.mark.style.left) || 0, half = m.size / 2, center = Math.max(half, Math.min(track - half, at));
           m.name.style.setProperty("--label-shift", (center - at).toFixed(1) + "px");
         });
         return;
       }
       var placed = marks.filter(function (m) { return !m.mark.hidden; }).map(function (m) {
-        return { m: m, at: parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, size: isSide ? m.name.offsetWidth : m.name.offsetHeight };
+        return { m: m, at: parseFloat(m.mark.style[isSide ? "left" : "top"]) || 0, size: m.size };
       }).sort(function (one, other) { return one.at - other.at; });
       placed.forEach(function (p, i) { p.center = i ? Math.max(p.at, placed[i - 1].center + (placed[i - 1].size + p.size) / 2 + LABEL_GAP_PX) : p.at; });
       for (var i = placed.length - 1; i >= 0; i--) {
@@ -365,31 +384,57 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var size = { track: 0, thumb: 0, max: 1 };
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
-    function layout() {
-      if (above) bar.style.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
-      // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
-      if (bar.hasAttribute("data-rail-follows")) {
-        bar.style.top = scroller.offsetTop + 8 + "px"; bar.style.bottom = "auto"; bar.style.height = Math.max(0, scroller.offsetHeight - 16) + "px";
-        bar.style.right = "auto"; bar.style.left = scroller.offsetLeft + scroller.offsetWidth - 22 + "px";
+    var rail = {
+      // Where it sits and how much there is to scroll, read.
+      place: function () {
+        var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
+        placed.max = placed.whole - placed.view;
+        if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
+        // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
+        if (bar.hasAttribute("data-rail-follows")) placed.follows = { top: scroller.offsetTop + 8 + "px", height: Math.max(0, scroller.offsetHeight - 16) + "px", left: scroller.offsetLeft + scroller.offsetWidth - 22 + "px" };
+        return placed;
+      },
+      putPlace: function (placed) {
+        if (placed.top) bar.style.top = placed.top;
+        if (placed.follows) { bar.style.top = placed.follows.top; bar.style.bottom = "auto"; bar.style.height = placed.follows.height; bar.style.right = "auto"; bar.style.left = placed.follows.left; }
+        bar.hidden = placed.max <= 4;
+      },
+      // Its track, where it's scrolled to and where its marks' parts sit, read once it's placed.
+      measure: function () {
+        if (bar.hidden) return null;
+        var scrollPadding = isPage && marks.length ? offset() : 0;
+        return {
+          track: isSide ? bar.clientWidth : bar.clientHeight,
+          at: at(),
+          marks: marks.map(function (m) {
+            var shown = Boolean(m.part.offsetParent);
+            return shown ? { shown: true, spot: spot(m.part, scrollPadding), size: isSide ? m.name.offsetWidth : m.name.offsetHeight } : { shown: false };
+          })
+        };
+      },
+      put: function (placed, measured) {
+        if (!measured) return;
+        var track = measured.track, max = placed.max, height = Math.max(36, Math.round(track * placed.view / placed.whole));
+        size = { track: track, thumb: height, max: max };
+        thumb.style[isSide ? "width" : "height"] = height + "px";
+        move(measured.at);
+        marks.forEach(function (m, i) {
+          var seen = measured.marks[i]; m.mark.hidden = !seen.shown; if (!seen.shown) return;
+          var top = Math.max(0, Math.min(max, seen.spot));
+          m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+          // A name that was hidden has no size yet: it's read once it shows.
+          m.size = seen.size || (isSide ? m.name.offsetWidth : m.name.offsetHeight);
+        });
+        spread(track);
       }
-      var whole = isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view = isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight, max = whole - view;
-      bar.hidden = max <= 4; if (bar.hidden) return;
-      var track = isSide ? bar.clientWidth : bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
-      size = { track: track, thumb: height, max: max };
-      thumb.style[isSide ? "width" : "height"] = height + "px";
-      move();
-      marks.forEach(function (m) {
-        var shown = Boolean(m.part.offsetParent); m.mark.hidden = !shown; if (!shown) return;
-        var top = Math.max(0, Math.min(max, spot(m.part)));
-        m.mark.style[isSide ? "left" : "top"] = ((track - height) * top / max + height / 2).toFixed(1) + "px";
-      });
-      spread(track);
-    }
+    };
+    function layout() { layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move() { if (!bar.hidden) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, at() / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (!bar.hidden) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
-    function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
+    // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
+    function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
     window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
@@ -458,15 +503,17 @@ export function rowArrows(options: RowArrowsOptions): ControlMarkup {
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   var FADE_PX = 28, boxes = [];
+  // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function sync(box) {
-    var top = Math.min(FADE_PX, box.scrollTop), bottom = Math.min(FADE_PX, box.scrollHeight - box.clientHeight - box.scrollTop);
-    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    var scrollTop = box.scrollTop, scrollHeight = box.scrollHeight, clientHeight = box.clientHeight, isScrollable = scrollHeight > clientHeight + 1;
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
-    var head = box.querySelector(":scope > table > thead");
-    if (head) box.style.setProperty("--fade-from", head.offsetHeight + "px");
+    var head = box.querySelector(":scope > table > thead"), headPx = head ? head.offsetHeight : 0;
+    var top = Math.min(FADE_PX, scrollTop), bottom = Math.min(FADE_PX, scrollHeight - clientHeight - scrollTop);
+    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    if (head) box.style.setProperty("--fade-from", headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
-    box.classList.toggle("is-fading", box.scrollHeight > box.clientHeight + 1);
-    held(box);
+    box.classList.toggle("is-fading", isScrollable);
+    box.classList.toggle("is-scrollable", isScrollable);
   }
   // A box keeps a swipe or a wheel to itself only while it can scroll; one that can't lets it carry on to the page.
   function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
@@ -476,9 +523,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       held(box);
       window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
-    document.querySelectorAll("body *").forEach(function (box) {
+    window.zaismaWatch.scrollBoxes().forEach(function (box) {
       if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
-      if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
       box.classList.add("scroll-fades"); boxes.push(box); sync(box);
       var queued = false;
       box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
@@ -500,17 +546,24 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     }
     // More that way is something shown running past that edge.
     // Or words running on past it inside one block (a line of text that doesn't wrap): the row's own scroll says so.
-    function shownSpan() {
-      var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity;
+    // Where what's shown starts and ends along the row's whole scrolled content is measured when the row or what's in it changes size;
+    // a scroll moves none of it, so scrolling only reads how far the row is scrolled.
+    var reach = null;
+    function measure() {
+      var box = row.getBoundingClientRect(), left = Infinity, right = -Infinity, scrollLeft = row.scrollLeft;
       shown().forEach(function (el) { var r = el.getBoundingClientRect(); left = Math.min(left, r.left); right = Math.max(right, r.right); });
-      var scrolledBefore = row.scrollLeft, scrolledAfter = row.scrollWidth - row.clientWidth - row.scrollLeft;
-      return left === Infinity ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(box.left - left, scrolledBefore), after: Math.max(right - box.right, scrolledAfter) };
+      reach = { start: left === Infinity ? null : left - box.left + scrollLeft, end: right - box.left + scrollLeft, width: row.clientWidth, whole: row.scrollWidth };
+    }
+    function shownSpan() {
+      if (!reach) measure();
+      var scrollLeft = row.scrollLeft, scrolledBefore = scrollLeft, scrolledAfter = reach.whole - reach.width - scrollLeft;
+      return reach.start === null ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(scrollLeft - reach.start, scrolledBefore), after: Math.max(reach.end - scrollLeft - reach.width, scrolledAfter) };
     }
     function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
     function start() { if (here && !isStarted && row.scrollWidth - row.clientWidth > 1) { isStarted = true; row.showWhole(here, false); } }
-    function ends() { start(); var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    function ends() { reach = null; start(); var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
     // Where something sits along the row's whole scrolled content.
     function along(el) { var r = el.getBoundingClientRect(), start = r.left - row.getBoundingClientRect().left + row.scrollLeft; return { start: start, end: start + r.width }; }
     // Scrolls the least that shows something whole, clear of the fades: back to just past the fade at the start (the row's scroll padding
@@ -539,7 +592,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
     };
     if (here && document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (isStarted) row.showWhole(here, false); });
-    row.addEventListener("scroll", fades, { passive: true });
+    var isFadeQueued = false;
+    row.addEventListener("scroll", function () { if (isFadeQueued) return; isFadeQueued = true; requestAnimationFrame(function () { isFadeQueued = false; fades(); }); }, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
   });

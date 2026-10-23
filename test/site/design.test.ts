@@ -450,8 +450,9 @@ describe("components", () => {
     expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
     // The box that scrolls round it, never itself: a table capped in height scrolls inside itself, and sits where it sits.
     expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll")');
-    expect(glassScriptSource).toContain("top: p.top - scroller.scrollTop");
-    expect(glassScriptSource).toContain("bottom: p.bottom + scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop");
+    // The scroller's offsets are read with the rest of a pass's measures, before anything is drawn (scrollOf).
+    expect(glassScriptSource).toContain("top: p.top - scrolled.scrollTop");
+    expect(glassScriptSource).toContain("bottom: p.bottom + scrolled.scrollHeight - scrolled.clientHeight - scrolled.scrollTop");
     expect(glassScriptSource).toContain("p = contentRectOf(el, holder)");
     expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
   });

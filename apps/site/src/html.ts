@@ -434,8 +434,17 @@ main.steel { padding: 32px max(24px, calc((100% - 1240px) / 2 + 24px)) 72px; }
 main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 0 18px; }
 `;
 
-/** Every page's styles in one cached file: the components' look, the shell and Steel. */
-export const SITE_STYLE = pageStyle("site", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
+/**
+ * A page's styles in one cached file. A page built only in Zaisma's look gets the components' look and the shell, as written: with no Steel
+ * on it, every rule outsideSteel guards holds and none of Steel's can, so it looks exactly the same without the 2,000 guards a browser
+ * would otherwise check on each element, or Steel's own rules. A page with Steel on it (a body not rebuilt yet, or a component placed in
+ * one with not-steel) gets them all.
+ */
+export const SITE_STYLE = pageStyle("site", () => COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "") + SHELL_STYLES);
+export const STEEL_SITE_STYLE = pageStyle("site-steel", () => SYSTEM_STYLES() + SHELL_STYLES + STEEL_STYLES);
+
+/** Whether a page's markup has Steel in it: a body not rebuilt yet (class steel), or a component placed in one (not-steel). */
+export const hasSteel = (markup: string): boolean => /\bclass="[^"]*\b(?:not-)?steel\b/.test(markup);
 
 // Every page's own script: the metal hover, the page's colors following the game pointed at, and
 // buttons that show they're working.
@@ -611,7 +620,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
 ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
-${styleTags(SITE_STYLE)}
+${styleTags(options.isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE)}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
@@ -619,7 +628,7 @@ ${options.stage ?? backdrop()}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
-<main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
+<main${options.isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 </body>
