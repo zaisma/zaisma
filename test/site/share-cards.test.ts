@@ -183,7 +183,7 @@ describe("room codes in the game bar", () => {
     expect(rooms).toContain('id="room-open"');
     // The plate shows this room's code (filled in once the game says it's in one) and joins another by its code.
     expect(rooms).toMatch(/id="room-here" hidden/);
-    expect(rooms).toMatch(/<form class="code-join is-stacked" method="get" action="\/g\/sky-hopper"><div class="cut-field"><label for="bar-join-code">/);
+    expect(rooms).toMatch(/<form class="code-join is-stacked" method="get" action="\/g\/sky-hopper">[\s\S]*?<div class="cut-field"><label for="bar-join-code">/);
     expect(rooms).toMatch(/id="bar-join-code" name="room"[^>]* required/);
   });
 });

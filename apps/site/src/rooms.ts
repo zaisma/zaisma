@@ -2,13 +2,12 @@ import { ROOM_PAGE_ROOM_COUNT, checkText, gameBySlug, hasSpace, hasWatchSpace, i
 import type { Env } from "./env.ts";
 import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
-import { toolRow } from "./components/panes.ts";
 import { country, table, type TableColumn } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
 import type { IconName } from "./components/foundations.ts";
 import { controlMarkup } from "./components/control-markup.ts";
 import { paragraph } from "./components/game-parts.ts";
-import { stack } from "./components/layout.ts";
+import { row, stack } from "./components/layout.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
 import { playingNowCounts } from "./plays.ts";
 
@@ -71,32 +70,30 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   // Regions to pick from, once rooms run in more than one: each its continent's globe, its name and how many rooms it has.
   const regions =
     list.regions.length > 1 || (list.region && list.regions.length)
-      ? html`<div data-region-filter>${selectField({
+      ? selectField({
           id: "rooms-region",
           name: "region",
           label: "Region",
-          isSmall: true,
           choices: [
             { label: "All", choiceValue: "", icon: "globe" },
             ...list.regions.map((entry) => ({ label: entry.name, choiceValue: entry.region, icon: CONTINENT_ICONS[entry.region] ?? "globe", badgeCount: entry.roomCount })),
           ],
           pickedValue: list.region ?? "",
-        })}</div>`
-      : "";
+        })
+      : null;
   // Labels worth filtering by, with only the values that pass the filter.
   const filters = list.filters
     .filter((labelFilter) => fine(labelFilter.label))
     .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
     .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
   const filterFields = filters.map(
-    (labelFilter, filterIndex) => html`<div data-label-filter="${labelFilter.label}">${selectField({
+    (labelFilter, filterIndex) => selectField({
       id: `rooms-filter-${filterIndex}`,
-      name: `label_${filterIndex}`,
+      name: `label:${labelFilter.label}`,
       label: labelFilter.label,
       choices: [{ label: "Any", choiceValue: "" }, ...labelFilter.values.map((labelValue) => ({ label: labelValue, choiceValue: labelValue }))],
       pickedValue: picked[labelFilter.label] ?? "",
-      isSmall: true,
-    })}</div>`,
+    }),
   );
   const filtered = Object.keys(picked).length > 0;
   const empty = filtered
@@ -109,7 +106,7 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
   return html`<div data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-room-players="${playerCount}" data-room-count="${roomCount}" data-shown="${shownKey(list.region, picked)}">
 ${stack({
     items: [
-      { kind: "block", markup: toolRow({ items: [regions, ...filterFields].filter(Boolean) as Raw[], end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true, isSmall: true }) }) },
+      ...(regions || filterFields.length ? [{ kind: "block" as const, markup: row({ widths: "fit", label: "Pick rooms", items: [...(regions ? [regions] : []), ...filterFields].map((field) => ({ kind: "control" as const, markup: field })) }) }] : []),
       { kind: "block", markup: roomsTable(game.slug, open, region?.name ?? null, { firstRowNumber: (pageNumber - 1) * ROOM_PAGE_ROOM_COUNT + 1, totalRowCount: list.openRoomCount }, empty) },
       ...(open.length && isQuickJoining(game) ? [{ kind: "words" as const, markup: paragraph("Or press Play and the game finds you one.", { type: "note", isMuted: true }) }] : []),
       ...(closedRoomCount && open.length ? [{ kind: "words" as const, markup: paragraph(`Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.`, { type: "note", isMuted: true }) }] : []),
@@ -138,7 +135,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     ...(hasNames ? [{ label: "Room", widthPx: 160 }] : []),
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
-    { label: "Players", isNumeric: true, widthPx: 88, isSortable: true },
+    { label: "Players", isNumeric: true, widthPx: 88 },
     ...(hasWatching ? [{ label: "Watching", isNumeric: true, widthPx: 88 }] : []),
     { label: "Join", isLabelHidden: true },
   ];

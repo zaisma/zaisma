@@ -40,7 +40,7 @@ export const CHECKED_PAGES: CheckedPage[] = [
   { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   // A game online, with rooms to list, and one on its own (Play is the runner on both).
   { name: "Game page, online", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
-  { name: "Game page", area: "Playing", path: "/g/star-haul", mainActionShows: "everywhere" },
+  { name: "Game page", area: "Playing", path: "/g/lava-leap", mainActionShows: "everywhere" },
   { name: "Sign in", area: "Signing in", path: "/signin", ...CITY },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "Forgot your password", area: "Signing in", path: "/signin/email", ...CITY },

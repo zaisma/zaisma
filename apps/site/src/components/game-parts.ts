@@ -201,7 +201,10 @@ export interface CodeJoinOptions {
 /** A box for a room code a friend shared, and Join: one control, a field and its button, that opens the same room link an invite does. */
 export function codeJoin(options: CodeJoinOptions): ControlMarkup {
   const field = cutField({ id: options.id, name: "room", label: options.label, type: "text", icon: "hash", placeholder: options.isStacked ? "ABC234" : "Room code", autocomplete: "off", isRequired: true, isLabelHidden: !options.isStacked });
-  return controlMarkup(html`<form class="code-join${options.isStacked ? " is-stacked" : ""}" method="get" action="${options.action}">${field}${cutButton("Join", { type: "submit", isFullWidth: options.isStacked })}</form>`, "regular", { hasOwnWords: options.isStacked });
+  const join = cutButton("Join", { type: "submit", isFullWidth: options.isStacked });
+  // Side by side, the field fills and Join fits its words (a Row); stacked, Join goes under the field, its whole width (a Stack).
+  const inside = options.isStacked ? stack({ items: [{ kind: "control", markup: field }, { kind: "control", markup: join }] }) : row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: join }] });
+  return controlMarkup(html`<form class="code-join${options.isStacked ? " is-stacked" : ""}" method="get" action="${options.action}">${inside}</form>`, "regular", { hasOwnWords: options.isStacked });
 }
 
 component({
@@ -210,12 +213,9 @@ component({
   group: "inputs",
   summary: "A room code a friend shared, and Join, as one control: in a Rooms pane's corner, or stacked in the bar's room plate.",
   styles: `
-/* Code join: the field and Join side by side, slanting toward each other, as wide as a room code needs and no wider than its place. */
-.code-join { display: flex; align-items: flex-end; width: 320px; max-width: 100%; min-width: 0; }
-.code-join > .cut-field { flex: 1 1 0; min-width: 120px; margin-inline-end: var(--gap-control-row-boxes); }
-.code-join > .shell { flex: none; }
-.code-join.is-stacked { flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); width: 100%; }
-.code-join.is-stacked > .cut-field { margin: 0; }
+/* Code join: as wide as a room code needs and no wider than its place; its Row or Stack places the field and Join. */
+.code-join { display: block; width: 320px; max-width: 100%; min-width: 0; }
+.code-join.is-stacked { width: 100%; }
 `,
   render: codeJoin,
   examples: [

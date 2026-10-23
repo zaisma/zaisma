@@ -187,7 +187,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
             block(row({ widths: "lead-fills", items: [control(runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })), control(cutButton("Details", { href: "#about", isBig: true }))] })),
             block(row({ widths: "fit", items: [control(textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })), control(textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } }))] })),
           ]),
-      ...(gameFacts.length ? [block(facts({ facts: gameFacts, arrangement: "across", label: "About this game" }))] : []),
+      ...(gameFacts.length ? [words(facts({ facts: gameFacts, arrangement: "across", label: "About this game" }))] : []),
     ],
   });
   // The developer's pictures, the one picked large with the rest under it to pick from; the pane's heading is said to screen readers alone.
@@ -218,8 +218,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
         paneWidth: "full",
         label: "Rooms",
         body: paneParts({
-          head: { words: html`${sectionHeading("Rooms")}${paragraph(roomsPlayingLine(rooms), { type: "words", id: "rooms-playing", isHidden: !rooms.playing.playerCount })}`, end: codeJoin({ id: "room-code", action: `/g/${game.slug}`, label: "Join a room by its code" }) },
-          body: html`<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
+          head: { words: html`${sectionHeading("Rooms")}${paragraph(roomsPlayingLine(rooms), { type: "words", id: "rooms-playing", isHidden: !rooms.playing.playerCount })}`, end: cutButton("Refresh the rooms", { id: "rooms-refresh", type: "button", icon: "refresh", isLabelHidden: true }) },
+          body: stack({ items: [control(codeJoin({ id: "room-code", action: `/g/${game.slug}`, label: "Join a room by its code" })), block(html`<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`)] }),
         }),
       })
     : "";
@@ -236,7 +236,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
-    body: html`${siteHeader(env, { viewer })}
+    body: html`${siteHeader(env, { viewer, hasPageRunner: !isClosed })}
 <main id="game-details">${worldWindow()}${split({
       side: glassPane({ paneWidth: "full", label: game.title, body: paneBody }),
       main: html`${roomsSection ? html`<section id="rooms">${roomsSection}</section>` : ""}
@@ -818,15 +818,15 @@ if (roomsPanel) {
     // A region picked: remembered for next time, and the list brought to it.
     // Another region or label lists other rooms: back to the first.
     roomsPage = 1; delete document.getElementById("rooms-list").dataset.tableRow;
-    if (e.target.closest("[data-region-filter]")) {
+    if (e.target.name === "region") {
       roomsRegion = e.target.value;
       try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
       refreshRooms(true);
       return;
     }
-    const filter = e.target.closest("[data-label-filter]");
-    if (!filter) return;
-    const labelName = filter.dataset.labelFilter;
+    // A label's picker is named for the label: label:Mode.
+    if (!e.target.name || !e.target.name.startsWith("label:")) return;
+    const labelName = e.target.name.slice("label:".length);
     if (e.target.value) roomsLabels[labelName] = e.target.value;
     else delete roomsLabels[labelName];
     refreshRooms(true);

@@ -260,13 +260,13 @@ describe("room browsing on the game page", () => {
     await named("DFGHJK", null, { Mode: "Classic" });
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     // A column for the name and one for each label, in the order rooms carry them.
-    expect(page).toMatch(/<thead><tr><th><span aria-hidden="true">Code<\/span><\/th><th><span aria-hidden="true">Room<\/span><\/th><th><span aria-hidden="true">Mode<\/span><\/th><th><span aria-hidden="true">Map<\/span><\/th><th class="num" aria-sort="none"><button type="button" class="table-sort">Players/);
+    expect(page).toMatch(/<thead><tr><th><span aria-hidden="true">Code<\/span><\/th><th><span aria-hidden="true">Room<\/span><\/th><th><span aria-hidden="true">Mode<\/span><\/th><th><span aria-hidden="true">Map<\/span><\/th><th class="num"><span aria-hidden="true">Players/);
     expect(page).toContain('<td><code>BCDFGH</code></td><td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num">2 of 8</td>');
     expect(page).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.
     expect(page).not.toContain("coolkid");
     expect(page).toContain('<td><code>CDFGHJ</code></td><td></td><td>Hardcore</td><td></td><td class="num">2 of 8</td>');
-    const modeFilter = page.match(/<div data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
+    const modeFilter = page.match(/<div class="cut-field" data-select><label id="rooms-filter-\d+-label"[^>]*>Mode<\/label>[\s\S]*?<input type="hidden"[^>]*>/)![0];
     expect([...modeFilter.matchAll(/data-choice-value="([^"]*)"/g)].map((choice) => choice[1])).toEqual(["", "Classic", "Hardcore"]);
     const classic = await (await SELF.fetch(`https://zaisma.test/g/arena/rooms?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`)).text();
     expect(rowsOf(classic)).toBe(2);

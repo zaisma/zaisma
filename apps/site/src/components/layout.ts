@@ -256,7 +256,7 @@ const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is
 function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
-  const selectors = [0, 1, 2, 3].flatMap((depthCount) => {
+  const selectors = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((depthCount) => {
     // Never into words beside a control: they sit on its center line instead.
     const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
     return [
@@ -283,7 +283,7 @@ const PANE_CONTENT = [".glass-pane > .pane-in", ".tray", ".sheet-in"];
 function edgeRows(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
-  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3].map((depthCount) => `${pane}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
+  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3, 4, 5, 6, 7].map((depthCount) => `${pane}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
 }
 
 export const STACK_STYLES = `
