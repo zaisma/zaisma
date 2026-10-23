@@ -1,12 +1,15 @@
-// The memory cap on every preview on this machine, and the line for the starts it holds back (Julius, Oct 23, 2026), so
-// several checkouts' previews never take more than an 8 GB Mac can give them.
-//   The cap is one budget for all previews, wherever they were started. Each preview's processes (its run.mjs and everything
-//   under it) are measured by their physical footprint, what Activity Monitor shows: what's in memory and its compressed part.
-//   ps's resident memory leaves the compressed part out, and on a full Mac that's most of it.
-//   A start, or a wake from sleep, that would go over it waits in a line every checkout shares: line.json in LINE_DIRECTORY,
-//   changed only under one lock. The process that waits is the preview's own run.mjs, so a place in line outlives the command
-//   that asked for it, and it starts by itself once a preview stops, sleeps or shrinks. Wakes go first: someone is at a page.
-//   One preview may always run on its own, even over the cap.
+// The memory cap on every preview and test run on this machine, and the line for the starts it holds back (Julius, Oct 23,
+// 2026), so several checkouts' previews and tests never take more than an 8 GB Mac can give them.
+//   The cap is one budget for all previews and test runs, wherever they were started. Each preview's processes (its run.mjs and
+//   everything under it) and each test run's (its vitest and everything under it) are measured by their physical footprint,
+//   what Activity Monitor shows: what's in memory and its compressed part. ps's resident memory leaves the compressed part out,
+//   and on a full Mac that's most of it.
+//   A start, a wake from sleep or a test run that would go over it waits in a line every checkout shares: line.json in
+//   LINE_DIRECTORY, changed only under one lock. The process that waits is the preview's own run.mjs, or the test run's vitest
+//   (vitest.config.ts asks for its turn before anything runs), so a place in line outlives the command that asked for it, and it
+//   starts by itself once a preview stops, sleeps or shrinks, or a test run ends. Wakes go first: someone is at a page. A test
+//   run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), and waits only when not even one does.
+//   One preview or test run may always run on its own, even over the cap.
 //   PREVIEW_MEMORY_CAP_BYTES sets the cap for one shell, memory_cap_bytes in LINE_DIRECTORY/settings.json for the machine,
 //   and without either it's 3/8 of this machine's memory (3 GB on an 8 GB Mac). 0 is no cap. macOS only: elsewhere (GitHub's
 //   check, one preview a runner) there's no cap and no line.
@@ -21,6 +24,14 @@ export const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 const DEFAULT_CAP_SHARE = 3 / 8;
 // What an awake preview takes until one has been measured on this machine.
 export const DEFAULT_AWAKE_SIZE_BYTES = 1024 ** 3;
+// What a test run takes, measured on an 8 GB Mac (Oct 23, 2026): vitest, its bundler and npm, and a runtime for each file at once,
+// about 0.9 GB for a Workers file's (its own workerd) and much less for a node file's.
+export const TEST_RUN_SIZE_BYTES = 600 * 1024 ** 2;
+export const WORKERS_TEST_FILE_SIZE_BYTES = 900 * 1024 ** 2;
+export const NODE_TEST_FILE_SIZE_BYTES = 200 * 1024 ** 2;
+
+/** What a test run with this many files at once takes, Workers files unless it runs only node files. */
+export const testRunSizeBytes = (workerCount, isNodeOnly = false) => TEST_RUN_SIZE_BYTES + workerCount * (isNodeOnly ? NODE_TEST_FILE_SIZE_BYTES : WORKERS_TEST_FILE_SIZE_BYTES);
 // A waiter looks at the line this often, and the line is measured again when its measurement is older than this (measuring
 // takes a second or two of footprint's time with several previews' Chromes), or at once after a stop, a sleep or a start
 // that's up (each clears the measurement).
@@ -125,7 +136,9 @@ export async function withLock(fn, { directory = LINE_DIRECTORY } = {}) {
 
 /**
  * The line: { entries, measurement, awake_size_bytes }. Each entry is a preview's run.mjs asking for memory:
- * { pid, folder, offset, kind: "start" or "wake", asked_at_ms, turn_given_at_ms } (null until its turn comes).
+ * { pid, folder, offset, kind: "start" or "wake", asked_at_ms, turn_given_at_ms } (null until its turn comes), or a test run's
+ * vitest: { pid, folder, offset: null, kind: "test", asked_at_ms, turn_given_at_ms, requested_worker_count, is_node_only,
+ * worker_count } (the files at once its turn gave it, null until then). A test run's entry stays until its vitest ends.
  */
 export function readLine({ directory = LINE_DIRECTORY } = {}) {
   try {
@@ -144,52 +157,74 @@ export function writeLine(line, { directory = LINE_DIRECTORY } = {}) {
   renameSync(written, file);
 }
 
-/** The entries still waiting, in the order their turns come: wakes first (someone is at a page), then starts, each by when it asked. */
+/** The entries still waiting, in the order their turns come: wakes first (someone is at a page), then starts and test runs, each by when it asked. */
 export function waitingInOrder(entries) {
-  return entries.filter((entry) => entry.turn_given_at_ms === null).sort((a, b) => (a.kind === b.kind ? a.asked_at_ms - b.asked_at_ms : a.kind === "wake" ? -1 : 1));
+  const rank = (entry) => (entry.kind === "wake" ? 0 : 1);
+  return entries.filter((entry) => entry.turn_given_at_ms === null).sort((a, b) => rank(a) - rank(b) || a.asked_at_ms - b.asked_at_ms);
 }
+
+/** Whether an entry keeps its memory: a start or wake until it's up (at most KEPT_DURATION_MS), a test run until its vitest ends. */
+const isComing = (entry, nowMs) => entry.turn_given_at_ms !== null && (entry.kind === "test" || nowMs - entry.turn_given_at_ms < KEPT_DURATION_MS);
 
 /**
  * Whose turn it is, from the line and what was measured: the first entry waiting gets it when what's in use, what's kept for
- * previews still starting or waking, and what it needs fit in the cap, or when nothing else is awake or starting.
- * previews: [{ offset, sizeBytes, isAwake }] as measured; capBytes 0 is no cap.
+ * previews still starting or waking and test runs still growing, and what it needs fit in the cap, or when nothing else is
+ * awake, starting or running tests. A test run gets as many files at once as fit, up to what it asked for (turnWorkerCount),
+ * and its turn when one does. previews: [{ offset, sizeBytes, isAwake }] and testRuns: [{ pid, sizeBytes }] as measured;
+ * capBytes 0 is no cap.
  */
-export function nextTurn({ entries, previews, capBytes, awakeSizeBytes, nowMs = Date.now() }) {
+export function nextTurn({ entries, previews, testRuns = [], capBytes, awakeSizeBytes, nowMs = Date.now() }) {
   const sizeAt = (offset) => previews.find((preview) => preview.offset === offset)?.sizeBytes ?? 0;
-  const usedBytes = previews.reduce((sum, preview) => sum + preview.sizeBytes, 0);
-  const coming = entries.filter((entry) => entry.turn_given_at_ms !== null && nowMs - entry.turn_given_at_ms < KEPT_DURATION_MS);
-  const keptBytes = coming.reduce((sum, entry) => sum + Math.max(0, awakeSizeBytes - sizeAt(entry.offset)), 0);
+  const runSizeOf = (pid) => testRuns.find((run) => run.pid === pid)?.sizeBytes ?? 0;
+  const measuredOf = (entry) => (entry.kind === "test" ? runSizeOf(entry.pid) : sizeAt(entry.offset));
+  const expectedOf = (entry) => (entry.kind === "test" ? testRunSizeBytes(entry.worker_count ?? 1, entry.is_node_only) : awakeSizeBytes);
+  const usedBytes = previews.reduce((sum, preview) => sum + preview.sizeBytes, 0) + testRuns.reduce((sum, run) => sum + run.sizeBytes, 0);
+  const coming = entries.filter((entry) => isComing(entry, nowMs));
+  const keptBytes = coming.reduce((sum, entry) => sum + Math.max(0, expectedOf(entry) - measuredOf(entry)), 0);
   const [first] = waitingInOrder(entries);
-  if (!first) return { turnPid: null, usedBytes, keptBytes, neededBytes: 0, isAlone: false };
-  const neededBytes = Math.max(0, awakeSizeBytes - sizeAt(first.offset));
+  if (!first) return { turnPid: null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes: 0, isAlone: false };
   const isAlone = !coming.length && !previews.some((preview) => preview.isAwake && preview.offset !== first.offset);
+  const roomBytes = capBytes - usedBytes - keptBytes + measuredOf(first);
+  if (first.kind === "test") {
+    const fileSizeBytes = testRunSizeBytes(1, first.is_node_only) - TEST_RUN_SIZE_BYTES;
+    const fittingCount = capBytes === 0 ? first.requested_worker_count : Math.min(first.requested_worker_count, Math.floor((roomBytes - TEST_RUN_SIZE_BYTES) / fileSizeBytes));
+    const workerCount = isAlone ? Math.max(1, fittingCount) : fittingCount;
+    const neededBytes = Math.max(0, testRunSizeBytes(Math.max(1, workerCount), first.is_node_only) - measuredOf(first));
+    return { turnPid: workerCount >= 1 ? first.pid : null, turnWorkerCount: workerCount >= 1 ? workerCount : null, usedBytes, keptBytes, neededBytes, isAlone };
+  }
+  const neededBytes = Math.max(0, awakeSizeBytes - sizeAt(first.offset));
   const fits = capBytes === 0 || isAlone || usedBytes + keptBytes + neededBytes <= capBytes;
-  return { turnPid: fits ? first.pid : null, usedBytes, keptBytes, neededBytes, isAlone };
+  return { turnPid: fits ? first.pid : null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes, isAlone };
 }
 
 /**
- * Waits for this process's turn in the line, as a preview's run.mjs, before it starts ("start") or wakes ("wake"), and says
- * its place and why through say(). Resolves once its turn has come, with how long it waited; at once without a cap.
+ * Waits for this process's turn in the line, as a preview's run.mjs before it starts ("start") or wakes ("wake"), or as a test
+ * run's vitest before its files run ("test", asking for requestedWorkerCount files at once), and says its place and why through
+ * say(). Resolves once its turn has come, with how long it waited and, for a test run, how many files it may run at once; at once
+ * without a cap.
  */
-export async function waitForTurn({ kind, offset, folder, say = console.log, directory = LINE_DIRECTORY }) {
+export async function waitForTurn({ kind, offset = null, folder, requestedWorkerCount = 1, isNodeOnly = false, say = console.log, directory = LINE_DIRECTORY }) {
   let { capBytes } = memoryCap({ directory });
-  if (!capBytes) return { waitedMs: 0 };
+  if (!capBytes) return { waitedMs: 0, workerCount: requestedWorkerCount };
   const askedAtMs = Date.now();
+  const what = { start: ["starting", "starts"], wake: ["waking up", "wakes"], test: ["running its tests", "runs its tests"] }[kind];
   let shown = "";
   let shownAtMs = 0;
   for (;;) {
-    // Read again at each look, so a cap raised in the settings file while previews wait lets them in.
+    // Read again at each look, so a cap raised in the settings file while previews and tests wait lets them in.
     try {
       capBytes = memoryCap({ directory }).capBytes;
     } catch {}
-    const status = await withLock(() => lookAtLine({ kind, offset, folder, capBytes, directory }), { directory });
+    const status = await withLock(() => lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory }), { directory });
     if (status.isTurn) {
       const waitedMs = Date.now() - askedAtMs;
-      if (shown) say(`Room for it after ${durationText(waitedMs)} in line (${sizeText(status.usedBytes)} of the ${sizeText(capBytes)} cap in use): ${kind === "wake" ? "waking up" : "starting"}.`);
-      else if (status.isAlone && status.usedBytes + status.neededBytes > capBytes) say(`It takes more than the ${sizeText(capBytes)} memory cap, but no other preview is awake, so it ${kind === "wake" ? "wakes" : "starts"} anyway.`);
-      return { waitedMs };
+      const filesText = kind === "test" ? `, ${status.workerCount === 1 ? "one file at a time" : `${status.workerCount} files at once`}` : "";
+      if (shown) say(`Room for it after ${durationText(waitedMs)} in line (${sizeText(status.usedBytes)} of the ${sizeText(capBytes)} cap in use): ${what[0]}${filesText}.`);
+      else if (status.isAlone && status.usedBytes + status.neededBytes > capBytes) say(`It takes more than the ${sizeText(capBytes)} memory cap, but no other preview is awake and no other test run is going, so it ${what[1]} anyway${filesText}.`);
+      else if (kind === "test" && status.workerCount < requestedWorkerCount) say(`Memory for ${status.workerCount === 1 ? "one test file at a time" : `${status.workerCount} test files at once`} of the ${requestedWorkerCount} asked for: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap (npm run test:list).`);
+      return { waitedMs, workerCount: status.workerCount ?? requestedWorkerCount };
     }
-    const text = `Waiting in line for memory, ${status.place === 1 ? "next up" : `${placeText(status.place)} of ${status.waitingCount}`}: previews take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap, and this one needs about ${sizeText(status.neededBytes)} more. It ${kind === "wake" ? "wakes" : "starts"} by itself when a preview stops, sleeps or shrinks.`;
+    const text = `Waiting in line for memory, ${status.place === 1 ? "next up" : `${placeText(status.place)} of ${status.waitingCount}`}: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap, and this ${kind === "test" ? "run" : "one"} needs about ${sizeText(status.neededBytes)} more. It ${what[1]} by itself when a preview stops, sleeps or shrinks, or a test run ends (npm run test:list shows the line).`;
     if (text.replace(/[\d.]+ [GM]B/g, "") !== shown.replace(/[\d.]+ [GM]B/g, "") || Date.now() - shownAtMs > PLACE_REPEAT_MS) {
       say(text);
       shown = text;
@@ -200,39 +235,59 @@ export async function waitForTurn({ kind, offset, folder, say = console.log, dir
 }
 
 /** One look at the line under its lock: makes sure this process is in it, drops the dead, gives the next turn when it's time. */
-function lookAtLine({ kind, offset, folder, capBytes, directory }) {
+function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory }) {
   const line = readLine({ directory });
   const nowMs = Date.now();
-  line.entries = line.entries.filter((entry) => isAlive(entry.pid) && !(entry.turn_given_at_ms !== null && nowMs - entry.turn_given_at_ms >= KEPT_DURATION_MS));
+  line.entries = line.entries.filter((entry) => isAlive(entry.pid) && (entry.turn_given_at_ms === null || isComing(entry, nowMs)));
   let mine = line.entries.find((entry) => entry.pid === process.pid);
+  const asked = kind === "test" ? { requested_worker_count: requestedWorkerCount, is_node_only: isNodeOnly, worker_count: null } : {};
   if (!mine) {
-    mine = { pid: process.pid, folder, offset, kind, asked_at_ms: nowMs, turn_given_at_ms: null };
+    mine = { pid: process.pid, folder, offset, kind, asked_at_ms: nowMs, turn_given_at_ms: null, ...asked };
     line.entries.push(mine);
-  } else if (mine.kind !== kind || mine.offset !== offset) Object.assign(mine, { kind, offset, asked_at_ms: nowMs, turn_given_at_ms: null });
+  } else if (mine.kind !== kind || mine.offset !== offset) Object.assign(mine, { kind, offset, asked_at_ms: nowMs, turn_given_at_ms: null, ...asked });
   if (mine.turn_given_at_ms === null && (!line.measurement || nowMs - line.measurement.measured_at_ms >= MEASURE_INTERVAL_MS)) {
-    const { previews, processes } = measurePreviews(line.entries);
+    const { previews, testRuns, processes } = measurePreviews(line.entries);
     // The dead were dropped above; this drops an entry whose process number now belongs to something else.
-    line.entries = line.entries.filter((entry) => processes.get(entry.pid)?.command.includes("scripts/preview/run.mjs"));
+    line.entries = line.entries.filter((entry) => processes.get(entry.pid)?.command.includes(entry.kind === "test" ? "vitest" : "scripts/preview/run.mjs"));
     if (!line.entries.includes(mine)) line.entries.push(mine);
     line.awake_size_bytes = awakeSize(previews, line.entries) ?? line.awake_size_bytes;
     const awakeSizeBytes = line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES;
-    const turn = nextTurn({ entries: line.entries, previews, capBytes, awakeSizeBytes, nowMs });
-    if (turn.turnPid !== null) line.entries.find((entry) => entry.pid === turn.turnPid).turn_given_at_ms = nowMs;
-    line.measurement = { measured_at_ms: nowMs, cap_bytes: capBytes, used_bytes: turn.usedBytes, kept_bytes: turn.keptBytes, needed_bytes: turn.neededBytes, is_alone: turn.isAlone, previews: previews.map(({ offset, sizeBytes, isAwake }) => ({ offset, size_bytes: sizeBytes, is_awake: isAwake })) };
+    const turn = nextTurn({ entries: line.entries, previews, testRuns, capBytes, awakeSizeBytes, nowMs });
+    if (turn.turnPid !== null) Object.assign(line.entries.find((entry) => entry.pid === turn.turnPid), { turn_given_at_ms: nowMs }, turn.turnWorkerCount === null ? {} : { worker_count: turn.turnWorkerCount });
+    line.measurement = {
+      measured_at_ms: nowMs,
+      cap_bytes: capBytes,
+      used_bytes: turn.usedBytes,
+      kept_bytes: turn.keptBytes,
+      needed_bytes: turn.neededBytes,
+      is_alone: turn.isAlone,
+      previews: previews.map(({ offset, sizeBytes, isAwake }) => ({ offset, size_bytes: sizeBytes, is_awake: isAwake })),
+      test_runs: testRuns.map(({ pid, sizeBytes }) => ({ pid, size_bytes: sizeBytes })),
+    };
   }
   writeLine(line, { directory });
   const waiting = waitingInOrder(line.entries);
   // Cleared by a stop since its turn came (it isn't measured again once its turn has come).
-  const measurement = line.measurement ?? { used_bytes: 0, kept_bytes: 0, previews: [], is_alone: false };
+  const measurement = line.measurement ?? { used_bytes: 0, kept_bytes: 0, previews: [], test_runs: [], is_alone: false };
+  const ownSizeBytes = kind === "test" ? ((measurement.test_runs ?? []).find((run) => run.pid === process.pid)?.size_bytes ?? 0) : (measurement.previews.find((preview) => preview.offset === offset)?.size_bytes ?? 0);
   return {
     isTurn: mine.turn_given_at_ms !== null,
+    workerCount: mine.worker_count ?? null,
     place: waiting.indexOf(mine) + 1,
     waitingCount: waiting.length,
     usedBytes: measurement.used_bytes,
     keptBytes: measurement.kept_bytes,
-    neededBytes: Math.max(0, (line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES) - (measurement.previews.find((preview) => preview.offset === offset)?.size_bytes ?? 0)),
+    neededBytes: Math.max(0, (kind === "test" ? testRunSizeBytes(1, isNodeOnly) : (line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES)) - ownSizeBytes),
     isAlone: measurement.is_alone,
   };
+}
+
+/**
+ * A test run's turn (vitest.config.ts, before anything runs): it waits in line with the previews, then answers how many files it
+ * may run at once. requestedWorkerCount is what it asks for; isNodeOnly, that it runs only node files, which take less.
+ */
+export function waitForTestTurn({ requestedWorkerCount, isNodeOnly = false, folder = process.cwd(), directory = LINE_DIRECTORY }) {
+  return waitForTurn({ kind: "test", folder, requestedWorkerCount, isNodeOnly, directory });
 }
 
 /** What an awake preview takes on this machine: the middle size of the awake ones up and running (none still starting or waking). */
@@ -262,10 +317,11 @@ export async function noteMemoryFreed({ directory = LINE_DIRECTORY } = {}) {
 }
 
 /**
- * Every preview on this machine, measured: one for each preview site port something listens on, and one for each entry in the
- * line not listening yet. Each is its run.mjs and every process under it, with their physical footprint added up.
- * Answers previews ([{ offset, rootPid, folder, sizeBytes, processCount, upFor, isListening, isAwake }], by offset) and the
- * process table it read.
+ * Every preview and test run on this machine, measured: a preview for each preview site port something listens on, and one for
+ * each preview entry in the line not listening yet; a test run for each test entry in the line. Each is its run.mjs or vitest and
+ * every process under it, with their physical footprint added up. Answers previews ([{ offset, rootPid, folder, sizeBytes,
+ * processCount, upFor, isListening, isAwake }], by offset), testRuns ([{ pid, folder, sizeBytes, processCount, upFor,
+ * workerCount, isRunning }]) and the process table it read.
  */
 export function measurePreviews(entries = []) {
   const processes = processTable();
@@ -280,14 +336,16 @@ export function measurePreviews(entries = []) {
     for (let step = 0; step < 6 && pid > 1 && !processes.get(pid)?.command.includes("scripts/preview/run.mjs"); step++) pid = processes.get(pid)?.parentPid ?? 0;
     roots.set(sitePorts.get(listener.port), { pid: pid > 1 ? pid : listener.pid, isListening: true });
   }
-  for (const entry of entries) if (!roots.has(entry.offset) && processes.has(entry.pid)) roots.set(entry.offset, { pid: entry.pid, isListening: false, folder: entry.folder });
-  const members = new Map();
-  for (const [offset, root] of roots) {
-    const found = [root.pid];
+  for (const entry of entries) if (entry.kind !== "test" && !roots.has(entry.offset) && processes.has(entry.pid)) roots.set(entry.offset, { pid: entry.pid, isListening: false, folder: entry.folder });
+  const treeOf = (rootPid) => {
+    const found = [rootPid];
     for (let i = 0; i < found.length; i++) found.push(...(children.get(found[i]) ?? []));
-    members.set(offset, found);
-  }
-  const footprints = footprintBytes([...members.values()].flat());
+    return found;
+  };
+  const members = new Map([...roots].map(([offset, root]) => [offset, treeOf(root.pid)]));
+  const testEntries = entries.filter((entry) => entry.kind === "test" && processes.has(entry.pid));
+  const testMembers = new Map(testEntries.map((entry) => [entry.pid, treeOf(entry.pid)]));
+  const footprints = footprintBytes([...members.values(), ...testMembers.values()].flat());
   const folders = processFolders([...roots.values()].filter((root) => !root.folder).map((root) => root.pid));
   const previews = [...roots]
     .map(([offset, root]) => {
@@ -304,7 +362,11 @@ export function measurePreviews(entries = []) {
       };
     })
     .sort((a, b) => a.offset - b.offset);
-  return { previews, processes };
+  const testRuns = testEntries.map((entry) => {
+    const pids = testMembers.get(entry.pid);
+    return { pid: entry.pid, folder: entry.folder, sizeBytes: pids.reduce((sum, pid) => sum + (footprints.get(pid) ?? 0), 0), processCount: pids.length, upFor: processes.get(entry.pid)?.upFor ?? null, workerCount: entry.worker_count ?? null, isRunning: entry.turn_given_at_ms !== null };
+  });
+  return { previews, testRuns, processes };
 }
 
 /** Every process: pid → { parentPid, upFor (ps's elapsed time), command }. */

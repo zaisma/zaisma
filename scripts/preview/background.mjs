@@ -12,16 +12,16 @@
 //                                        plays, for GitHub's Engine exports jobs, each ENGINE_SAMPLE_SHARD's share
 //                                        of them) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview (or takes it out of the line), and nothing of another checkout's.
-//   npm run preview:list                 every preview on this machine, from any checkout: its address, folder, how long
-//                                        it's been up, the memory it takes and the command that stops it; all of them
-//                                        against the cap, and the line.
+//   npm run preview:list                 every preview and test run on this machine, from any checkout: its address or
+//   (or npm run test:list)               folder, how long it's been up, the memory it takes and how to stop it; all of
+//                                        them against the cap, and the line.
 // Its output goes to .wrangler/preview-run/preview.log; the servers' own log is .wrangler/preview/servers.log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, nextTurn, OFFSETS, placeText, readLine, sizeText, waitingInOrder, withLock, writeLine } from "./memory.mjs";
+import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, nextTurn, OFFSETS, placeText, readLine, sizeText, testRunSizeBytes, waitingInOrder, withLock, WORKERS_TEST_FILE_SIZE_BYTES, writeLine } from "./memory.mjs";
 import { PASSWORD, SIGN_INS } from "./sign-ins.mjs";
 
 const ROOT = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "../.."));
@@ -174,7 +174,8 @@ async function stop() {
     for (const pid of ourListeners()) killPid(pid, "SIGKILL");
   }
   // Its run.mjs is gone, so the line would drop it at its next look anyway; this lets the next one's turn come at once.
-  if (existsSync(join(LINE_DIRECTORY, "line.json"))) await leaveLine((entry) => entry.folder === ROOT || entry.pid === state?.pid);
+  // This checkout's preview entries only: its test runs keep their places.
+  if (existsSync(join(LINE_DIRECTORY, "line.json"))) await leaveLine((entry) => (entry.kind !== "test" && entry.folder === ROOT) || entry.pid === state?.pid);
   rmSync(STATE_FILE, { force: true });
   return stopped;
 }
@@ -192,15 +193,15 @@ function list() {
   }
   const line = readLine();
   const entries = line.entries.filter((entry) => isAlive(entry.pid));
-  const { previews } = measurePreviews(entries);
+  const { previews, testRuns } = measurePreviews(entries);
   const awakeSizeBytes = line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES;
   const capText = cap.capBytes ? `of the ${sizeText(cap.capBytes)} memory cap (${capSourceText(cap.source)})` : `with no memory cap (${cap.source === "not_macos" ? "there's none off macOS" : `${capSourceText(cap.source)} is 0`})`;
-  if (!previews.length) return console.log(`No preview is running on this machine, and none is waiting in line. Memory: 0 MB ${capText}.`);
+  if (!previews.length && !testRuns.length) return console.log(`No preview or test run is going on this machine, and none is waiting in line. Memory: 0 MB ${capText}.`);
   const waiting = waitingInOrder(entries);
   // A preview's entry is its run.mjs's (another process can hold the offset an entry waits for).
   const entryOf = (preview) => entries.find((entry) => entry.pid === preview.rootPid);
   const shownFolder = (folder) => (folder === ROOT ? `${folder} (this checkout)` : (folder ?? "(its folder is unknown)"));
-  const { usedBytes, keptBytes } = nextTurn({ entries, previews, capBytes: cap.capBytes, awakeSizeBytes });
+  const { usedBytes, keptBytes } = nextTurn({ entries, previews, testRuns, capBytes: cap.capBytes, awakeSizeBytes });
   const running = previews.filter((preview) => preview.isListening || entryOf(preview)?.turn_given_at_ms !== null);
   if (running.length) console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
   for (const preview of running) {
@@ -216,13 +217,24 @@ function list() {
     console.log(`  ${siteFor(preview.offset)}  ${shownFolder(preview.folder)}${stateText ? `  ${stateText}` : ""}`);
     console.log(`    up ${preview.upFor ? upForText(preview.upFor) : "?"}, ${sizeText(preview.sizeBytes)} in ${preview.processCount === 1 ? "1 process" : `${preview.processCount} processes`}. Stop it: npm --prefix "${preview.folder}" run preview:stop`);
   }
-  console.log(`\nAll together: ${sizeText(usedBytes)}${keptBytes ? `, and ${sizeText(keptBytes)} kept for previews starting or waking` : ""}, ${capText}.`);
+  const runningTests = testRuns.filter((run) => run.isRunning);
+  if (runningTests.length) console.log(`${running.length ? "\n" : ""}${runningTests.length === 1 ? "One test run is" : `${runningTests.length} test runs are`} going on this machine:\n`);
+  for (const run of runningTests) {
+    console.log(`  tests in ${shownFolder(run.folder)}, ${run.workerCount === 1 ? "one file at a time" : `${run.workerCount} files at once`}`);
+    console.log(`    up ${run.upFor ? upForText(run.upFor) : "?"}, ${sizeText(run.sizeBytes)} in ${run.processCount === 1 ? "1 process" : `${run.processCount} processes`}. Stop it: Ctrl+C where it runs, or kill ${run.pid}`);
+  }
+  console.log(`\nAll together: ${sizeText(usedBytes)}${keptBytes ? `, and ${sizeText(keptBytes)} kept for previews starting or waking and test runs growing` : ""}, ${capText}.`);
   if (cap.capBytes) console.log(`The cap: PREVIEW_MEMORY_CAP_BYTES for one shell, or { "memory_cap_bytes": … } in ${join(LINE_DIRECTORY, "settings.json")} for this machine.`);
   if (!waiting.length) return;
-  console.log(`\nWaiting in line for memory, each starting by itself when there's room (an awake preview takes about ${sizeText(awakeSizeBytes)} here):\n`);
+  console.log(`\nWaiting in line for memory, each starting by itself when there's room (an awake preview takes about ${sizeText(awakeSizeBytes)} here, a test run ${sizeText(testRunSizeBytes(1))} and ${sizeText(WORKERS_TEST_FILE_SIZE_BYTES)} more for each Workers file at once):\n`);
   for (const [index, entry] of waiting.entries()) {
-    const preview = previews.find((each) => each.offset === entry.offset);
     const askedText = `asked ${durationText(Date.now() - entry.asked_at_ms)} ago`;
+    if (entry.kind === "test") {
+      console.log(`  ${index + 1}. tests in ${shownFolder(entry.folder)}, ${askedText} (up to ${entry.requested_worker_count === 1 ? "one file at a time" : `${entry.requested_worker_count} files at once`})`);
+      console.log(`     Take it out: Ctrl+C where it runs, or kill ${entry.pid}`);
+      continue;
+    }
+    const preview = previews.find((each) => each.offset === entry.offset);
     console.log(`  ${index + 1}. ${siteFor(entry.offset)}  ${shownFolder(entry.folder)}  ${entry.kind === "wake" ? `to wake: someone opened a page, ${askedText}` : `to start, ${askedText}${preview ? ` (${sizeText(preview.sizeBytes)} while it waits)` : ""}`}`);
     console.log(`     Take it out: npm --prefix "${entry.folder}" run preview:stop`);
   }
