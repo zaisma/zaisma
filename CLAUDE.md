@@ -8,6 +8,7 @@ Open-source, browser-first game platform: any game you can imagine, one link fro
 - [`docs/NAMING.md`](docs/NAMING.md): how names, values, inputs, errors and examples work in the API, MCP, SDK and game server. Follow it for every field, option and tool.
 - [`docs/ADMIN-MCP.md`](docs/ADMIN-MCP.md): the admin MCP for reports and precedents, and how to connect it. Keep it in step with `apps/site/src/admin-mcp.ts`.
 - [`docs/COVERS.md`](docs/COVERS.md): the cover guide: the lines covers, screenshots and titles keep to show in Zaisma's lists, and what good covers do. Keep it in step with `apps/site/src/cover-guide.ts`.
+- [`docs/BACKGROUNDS.md`](docs/BACKGROUNDS.md): the background guide: what reads well under Zaisma's glass, and the stand-in worlds whose sources are open to start from. Keep it in step with `apps/site/src/background-guide.ts`.
 - [`docs/DESIGN.md`](docs/DESIGN.md): Glass, the design system: rules, tokens, glass, shapes and components. Follow it for every page.
 - [`brand/README.md`](brand/README.md): logo files and usage rules.
 

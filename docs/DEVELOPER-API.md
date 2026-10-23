@@ -1050,6 +1050,8 @@ curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
 
 A game's background is its world behind Zaisma's glass: on the home while the game is in focus, and on its game page. Each screen has its own: **wide** (desktops and tablets) and **phone** (composed for a tall screen). Each shows a picture, a shader, or Zaisma's own background (white glass facets with orange nodes gliding over them, graphite in dark mode); phones show the wide one until they have their own. A background is separate from the cover and carries no title, logo or words: those go on the cover.
 
+What reads well under the glass, each line with why, and live worlds whose sources are open to start from: [`docs/BACKGROUNDS.md`](BACKGROUNDS.md), also at zaisma.com/developers/backgrounds.
+
 | Call | What it does |
 | --- | --- |
 | `POST /games/:slug/images?kind=background` or `?kind=phone_background` | Send a background picture, as for covers. It's checked the same way, and a newly approved one replaces the old one of its kind, on the screen showing it too. |

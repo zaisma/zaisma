@@ -13,7 +13,7 @@ export const SCREEN_THEMES = ["light", "dark"] as const;
 export interface CheckedPage {
   name: string;
   /** Which branch of Zaisma it's in, as Screens groups its links. */
-  area: "Playing" | "Signing in" | "Gallery";
+  area: "Playing" | "Signing in" | "Developers" | "Gallery";
   /** On this site, or on the stand-in site of a developer using Sign in with Zaisma (isOnSignInSite), which sends the player on to Zaisma's own page. */
   path: string;
   /**
@@ -41,6 +41,7 @@ export const CHECKED_PAGES: CheckedPage[] = [
   { name: "Sign in", area: "Signing in", path: "/signin", ...CITY },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "Forgot your password", area: "Signing in", path: "/signin/email", ...CITY },
+  { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Example page", area: "Gallery", path: "/design/example", mainActionShows: "everywhere" },
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },
