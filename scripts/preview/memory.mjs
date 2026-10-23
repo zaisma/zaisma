@@ -21,9 +21,11 @@ export const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 const DEFAULT_CAP_SHARE = 3 / 8;
 // What an awake preview takes until one has been measured on this machine.
 export const DEFAULT_AWAKE_SIZE_BYTES = 1024 ** 3;
-// A waiter looks at the line this often, and the line is measured again when its measurement is older than this.
+// A waiter looks at the line this often, and the line is measured again when its measurement is older than this (measuring
+// takes a second or two of footprint's time with several previews' Chromes), or at once after a stop, a sleep or a start
+// that's up (each clears the measurement).
 const LOOK_INTERVAL_MS = 2000;
-const MEASURE_INTERVAL_MS = 4000;
+const MEASURE_INTERVAL_MS = 10_000;
 // Memory is kept for a preview whose turn came until it's up, or this long at most (background.mjs gives a start 9 minutes).
 const KEPT_DURATION_MS = 10 * 60_000;
 // A lock older than this is from a process that died holding it.
@@ -170,12 +172,16 @@ export function nextTurn({ entries, previews, capBytes, awakeSizeBytes, nowMs = 
  * its place and why through say(). Resolves once its turn has come, with how long it waited; at once without a cap.
  */
 export async function waitForTurn({ kind, offset, folder, say = console.log, directory = LINE_DIRECTORY }) {
-  const { capBytes } = memoryCap({ directory });
+  let { capBytes } = memoryCap({ directory });
   if (!capBytes) return { waitedMs: 0 };
   const askedAtMs = Date.now();
   let shown = "";
   let shownAtMs = 0;
   for (;;) {
+    // Read again at each look, so a cap raised in the settings file while previews wait lets them in.
+    try {
+      capBytes = memoryCap({ directory }).capBytes;
+    } catch {}
     const status = await withLock(() => lookAtLine({ kind, offset, folder, capBytes, directory }), { directory });
     if (status.isTurn) {
       const waitedMs = Date.now() - askedAtMs;
@@ -216,7 +222,8 @@ function lookAtLine({ kind, offset, folder, capBytes, directory }) {
   }
   writeLine(line, { directory });
   const waiting = waitingInOrder(line.entries);
-  const measurement = line.measurement;
+  // Cleared by a stop since its turn came (it isn't measured again once its turn has come).
+  const measurement = line.measurement ?? { used_bytes: 0, kept_bytes: 0, previews: [], is_alone: false };
   return {
     isTurn: mine.turn_given_at_ms !== null,
     place: waiting.indexOf(mine) + 1,
@@ -240,13 +247,18 @@ export async function finishTurn({ directory = LINE_DIRECTORY } = {}) {
   await leaveLine((entry) => entry.pid === process.pid, { directory });
 }
 
-/** Takes the entries that match out of the line (preview:stop takes its checkout's). */
+/** Takes the entries that match out of the line (preview:stop takes its checkout's), and has it measured again at once. */
 export async function leaveLine(matches, { directory = LINE_DIRECTORY } = {}) {
   await withLock(() => {
     const line = readLine({ directory });
-    const left = line.entries.filter((entry) => !matches(entry));
-    if (left.length !== line.entries.length) writeLine({ ...line, entries: left, measurement: null }, { directory });
+    writeLine({ ...line, entries: line.entries.filter((entry) => !matches(entry)), measurement: null }, { directory });
   }, { directory });
+}
+
+/** Has the line measured again at its next look, when a preview just freed memory (it fell asleep). */
+export async function noteMemoryFreed({ directory = LINE_DIRECTORY } = {}) {
+  if (!memoryCap({ directory }).capBytes) return;
+  await leaveLine(() => false, { directory });
 }
 
 /**

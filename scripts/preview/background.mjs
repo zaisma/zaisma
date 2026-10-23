@@ -196,13 +196,14 @@ function list() {
   const capText = cap.capBytes ? `of the ${sizeText(cap.capBytes)} memory cap (${capSourceText(cap.source)})` : `with no memory cap (${cap.source === "not_macos" ? "there's none off macOS" : `${capSourceText(cap.source)} is 0`})`;
   if (!previews.length) return console.log(`No preview is running on this machine, and none is waiting in line. Memory: 0 MB ${capText}.`);
   const waiting = waitingInOrder(entries);
-  const entryAt = (offset) => entries.find((entry) => entry.offset === offset);
+  // A preview's entry is its run.mjs's (another process can hold the offset an entry waits for).
+  const entryOf = (preview) => entries.find((entry) => entry.pid === preview.rootPid);
   const shownFolder = (folder) => (folder === ROOT ? `${folder} (this checkout)` : (folder ?? "(its folder is unknown)"));
   const { usedBytes, keptBytes } = nextTurn({ entries, previews, capBytes: cap.capBytes, awakeSizeBytes });
-  const running = previews.filter((preview) => preview.isListening || entryAt(preview.offset)?.turn_given_at_ms !== null);
+  const running = previews.filter((preview) => preview.isListening || entryOf(preview)?.turn_given_at_ms !== null);
   if (running.length) console.log(`${running.length === 1 ? "One preview is" : `${running.length} previews are`} running on this machine:\n`);
   for (const preview of running) {
-    const entry = entryAt(preview.offset);
+    const entry = entryOf(preview);
     const isAsleep = !preview.isAwake && /Asleep at [^\n]*\n(?![\s\S]*Waking up at)/.test(readText(join(preview.folder ?? "", ".wrangler/preview-run/preview.log")));
     const stateText =
       entry?.turn_given_at_ms !== null && entry?.kind === "start" ? `starting, about ${sizeText(Math.max(0, awakeSizeBytes - preview.sizeBytes))} more kept for it`
@@ -215,7 +216,7 @@ function list() {
     console.log(`    up ${preview.upFor ? upForText(preview.upFor) : "?"}, ${sizeText(preview.sizeBytes)} in ${preview.processCount === 1 ? "1 process" : `${preview.processCount} processes`}. Stop it: npm --prefix "${preview.folder}" run preview:stop`);
   }
   console.log(`\nAll together: ${sizeText(usedBytes)}${keptBytes ? `, and ${sizeText(keptBytes)} kept for previews starting or waking` : ""}, ${capText}.`);
-  if (cap.capBytes) console.log(`PREVIEW_MEMORY_CAP_BYTES, or memory_cap_bytes in ${join(LINE_DIRECTORY, "settings.json")} for every shell, changes the cap.`);
+  if (cap.capBytes) console.log(`The cap: PREVIEW_MEMORY_CAP_BYTES for one shell, or { "memory_cap_bytes": … } in ${join(LINE_DIRECTORY, "settings.json")} for this machine.`);
   if (!waiting.length) return;
   console.log(`\nWaiting in line for memory, each starting by itself when there's room (an awake preview takes about ${sizeText(awakeSizeBytes)} here):\n`);
   for (const [index, entry] of waiting.entries()) {
