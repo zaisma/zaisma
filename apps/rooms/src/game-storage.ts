@@ -26,6 +26,17 @@ export class GameStorageService extends WorkerEntrypoint<Env> {
     }
   }
 
+  /**
+   * A kept room's storage as JSON lines, for Zaisma's nightly backup (apps/site/src/backups.ts), or null
+   * when the room has no world (deleted since it was listed). Its object is named by the game's link name and its code.
+   */
+  async keptRoomBackup(gameId: string, slug: string, roomCode: string): Promise<ReadableStream<Uint8Array> | null> {
+    const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`)).fetch("https://room/backup", { method: "POST", headers: { "x-game-id": gameId } });
+    if (response.status === 404) return null;
+    if (!response.ok || !response.body) throw new Error(`kept room ${roomCode} said ${response.status}`);
+    return response.body;
+  }
+
   /** Each kept room deletes its own world (its object is named by the game's link name and its code), then the rows go. */
   private async deleteKeptRooms(gameId: string): Promise<void> {
     const game = await this.env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(gameId).first<{ slug: string }>();
