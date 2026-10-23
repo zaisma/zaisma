@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // The sign-in city (apps/site/src/components/city.ts) in headless Chrome on this machine's GPU, against this checkout's preview:
 //
-//   node scripts/city.mjs shots   [--at 0,30,60] [--sizes phone,desktop] [--themes light,dark] [--bare] [--out <folder>]
-//       Screenshots of /signin with the camera held at those seconds of its loop, as PNGs (--bare hides the pane).
-//   node scripts/city.mjs frames  [--seconds 8] [--sizes phone,desktop] [--themes light,dark] [--throttle 4] [--software] [--json <file>]
-//       Time to the first shown frame, long tasks while it builds, frame intervals, and the city's JS and GPU time per frame.
+//   node scripts/city.mjs shots   [--at 0,30,60] [--beam 2.7,3.4] [--sizes phone,desktop] [--themes light,dark] [--bare] [--out <folder>]
+//       Screenshots of /signin with the camera held at those seconds of its loop, as PNGs (--bare hides the pane). The Relay's firing
+//       is held where the page opens on it, or with --beam at those seconds of a firing (a negative one: at rest), one shot each.
+//   node scripts/city.mjs frames  [--seconds 8] [--start 0] [--beam 3.4] [--sizes phone,desktop] [--themes light,dark] [--throttle 4] [--software] [--json <file>]
+//       Time to the first shown frame, long tasks while it builds, frame intervals, and the city's JS and GPU time per frame (--start
+//       starts the camera at that second of its loop; --beam holds the Relay's firing at that second of it, a negative one at rest).
 //   node scripts/city.mjs stills
 //       Renders the four stills (brand/sign-in/) as the live city's first frame, and writes their tiny placeholders into city.ts.
 //   node scripts/city.mjs report  [--at 0] [--sizes phone,desktop] [--themes light,dark]
@@ -12,7 +14,7 @@
 //       its canvas, the screen's frame interval, the frames it drew, and its rows with their checksum. frames --json includes it too.
 //
 // Sizes: phone (320 x 667 at 2x, touch), desktop (1440 x 900), retina (1440 x 900 at 2x) and big (2560 x 1440). The city reads
-// window.zaismaCityTool, set here before each page loads, to start or hold its camera and to render a still.
+// window.zaismaCityTool, set here before each page loads, to start or hold its camera, pin its Relay's firing and render a still.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -115,12 +117,14 @@ async function shots(chrome, site, args) {
   const at = option(args, "at", "0,20,40,60,80,100").split(",").map(Number);
   const out = option(args, "out", join(ROOT, ".wrangler/city-shots"));
   const path = option(args, "path", "/signin");
+  const beams = option(args, "beam", null)?.split(",").map(Number) ?? [null];
   mkdirSync(out, { recursive: true });
-  for (const sizeName of option(args, "sizes", "phone,desktop").split(",")) for (const theme of option(args, "themes", "light,dark").split(",")) for (const second of at) {
-    const page = await openCity(chrome, site + path, { size: SIZES[sizeName], theme, tool: { startSec: second, isHeld: true }, isBare: args.includes("--bare") });
+  for (const sizeName of option(args, "sizes", "phone,desktop").split(",")) for (const theme of option(args, "themes", "light,dark").split(",")) for (const second of at) for (const beamSec of beams) {
+    const tool = beamSec === null ? { startSec: second, isHeld: true } : { startSec: second, isHeld: true, beamSec };
+    const page = await openCity(chrome, site + path, { size: SIZES[sizeName], theme, tool, isBare: args.includes("--bare") });
     await wait(Number(option(args, "settle", "2200")));
     const { data } = await page.send("Page.captureScreenshot", { format: "png" });
-    const file = join(out, `${sizeName}-${theme}-${String(second).padStart(3, "0")}.png`);
+    const file = join(out, `${sizeName}-${theme}-${String(second).padStart(3, "0")}${beamSec === null ? "" : `-beam${beamSec}`}.png`);
     writeFileSync(file, Buffer.from(data, "base64"));
     console.log(`${file}${page.errors.length ? `  errors: ${page.errors.join(" / ")}` : ""}`);
     await page.close();
@@ -144,7 +148,9 @@ async function frames(chrome, site, args) {
   const seconds = Number(option(args, "seconds", "8")), throttle = Number(option(args, "throttle", "1")), path = option(args, "path", "/signin");
   const results = [];
   for (const sizeName of option(args, "sizes", "phone,desktop").split(",")) for (const theme of option(args, "themes", "light,dark").split(",")) {
-    const page = await openCity(chrome, site + path, { size: SIZES[sizeName], theme, throttle, tool: option(args, "start", null) === null ? {} : { startSec: Number(option(args, "start", "0")) } });
+    const tool = option(args, "start", null) === null ? {} : { startSec: Number(option(args, "start", "0")) };
+    if (option(args, "beam", null) !== null) tool.beamSec = Number(option(args, "beam", "0"));
+    const page = await openCity(chrome, site + path, { size: SIZES[sizeName], theme, throttle, tool });
     await page.evaluate("window.__city.measuring = true");
     await wait(seconds * 1000);
     const data = await page.evaluate(`(() => { const S = window.__city; S.measuring = false; const canvas = document.querySelector("canvas.city"); let renderer = null;
