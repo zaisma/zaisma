@@ -25,6 +25,7 @@ import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
 import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
+import { handleBackupMessage, startBackupRun, type BackupPart } from "./backups.ts";
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
@@ -39,12 +40,15 @@ import { checkForumPosts } from "./forum-check.ts";
 import { checkProfiles } from "./profile-check.ts";
 import { reviewChatMessages } from "./chat-review.ts";
 import { handleForum } from "./forum-pages.ts";
+import { handleAnnouncements } from "./announcements.ts";
 import { handleFriends } from "./friends.ts";
 import { handleBlocks } from "./blocks.ts";
 import { handleFriendsNow } from "./friends-now.ts";
 import { handlePlayersSheet } from "./players-sheet.ts";
 import { handleProfiles } from "./profiles.ts";
-import { deliverDueWebhooks, noticeFreeUseAlerts, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
+import { deliverDueWebhooks, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
+import { runHostingJob } from "./hosting-job.ts";
+import { handleStripeEvents } from "./stripe-events.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
@@ -67,6 +71,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);
+  if (path === "/stripe/events") return handleStripeEvents(request, env);
   if (path === "/csp-reports") return method === "POST" ? recordBlockedScripts(request, env) : new Response("Method not allowed", { status: 405 });
   const developer = await handleDeveloper(request, env, path, ctx);
   if (developer) return developer;
@@ -95,6 +100,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   const forum = await handleForum(request, env, path);
   if (forum) return forum;
+
+  const announcements = await handleAnnouncements(request, env, path);
+  if (announcements) return announcements;
 
   const passkeys = await handlePasskeys(request, env, path);
   if (passkeys) return passkeys;
@@ -167,6 +175,11 @@ export default {
   async queue(batch, env): Promise<void> {
     // Versions to open in Chrome have a queue of their own (zaisma-performance, or its stand-in in tests).
     if (batch.queue.startsWith("zaisma-performance")) return handlePerformanceBatch(batch as MessageBatch<PerformanceJob>, env);
+    // The night's copy to Backblaze (zaisma-backup): one part a message.
+    if (batch.queue.startsWith("zaisma-backup")) {
+      for (const message of (batch as unknown as MessageBatch<BackupPart>).messages) await handleBackupMessage(env, message);
+      return;
+    }
     const scans: Message<ScanJob>[] = [];
     for (const message of batch.messages) {
       const body = message.body;
@@ -193,7 +206,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), runHostingJob(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

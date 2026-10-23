@@ -41,8 +41,12 @@
     // Players' email codes, through Cloudflare Email Sending (zaisma.com is onboarded to it).
     "EMAIL_FROM": "codes@zaisma.com",
     // Supabase Auth for accounts. It answers only the site's secret key (SUPABASE_SECRET_KEY).
-    "SUPABASE_URL": "https://qhvplmvsvlwzweucvsrk.supabase.co"
-    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN (pushes to Julius's phone), CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN (Account Analytics read, for the error-spike alert), SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), optional VT_API_KEY
+    "SUPABASE_URL": "https://qhvplmvsvlwzweucvsrk.supabase.co",
+    // Zaisma's backups at Backblaze B2 (backups.ts): a private bucket with Object Lock for 28 days, in US East.
+    "BACKUP_ENDPOINT": "https://s3.us-east-005.backblazeb2.com",
+    "BACKUP_REGION": "us-east-005",
+    "BACKUP_BUCKET_NAME": "zaisma-backups"
+    // Secrets (wrangler secret put): BACKUP_KEY_ID and BACKUP_KEY_SECRET (Backblaze's zaisma-nightly-backup-write key: listBuckets, listFiles and writeFiles on zaisma-backups only), ANTHROPIC_API_KEY, ALERT_EMAIL, PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN (pushes to Julius's phone), CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN (Account Analytics read, for the error-spike alert), SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), STRIPE_SECRET_KEY and STRIPE_EVENTS_SECRET (Zaisma's own Stripe account, for hosting credit: its secret key, and the signing secret of the endpoint at /stripe/events), optional VT_API_KEY
   },
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [
@@ -62,6 +66,8 @@
     { "binding": "GAME_SERVER_WEBHOOKS", "service": "zaisma-rooms", "entrypoint": "GameServerWebhookService" },
     { "binding": "GAME_STORAGE", "service": "zaisma-rooms", "entrypoint": "GameStorageService" },
     { "binding": "GAME_ROOMS", "service": "zaisma-rooms", "entrypoint": "GameRoomsService" },
+    // Purchases' receipts, signed with the pass key, which stays in rooms (apps/rooms/src/receipts.ts).
+    { "binding": "RECEIPTS", "service": "zaisma-rooms", "entrypoint": "ReceiptSigningService" },
     { "binding": "PHOTODNA", "service": "zaisma-photodna", "entrypoint": "PhotoDnaService" }
   ],
   "queues": {
@@ -71,14 +77,17 @@
       { "binding": "SCAN_QUEUE", "queue": "zaisma-scan" },
       { "binding": "COMPRESS_QUEUE", "queue": "zaisma-compress" },
       // Versions to open in headless Chrome once they pass, one at a time, three at once at most.
-      { "binding": "PERFORMANCE_QUEUE", "queue": "zaisma-performance" }
+      { "binding": "PERFORMANCE_QUEUE", "queue": "zaisma-performance" },
+      // Parts of the night's copy to Backblaze, one page of work each (backups.ts).
+      { "binding": "BACKUP_QUEUE", "queue": "zaisma-backup" }
     ],
     "consumers": [
       { "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 },
-      { "queue": "zaisma-performance", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 3 }
+      { "queue": "zaisma-performance", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 3 },
+      { "queue": "zaisma-backup", "max_batch_size": 1, "max_retries": 3, "max_concurrency": 5 }
     ]
   },
-  // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files.
+  // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files, and start the night's backup.
   "triggers": { "crons": ["*/5 * * * *", "17 3 * * *"] },
   "ratelimits": [
     { "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
@@ -96,7 +105,9 @@
     // zaisma.com's script policy violation reports, per connection address (security-alerts.ts).
     { "name": "CSP_REPORT_LIMIT", "namespace_id": "1041", "simple": { "limit": 30, "period": 60 } },
     // Exports of a whole game an account starts (game-export.ts): each reads every file, save and row.
-    { "name": "EXPORT_LIMIT", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } }
+    { "name": "EXPORT_LIMIT", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } },
+    // Credit top-ups and refunds an owner starts (credit-api.ts): each reaches Stripe.
+    { "name": "CREDIT_LIMIT", "namespace_id": "1086", "simple": { "limit": 10, "period": 60 } }
   ],
   "send_email": [{ "name": "ALERTS" }, { "name": "EMAIL" }]
 }

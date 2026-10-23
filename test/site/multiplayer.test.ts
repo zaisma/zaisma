@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { QUICK_JOIN_KEPT_MS, auditLog, gameById, noteQuickJoin } from "@zaisma/core";
+import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
@@ -30,6 +31,10 @@ describe("multiplayer on the site", () => {
     expect(page).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
     const bad = await (await SELF.fetch('https://zaisma.test/g/arena?room="><script>')).text();
     expect(bad).toContain('src="https://games.zaisma.test/arena/"');
+    // Watch beside Join passes watch=1 on, for Zaisma.rooms.isLinkedAsSpectator; only beside a room, and only as 1.
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?room=ABCDEF&watch=1")).text()).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF&amp;watch=1"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?room=ABCDEF&watch=yes")).text()).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena?watch=1")).text()).not.toContain("watch=1");
   });
 
   it("marks games on our servers as online multiplayer until the developer says more", async () => {
@@ -158,6 +163,30 @@ describe("room browsing on the game page", () => {
     expect(await fragment.text()).toContain('data-count="2"');
   });
 
+  it("shows how many watch, and Watch beside Join or Full for rooms that take spectators", async () => {
+    const id = await addGame("arena", "own");
+    await room(id, "BCDFGH", 3);
+    await room(id, "JKMN3P", 8);
+    await room(id, "QRSTVW", 2);
+    const watching = (code: string, spectatorCount: number, maximumSpectatorCount: number) =>
+      env.DB.prepare("UPDATE live_rooms SET spectator_count = ?, maximum_spectator_count = ? WHERE room_code = ?").bind(spectatorCount, maximumSpectatorCount, code).run();
+    await watching("BCDFGH", 14, 20);
+    await watching("JKMN3P", 2, 20);
+    await watching("QRSTVW", 5, 5);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(page).toContain(">Watching<");
+    expect(page).toContain('href="/g/arena?room=BCDFGH&watch=1"');
+    // A full room can still be watched.
+    expect(page).toContain('href="/g/arena?room=JKMN3P&watch=1"');
+    // One whose audience is full shows how many watch, and no Watch.
+    expect(page).not.toContain("room=QRSTVW&watch=1");
+    // A game that doesn't take spectators shows neither.
+    await env.DB.exec("UPDATE live_rooms SET spectator_count = 0, maximum_spectator_count = 0");
+    const quiet = await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text();
+    expect(quiet).not.toContain(">Watching<");
+    expect(quiet).not.toContain("watch=1");
+  });
+
   it("filters by region once rooms run in more than one, and lists every open room in a table that scrolls inside its own height", async () => {
     const id = await addGame("arena", "relay");
     const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
@@ -181,6 +210,23 @@ describe("room browsing on the game page", () => {
     expect(none).toContain("No open rooms in that region right now.");
   });
 
+  it("shows a kept room waiting with nobody in it after rooms with players, and the daily cleanup keeps it", async () => {
+    const id = await addGame("arena", "relay");
+    await room(id, "BCDFGH", 3);
+    // Asleep for days, so it hasn't checked in since: kept rooms with nobody in them never go stale.
+    const longAgo = Date.now() - 3 * 24 * 3600_000;
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, is_kept, country, continent, created_at_ms, updated_at_ms) VALUES (?, 'NRTHWC', 0, 8, 1, 'Northwatch', 1, 'DE', 'EU', ?, ?)")
+      .bind(id, longAgo, longAgo)
+      .run();
+    await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    // Its name, nobody in it and Join, below the room with players.
+    expect(page).toMatch(/\?room=BCDFGH[\s\S]*Northwatch[\s\S]*0 of 8[\s\S]*href="\/g\/arena\?room=NRTHWC"/);
+
+    await dailyCleanup(env);
+    const left = await env.DB.prepare("SELECT room_code FROM live_rooms WHERE game_id = ? ORDER BY room_code").bind(id).all<{ room_code: string }>();
+    expect(left.results.map((row) => row.room_code)).toEqual(["BCDFGH", "NRTHWC"]);
+  });
   it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {
     const id = await addGame("arena", "relay");
     const hidden = (code: string, players: number) =>

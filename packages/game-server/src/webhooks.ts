@@ -18,7 +18,7 @@ import type { Server } from "./requests.ts";
 export interface WebhookEvent {
   /** A webhook_event_… ID, the same on every try, so a game server can skip one it already handled. */
   id: string;
-  /** bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, security_alert (only to your own server, never a game server on Zaisma), or test (test_webhook). */
+  /** bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, country_blocks_changed, game_server_error_found, alert_raised, account_deleted, security_alert (only to your own server, never a game server on Zaisma), or test (test_webhook). */
   kind: string;
   /** When it happened, an ISO time in UTC. */
   happened_at: string;

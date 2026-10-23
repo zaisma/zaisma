@@ -35,6 +35,8 @@ export class GameDatabaseService extends RealGameDatabaseService {
   }
 }
 export { GameSecretsObject, GameSecretsService } from "../../apps/rooms/src/secrets.ts";
+// Receipts are signed with the tests' throwaway pass key (vitest.config.ts), the real code.
+export { ReceiptSigningService } from "../../apps/rooms/src/receipts.ts";
 
 // Game servers can't run here (no sandbox), so webhooks to them (GAME_SERVER_WEBHOOKS) reach a stand-in
 // that keeps what it was sent and answers as the test asks. The real one: test/rooms/webhooks.test.ts.
@@ -80,6 +82,9 @@ export class GameStorageService extends WorkerEntrypoint<{ GAME_DATABASES: Durab
 // A version published "now" (GAME_ROOMS): rooms can't run here, so the calls are only recorded. The real one: test/rooms/room-updates.test.ts.
 let matchUpdates: { gameId: string; slug: string; versionId: string; hasGameFileChanges: boolean }[] = [];
 
+let keptRoomDeletes: { gameId: string; slug: string; roomCode: string }[] = [];
+let isKeptRoomDeleted = true;
+
 export class GameRoomsService extends WorkerEntrypoint {
   async updateMatches(update: { gameId: string; slug: string; versionId: string; hasGameFileChanges: boolean }) {
     matchUpdates.push(update);
@@ -89,6 +94,18 @@ export class GameRoomsService extends WorkerEntrypoint {
   takeMatchUpdates() {
     const taken = matchUpdates;
     matchUpdates = [];
+    return taken;
+  }
+  // A kept room deleted: recorded, and answered as the test asks. The real one: apps/rooms/src/room-updates.ts.
+  async deleteKeptRoom(keptRoom: { gameId: string; slug: string; roomCode: string }) {
+    keptRoomDeletes.push(keptRoom);
+    return { isDeleted: isKeptRoomDeleted };
+  }
+  /** For tests: the kept rooms the site deleted since the last call, and how the next deletes are answered. */
+  takeKeptRoomDeletes(nextIsDeleted: boolean) {
+    const taken = keptRoomDeletes;
+    keptRoomDeletes = [];
+    isKeptRoomDeleted = nextIsDeleted;
     return taken;
   }
 }

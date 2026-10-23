@@ -12,6 +12,9 @@ export interface ListedRoom {
   /** Seats the room holds for players coming back or on their way: it has space while playerCount + heldSeatCount < maximumPlayerCount. */
   heldSeatCount: number;
   maximumPlayerCount: number;
+  /** Spectators watching, and how many the room takes: 0 when its game server turns watching off. */
+  spectatorCount: number;
+  maximumSpectatorCount: number;
   /** False: closed, only players who were already in it can come back. */
   isOpen: boolean;
   /** Where the room runs: the country its first player connected from (like DE and Germany), and its region (a continent, like EU). */
@@ -24,6 +27,8 @@ export interface ListedRoom {
    */
   name: string | null;
   labels: Record<string, string>;
+  /** Kept by its game server (room.setKept): a world that's still there with nobody in it, like a server waiting for players. */
+  isKept: boolean;
 }
 
 export interface RoomList {
@@ -55,62 +60,29 @@ const MAXIMUM_SHOWN_ROOM_COUNT = 50;
 export const ROOM_PAGE_ROOM_COUNT = 50;
 
 /**
- * Until Hosting billing exists, each game's rooms stop at the free tier, 1,000 player-hours a month
- * (UTC), relayed data included: new rooms don't open and no new relayed connections start until the
- * month resets, and rooms already running get MATCH_FINISH_DURATION_SEC to finish (docs/DECISIONS.md).
+ * How long a running match gets to finish once its game's hosting pauses (hosting.ts), counted from the pause, so
+ * every room of the game ends together (Julius, Oct 18, 2026).
  */
-export const FREE_ROOM_PLAY_DURATION_HOURS = 1000;
-
-/** How long a running match gets to finish once its game has used the month's free tier (Julius, Oct 18, 2026). */
 export const MATCH_FINISH_DURATION_SEC = 3600;
 
-/** The share of a month's free allowance, in percent, that raises its heads-up alert (Julius, Oct 18, 2026). */
+/** The share of a game's free allowance or budget, in percent, that raises its heads-up alert (Julius, Oct 18, 2026). */
 export const NEARLY_USED_PCT = 80;
 
-/** Data Zaisma's relay sends a game's players that counts as one player-hour (Julius, Oct 17, 2026). */
-export const PLAYER_HOUR_RELAYED_SIZE_BYTES = 20_000_000;
-
-/** Game server CPU each player-hour in Zaisma rooms includes (Julius, Oct 20, 2026). */
+/** Game server CPU each player-hour in Zaisma rooms includes (Julius, Oct 20, 2026); past it, it's priced as CPU (hosting.ts). */
 export const PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC = 25;
 
-/** Game server CPU past what player-hours include that counts as one more player-hour (Julius, Oct 20, 2026). */
-export const PLAYER_HOUR_CPU_DURATION_SEC = 50;
-
 /**
- * A game's use of rooms and the relay this month (UTC): player time in Zaisma rooms (running rooms add
- * theirs at least hourly), the data Zaisma's relay sent its players (read from Cloudflare about once an
- * hour), the time its own game server ran in its rooms, and all of it together as the seconds counted
- * toward the free tier.
+ * A game's use of rooms and the relay this month (UTC): player time in Zaisma rooms (running rooms add theirs at
+ * least hourly), the data Zaisma's relay sent its players (read from Cloudflare about once an hour) and the time its
+ * own game server ran in its rooms. Facts for tuning; the meter prices them in hosting.ts.
  */
-export async function roomUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ roomPlayDurationSec: number; relayedSizeBytes: number; gameServerCpuDurationMs: number; countedPlayDurationSec: number }> {
+export async function roomUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ roomPlayDurationSec: number; relayedSizeBytes: number; gameServerCpuDurationMs: number }> {
   const row = await database
     .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(relayed_size_bytes), 0) AS relayed_size_bytes, COALESCE(SUM(game_server_cpu_duration_ms), 0) AS game_server_cpu_duration_ms FROM room_usage WHERE game_id = ? AND date >= ?")
     .bind(gameId, `${new Date(nowMs).toISOString().slice(0, 7)}-01`)
     .first<{ room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number }>();
-  const roomPlayDurationSec = row?.room_play_duration_sec ?? 0;
-  const relayedSizeBytes = row?.relayed_size_bytes ?? 0;
-  const gameServerCpuDurationMs = row?.game_server_cpu_duration_ms ?? 0;
-  return { roomPlayDurationSec, relayedSizeBytes, gameServerCpuDurationMs, countedPlayDurationSec: countedPlayDurationSec(roomPlayDurationSec, relayedSizeBytes, gameServerCpuDurationMs) };
+  return { roomPlayDurationSec: row?.room_play_duration_sec ?? 0, relayedSizeBytes: row?.relayed_size_bytes ?? 0, gameServerCpuDurationMs: row?.game_server_cpu_duration_ms ?? 0 };
 }
-
-/**
- * Player time in rooms, relayed data and game server CPU together, in seconds, as the free tier counts
- * them over a game's month: CPU past PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC a player-hour counts one more
- * player-hour every PLAYER_HOUR_CPU_DURATION_SEC, so light and heavy rooms of one game net out.
- */
-export const countedPlayDurationSec = (roomPlayDurationSec: number, relayedSizeBytes: number, gameServerCpuDurationMs: number) =>
-  roomPlayDurationSec + (relayedSizeBytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 3600 + cpuPlayDurationSec(roomPlayDurationSec, gameServerCpuDurationMs);
-
-/** The player time a game's game server CPU adds, in seconds: none until it's past what its player-hours include. */
-export const cpuPlayDurationSec = (roomPlayDurationSec: number, gameServerCpuDurationMs: number) =>
-  (Math.max(0, gameServerCpuDurationMs / 1000 - (PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC * roomPlayDurationSec) / 3600) / PLAYER_HOUR_CPU_DURATION_SEC) * 3600;
-
-/**
- * Requests to a game's own game server (onRequest) free each month, per game (Julius, Oct 16, 2026):
- * at most about $0.80 a month at Cloudflare's prices. Until Hosting billing, a game past them gets
- * request_limit until the month resets (UTC).
- */
-export const FREE_REQUEST_COUNT_PER_MONTH = 1_000_000;
 
 /** A game's requests to its game server this month (UTC), as recorded: its object adds them about once a minute. */
 export async function requestCountThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<number> {
@@ -163,11 +135,6 @@ export async function tradeRoomKey(database: D1Database, gameId: string, key: un
   return row ? issueRoomKey(database, gameId, accountId, row.issued_at_ms) : null;
 }
 
-/** Whether a game has used this month's free tier, so its new rooms don't open and its players get no relay credentials. */
-export async function pastFreeTier(database: D1Database, gameId: string, nowMs = Date.now()): Promise<boolean> {
-  return (await roomUseThisMonth(database, gameId, nowMs)).countedPlayDurationSec >= FREE_ROOM_PLAY_DURATION_HOURS * 3600;
-}
-
 /** A country's name in English, like Germany for DE. */
 export function countryName(code: string): string {
   try {
@@ -178,7 +145,7 @@ export function countryName(code: string): string {
 }
 
 /** Countries Cloudflare names by a real two-letter code: not XX (unknown) or T1 (Tor). */
-const isCountry = (countryCode: string | null): countryCode is string => Boolean(countryCode && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "XX");
+export const isCountry = (countryCode: string | null): countryCode is string => Boolean(countryCode && /^[A-Z]{2}$/.test(countryCode) && countryCode !== "XX");
 
 /** A game joins players automatically (its Rooms tab says Play finds you one) for this long after a player last came in through quickJoin. */
 export const QUICK_JOIN_KEPT_MS = 30 * 24 * 3600_000;
@@ -198,6 +165,9 @@ export const isQuickJoining = (game: { quick_joined_at_ms: number | null }, nowM
 
 /** Room with space a new player could join. */
 export const hasSpace = (room: Pick<ListedRoom, "isOpen" | "playerCount" | "heldSeatCount" | "maximumPlayerCount">) => room.isOpen && room.playerCount + room.heldSeatCount < room.maximumPlayerCount;
+
+/** Room to watch: the room takes spectators and has space for another. A closed or full room can still be watched. */
+export const hasWatchSpace = (room: Pick<ListedRoom, "spectatorCount" | "maximumSpectatorCount">) => room.maximumSpectatorCount > 0 && room.spectatorCount < room.maximumSpectatorCount;
 
 /**
  * A game's listed rooms, optionally in one region (a continent code), and how many are playing in
@@ -219,16 +189,19 @@ export async function listRooms(
   const pageNumber = options.pageNumber && Number.isInteger(options.pageNumber) && options.pageNumber > 0 ? options.pageNumber : null;
   const cacheDurationSec = options.cacheDurationSec ?? 0;
   const key = new Request(
-    `https://rooms-list.zaisma.internal/v2/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}${pageNumber ? `&page=${pageNumber}` : ""}`,
+    `https://rooms-list.zaisma.internal/v3/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}${pageNumber ? `&page=${pageNumber}` : ""}`,
   );
   const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
   if (hit) return hit.json();
 
+  // A kept room with nobody in it sleeps without checking in, so its row never goes stale.
   const { results } = await database
-    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND updated_at_ms > ?")
+    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND (updated_at_ms > ? OR (is_kept = 1 AND player_count = 0))")
     .bind(gameId, (options.nowMs ?? Date.now()) - ROOM_STALE_MS)
     .all<LiveRoom>();
+  // Rooms someone is in, for "playing now": an empty kept room isn't playing.
+  const playingRows = results.filter((row) => row.player_count > 0 || row.is_kept !== 1);
   const continent = (row: LiveRoom) => (row.continent && CONTINENTS[row.continent] ? row.continent : null);
   // Hidden rooms count toward "playing now"; only listed ones are ever shown.
   const all = results.filter((row) => row.is_listed === 1).map(
@@ -237,20 +210,27 @@ export async function listRooms(
       playerCount: row.player_count,
       heldSeatCount: row.held_seat_count ?? 0,
       maximumPlayerCount: row.maximum_player_count,
+      spectatorCount: row.spectator_count ?? 0,
+      maximumSpectatorCount: row.maximum_spectator_count ?? 0,
       isOpen: row.is_open === 1,
       location: isCountry(row.country) ? { countryCode: row.country, countryName: countryName(row.country), region: continent(row) } : null,
       isNear: near !== null && row.continent === near,
       name: row.is_name_hidden ? null : row.name,
       labels: row.is_name_hidden ? {} : readLabels(row.labels),
+      isKept: row.is_kept === 1,
     }),
   );
   const created = new Map(results.map((row) => [row.room_code, row.created_at_ms]));
   const updated = new Map(results.map((row) => [row.room_code, row.updated_at_ms]));
   const where = new Map(results.map((row) => [row.room_code, continent(row)]));
   const mine = (room: ListedRoom) => Number(here !== null && room.location?.countryCode === here);
+  // Kept rooms with nobody in them go after rooms with players, by name.
+  const waiting = (room: ListedRoom) => Number(room.isKept && room.playerCount === 0);
   all.sort(
     (first, second) =>
       Number(hasSpace(second)) - Number(hasSpace(first)) ||
+      waiting(first) - waiting(second) ||
+      (waiting(first) && waiting(second) ? (first.name ?? "\uffff").localeCompare(second.name ?? "\uffff", "en") || first.roomCode.localeCompare(second.roomCode) : 0) ||
       mine(second) - mine(first) ||
       Number(second.isNear) - Number(first.isNear) ||
       second.playerCount - first.playerCount ||
@@ -274,7 +254,7 @@ export async function listRooms(
     : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
-    playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: results.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
+    playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: playingRows.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
     joinableRoomCount: all.filter(hasSpace).length,
     openRoomCount: inRegion.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),
@@ -306,7 +286,9 @@ export function leaveOut(list: RoomList, left: { roomCode: string; leftAtMs: num
   if (changedAtMs === undefined || nowMs - left.leftAtMs > LEFT_FOR_MS || changedAtMs >= left.leftAtMs - 1000 || changedAtMs < left.joinedAtMs - 1000) return list;
   const room = list.rooms.find((listed) => listed.roomCode === left.roomCode);
   if (!room || room.playerCount < 1) return list;
-  const isGone = room.playerCount === 1;
+  // A kept room they were last in stays listed with nobody in it, but nobody's playing there.
+  const isEmptied = room.playerCount === 1;
+  const isGone = isEmptied && !room.isKept;
   const next: ListedRoom = { ...room, playerCount: room.playerCount - 1 };
   const regionCode = room.location?.region ?? null;
   return {
@@ -314,7 +296,7 @@ export function leaveOut(list: RoomList, left: { roomCode: string; leftAtMs: num
     rooms: isGone ? list.rooms.filter((listed) => listed !== room) : list.rooms.map((listed) => (listed === room ? next : listed)),
     playing: {
       playerCount: Math.max(0, list.playing.playerCount - 1),
-      roomCount: list.playing.roomCount - Number(isGone),
+      roomCount: list.playing.roomCount - Number(isEmptied),
       closedRoomCount: list.playing.closedRoomCount - Number(isGone && !room.isOpen),
     },
     joinableRoomCount: list.joinableRoomCount - Number(hasSpace(room)) + Number(!isGone && hasSpace(next)),

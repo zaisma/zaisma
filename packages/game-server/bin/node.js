@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -36,10 +36,14 @@ const MAXIMUM_REQUEST_BODY_SIZE_BYTES = REQUEST_LIMITS.maximumRequestSizeBytes +
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
 const SEAT_MS = 60 * 1000;
-/** A room that empties keeps its saved state this long, like Zaisma's rooms, so players coming back find it as it was. */
+/** A room that empties keeps its saved state this long, like Zaisma's rooms, so players coming back find it as it was. A kept room (room.setKept) keeps it until it ends. */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often saved states of rooms that emptied over a day ago are deleted. */
 const ROOM_STATE_SWEEP_MS = 3600 * 1000;
+/** A player whose socket holds this much not yet sent is backed up: state sync skips them, and latest-only messages wait. */
+const BACKED_UP_SIZE_BYTES = ROOM_LIMITS.backedUpSizeBytes;
+/** How often rooms with something waiting for a backed-up player check whether they caught up. */
+const CATCH_UP_MS = 50;
 
 /** Fetch Zaisma's published pass keys, caching them for an hour. */
 export function keysFrom(jwksUrl) {
@@ -162,31 +166,37 @@ export function localRoomStates(file) {
     const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
     database = new DatabaseSync(file);
     database.exec("CREATE TABLE IF NOT EXISTS room_states (room_code TEXT PRIMARY KEY, state_json TEXT NOT NULL, match_players_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL)");
+    // is_saved_empty (saved as the room emptied, so a room waking from it lost nothing) came later: files made before get it now.
+    if (!database.prepare("SELECT 1 FROM pragma_table_info('room_states') WHERE name = 'is_saved_empty'").get()) database.exec("ALTER TABLE room_states ADD COLUMN is_saved_empty INTEGER NOT NULL DEFAULT 0");
     return database;
   };
   const isThere = () => database !== null || (file !== ":memory:" && existsSync(file));
   return {
-    /** A room's saved state, the players in its match and the room, and when it was saved; null if it has none. */
+    /** A room's saved state, the players in its match and the room, when it was saved and whether it was empty then; null if it has none. */
     read(roomCode) {
       if (!isThere()) return null;
-      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms FROM room_states WHERE room_code = ?").get(roomCode);
+      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty FROM room_states WHERE room_code = ?").get(roomCode);
       if (!row) return null;
-      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms) };
+      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms), isSavedEmpty: row.is_saved_empty === 1 };
     },
-    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs }) {
+    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs, isSavedEmpty = false }) {
       open()
-        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms")
-        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs);
+        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms, is_saved_empty = excluded.is_saved_empty")
+        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs, isSavedEmpty ? 1 : 0);
+    },
+    /** A room's state unchanged since its last save, which now counts as saved as it emptied, with the room as it is (kept or not). */
+    markEmpty(roomCode, savedRoom) {
+      if (isThere()) open().prepare("UPDATE room_states SET saved_room_json = ?, is_saved_empty = 1 WHERE room_code = ?").run(JSON.stringify(savedRoom), roomCode);
     },
     remove(roomCode) {
       if (isThere()) open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
     },
-    /** Delete the states saved before then, except those of rooms still running. */
+    /** Delete the states saved before then, except those of rooms still running and kept rooms (room.setKept). */
     removeOlder(beforeMs, runningRoomCodes) {
       if (!isThere()) return;
       const running = [...runningRoomCodes];
       open()
-        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ?${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
+        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ? AND COALESCE(json_extract(saved_room_json, '$.isKept'), 0) = 0${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
         .run(beforeMs, ...running);
     },
   };
@@ -226,7 +236,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     });
     // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
-    return name ? { player: { id: claims.sub, name, kind: claims.kind }, claims } : null;
+    // What the account owns here rides in its pass, as on Zaisma rooms (player.ownedItemNames).
+    const owned = claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {};
+    return name ? { player: { id: claims.sub, name, kind: claims.kind, ...owned }, claims } : null;
   }
 
   // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },
@@ -342,10 +354,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const core = new RoomCore(
       definition,
       {
+        roomCode: code,
         database,
         secrets,
         send: (id, text) => sockets.get(id)?.send(text),
         sendBytes: (id, frame) => sockets.get(id)?.send(frame, { binary: true }),
+        isBackedUp: (id) => (sockets.get(id)?.bufferedAmount ?? 0) >= BACKED_UP_SIZE_BYTES,
         close: (id, code, reason) => {
           const ws = sockets.get(id);
           ws?.close(code, reason);
@@ -373,12 +387,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         },
       },
       // Its players aren't connected yet: they're away until they reconnect, as in Zaisma rooms.
-      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs), lostPlayers: saved.matchPlayers } : { start },
+      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (hasBlockBetween, areFriends).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
-    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers) : null, hasReportedStateSize: false };
+    room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
     return room;
   }
@@ -394,8 +408,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     }
   }
 
-  /** Save a room's state, the players in its match and the room, when its state changed. Ended rooms have nothing to come back to. */
-  function saveRoom(code, room) {
+  /**
+   * Save a room's state, the players in its match and the room, when its state changed (or it was kept or
+   * unkept). Ended rooms have nothing to come back to. isSavedEmpty: saved as the room emptied.
+   */
+  function saveRoom(code, room, isSavedEmpty = false) {
     if (!roomStates || room.core.ended) return;
     const nowMs = Date.now();
     room.core.savedAtMs = nowMs;
@@ -406,15 +423,19 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       return console.error(`Couldn't save room ${code}'s state:`, error);
     }
     const matchPlayers = [...room.core.players.values()];
-    const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers);
-    if (stateKey === null || stateKey === room.savedStateKey) return;
+    const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers, room.core.isKept);
+    if (stateKey === null) return;
+    if (stateKey === room.savedStateKey) {
+      if (isSavedEmpty) roomStates.markEmpty(code, room.core.saved);
+      return;
+    }
     if (Buffer.byteLength(stateJson) > ROOM_LIMITS.maximumSavedStateSizeBytes) {
       if (!room.hasReportedStateSize) console.warn(`Room ${code}'s state is over 32 MB, so it isn't saved and a restart starts it fresh.`);
       room.hasReportedStateSize = true;
       return;
     }
     try {
-      roomStates.write(code, { stateJson, matchPlayers, savedRoom: room.core.saved, savedAtMs: nowMs });
+      roomStates.write(code, { stateJson, matchPlayers, savedRoom: room.core.saved, savedAtMs: nowMs, isSavedEmpty });
       room.savedStateKey = stateKey;
     } catch (error) {
       console.error(`Couldn't save room ${code}'s state:`, error);
@@ -462,15 +483,27 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     room.waitTimer.unref?.();
   }
 
+  // A room with only spectators left has no match to watch: they're told it ended and go, so it empties.
+  function dismissSpectatorsIfAlone(room) {
+    if ([...room.sockets.keys()].some((id) => !room.core.spectators.has(id))) return;
+    const text = JSON.stringify({ type: "ended", message: "The match ended." });
+    for (const [id, ws] of [...room.sockets]) {
+      room.sockets.delete(id);
+      room.core.leave(id);
+      ws.send(text);
+      ws.close(ENDED_CLOSE_CODE, "Match ended");
+    }
+  }
+
   // A room with nobody connected stays while players whose connection dropped have time to come back, and while it holds seats.
-  // One that empties keeps its saved state for a day; one that ended keeps none.
+  // One that empties keeps its saved state for a day (a kept one until it ends); one that ended keeps none.
   function closeIfEmpty(code, room) {
     if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeatCount > 0 || room.core.nextReconnectDeadlineMs() !== null))) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
     try {
       if (room.core.ended) roomStates?.remove(code);
-      else saveRoom(code, room);
+      else saveRoom(code, room, true);
     } catch (error) {
       console.error(`Couldn't update room ${code}'s saved state:`, error);
     }
@@ -496,6 +529,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     }
   }, SWEEP_MS);
   sweeper.unref?.();
+
+  // Players who were backed up get what waited for them once their socket drains (ws has no event for it).
+  const catcher = setInterval(() => {
+    for (const room of rooms.values()) if (room.core.isCatchingUp) room.core.catchUp();
+  }, CATCH_UP_MS);
+  catcher.unref?.();
 
   wss.on("connection", (ws, request) => {
     const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
@@ -526,10 +565,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       let pass;
       let made = {};
+      // Come to watch, not to play (joinRoom({ isSpectator: true })).
+      let isSpectator = false;
       try {
         const hello = JSON.parse(text ?? "");
         if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
         pass = hello.pass;
+        isSpectator = hello.isSpectator === true;
         if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === false ? { isListed: false } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
         made.clientIdle = clientIdle(hello);
         const checked = checkRoomData(hello.joinData);
@@ -548,9 +590,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!checked) return refuse("bad_pass");
       const { player, claims } = checked;
       clearTimeout(helloTimer);
+      // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
+      if (isSpectator && !(rooms.get(code)?.core.players.size > 0)) return refuse("no_room");
       const room = roomFor(code);
       // The room's rules and the game's canJoin, before anyone hears about this player.
-      const admitted = await room.core.admit(player, made.joinData);
+      const admitted = await room.core.admit(player, made.joinData, { isSpectator });
       if (!admitted.isAllowed) {
         closeIfEmpty(code, room);
         return refuse(admitted.code, admitted.message);
@@ -558,12 +602,15 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       room.sockets.get(player.id)?.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
       room.sockets.set(player.id, ws);
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
-      room.passes.set(player.id, claims);
-      for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
-      room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
-      room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+      // Spectators send nothing, so nothing of theirs reaches a player to block.
+      if (!isSpectator) {
+        room.passes.set(player.id, claims);
+        for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
+        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
+        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+      }
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
-      const joined = room.core.join(player, made);
+      const joined = room.core.join(player, { ...made, isSpectator });
       if (!joined.isAllowed) {
         room.sockets.delete(player.id);
         closeIfEmpty(code, room);
@@ -581,6 +628,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!room || !playerId || room.sockets.get(playerId) !== ws) return;
       room.sockets.delete(playerId);
       room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "lost");
+      dismissSpectatorsIfAlone(room);
       pace(code, room);
       closeIfEmpty(code, room);
     });
@@ -590,6 +638,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const close = () =>
     new Promise((done) => {
       clearInterval(sweeper);
+      clearInterval(catcher);
       schedules.stop();
       for (const [code, room] of rooms) {
         if (room.timer) clearInterval(room.timer);
@@ -606,9 +655,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   return { wss, httpServer, rooms, close };
 }
 
-/** A saved state's key: its JSON and who was in the match, since either changing is worth a save. */
-function stateKeyOf(stateJson, matchPlayers) {
-  return `${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
+/** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
+function stateKeyOf(stateJson, matchPlayers, isKept) {
+  return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
 }
 
 /** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */

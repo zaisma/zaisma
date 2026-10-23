@@ -3,6 +3,7 @@ import type { ReviewReason } from "./review.ts";
 import { checkAllowedHosts } from "./reach.ts";
 import { checkOwnServerUrls } from "./own-servers.ts";
 import { checkLinks, type GameLink } from "./links.ts";
+import { checkShownText } from "./shown-text.ts";
 import { randomKey } from "./game-access.ts";
 import { GLASS_LIGHT_PASS } from "./glass-light.ts";
 import { ACCOUNT_REQUIREMENTS, MINIMUM_PLAYER_AGES, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type MinimumPlayerAge, type RoomBrowsing, type Visibility } from "./types.ts";
@@ -101,9 +102,12 @@ export function apiKeyTokensIn(text: string): string[] {
  *   stats_access        stats, player reports and history
  *   database_access     read: tables, indexes, use and export. write: run SQL and import
  *   save_access         players' cloud saves: read them and their copies. write: change, reset and restore them
+ *   purchase_access     items and purchases: read the items, settings, purchases and receipts. write: set and remove items, grant, refund
  *   forum_access        read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name
  *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
  *   webhook_access      webhooks (the whole account's)
+ *   credit_access       hosting credit (the whole account's). read: balance, top-ups and spending. write: also start a top-up,
+ *                       refund one, and turn automatic top-up off or down (on or up needs the developer's passkey on zaisma.com)
  */
 export const AREA_ACCESS_CHOICES = {
   game_access: ["read", "write"],
@@ -111,15 +115,17 @@ export const AREA_ACCESS_CHOICES = {
   stats_access: ["none", "read"],
   database_access: ["none", "read", "write"],
   save_access: ["none", "read", "write"],
+  purchase_access: ["none", "read", "write"],
   forum_access: ["none", "read", "write"],
   sign_in_app_access: ["none", "read", "write"],
   webhook_access: ["none", "read", "write"],
+  credit_access: ["none", "read", "write"],
 } as const satisfies Record<string, readonly string[]>;
 export type AccessArea = keyof typeof AREA_ACCESS_CHOICES;
 export type AreaAccess = { [Area in AccessArea]: (typeof AREA_ACCESS_CHOICES)[Area][number] };
 export const ACCESS_AREAS = Object.keys(AREA_ACCESS_CHOICES) as AccessArea[];
 /** Areas that belong to the whole account, not to games, so only keys for every game reach them. */
-export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access"];
+export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access", "credit_access"];
 
 /** The four fixed levels, the same words as the Teams roles, and custom: a choice per area. */
 export const ACCESS_LEVELS = ["read", "upload", "publish", "full", "custom"] as const;
@@ -127,10 +133,10 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
 /** What each fixed level gives. Read and upload keys read the forum but don't post in the developer's name. */
 export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
-  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
-  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
+  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", purchase_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read", credit_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", purchase_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write", credit_access: "write" },
 };
 
 /** What a caller may do: a key's access, or everything for the developer on our own pages. */
@@ -194,7 +200,7 @@ export function checkKeyScope(scope: KeyScope): string | null {
     if (!options.includes(scope.areaAccess[area])) return "Choose what the key can do in each area.";
   }
   if (scope.gameSlugs && ACCOUNT_AREAS.some((area) => scope.areaAccess![area] !== "none")) {
-    return "Sign-in apps and webhooks belong to your whole account, so only a key for all your games can reach them.";
+    return "Sign-in apps, webhooks and hosting credit belong to your whole account, so only a key for all your games can reach them.";
   }
   return null;
 }
@@ -632,6 +638,8 @@ export interface DetailsChange {
   deleted_account_erase_enabled?: boolean;
   /** Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms. Off grays it as "This game doesn't take joins". */
   friend_joins_enabled?: boolean;
+  /** Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals for get_stats. */
+  performance_measuring_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
   account_requirement?: AccountRequirement;
@@ -654,13 +662,14 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
   const change: DetailsChange = {};
   const refuse = (field: string, message: string, fix: string) => ({ problem: { field, message, fix } });
   if ("title" in input) {
-    const title = typeof input.title === "string" ? input.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) return refuse("title", "title is empty or over 80 characters.", "Give a title of 1 to 80 characters.");
-    change.title = title;
+    const checked = checkShownText(input.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
+    if ("problem" in checked) return checked;
+    change.title = checked.text;
   }
   if ("description" in input) {
-    if (typeof input.description !== "string" || input.description.trim().length > 500) return refuse("description", "description isn't text of up to 500 characters.", "Shorten it to 500 characters; it's shown on the game page.");
-    change.description = input.description.trim();
+    const checked = checkShownText(input.description, { field: "description", maximumCharacterCount: 500, isMultiline: true });
+    if ("problem" in checked) return checked;
+    change.description = checked.text;
   }
   if ("visibility" in input) {
     if (!VISIBILITIES.includes(input.visibility as Visibility)) {
@@ -703,6 +712,11 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     const fix = "Send true (the default: friends' Join on zaisma.com takes players into this game's rooms) or false (Join shows grayed as \"This game doesn't take joins\"). One room turns it off with room.setFriendJoinsEnabled(false).";
     if (typeof input.friend_joins_enabled !== "boolean") return refuse("friend_joins_enabled", "friend_joins_enabled isn't true or false.", fix);
     change.friend_joins_enabled = input.friend_joins_enabled;
+  }
+  if ("performance_measuring_enabled" in input) {
+    const fix = "Send true (the default: Zaisma measures load time, frame rate, stutter and crashes in players' browsers, as totals in get_stats) or false (nothing of Zaisma's measures the game, and get_stats has performance null).";
+    if (typeof input.performance_measuring_enabled !== "boolean") return refuse("performance_measuring_enabled", "performance_measuring_enabled isn't true or false.", fix);
+    change.performance_measuring_enabled = input.performance_measuring_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) {
@@ -815,6 +829,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.account_offer_enabled !== undefined) set("account_offer_enabled", change.account_offer_enabled ? 1 : 0);
   if (change.deleted_account_erase_enabled !== undefined) set("deleted_account_erase_enabled", change.deleted_account_erase_enabled ? 1 : 0);
   if (change.friend_joins_enabled !== undefined) set("friend_joins_enabled", change.friend_joins_enabled ? 1 : 0);
+  if (change.performance_measuring_enabled !== undefined) set("performance_measuring_enabled", change.performance_measuring_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   if (change.minimum_player_age_years !== undefined) set("minimum_player_age_years", change.minimum_player_age_years);

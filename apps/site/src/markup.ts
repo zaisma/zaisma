@@ -3,9 +3,32 @@
  * that use them, so loading either first finds them ready.
  */
 
+// Direction embeddings, overrides and isolates: text from anyone can't flip the page's words around it (docs/DECISIONS.md, "Stored values safe where they show").
+const DIRECTION_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/g;
+
 /** Escape text for HTML. Every value from a user or a game goes through this. */
 export function esc(content: unknown): string {
-  return String(content ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+  return String(content ?? "")
+    .replace(DIRECTION_CONTROLS, "")
+    .replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
+/** A stored color as a page may use it in CSS: "#rrggbb" in lowercase, or null for anything else, which shows the default. */
+export function shownColor(storedColor: unknown): string | null {
+  return typeof storedColor === "string" && /^#[0-9a-fA-F]{6}$/.test(storedColor) ? storedColor.toLowerCase() : null;
+}
+
+/**
+ * A stored address as a page may link to it: an absolute http: or https: address, or a path on this site
+ * ("/…", never "//…"), in its standard form; null for anything else (a script or data address, another
+ * scheme, nonsense), which the page then doesn't link.
+ */
+export function shownAddress(storedAddress: unknown): string | null {
+  if (typeof storedAddress !== "string" || !storedAddress) return null;
+  if (storedAddress.startsWith("/")) return storedAddress.startsWith("//") || /[\u0000-\u001f\\]/.test(storedAddress) ? null : storedAddress;
+  if (!URL.canParse(storedAddress)) return null;
+  const address = new URL(storedAddress);
+  return address.protocol === "https:" || address.protocol === "http:" ? address.href : null;
 }
 
 /** Tagged template: interpolations are escaped unless wrapped in raw(). */

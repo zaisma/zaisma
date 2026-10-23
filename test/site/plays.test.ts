@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addTime, clearCountedDay, countStart, countTicket, issueTicket, playingNowCounts, playSpikes, playStats, reportPlaying, shelfPlayers } from "../../apps/site/src/plays.ts";
+import { addPerformance, addTime, clearCountedDay, countStart, countTicket, issueTicket, playingNowCounts, playSpikes, playStats, reportPlaying, shelfPlayers } from "../../apps/site/src/plays.ts";
 import { shelves } from "../../apps/site/src/home.ts";
 import { pageDataOf, pageScriptNames, pageScriptText } from "../strict-scripts.ts";
 
@@ -23,7 +23,7 @@ beforeEach(async () => {
     const good = form.get("secret") === "test-secret" && form.get("response") === "good";
     return Response.json(good ? { success: true, action: "play", hostname: "zaisma.test" } : { success: false });
   });
-  await env.DB.exec("DELETE FROM play_days; DELETE FROM play_returns; DELETE FROM play_tickets; DELETE FROM play_networks; DELETE FROM room_keys; DELETE FROM tester_links; DELETE FROM versions WHERE id IN ('v1', 'v-next'); DELETE FROM games WHERE id LIKE 'g-play%';");
+  await env.DB.exec("DELETE FROM performance_days; DELETE FROM play_days; DELETE FROM play_returns; DELETE FROM play_tickets; DELETE FROM play_networks; DELETE FROM room_keys; DELETE FROM tester_links; DELETE FROM versions WHERE id IN ('v1', 'v-next'); DELETE FROM games WHERE id LIKE 'g-play%';");
   const now = Date.now();
   await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES ('g-play', 'play-game', 'Play Game', 'live', 'listed', 'v1', ?, ?)").bind(now, now).run();
   await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES ('g-play-hidden', 'play-hidden', 'Hidden', 'live', 'private', 'v1', ?, ?)").bind(now, now).run();
@@ -107,7 +107,9 @@ describe("counted plays", () => {
     expect(await home()).not.toContain("<b>2</b> playing now");
     await issueTicket(env.DB, "g-play", NEW);
     expect(await page()).toMatch(/id="playing-now"><ul class="glance"><li>[\s\S]*?<b>3<\/b> playing now/);
-    expect(await home()).toContain("<b>3</b> playing now");
+    // The home's covers show it from the same count (its script builds Continue playing's from this).
+    expect(await home()).toContain('"slug":"play-game"');
+    expect(await home()).toMatch(/"slug":"play-game"[^}]*"playing_now_player_count":3/);
   });
 
   it("only takes plays of games players can open, sent from Zaisma", async () => {
@@ -201,6 +203,51 @@ describe("counted plays", () => {
     expect(pageScriptNames(text)).toContain("play-counter");
     expect(pageDataOf(text, "game-page-data")).toMatchObject({ tester_token: "abcdefghij0123456789", is_multiplayer: true });
     expect(await pageScriptText(text, (path) => SELF.fetch(`${SITE}${path}`))).toContain('"zaisma:room-key"');
+  });
+});
+
+describe("how the game runs for players", () => {
+  const CHROME_WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+  const REPORT = { device_kind: "computer", version_id: "v1", graphics_family: "intel", loading_duration_sec: 7, frame_rate_seconds: [0, 0, 0, 0, 0, 60, 0, 0], long_frame_count: 3, measured_duration_sec: 60, crash_kind_counts: {}, peak_memory_size_bytes: 300 * 1024 ** 2 };
+  const days = () => env.DB.prepare("SELECT * FROM performance_days WHERE game_id = 'g-play'").all().then((answer) => answer.results);
+  const checkedTicket = async () => {
+    const { ticket } = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string }>();
+    await env.DB.prepare("UPDATE play_tickets SET issued_at_ms = issued_at_ms - 120000 WHERE id = ?").bind(ticket).run();
+    return ticket;
+  };
+
+  it("adds a play's report to its day, version and device group, its load time once", async () => {
+    const ticket = await checkedTicket();
+    expect((await send("play-game", { ticket, seconds: 60, is_away: false, performance: REPORT }, { origin: SITE, "user-agent": CHROME_WINDOWS })).status).toBe(204);
+    expect(await days()).toEqual([
+      expect.objectContaining({ version_id: "v1", browser_name: "chrome", os_name: "windows", device_kind: "computer", graphics_family: "intel", play_count: 1, loading_counts: "[0,0,1,0,0,0,0]", frame_rate_seconds: "[0,0,0,0,0,60,0,0]", long_frame_count: 3, measured_duration_sec: 60, memory_counts: "[0,1,0,0,0,0]" }),
+    ]);
+    // The next report adds its frames, but not another play or load time.
+    await send("play-game", { ticket, seconds: 30, is_away: true, performance: { ...REPORT, loading_duration_sec: 1, frame_rate_seconds: [0, 0, 0, 30, 0, 0, 0, 0], measured_duration_sec: 30, long_frame_count: 0 } }, { origin: SITE, "user-agent": CHROME_WINDOWS });
+    expect(await days()).toEqual([expect.objectContaining({ play_count: 1, loading_counts: "[0,0,1,0,0,0,0]", frame_rate_seconds: "[0,0,0,30,0,60,0,0]", measured_duration_sec: 90 })]);
+  });
+
+  it("takes nothing without a ticket of this game, or with measuring off", async () => {
+    const ticket = await checkedTicket();
+    await send("play-game", { ticket: "play_ticket_madeup", seconds: 60, performance: REPORT });
+    expect(await addPerformance(env.DB, { id: "g-play-hidden", live_version_id: "v1" }, ticket, REPORT, CHROME_WINDOWS)).toBe(false);
+    await env.DB.prepare("UPDATE games SET performance_measuring_enabled = 0 WHERE id = 'g-play'").run();
+    await send("play-game", { ticket, seconds: 60, performance: REPORT });
+    expect(await days()).toEqual([]);
+  });
+
+  it("keeps the backstop: no more measured time than the play has been open, a crash once, unknown choices as other", async () => {
+    const t0 = Date.now();
+    const id = await issueTicket(env.DB, "g-play", NEW, t0);
+    const game = { id: "g-play", live_version_id: "v1" };
+    const lying = { ...REPORT, graphics_family: "made-up", version_id: "v-someone-elses", frame_rate_seconds: [0, 0, 0, 0, 0, 0, 0, 600], measured_duration_sec: 600, long_frame_count: 9999, crash_kind_counts: { error_stop: 1 } };
+    expect(await addPerformance(env.DB, game, id, lying, "", t0 + 20_000)).toBe(true);
+    // The same again at once: no time left to claim, the crash and the play already counted.
+    expect(await addPerformance(env.DB, game, id, lying, "", t0 + 20_000)).toBe(false);
+    expect(await days()).toEqual([
+      expect.objectContaining({ version_id: "v1", browser_name: "other", os_name: "other", graphics_family: "other", play_count: 1, measured_duration_sec: 30, frame_rate_seconds: "[0,0,0,0,0,0,0,30]", long_frame_count: 600, error_stop_count: 1 }),
+    ]);
+    expect(await addPerformance(env.DB, game, id, { ...lying, device_kind: "fridge" }, "", t0 + 60_000)).toBe(false);
   });
 });
 

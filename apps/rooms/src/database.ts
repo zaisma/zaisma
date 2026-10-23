@@ -1,14 +1,29 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server";
-import { GAME_DATABASE_FREE_LIMITS, NEARLY_USED_PCT, nextMonthStartDate, recordPlayerErased, usageMonth, type FreeUseAlertKind } from "@zaisma/core";
+import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
-/** Rows read and written in a month, the way Cloudflare bills them, and the month's free-use alerts already noticed. */
+/** Rows read and written in a month, the way Cloudflare bills them. */
 export interface Usage {
   month: string;
   readRowCount: number;
   writtenRowCount: number;
-  noticedAlertKinds: FreeUseAlertKind[];
+}
+
+/** Rows read and written since they were last added to room_usage for the hosting meter, and on which day (UTC). */
+interface UnrecordedUse {
+  date: string;
+  readRowCount: number;
+  writtenRowCount: number;
+}
+
+/**
+ * When the game's hosting paused this month, as the site's hosting job last said (setHostingPause): reads and
+ * writes stop MATCH_FINISH_DURATION_SEC after it, so a running match's last save still lands. A new month clears it.
+ */
+interface HostingPause {
+  month: string;
+  pausedAtMs: number;
 }
 
 /** One statement's rows, and the rows it read and wrote, as the developer API shows them. */
@@ -58,25 +73,70 @@ class AnswerTooBig extends Error {}
 /** Usage is kept at most this long, or this many statements, before it's saved: not one extra write per query. */
 const USAGE_SAVE_MS = 60_000;
 const USAGE_SAVE_STATEMENT_COUNT = 500;
+/** Rows read and written, and the storage's size, go to room_usage for the hosting meter at most this often while the database is used. */
+const RECORD_DELAY_MS = 60_000;
+/** The game's kept rooms' size, which counts with the database's storage, is read from D1 at most this often: not once per write. */
+const KEPT_ROOMS_READ_MS = 10 * 60_000;
+
+/** The game's kept rooms' saved size as last read, and when. */
+interface KeptRoomsSize {
+  sizeBytes: number;
+  readAtMs: number;
+}
 
 /**
  * One game's database: a SQLite-backed Durable Object of its own, named by the game's ID, used by
  * all its rooms (room.database) and kept between matches. Every statement is checked the same way
  * the Node runner checks it (checkStatement), and runs in a transaction, so a batch is all or
- * nothing and a statement past the free use undoes itself. Cloudflare keeps its own tables (_cf_…)
- * out of the developer's reach; ours is only the usage, in the object's key-value storage.
+ * nothing and a statement past the most storage a game can have undoes itself. Its rows and storage
+ * count on the game's hosting meter (hosting.ts): it adds them to room_usage about once a minute, and
+ * stops reading and writing an hour after the site says the game's hosting paused. Cloudflare keeps its
+ * own tables (_cf_…) out of the developer's reach; ours are only the usage and the pause, in the object's
+ * key-value storage.
  */
 export class GameDatabaseObject extends DurableObject<Env> {
   private usage: Usage;
+  private unrecordedUse: UnrecordedUse | null;
+  private hostingPause: HostingPause | null;
+  /**
+   * When the use was last added to room_usage, or the object started. In memory only, and no alarm, which would add
+   * a table of Cloudflare's (_cf_…) the developer's own SQL sees: use waiting is added at the next statement or read of it.
+   */
+  private recordedAtMs = Date.now();
   private unsavedStatementCount = 0;
   private savedAtMs = Date.now();
   /** A restore is set for the next start: nothing more runs on what's about to be replaced. */
   private isRestarting = false;
+  /** The game's kept rooms' size (kept_rooms), in memory only: storing it would add a table the developer sees. */
+  private keptRooms: KeptRoomsSize = { sizeBytes: 0, readAtMs: 0 };
+  private isReadingKeptRooms = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const usage = ctx.storage.kv.get<Usage>("usage") ?? { month: usageMonth(), readRowCount: 0, writtenRowCount: 0, noticedAlertKinds: [] };
-    this.usage = { ...usage, noticedAlertKinds: usage.noticedAlertKinds ?? [] };
+    const usage = ctx.storage.kv.get<Usage>("usage") ?? { month: usageMonth(), readRowCount: 0, writtenRowCount: 0 };
+    this.usage = { month: usage.month, readRowCount: usage.readRowCount, writtenRowCount: usage.writtenRowCount };
+    this.unrecordedUse = ctx.storage.kv.get<UnrecordedUse>("unrecorded_use") ?? null;
+    this.hostingPause = ctx.storage.kv.get<HostingPause>("hosting_pause") ?? null;
+  }
+
+  /**
+   * The game's kept rooms' size, which counts with the database's storage: the last read,
+   * read again in the background once it's KEPT_ROOMS_READ_MS old, so a statement never waits for D1.
+   */
+  private keptRoomsSizeBytes(): number {
+    const gameId = this.ctx.id.name;
+    if (gameId && !this.isReadingKeptRooms && Date.now() - this.keptRooms.readAtMs >= KEPT_ROOMS_READ_MS) {
+      this.isReadingKeptRooms = true;
+      this.ctx.waitUntil(
+        keptRoomsSizeBytes(this.env.DB, gameId)
+          .then((sizeBytes) => {
+            this.keptRooms = { sizeBytes, readAtMs: Date.now() };
+          })
+          .catch((error) => console.error("Couldn't read the game's kept rooms' size:", error))
+          .finally(() => (this.isReadingKeptRooms = false)),
+      );
+    }
+    return this.keptRooms.sizeBytes;
   }
 
   query(sql: unknown, values: unknown): DatabaseAnswer<DatabaseRow[]> {
@@ -95,9 +155,22 @@ export class GameDatabaseObject extends DurableObject<Env> {
   async deleteStorage(): Promise<void> {
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
-    this.usage = { month: usageMonth(), readRowCount: 0, writtenRowCount: 0, noticedAlertKinds: [] };
+    this.usage = { month: usageMonth(), readRowCount: 0, writtenRowCount: 0 };
+    this.unrecordedUse = null;
+    this.hostingPause = null;
     this.unsavedStatementCount = 0;
   }
+
+  /**
+   * The site's hosting job says when the game's hosting paused this month, or null when it runs again (a top-up, a
+   * higher budget). Reads and writes stop MATCH_FINISH_DURATION_SEC after the pause, with the game's rooms.
+   */
+  setHostingPause(pausedAtMs: number | null): void {
+    this.hostingPause = pausedAtMs === null ? null : { month: usageMonth(pausedAtMs), pausedAtMs };
+    if (this.hostingPause) this.ctx.storage.kv.put("hosting_pause", this.hostingPause);
+    else this.ctx.storage.kv.delete("hosting_pause");
+  }
+
 
   /** erasePlayer() for the developer API and for deleted accounts, with the rows it wrote. */
   erasePlayerForDeveloper(playerId: unknown): DeveloperDatabaseAnswer<{ erasedTables: ErasedTable[]; writtenRowCount: number }> {
@@ -116,10 +189,19 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /**
    * One part of the database's dump, from where cursor says (null for the start): SQLite's own SQL,
-   * up to 4 MB a part. Its reads count towards the month's use, but it works past the free reads: the data is
-   * always the developer's to take. One part runs in one go, so it's whole; between parts the game can write.
+   * up to 4 MB a part. Its reads count towards the month's use, but it works while the game's hosting is
+   * paused: the data is always the developer's to take. One part runs in one go, so it's whole; between parts the game can write.
    */
   exportForDeveloper(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    return this.exportPart(cursor, true);
+  }
+
+  /** The same part for Zaisma's nightly backup (apps/site/src/backups.ts): Zaisma's own reads, never on the game's meter. */
+  exportForBackup(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    return this.exportPart(cursor, false);
+  }
+
+  private exportPart(cursor: string | null, isUsageCounted: boolean): DeveloperDatabaseAnswer<DumpPart> {
     if (this.isRestarting) return answerDatabase(() => {
       throw restarting();
     });
@@ -142,7 +224,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
         throw error;
       });
     } finally {
-      this.addUsage(readRowCount, 0, statementCount);
+      if (isUsageCounted) this.addUsage(readRowCount, 0, statementCount);
     }
   }
 
@@ -180,8 +262,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /**
    * The tables and indexes, from SQLite's own list, without Cloudflare's (_cf_…) or SQLite's (sqlite_…).
-   * Reading the list counts towards the month's use like any read, but works past the free reads, so the
-   * developer can always see what's there. No row counts: counting reads every row.
+   * Reading the list counts towards the month's use like any read, but works while the game's hosting is
+   * paused, so the developer can always see what's there. No row counts: counting reads every row.
    */
   overview(): DatabaseOverview {
     if (this.isRestarting) throw restarting();
@@ -201,13 +283,15 @@ export class GameDatabaseObject extends DurableObject<Env> {
   usageThisMonth(): Usage & { storageSizeBytes: number } {
     if (this.isRestarting) throw restarting();
     this.newMonth();
+    // The site reads this for the game's alerts: a quiet database's last minute reaches the meter then too.
+    this.recordWhenDue();
     return { ...this.usage, storageSizeBytes: this.ctx.storage.sql.databaseSize };
   }
 
   /**
    * Erases one player: every row whose player_id column holds theirs, in every table that has one, in
-   * one transaction (eraseStatements). It counts towards the month's use but skips the free limits: it
-   * only deletes, and erasing a player must never wait for next month.
+   * one transaction (eraseStatements). It counts towards the month's use but works while the game's hosting
+   * is paused: it only deletes, and erasing a player must never wait.
    */
   private erase(given: unknown): { erasedTables: ErasedTable[]; writtenRowCount: number } {
     if (this.isRestarting) throw restarting();
@@ -249,12 +333,12 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private run(statements: { sql: string; values: DatabaseValue[] }[], maximumAnswerSizeBytes = Infinity, failure?: (i: number, error: unknown) => DatabaseError): StatementResult[] {
     if (this.isRestarting) throw restarting();
     this.newMonth();
-    const limits = GAME_DATABASE_FREE_LIMITS;
-    const resetDate = nextMonthStartDate();
-    if (this.usage.readRowCount >= limits.readRowCountPerMonth) {
-      throw new DatabaseError("database_read_limit", `This game's database has read its free ${limits.readRowCountPerMonth.toLocaleString("en-US")} rows this month.`, `It works again on ${resetDate} (UTC). Read less: add indexes for your WHEREs, and keep results the game reads often in the room's state.`);
+    // The game's hosting paused: running matches get their hour, and their last saves land in it.
+    if (this.hostingPause && this.hostingPause.month === this.usage.month && Date.now() >= this.hostingPause.pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000) {
+      throw new DatabaseError("hosting_paused", HOSTING_PAUSED_TEXT, `It works again on ${nextMonthStartDate()} (UTC), or as soon as its developer adds credit or raises the game's budget. Exports, the table list and erasing a player keep working.`);
     }
-    const canWrite = this.usage.writtenRowCount < limits.writtenRowCountPerMonth;
+    // Kept rooms' saved worlds share the storage with the database.
+    const storageSizeBytes = MAXIMUM_GAME_STORAGE_SIZE_BYTES - this.keptRoomsSizeBytes();
     const sql = this.ctx.storage.sql;
     let readRowCount = 0;
     let writtenRowCount = 0;
@@ -285,12 +369,9 @@ export class GameDatabaseObject extends DurableObject<Env> {
             readRowCount += cursor.rowsRead;
             writtenRowCount += cursor.rowsWritten;
           }
-          if (!canWrite && cursor.rowsWritten > 0) {
-            throw new DatabaseError("database_write_limit", `This game's database has written its free ${limits.writtenRowCountPerMonth.toLocaleString("en-US")} rows this month, so this statement was undone.`, `Reads still work; writes start again on ${resetDate} (UTC). Write less often, like saving scores once at the end of a match.`);
-          }
-          // A database at its free storage can still change and delete rows, just not grow.
-          if (sql.databaseSize > limits.storageSizeBytes && sql.databaseSize > sizeBeforeBytes) {
-            throw new DatabaseError("database_storage_limit", `This game's database would be over its free ${limits.storageSizeBytes / 1024 / 1024} MB, so this statement was undone.`, "Reads, changes and deletes still work. Delete rows you no longer need (old matches, players who left long ago) to make room.");
+          // A full database can still change and delete rows, just not grow.
+          if (sql.databaseSize > storageSizeBytes && sql.databaseSize > sizeBeforeBytes) {
+            throw new DatabaseError("database_full", `This game's storage (its database and kept rooms) would be over the ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB a game can have, so this statement was undone.`, "Reads, changes and deletes still work. Delete rows you no longer need (old matches, players who left long ago), or kept rooms nobody plays (zaisma kept-rooms), to make room.");
           }
           return { rows, readRowCount: cursor.rowsRead, writtenRowCount: cursor.rowsWritten };
         }),
@@ -311,12 +392,14 @@ export class GameDatabaseObject extends DurableObject<Env> {
       if (this.isRestarting) return answerDatabase((): never => {
         throw restarting();
       });
+      // What's waiting for the hosting meter goes first: the restore would roll it back with everything else.
+      await this.recordUse();
       const pointInTime = this.pointInTime();
       try {
         const bookmark = "bookmark" in target ? target.bookmark : await pointInTime.bookmarkForTime(target.restoreToAtMs);
         const undoBookmark = await pointInTime.restoreOnNextStart(bookmark);
         this.isRestarting = true;
-        return { queryResult: { undoBookmark, usage: { ...this.usage, noticedAlertKinds: [...this.usage.noticedAlertKinds] } } };
+        return { queryResult: { undoBookmark, usage: { ...this.usage } } };
       } catch (error) {
         const cloudflareMessage = String(error instanceof Error ? error.message : error).slice(0, 300);
         if (/does not implement point-in-time recovery/.test(cloudflareMessage)) {
@@ -334,8 +417,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
   }
 
   /**
-   * After a restore: this month's use as it was before, the larger of each count and every alert
-   * already noticed, since the restore rolled the use back with everything else. A restore never gives free use.
+   * After a restore: this month's use as it was before, the larger of each count, since the restore
+   * rolled the use back with everything else. The hosting pause comes back from the site's next job.
    * The object going away still answers for a moment, and refuses, so the caller tries again until the restored one takes it.
    */
   carryUsage(carried: Usage): void {
@@ -346,7 +429,6 @@ export class GameDatabaseObject extends DurableObject<Env> {
       month: this.usage.month,
       readRowCount: Math.max(this.usage.readRowCount, carried.readRowCount),
       writtenRowCount: Math.max(this.usage.writtenRowCount, carried.writtenRowCount),
-      noticedAlertKinds: [...new Set([...this.usage.noticedAlertKinds, ...carried.noticedAlertKinds])],
     };
     this.save();
   }
@@ -363,7 +445,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private newMonth(): void {
     const month = usageMonth();
     if (this.usage.month === month) return;
-    this.usage = { month, readRowCount: 0, writtenRowCount: 0, noticedAlertKinds: [] };
+    this.usage = { month, readRowCount: 0, writtenRowCount: 0 };
     this.save();
   }
 
@@ -371,46 +453,55 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.usage.readRowCount += readRowCount;
     this.usage.writtenRowCount += writtenRowCount;
     this.unsavedStatementCount += statementCount;
-    // A restart can lose the last minute's counts; that's a little free use, never a wrong limit.
+    const date = new Date().toISOString().slice(0, 10);
+    // Yesterday's use goes out under its own date first.
+    if (this.unrecordedUse && this.unrecordedUse.date !== date) this.ctx.waitUntil(this.recordUse());
+    const unrecorded = (this.unrecordedUse ??= { date, readRowCount: 0, writtenRowCount: 0 });
+    unrecorded.readRowCount += readRowCount;
+    unrecorded.writtenRowCount += writtenRowCount;
+    this.recordWhenDue();
+    // A restart can lose the last minute's counts; that's a little use off the meter, never a wrong pause.
     if (this.unsavedStatementCount >= USAGE_SAVE_STATEMENT_COUNT || Date.now() - this.savedAtMs >= USAGE_SAVE_MS) this.save();
-    this.notice();
+  }
+
+  /** Adds the use waiting to room_usage, in the background, once RECORD_DELAY_MS has passed since the last time. */
+  private recordWhenDue(): void {
+    if (!this.unrecordedUse || Date.now() - this.recordedAtMs < RECORD_DELAY_MS) return;
+    this.recordedAtMs = Date.now();
+    this.ctx.waitUntil(this.recordUse());
   }
 
   /**
-   * The month's free-use lines this database just reached (80% and all of its reads, writes and
-   * storage), each written once a month to alert_notices for the game's alert_raised event. Never
-   * fails or slows the statement.
+   * Adds the rows read and written since the last time to the day's room_usage row, with the storage's size now
+   * (its database and kept rooms), for the hosting meter. Never fails a statement: a write that fails is tried
+   * again a minute later.
    */
-  private notice(): void {
-    const limits = GAME_DATABASE_FREE_LIMITS;
-    const sizeBytes = this.ctx.storage.sql.databaseSize;
-    const reached: [FreeUseAlertKind, boolean][] = [
-      ["database_nearly_paused", this.usage.readRowCount >= limits.readRowCountPerMonth * NEARLY_USED_PCT / 100],
-      ["database_paused", this.usage.readRowCount >= limits.readRowCountPerMonth],
-      ["database_writes_nearly_paused", this.usage.writtenRowCount >= limits.writtenRowCountPerMonth * NEARLY_USED_PCT / 100],
-      ["database_writes_paused", this.usage.writtenRowCount >= limits.writtenRowCountPerMonth],
-      ["database_nearly_full", sizeBytes >= limits.storageSizeBytes * NEARLY_USED_PCT / 100],
-      ["database_full", sizeBytes >= limits.storageSizeBytes],
-    ];
-    const kinds = reached.filter(([kind, isReached]) => isReached && !this.usage.noticedAlertKinds.includes(kind)).map(([kind]) => kind);
+  private async recordUse(): Promise<void> {
     // The object is reached by idFromName(gameId), so its name is the game's ID.
     const gameId = this.ctx.id.name;
-    if (!kinds.length || !gameId) return;
-    this.usage.noticedAlertKinds.push(...kinds);
+    const unrecorded = this.unrecordedUse;
+    if (!unrecorded || !gameId) return;
+    this.unrecordedUse = null;
     this.save();
-    const monthStartDate = `${this.usage.month}-01`;
-    const nowMs = Date.now();
-    const insert = this.env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, noticed_at_ms) VALUES (?, ?, ?, ?)");
-    this.ctx.waitUntil(
-      this.env.DB.batch(kinds.map((kind) => insert.bind(gameId, kind, monthStartDate, nowMs))).then(
-        () => undefined,
-        (error) => console.error("Couldn't notice the database's alert:", error),
-      ),
-    );
+    try {
+      await this.env.DB.prepare(
+        "INSERT INTO room_usage (game_id, date, database_read_row_count, database_written_row_count, database_size_bytes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET database_read_row_count = database_read_row_count + excluded.database_read_row_count, database_written_row_count = database_written_row_count + excluded.database_written_row_count, database_size_bytes = excluded.database_size_bytes",
+      )
+        .bind(gameId, unrecorded.date, unrecorded.readRowCount, unrecorded.writtenRowCount, this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes())
+        .run();
+    } catch (error) {
+      console.error("Couldn't record the game database's use:", error);
+      // Back with whatever came since, for the next try.
+      const newerUse = this.unrecordedUse as UnrecordedUse | null;
+      this.unrecordedUse = { date: unrecorded.date, readRowCount: unrecorded.readRowCount + (newerUse?.readRowCount ?? 0), writtenRowCount: unrecorded.writtenRowCount + (newerUse?.writtenRowCount ?? 0) };
+      this.save();
+    }
   }
 
   private save(): void {
     this.ctx.storage.kv.put("usage", this.usage);
+    if (this.unrecordedUse) this.ctx.storage.kv.put("unrecorded_use", this.unrecordedUse);
+    else this.ctx.storage.kv.delete("unrecorded_use");
     this.unsavedStatementCount = 0;
     this.savedAtMs = Date.now();
   }
@@ -535,8 +626,18 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
     return this.reach(gameId, async (database) => ({ queryResult: await database.usageThisMonth() }));
   }
 
+  /** The site's hosting job: when the game's hosting paused this month, or null when it runs again (GameDatabaseObject.setHostingPause). */
+  async setHostingPause(gameId: string, pausedAtMs: number | null): Promise<void> {
+    await gameDatabaseObject(this.env, gameId).setHostingPause(pausedAtMs);
+  }
+
   exportDump(gameId: string, cursor: string | null): Promise<DeveloperDatabaseAnswer<DumpPart>> {
     return this.reach(gameId, (database) => database.exportForDeveloper(cursor));
+  }
+
+  /** One part of the dump for Zaisma's nightly backup, whose reads aren't the developer's to pay for. */
+  backupDump(gameId: string, cursor: string | null): Promise<DeveloperDatabaseAnswer<DumpPart>> {
+    return this.reach(gameId, (database) => database.exportForBackup(cursor));
   }
 
   /** Erase one player from a game's database: the erase_player call, and a deleted account's erase (apps/site/src/webhooks.ts). */

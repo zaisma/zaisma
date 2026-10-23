@@ -64,7 +64,7 @@ export function glanceFacts(facts: GlanceFacts): Raw {
 
 export const GLANCE_STYLES = `
 /* The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag. */
-.glance { list-style: none; margin: 0; padding: var(--gap-words-words) 0 0; border-top: var(--divider); display: grid; gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
+.glance { list-style: none; margin: 0; padding: var(--gap-words-words) var(--pad-words) 0; border-top: var(--divider); display: grid; gap: var(--gap-words-words); font: var(--type-words); color: var(--ink-2); }
 .glance li { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; }
 .glance b { font-weight: 600; color: var(--ink); }
 .glance .ico { color: var(--muted); stroke-width: 1.5; }
@@ -174,7 +174,7 @@ component({
 });
 
 const HOUR_MS = 60 * MINUTE_MS;
-const glancePane = (body: Raw) => glassPane({ paneSize: "small", body });
+const glancePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 
 component({
   name: "Glance facts",
@@ -225,7 +225,7 @@ component({
 `,
   render: facts,
   examples: [
-    { label: "A game's players and devices", markup: glassPane({ paneSize: "small", body: facts({ label: "About this game", facts: [{ label: "Players", items: [{ text: "Single-player", icon: "person" }, { text: "Online co-op", icon: "globe" }] }, { label: "Works on", items: [{ text: "Computer", icon: "computer" }, { text: "Tablet", icon: "tablet" }] }] }) }) },
+    { label: "A game's players and devices", markup: glassPane({ paneWidth: "fit", body: facts({ label: "About this game", facts: [{ label: "Players", items: [{ text: "Single-player", icon: "person" }, { text: "Online co-op", icon: "globe" }] }, { label: "Works on", items: [{ text: "Computer", icon: "computer" }, { text: "Tablet", icon: "tablet" }] }] }) }) },
   ],
 });
 
@@ -296,8 +296,8 @@ component({
 `,
   render: person,
   examples: [
-    { label: "A game's developer", markup: glassPane({ paneSize: "small", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
-    { label: "Alone", markup: glassPane({ paneSize: "small", body: person({ username: "emma_r", href: "#person" }) }) },
+    { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
+    { label: "Alone", markup: glassPane({ paneWidth: "fit", body: person({ username: "emma_r", href: "#person" }) }) },
   ],
 });
 
@@ -365,23 +365,23 @@ button.list-row { width: 100%; margin: 0; border: 0; font: inherit; text-align: 
     {
       label: "Rows that go somewhere",
       isWide: true,
-      markup: glassPane({ paneSize: "medium", body: listRows({ rows: [
+      markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [
         { title: "Version 14", detail: "2 days ago · 312 files, 48 MB", href: "#list-rows", end: tag("Live", "new") },
         { title: "Version 13", detail: "5 days ago · 309 files, 47 MB", href: "#list-rows", end: "Replaced" },
         { title: "Version 15", detail: "An hour ago · 314 files, 49 MB", href: "#list-rows", end: tag("Held", "warning") },
       ] }) }),
     },
-    { label: "Pointed", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
-    { label: "Keyboard focus", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
-    { label: "Rows that lead on in place, like a report's reasons", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "It's broken", detail: "Won't load, crashes, or isn't really a game", buttonDataAttributes: { reason: "broken" } }, { title: "Something else", buttonDataAttributes: { reason: "other" } }] }) }) },
+    { label: "Pointed", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
+    { label: "Keyboard focus", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
+    { label: "Rows that lead on in place, like a report's reasons", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "It's broken", detail: "Won't load, crashes, or isn't really a game", buttonDataAttributes: { reason: "broken" } }, { title: "Something else", buttonDataAttributes: { reason: "other" } }] }) }) },
     {
       label: "Rows with words to read, like a game's updates",
-      markup: glassPane({ paneSize: "medium", body: listRows({ label: "Updates", rows: [
+      markup: glassPane({ paneWidth: "fit", body: listRows({ label: "Updates", rows: [
         { title: "Oct 19, 2026", text: "Co-op saves now carry over between hosts.\nThe cave map loads twice as fast on phones." },
         { title: "Oct 11, 2026", text: "Two new caves, and a lantern that lasts the whole night." },
       ] }) }),
     },
-    { label: "Rows to read, not to open", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
+    { label: "Rows to read, not to open", markup: glassPane({ paneWidth: "fit", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
   ],
 });
 
@@ -415,8 +415,8 @@ component({
   styles: STATE_STYLES,
   render: emptyState,
   examples: [
-    { label: "With what starts it", markup: glassPane({ paneSize: "medium", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button" }) }) }) },
-    { label: "Words alone", markup: glassPane({ paneSize: "small", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
+    { label: "With what starts it", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No games yet", text: "Make one from your AI, or upload a folder with an index.html from your terminal.", action: runButton("Make a game", { type: "button" }) }) }) },
+    { label: "Words alone", markup: glassPane({ paneWidth: "fit", body: emptyState({ title: "No friends playing", text: "When a friend plays something, it shows here." }) }) },
   ],
 });
 
@@ -433,7 +433,7 @@ component({
   styles: "",
   render: problemState,
   examples: [
-    { label: "With what to do", markup: glassPane({ paneSize: "medium", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button" }) }) }) },
+    { label: "With what to do", markup: glassPane({ paneWidth: "fit", body: problemState({ title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: cutButton("Try again", { type: "button" }) }) }) },
   ],
 });
 
@@ -450,7 +450,7 @@ component({
   styles: `
 /* Loading: a hairline across where the content will be, a light running along it the way it runs along a cover's line, and its words
    under it. Under reduced motion the light rests in the middle. */
-.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) 0; }
+.loading-state { display: grid; gap: var(--gap-words-control); justify-items: center; padding: var(--gap-block-block) var(--pad-words); }
 .loading-line { position: relative; display: block; width: min(240px, 100%); height: 2px; overflow: hidden; background: var(--line); }
 .loading-line::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ink) 70%, transparent), transparent); animation: loading-run 1.3s cubic-bezier(.45,0,.25,1) infinite; }
 @keyframes loading-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
@@ -458,7 +458,7 @@ component({
 @media (prefers-reduced-motion: reduce) { .loading-line::after { animation: none; transform: translateX(75%); } }
 `,
   render: loadingState,
-  examples: [{ label: "Loading", markup: glassPane({ paneSize: "small", body: loadingState({ label: "Getting your versions" }) }) }],
+  examples: [{ label: "Loading", markup: glassPane({ paneWidth: "fit", body: loadingState({ label: "Getting your versions" }) }) }],
 });
 
 export interface TableColumn {
@@ -826,12 +826,12 @@ component({
     {
       label: "Versions",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({ label: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true, isSortable: true }, { label: "Size", isNumeric: true, isSortable: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
+      markup: glassPane({ paneWidth: "full", body: table({ label: "Versions", headColumn: "first", columns: [{ label: "Version" }, { label: "State" }, { label: "Files", isNumeric: true, isSortable: true }, { label: "Size", isNumeric: true, isSortable: true }, { label: "Made" }], rows: VERSION_ROWS }) }),
     },
     {
       label: "Compact, for long lists",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({
+      markup: glassPane({ paneWidth: "full", body: table({
         label: "Requests to your game server",
         isCompact: true,
         columns: [{ label: "When" }, { label: "Route" }, { label: "Status", isNumeric: true }, { label: "Took", isNumeric: true }],
@@ -847,12 +847,12 @@ component({
     {
       label: "No rows: the table stays and says so",
       isWide: true,
-      markup: html`<div style="--table-height:200px">${glassPane({ paneSize: "full", body: table({ label: "Open rooms", isCompact: true, emptyText: "No open rooms like that right now. Pick something else, or press Play to start.", columns: [{ label: "Room" }, { label: "Mode" }, { label: "Players", isNumeric: true }], rows: [] }) })}</div>`,
+      markup: html`<div style="--table-height:200px">${glassPane({ paneWidth: "full", body: table({ label: "Open rooms", isCompact: true, emptyText: "No open rooms like that right now. Pick something else, or press Play to start.", columns: [{ label: "Room" }, { label: "Mode" }, { label: "Players", isNumeric: true }], rows: [] }) })}</div>`,
     },
     {
       label: "Many rows, in pages of five: the pager shows only when the rows need it",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: table({
+      markup: glassPane({ paneWidth: "full", body: table({
         label: "Crashes this week",
         isCompact: true,
         maximumRowCount: 5,
@@ -863,7 +863,7 @@ component({
     {
       label: "A list to join from, its height set by the page, its Join pinned, with a footer row",
       isWide: true,
-      markup: html`<div style="--table-height:240px">${glassPane({ paneSize: "full", body: table({
+      markup: html`<div style="--table-height:240px">${glassPane({ paneWidth: "full", body: table({
         label: "Open rooms",
         isCompact: true,
         headColumn: "last",
@@ -903,7 +903,7 @@ component({
   styles: `
 /* Numbers: big figures in Jost with figures of one width, their unit smaller beside them, the label under each in facts. They share the row,
    wrapping on a phone. */
-.numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--gap-block-block); margin: 0; }
+.numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--gap-block-block); margin: 0; padding-inline: var(--pad-words); }
 .number { display: grid; gap: var(--gap-words-words); align-content: start; }
 .number dt { order: 2; font: var(--type-facts); color: var(--muted); }
 .number dd { margin: 0; }
@@ -917,7 +917,7 @@ component({
     {
       label: "This week",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: numbers({ items: [
+      markup: glassPane({ paneWidth: "full", body: numbers({ items: [
         { label: "Players", figure: "1,284", change: "+18% on last week", isChangeGood: true },
         { label: "Hours played", figure: "3,906", unit: "hours", change: "+6% on last week", isChangeGood: true },
         { label: "Plays", figure: "9,412", change: "−3% on last week" },
@@ -1043,7 +1043,7 @@ component({
    under the plot. The drawing stretches to the plot while its line keeps its 2px. On a narrow screen each point keeps at least its room
    (--point-room) and the plot scrolls sideways under a scale that stays. The last point is an orange dot with its number over it; pointing at
    any point shows its dot and its number (a bar's column brightens), its words kept inside the plot at the ends. */
-.chart { display: grid; gap: var(--gap-words-control); margin: 0; min-width: 0; }
+.chart { display: grid; gap: var(--gap-words-control); margin: 0; min-width: 0; padding-inline: var(--pad-words); }
 .chart-label { font: var(--type-label); color: var(--ink); }
 .chart-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-words-control); margin-top: var(--gap-block-block); }
 .chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
@@ -1104,13 +1104,13 @@ ${SHARE_RING_CSS}
 `,
   render: chart,
   examples: [
-    { label: "A line: plays a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
-    { label: "Bars: players a day", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
-    { label: "Many points: on a phone, it scrolls sideways from the latest", isWide: true, markup: glassPane({ paneSize: "full", body: chart({ label: "Players a week", points: MONTHLY_PLAYERS, unit: "players", chartKind: "bars" }) }) },
+    { label: "A line: plays a day", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Plays a day", points: DAILY_PLAYS, unit: "plays" }) }) },
+    { label: "Bars: players a day", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Players a day", points: DAILY_PLAYS.map((point) => ({ label: point.label, amountNumber: Math.round(point.amountNumber * 0.31) })), unit: "players", chartKind: "bars" }) }) },
+    { label: "Many points: on a phone, it scrolls sideways from the latest", isWide: true, markup: glassPane({ paneWidth: "full", body: chart({ label: "Players a week", points: MONTHLY_PLAYERS, unit: "players", chartKind: "bars" }) }) },
     {
       label: "A ring: how a whole splits",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: chart({ label: "Players by browser", unit: "players", chartKind: "ring", points: [
+      markup: glassPane({ paneWidth: "full", body: chart({ label: "Players by browser", unit: "players", chartKind: "ring", points: [
         { label: "Chrome", amountNumber: 6120 }, { label: "Safari", amountNumber: 3480 }, { label: "Edge", amountNumber: 1210 }, { label: "Firefox", amountNumber: 860 }, { label: "Others", amountNumber: 330 },
       ] }) }),
     },
@@ -1145,7 +1145,7 @@ component({
 /* A usage meter: its label and numbers on one line, the track under it, a carved strip the fill grows along. The fill is a quiet ink,
    amber from 80%; all used, it's amber striped with a deeper amber, like tape across a door, and a warning mark leads the label. */
 .usage { display: grid; gap: var(--gap-words-words); }
-.usage-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); }
+.usage-words { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--gap-words-control); padding-inline: var(--pad-words); }
 .usage-label { display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-label); color: var(--ink); }
 .usage-label > .ico { width: 16px; height: 16px; color: var(--meter-full-ink); }
 .usage-numbers { font: var(--type-facts); color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -1157,8 +1157,8 @@ component({
 `,
   render: usageMeter,
   examples: [
-    { label: "Under way", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Player-hours this month", usedNumber: 412.6, limitNumber: 1000, unit: "hours" }) }) },
-    { label: "Past 80%", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Requests this month", usedNumber: 86200, limitNumber: 100000, unit: "requests" }) }) },
-    { label: "All used", markup: glassPane({ paneSize: "small", body: usageMeter({ label: "Stored", usedNumber: 500, limitNumber: 500, unit: "MB" }) }) },
+    { label: "Under way", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Player-hours this month", usedNumber: 412.6, limitNumber: 1000, unit: "hours" }) }) },
+    { label: "Past 80%", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Requests this month", usedNumber: 86200, limitNumber: 100000, unit: "requests" }) }) },
+    { label: "All used", markup: glassPane({ paneWidth: "fit", body: usageMeter({ label: "Stored", usedNumber: 500, limitNumber: 500, unit: "MB" }) }) },
   ],
 });

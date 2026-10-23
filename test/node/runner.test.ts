@@ -3,8 +3,9 @@ import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 // @ts-expect-error plain JavaScript runner without type declarations
-import { startServer } from "../../packages/game-server/bin/node.js";
+import { localRoomStates, startServer } from "../../packages/game-server/bin/node.js";
 import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/index.ts";
 
 const ISS = "https://rooms.zaisma.test";
@@ -180,6 +181,23 @@ describe("Node runner", () => {
     own.close();
   });
 
+  it("gives the game server what an account owns from its pass, as Zaisma rooms do, and never players' games", async () => {
+    const profiles = async (playerId: string) => ({ id: playerId, name: "Gold_Owl" });
+    const wardrobe = defineGameServer({ maximumPlayerCount: 4, setup: () => ({}), onJoin: (_state: unknown, player: { id: string; ownedItemNames?: string[] }, room: { send(playerId: string, data: unknown): void }) => room.send(player.id, { owned: player.ownedItemNames ?? null }) });
+    const own = startServer({ server: wardrobe, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const owner = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await owner.open;
+    owner.say({ type: "hello", pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, kind: "account", owned_item_names: ["gold_crown"], iat: now, exp: now + 60 }) });
+    const welcome = await owner.next();
+    expect(welcome.me).toEqual({ id: "player_owl", name: "Gold_Owl", kind: "account" });
+    expect(await until(owner, "message")).toEqual({ type: "message", data: { owned: ["gold_crown"] } });
+    owner.ws.close();
+    own.close();
+  });
+
   it("finds blocks between accounts in their passes, and tells both players' games", async () => {
     const checked: boolean[] = [];
     const watcher = defineGameServer({ setup: () => ({}), onJoin: (_state, player, room) => void (player.id === "player_mia" && checked.push(room.hasBlockBetween("player_kit", "player_mia"))) });
@@ -289,6 +307,83 @@ describe("Node runner", () => {
     expect(how.restored).toMatchObject({ lostDurationSec: 0, awayReasons: ["lost"] });
     back.ws.close();
     await second.own.close();
+  });
+
+  it("lets spectators watch on your own server as in Zaisma rooms, and tells them when the last player leaves", async () => {
+    const { own, at } = await serve(
+      defineGameServer({
+        maximumPlayerCount: 1,
+        maximumSpectatorCount: 1,
+        setup: () => ({}),
+        onSpectatorJoin: (_state, spectator, room) => room.send(spectator.id, { watching: room.spectators.length }),
+        onMessage: (_state, _player, message, room) => room.broadcast({ said: message }, { audience: "spectators" }),
+      }),
+    );
+    const path = "/v1/rooms/arena/WATCHN";
+    // Nobody's playing: nothing to watch.
+    const early = connect(ORIGIN, path, at);
+    await early.open;
+    early.say({ type: "hello", pass: await pass("early"), isSpectator: true });
+    expect(await until(early, "error")).toMatchObject({ code: "no_room" });
+
+    const player = connect(ORIGIN, path, at);
+    await player.open;
+    player.say({ type: "hello", pass: await pass("p") });
+    await until(player, "welcome");
+    // The room is full, but there's room to watch.
+    const watcher = connect(ORIGIN, path, at);
+    await watcher.open;
+    watcher.say({ type: "hello", pass: await pass("w"), isSpectator: true });
+    expect(await until(watcher, "welcome")).toMatchObject({ isSpectator: true, spectatorCount: 1 });
+    expect(await until(watcher, "message")).toEqual({ type: "message", data: { watching: 1 } });
+    const second = connect(ORIGIN, path, at);
+    await second.open;
+    second.say({ type: "hello", pass: await pass("w2"), isSpectator: true });
+    expect(await until(second, "error")).toMatchObject({ code: "watching_full" });
+
+    player.say({ type: "message", data: "go" });
+    expect(await until(watcher, "message")).toEqual({ type: "message", data: { said: "go" } });
+    watcher.say({ type: "message", data: "me too" });
+    expect(await until(watcher, "error")).toMatchObject({ code: "spectator_cannot_send" });
+
+    player.ws.close(1000);
+    expect(await until(watcher, "ended")).toEqual({ type: "ended", message: "The match ended." });
+    expect(await watcher.closed).toBe(4000);
+    await own.close();
+  });
+
+  it("sends state sync, and holds latest-only messages while a socket is backed up, as Zaisma rooms do", async () => {
+    const game = defineGameServer({
+      stateSyncEnabled: true,
+      setup: () => ({ moveCount: 0 }),
+      onMessage(state, _player, message, room) {
+        if (message === "move") state.moveCount++;
+        else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only" });
+      },
+      stateView: (state, viewer) => ({ moveCount: state.moveCount, me: viewer.id }),
+    });
+    const { own, at } = await serve(game);
+    const a = connect(ORIGIN, "/v1/rooms/arena/STATEA", at);
+    await a.open;
+    a.say({ type: "hello", pass: await pass("a") });
+    const { serverTimeMs, ...full } = await until(a, "state");
+    expect(full).toEqual({ type: "state", full: { moveCount: 0, me: "a" } });
+    expect(serverTimeMs).toBeGreaterThan(0);
+    a.say({ type: "message", data: "move" });
+    expect(await until(a, "state")).toMatchObject({ changes: [[["moveCount"], 1]] });
+    // Its socket holds 100 KB not yet sent: the game's latest-only messages wait, and state sync skips it.
+    const socket = own.rooms.get("STATEA").sockets.get("a");
+    let bufferedSizeBytes = 100 * 1024;
+    Object.defineProperty(socket, "bufferedAmount", { get: () => bufferedSizeBytes, configurable: true });
+    for (const angle of [10, 20, 30]) a.say({ type: "message", data: angle });
+    a.say({ type: "message", data: "move" });
+    await new Promise((r) => setTimeout(r, 120));
+    bufferedSizeBytes = 0;
+    // Drained: the newest aim, then a full copy of the state.
+    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 30 } });
+    expect(await a.next()).toMatchObject({ type: "state", full: { moveCount: 2, me: "a" } });
+    a.ws.close();
+    own.close();
   });
 
   it("won't start a game server with an option it doesn't take", () => {
@@ -442,4 +537,111 @@ describe("Node runner", () => {
     a.ws.close();
     await own.close();
   }, 10_000);
+});
+
+describe("Kept rooms on the developer's own server", () => {
+  const DAY_MS = 24 * 3600 * 1000;
+  const roomStateFile = () => join(mkdtempSync(join(tmpdir(), "zaisma-kept-rooms-")), "rooms.sqlite");
+  const savedRoom = (isKept: boolean) => ({ isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, ...(isKept ? { isKept: true } : {}) });
+
+  it("sleeps with its state when everyone leaves, outlives the daily sweep, wakes having lost nothing, and goes when it ends", async () => {
+    const file = roomStateFile();
+    const world = defineGameServer({
+      ticksPerSec: 50,
+      stateSaveIntervalSec: 1,
+      setup: () => ({ stoneCount: 0, restored: null as unknown }),
+      onTick: () => {},
+      onJoin: (_state, _player, room) => room.setKept(true),
+      onRestored: (state, restoreInfo) => void (state.restored = restoreInfo),
+      onMessage(state, player, message, room) {
+        if (message === "build") state.stoneCount++;
+        if (message === "end") return room.end("The world is gone.");
+        room.send(player.id, { stoneCount: state.stoneCount, restored: state.restored, isKept: room.isKept, roomCode: room.roomCode });
+      },
+    });
+    const start = async () => {
+      const own = startServer({ server: world, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: file });
+      await new Promise((r) => own.wss.once("listening", r));
+      return { own, at: (own.wss.address() as { port: number }).port };
+    };
+
+    const first = await start();
+    const olivia = connect(ORIGIN, "/v1/rooms/arena/KEPTWD", first.at);
+    await olivia.open;
+    olivia.say({ type: "hello", pass: await pass("olivia") });
+    await until(olivia, "welcome");
+    for (const _ of [1, 2, 3]) olivia.say({ type: "message", data: "build" });
+    // The game server knows which room it's in, as in Zaisma rooms.
+    expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 1, isKept: true, roomCode: "KEPTWD" });
+    await until(olivia, "message");
+    expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 3 });
+    // She leaves, so the room empties and sleeps, saved as it emptied.
+    olivia.ws.close(1000);
+    await olivia.closed;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(first.own.rooms.has("KEPTWD")).toBe(false);
+    await first.own.close();
+    const asLeft = localRoomStates(file).read("KEPTWD");
+    expect(asLeft).toMatchObject({ isSavedEmpty: true, matchPlayers: [], savedRoom: { isKept: true } });
+    expect(JSON.parse(asLeft.stateJson).stoneCount).toBe(3);
+
+    // Three days later the daily sweep of states older than a day passes it by.
+    const savedAtMs = Date.now() - 3 * DAY_MS;
+    const sqlite = new DatabaseSync(file);
+    sqlite.prepare("UPDATE room_states SET saved_at_ms = ? WHERE room_code = ?").run(savedAtMs, "KEPTWD");
+    sqlite.close();
+    localRoomStates(file).removeOlder(Date.now() - DAY_MS, []);
+    expect(localRoomStates(file).read("KEPTWD")).toMatchObject({ savedAtMs, isSavedEmpty: true });
+
+    // Someone joins and it wakes as it was, having lost nothing in its sleep.
+    const second = await start();
+    const noah = connect(ORIGIN, "/v1/rooms/arena/KEPTWD", second.at);
+    await noah.open;
+    noah.say({ type: "hello", pass: await pass("noah") });
+    await until(noah, "welcome");
+    noah.say({ type: "message", data: "how" });
+    expect((await until(noah, "message")).data).toEqual({ stoneCount: 3, restored: { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: 0, savedVersionId: null }, isKept: true, roomCode: "KEPTWD" });
+
+    // room.end() ends it for good: its saved state goes.
+    noah.say({ type: "message", data: "end" });
+    await noah.closed;
+    for (let tryCount = 0; tryCount < 50 && localRoomStates(file).read("KEPTWD"); tryCount++) await new Promise((r) => setTimeout(r, 20));
+    expect(localRoomStates(file).read("KEPTWD")).toBeNull();
+    await second.own.close();
+  });
+
+  it("deletes ordinary rooms' states older than a day and keeps kept rooms' and newer ones", () => {
+    const states = localRoomStates(roomStateFile());
+    const oldMs = Date.now() - 2 * DAY_MS;
+    states.write("KEPTAA", { stateJson: "{}", matchPlayers: [], savedRoom: savedRoom(true), savedAtMs: oldMs, isSavedEmpty: true });
+    states.write("PLAINA", { stateJson: "{}", matchPlayers: [], savedRoom: savedRoom(false), savedAtMs: oldMs, isSavedEmpty: true });
+    states.write("FRESHA", { stateJson: "{}", matchPlayers: [], savedRoom: savedRoom(false), savedAtMs: Date.now() });
+    states.write("RUNNIN", { stateJson: "{}", matchPlayers: [], savedRoom: savedRoom(false), savedAtMs: oldMs });
+    states.removeOlder(Date.now() - DAY_MS, ["RUNNIN"]);
+    expect(states.read("KEPTAA")).toMatchObject({ savedAtMs: oldMs, isSavedEmpty: true, savedRoom: { isKept: true } });
+    expect(states.read("PLAINA")).toBeNull();
+    expect(states.read("FRESHA")).toMatchObject({ isSavedEmpty: false });
+    expect(states.read("RUNNIN")).not.toBeNull();
+    // markEmpty: a state unchanged since its last save now counts as saved as the room emptied, with the room as it is.
+    states.markEmpty("FRESHA", savedRoom(true));
+    expect(states.read("FRESHA")).toMatchObject({ isSavedEmpty: true, savedRoom: { isKept: true } });
+  });
+
+  it("adds is_saved_empty to a room state file made before it", () => {
+    const file = roomStateFile();
+    const older = new DatabaseSync(file);
+    older.exec("CREATE TABLE room_states (room_code TEXT PRIMARY KEY, state_json TEXT NOT NULL, match_players_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL)");
+    older.prepare("INSERT INTO room_states VALUES (?, ?, ?, ?, ?)").run("OLDERA", '{"laps":7}', "[]", JSON.stringify(savedRoom(false)), 1_760_000_000_000);
+    older.close();
+
+    const states = localRoomStates(file);
+    expect(states.read("OLDERA")).toEqual({ stateJson: '{"laps":7}', matchPlayers: [], savedRoom: savedRoom(false), savedAtMs: 1_760_000_000_000, isSavedEmpty: false });
+    const check = new DatabaseSync(file);
+    expect(check.prepare("SELECT name FROM pragma_table_info('room_states') WHERE name = 'is_saved_empty'").all()).toEqual([{ name: "is_saved_empty" }]);
+    check.close();
+    states.write("OLDERA", { stateJson: '{"laps":8}', matchPlayers: [], savedRoom: savedRoom(false), savedAtMs: 1_760_000_001_000, isSavedEmpty: true });
+    expect(states.read("OLDERA")).toMatchObject({ stateJson: '{"laps":8}', isSavedEmpty: true });
+    // Opening it again doesn't add the column twice.
+    expect(localRoomStates(file).read("OLDERA")).toMatchObject({ isSavedEmpty: true });
+  });
 });

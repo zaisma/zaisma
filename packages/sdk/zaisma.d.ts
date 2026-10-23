@@ -124,8 +124,8 @@ declare namespace Zaisma {
    *
    * Fails with an error whose code says why and whose message says it in words. The room won't take
    * the player: full, closed (to new players), ended, kept_out (removed for the rest of the match),
-   * refused (the game server's canJoin said no; the message is its refusalMessage), month_limit (the
-   * game has used this month's multiplayer time). No player pass: unchecked, or account_needed for a
+   * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
+   * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
    * guest when the game needs accounts (see {@link player}). The
    * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
    * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
@@ -309,6 +309,58 @@ declare namespace Zaisma {
      * Zaisma.links.open("store", { ownSiteUrl: "https://kit.itch.io/sky-hopper" }); // also works on your own site
      */
     open(linkName: string, linkOptions?: LinkOptions): Promise<LinkStatus>;
+  }
+
+  /**
+   * The game's items: what the player owns (from their player pass, so it matches what the game's server
+   * sees) and what the game sells, priced in the player's currency. Developers set items with set_item;
+   * buying comes with Zaisma's buy sheet.
+   */
+  const items: Items;
+
+  /** The game's items ({@link items}). */
+  interface Items {
+    /**
+     * Whether the player owns a permanent item (bought or granted, not refunded), by its item_name, as their
+     * player pass says: a new pass (at most a day old) brings new items. false for guests, who own nothing.
+     * Fails with error.code bad_item_name, not_on_zaisma, unchecked, account_needed and request_failed, as
+     * Zaisma.player() does.
+     *
+     * @example
+     * if (await Zaisma.items.owns("skin_red-dragon")) unlockSkin("red-dragon");
+     */
+    owns(itemName: string): Promise<boolean>;
+    /** Every permanent item the player owns, by item_name; [] for guests. Fails as {@link Items.owns} does. */
+    owned(): Promise<string[]>;
+    /**
+     * The items the game sells, at the price this player pays: in their currency when the game set a price
+     * for it (picked by the player's country), else the main price. Show priceText beside anything sold for
+     * coins or gems too: real prices are always shown. Fails with error.code not_on_zaisma, bad_origin,
+     * game_unavailable and request_failed.
+     *
+     * @example
+     * for (const item of await Zaisma.items.list()) addShopRow(item.title, item.priceText, item.isOwned);
+     */
+    list(): Promise<ItemForSale[]>;
+  }
+
+  /** One item the game sells, for this player ({@link Items.list}). */
+  interface ItemForSale {
+    itemName: string;
+    title: string;
+    /** "" for none. */
+    description: string;
+    /** permanent: owned for good, on every device. consumable: delivered once, then the game keeps count. */
+    itemKind: "permanent" | "consumable";
+    itemCategory: "cosmetic" | "gameplay" | "content" | "currency";
+    /** The price this player pays, in the currency's smallest unit (cents; yen are whole), tax included. */
+    priceMinorUnits: number;
+    /** Lowercase ISO 4217, like "usd" or "brl". */
+    currencyCode: string;
+    /** The price as the player reads it, like "$1.99" or "R$ 59,90". */
+    priceText: string;
+    /** The player owns it (a permanent item), by their pass. */
+    isOwned: boolean;
   }
 
   /**
@@ -555,10 +607,22 @@ declare namespace Zaisma {
      * game server's idleCheck is "client", as with the relay.
      */
     idleCheckEnabled?: boolean;
+    /**
+     * true: watch the room instead of playing, where the game server takes spectators (its
+     * maximumSpectatorCount). A spectator gets what the room sends everyone, sends nothing ({@link Room.send}
+     * throws error.code "spectator_cannot_send"), doesn't count as playing and is never asked "Still there?".
+     * A closed or full room can still be watched; a room with nobody playing can't (error.code "no_room"),
+     * and nor can one whose spectators are all there (error.code "watching_full"). Zaisma's Watch opens
+     * the game with {@link Rooms.isLinkedAsSpectator} true.
+     *
+     * @example
+     * const room = await Zaisma.joinRoom({ isSpectator: Zaisma.rooms.isLinkedAsSpectator });
+     */
+    isSpectator?: boolean;
   }
 
-  /** What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode, and region. */
-  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode"> {
+  /** What {@link Rooms.quickJoin} takes: joinRoom's options but roomCode and isSpectator, and region. */
+  interface QuickJoinOptions extends Omit<JoinOptions, "roomCode" | "isSpectator"> {
     /** Look for a room in this region only: a continent code, like "EU", as in {@link RoomList.regions}. */
     region?: string;
     /** Look for a room with these labels, like { Mode: "Classic" }; a new room gets them. */
@@ -573,8 +637,8 @@ declare namespace Zaisma {
     labels?: Record<string, string>;
   }
 
-  /** What {@link Move.join} takes: joinRoom's options but roomCode and serverUrl, which are the move's own. */
-  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl"> {}
+  /** What {@link Move.join} takes: joinRoom's options but roomCode and serverUrl, which are the move's own, and isSpectator (moves are for players). */
+  interface MoveJoinOptions extends Omit<JoinOptions, "roomCode" | "serverUrl" | "isSpectator"> {}
 
   /** What {@link Room.kick} takes. */
   interface KickOptions {
@@ -604,6 +668,11 @@ declare namespace Zaisma {
      * it names none. Zaisma passes it on only when it's one of the game's own servers (own_server_urls).
      */
     readonly linkedServerUrl: string | null;
+    /**
+     * true when the player's link is a Watch (?watch=1 beside ?room=), from Zaisma's Watch beside Join: they
+     * came to watch the linked room, not to play. Join it with joinRoom({ isSpectator: true }).
+     */
+    readonly isLinkedAsSpectator: boolean;
     /**
      * The game's listed rooms on Zaisma, for a game's own lobby or server browser: rooms with space
      * first (the player's country, then region, then the busiest), up to 50. Never who's in them.
@@ -638,8 +707,8 @@ declare namespace Zaisma {
      *
      * Fails with error.code: no_request_handler (the game server has no onRequest), game_server_error
      * (onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10
-     * seconds; you see why with the game server's errors), request_limit (the game has used this
-     * month's free requests, 1 million on Zaisma), too_big, bad_request (not plain JSON), slow_down
+     * seconds; you see why with the game server's errors), hosting_paused (the game's hosting
+     * on Zaisma is paused this month: its free allowance or its developer's budget or credit is used), too_big, bad_request (not plain JSON), slow_down
      * (over about 120 a minute from one address), bad_pass, account_needed, unchecked,
      * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (no serverUrl outside
      * Zaisma), unknown_option and request_failed.
@@ -651,6 +720,28 @@ declare namespace Zaisma {
      */
     request(request: unknown, requestOptions?: RequestOptions): Promise<unknown>;
   }
+
+  /** How {@link Room.send} and {@link Room.sendBytes} send. */
+  interface SendOptions {
+    /**
+     * "reliable" (the default) reaches the game server in order. "latest_only" may be dropped: while
+     * this player's connection is backed up, a newer send with the same latestKey replaces it, and the
+     * newest goes once it catches up. For input sent every frame, like where the player aims. Anything
+     * else throws error.code "bad_send_option".
+     */
+    delivery?: "reliable" | "latest_only";
+    /**
+     * For "latest_only": which sends replace each other, up to 40 characters, like "aim". Defaults to
+     * the message's type field when it's text, else "" (bytes too).
+     */
+    latestKey?: string;
+  }
+
+  /**
+   * One change in a state update: [path, value] sets what's at path to value, [path] removes it, and an
+   * empty path replaces the whole state. path is keys of objects and indexes of arrays, from the top.
+   */
+  type StateChange = [path: (string | number)[]] | [path: (string | number)[], value: unknown];
 
   /** Options for {@link Server.request}. */
   interface RequestOptions {
@@ -671,6 +762,10 @@ declare namespace Zaisma {
     readonly players: readonly ListedPlayer[];
     /** The host's player ID, when the game server gives the host controls (the relay does), else null. */
     readonly hostPlayerId: string | null;
+    /** This player is watching, not playing ({@link JoinOptions.isSpectator}): they're never in players. */
+    readonly isSpectator: boolean;
+    /** How many are watching the room; the "room" event says when it changes. */
+    readonly spectatorCount: number;
     /** Where the connection stands; the "connectionStatus" event says when it changes. */
     readonly connectionStatus: ConnectionStatus;
     /** The room's link on Zaisma, like "https://zaisma.com/g/sky-hopper?room=K7Q2MX", or null outside Zaisma. */
@@ -686,8 +781,8 @@ declare namespace Zaisma {
     /** The room's labels, like { Mode: "Classic", Map: "Docks" }. */
     readonly labels: Readonly<Record<string, string>>;
     /**
-     * When Zaisma will end this match, an ISO time, or null: set once the game has used this month's free
-     * multiplayer time, an hour ahead (the "ending" event). Never set in a room on your own server.
+     * When Zaisma will end this match, an ISO time, or null: set once the game's hosting pauses for the
+     * month, an hour after the pause (the "ending" event). Never set in a room on your own server.
      */
     readonly endsAt: string | null;
     /**
@@ -700,6 +795,34 @@ declare namespace Zaisma {
      * pingText.textContent = room.pingDurationMs === null ? "" : room.pingDurationMs + " ms";
      */
     readonly pingDurationMs: number | null;
+    /**
+     * This player's view of the game server's state, when it has stateSyncEnabled: the game server's
+     * state, or what its stateView answers for this player. null until the first update, which comes as
+     * the player joins; after that it changes with each update (the "state" event). Read it, don't change it.
+     *
+     * @example
+     * function draw() {
+     *   const world = room.state;
+     *   if (world) for (const [id, body] of Object.entries(world.bodies)) drawBody(id, body);
+     *   requestAnimationFrame(draw);
+     * }
+     */
+    readonly state: unknown | null;
+    /**
+     * The state as it was delayMs behind the room's clock (100 unless you say, up to 1000), between the
+     * two updates around then: numbers in between, anything else as the older update had it, and what's in
+     * only one of them as it is. So positions and angles move evenly however the updates arrive, a moment
+     * behind. A copy, yours to keep; null until the first update. Anything else for delayMs throws
+     * error.code "bad_delay". Predicting this player's own moves stays your game's.
+     *
+     * @example
+     * function draw() {
+     *   const world = room.smoothedState();
+     *   if (world) for (const body of Object.values(world.bodies)) drawBody(body.x, body.y);
+     *   requestAnimationFrame(draw);
+     * }
+     */
+    smoothedState(delayMs?: number): unknown | null;
 
     /**
      * The room's clock now, in epoch milliseconds, estimated from the room's probes (Date.now() until the
@@ -715,15 +838,22 @@ declare namespace Zaisma {
     serverTimeMs(): number;
     /**
      * Send a message to the game server: plain JSON, up to 16 KB, about 30 a second at most. Send input
-     * when it changes, not every frame. Nothing is sent while the player is away.
+     * when it changes, not every frame. Nothing is sent while the player is away. With
+     * { delivery: "latest_only" }, a message may be dropped for a newer one (SendOptions). A spectator
+     * can't send: it throws error.code "spectator_cannot_send".
+     *
+     * @example
+     * // Where the player aims, as it changes: only the newest matters.
+     * room.send({ type: "aim", angle }, { delivery: "latest_only" });
      */
-    send(message: unknown): void;
+    send(message: unknown, sendOptions?: SendOptions): void;
     /**
      * Send bytes to the game server (its onBytes), like a compact input: an ArrayBuffer or any typed
      * array, up to 16 KB, counted with messages (about 30 a second at most). Anything else throws
-     * error.code "bad_bytes". Nothing is sent while the player is away.
+     * error.code "bad_bytes", and a spectator's throws "spectator_cannot_send". Nothing is sent while the
+     * player is away. Takes the same sendOptions as room.send.
      */
-    sendBytes(bytes: ArrayBuffer | ArrayBufferView): void;
+    sendBytes(bytes: ArrayBuffer | ArrayBufferView, sendOptions?: SendOptions): void;
     /** Leave the room for good. */
     leave(): void;
     /**
@@ -804,6 +934,14 @@ declare namespace Zaisma {
      */
     bytes: (bytes: Uint8Array, fromPlayerId: string | null) => void;
     /**
+     * A state update, when the game server has stateSyncEnabled: state is room.state now, and changes
+     * what changed since the last update, or null after a full copy (as the player joins, and after their
+     * connection was backed up). Most games read room.state or room.smoothedState() as they draw instead.
+     * @example
+     * room.on("state", (state, changes) => { scoreText.textContent = String(state.scores[room.me.id]); });
+     */
+    state: (state: any, changes: StateChange[] | null) => void;
+    /**
      * Players joined, left, walked away or came back, or their connection dropped or came back; the same
      * list as room.players.
      * @example
@@ -821,14 +959,14 @@ declare namespace Zaisma {
     /** The match ended (the game server's room.end), with its message. The connection closes. */
     ended: (message: string) => void;
     /**
-     * Zaisma will end this match at endsAt (an ISO time, also room.endsAt), because the game used this
-     * month's free multiplayer time on Zaisma rooms: tell your players and save what should last.
+     * Zaisma will end this match at endsAt (an ISO time, also room.endsAt), because the game's hosting on
+     * Zaisma rooms paused for the month: tell your players and save what should last.
      * "ended" follows then.
      */
     ending: (endsAt: string) => void;
     /** The game server or the host removed the player from the room. The connection closes. */
     kicked: (kicked: Kicked) => void;
-    /** The room's listing, Join switch, name or labels changed: room.isListed, room.isOpen, room.friendJoinsEnabled, room.name and room.labels have the new ones. */
+    /** The room's listing, Join switch, name or labels changed, or how many watch: room.isListed, room.isOpen, room.friendJoinsEnabled, room.name, room.labels and room.spectatorCount have the new ones. */
     room: (settings: RoomSettings) => void;
     /**
      * The game server is sending the player to another room (its room.reserve or room.moveTo). Without
@@ -1019,7 +1157,7 @@ declare namespace Zaisma {
    * - ended: the match is over.
    * - kept_out: the player was removed for the rest of the match.
    * - refused: the game server's canJoin turned them away.
-   * - month_limit: the game has used this month's multiplayer time; new rooms open again next month (UTC), and a running match takes no new players.
+   * - hosting_paused: the game's hosting on Zaisma is paused this month (its free allowance, or its developer's budget or credit, is used); new rooms open again when the month resets (UTC) or its developer adds credit, and a running match takes no new players and ends within the hour.
    * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
    * - game_not_open_to_player: the account is younger than the game's minimum age (set on the dashboard); the game never learns its age.
    * - game_unavailable: the game can't be played right now.
@@ -1030,6 +1168,8 @@ declare namespace Zaisma {
    * - busy, no_room: the room couldn't take the player right now, or doesn't exist.
    * - blocked_player_here: quickJoin's first try at a room with someone the player blocked; quickJoin tries the others first, and you won't see it.
    * - other_version: the room runs another version of the game. On its Zaisma page the game reloads at the room's version and joins it, and you won't see it; you see it outside Zaisma, through a tester link, or when that version is no longer kept.
+   * - watching_full: the room takes no more spectators (its game server's maximumSpectatorCount, 0 when it takes none).
+   * - spectator_cannot_send: a spectator tried to send to the room ({@link Room.send}, {@link Room.sendBytes}).
    */
   type RoomErrorCode =
     | "full"
@@ -1037,7 +1177,7 @@ declare namespace Zaisma {
     | "ended"
     | "kept_out"
     | "refused"
-    | "month_limit"
+    | "hosting_paused"
     | "account_needed"
     | "game_not_open_to_player"
     | "game_unavailable"
@@ -1050,7 +1190,9 @@ declare namespace Zaisma {
     | "busy"
     | "no_room"
     | "blocked_player_here"
-    | "other_version";
+    | "other_version"
+    | "watching_full"
+    | "spectator_cannot_send";
 
   /**
    * The codes a request's errors have ({@link Server.request}), from Zaisma or the Node runner alike:
@@ -1062,7 +1204,7 @@ declare namespace Zaisma {
    * - game_unavailable: the game can't be played right now.
    * - no_request_handler: the game's server has no onRequest.
    * - game_server_error: onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds.
-   * - request_limit: the game has used this month's free requests; they work again next month (UTC).
+   * - hosting_paused: the game's hosting on Zaisma is paused this month; requests work again when the month resets (UTC) or its developer adds credit.
    * - slow_down: too many requests from this address; try again in a minute.
    * - bad_origin: the request didn't come from the game's own page.
    * - busy: Zaisma couldn't answer right now; try again soon.
@@ -1076,7 +1218,7 @@ declare namespace Zaisma {
     | "game_unavailable"
     | "no_request_handler"
     | "game_server_error"
-    | "request_limit"
+    | "hosting_paused"
     | "slow_down"
     | "bad_origin"
     | "busy";
@@ -1123,10 +1265,13 @@ declare namespace Zaisma {
     | "bad_player_id"
     | "bad_room_code"
     | "bad_bytes"
+    | "bad_send_option"
+    | "bad_delay"
     | "bad_server_url"
     | "unlisted_server"
     | "unknown_link"
     | "bad_link_path"
+    | "bad_item_name"
     | "bad_link_query"
     | "bad_own_site_url"
     | "needs_player_tap"
@@ -1203,6 +1348,10 @@ declare namespace Zaisma {
     /** Seats held for players coming back or on their way: a room has space while playerCount + heldSeatCount < maximumPlayerCount. */
     heldSeatCount: number;
     maximumPlayerCount: number;
+    /** Spectators watching the room. */
+    spectatorCount: number;
+    /** Spectators the room takes (its game server's maximumSpectatorCount): 0 when nobody can watch. Room to watch while spectatorCount < maximumSpectatorCount, full or closed rooms too. */
+    maximumSpectatorCount: number;
     /** false: closed, so only players who were in it can come back. */
     isOpen: boolean;
     /**
@@ -1216,6 +1365,8 @@ declare namespace Zaisma {
     name: string | null;
     /** The room's labels. */
     labels: Record<string, string>;
+    /** Kept by the game server (room.setKept): a world that stays listed with nobody in it, like a server waiting for players. */
+    isKept: boolean;
     /** The room's link on Zaisma, to join it or pass it on. */
     inviteUrl: string;
   }

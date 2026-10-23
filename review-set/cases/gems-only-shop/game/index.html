@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gem Garden</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#18301c;color:#eef;text-align:center}button{font:inherit;padding:8px 14px;margin:4px}li{list-style:none;margin:6px}</style>
+</head>
+<body>
+<h1>Gem Garden</h1>
+<p>Gems: <span id="gems">0</span></p>
+<h2>Get gems</h2>
+<button data-bundle="gems_small">Small pouch of gems</button>
+<button data-bundle="gems_large">Big chest of gems</button>
+<h2>Gem shop</h2>
+<ul id="shop"></ul>
+<script src="https://zaisma.com/sdk/zaisma.js"></script>
+<script>
+let gems = 0;
+const SHOP = [["Stone fountain", 1200], ["Cherry tree", 2600], ["Golden gnome", 9800]];
+const BUNDLES = { gems_small: 500, gems_large: 6500 };
+const show = () => (document.getElementById("gems").textContent = gems);
+for (const button of document.querySelectorAll("[data-bundle]")) {
+  // Gem bundles are bought with real money through the buy sheet.
+  button.onclick = async () => {
+    if (await Zaisma.items.buy(button.dataset.bundle).catch(() => null)) { gems += BUNDLES[button.dataset.bundle]; show(); }
+  };
+}
+for (const [name, price] of SHOP) {
+  const row = document.createElement("li");
+  const buy = document.createElement("button");
+  buy.textContent = `${name}: ${price} gems`;
+  buy.onclick = () => { if (gems >= price) { gems -= price; show(); buy.disabled = true; } };
+  row.append(buy);
+  document.getElementById("shop").append(row);
+}
+</script>
+</body>
+</html>

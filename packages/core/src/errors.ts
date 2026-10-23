@@ -44,6 +44,7 @@ export const ERROR_CODES = {
   bad_account_offer_enabled: { httpStatus: 400, meaning: "account_offer_enabled isn't true or false." },
   bad_deleted_account_erase_enabled: { httpStatus: 400, meaning: "deleted_account_erase_enabled isn't true or false." },
   bad_friend_joins_enabled: { httpStatus: 400, meaning: "friend_joins_enabled isn't true or false." },
+  bad_performance_measuring_enabled: { httpStatus: 400, meaning: "performance_measuring_enabled isn't true or false." },
   bad_room_browsing: { httpStatus: 400, meaning: "room_browsing isn't page, game or off." },
   bad_multiplayer_mode: { httpStatus: 400, meaning: "multiplayer_mode isn't none, relay or own." },
   bad_account_requirement: { httpStatus: 400, meaning: "account_requirement isn't none, multiplayer or whole_game." },
@@ -115,7 +116,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published." },
 
@@ -146,9 +147,7 @@ export const ERROR_CODES = {
   bad_player_id: { httpStatus: 400, meaning: "player_id isn't a player ID (player_…)." },
   too_many_rows: { httpStatus: 400, meaning: "A statement answered more than 10,000 rows." },
   answer_too_big: { httpStatus: 400, meaning: "The rows answered come to more than 8 MB." },
-  database_write_limit: { httpStatus: 429, meaning: "The game's database has written its free rows this month, so writes wait for the next." },
-  database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
-  database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
+  database_full: { httpStatus: 403, meaning: "The statement would grow the game's storage (its database and kept rooms) past the 10 GB a game can keep." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
   database_restore_unavailable: { httpStatus: 501, meaning: "This Zaisma's game databases can't go back in time: its storage keeps no history, like a local preview." },
   no_database_restore: { httpStatus: 404, meaning: "The game has no database restore with that ID in the last 30 days." },
@@ -157,7 +156,18 @@ export const ERROR_CODES = {
   no_secret: { httpStatus: 404, meaning: "The game has no secret by that name." },
   too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have." },
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
+  no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
+
+  // Hosting and credit
+  hosting_paused: { httpStatus: 429, meaning: "The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used. It starts again when the month resets, the budget is raised or credit is added." },
+  confirmation_needed: { httpStatus: 403, meaning: "Turning spending on or up needs the developer's passkey on zaisma.com: confirm_url is where they do it." },
+  bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting." },
+  bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000)." },
+  no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
+  top_up_not_refundable: { httpStatus: 409, meaning: "The top-up has nothing left to refund: it's spent, refunded, or over 180 days old." },
+  bad_automatic_top_up: { httpStatus: 400, meaning: "The automatic top-up's amounts aren't whole cents that fit: a top-up of at least $10, and a monthly limit of at least one top-up." },
+  stripe_unavailable: { httpStatus: 503, meaning: "Stripe didn't answer, or this Zaisma has no Stripe account set up." },
 
   // A game server's logs
   bad_room_code: { httpStatus: 400, meaning: "room_code isn't a room's code: six characters like K7Q2MX." },
@@ -166,6 +176,26 @@ export const ERROR_CODES = {
   bad_search_text: { httpStatus: 400, meaning: "search_text is empty or over 200 characters." },
   bad_maximum_line_count: { httpStatus: 400, meaning: "maximum_line_count isn't a whole number from 1 to 500." },
   two_log_cursors: { httpStatus: 400, meaning: "get_logs got both cursor and new_lines_cursor." },
+
+  // Items and purchases
+  no_item: { httpStatus: 404, meaning: "The game has no item by that name." },
+  too_many_items: { httpStatus: 400, meaning: "The game has 1,000 items, the most it can have." },
+  bad_item: { httpStatus: 400, meaning: "An item's name, title, description, kind, category, price or local prices isn't one set_item takes; field says which." },
+  unsupported_currency: { httpStatus: 400, meaning: "Zaisma doesn't price in that currency." },
+  price_too_low: { httpStatus: 400, meaning: "The price is under the least Stripe charges in its currency." },
+  refund_policy_needed: { httpStatus: 409, meaning: "A game that sells anything states its refund policy first." },
+  bad_refund_policy: { httpStatus: 400, meaning: "refund_policy isn't no_refunds, unused_within_14_days, within_14_days, own_words or null." },
+  bad_refund_policy_text: { httpStatus: 400, meaning: "refund_policy_text isn't up to 600 characters of plain words, or doesn't go with refund_policy own_words." },
+  bad_own_payment_categories: { httpStatus: 400, meaning: "own_payment_categories isn't a list of cosmetic, gameplay, content and currency." },
+  item_has_owners: { httpStatus: 409, meaning: "Players bought or were granted the item, so it can't be removed; take its price off to stop selling it." },
+  bad_item_count: { httpStatus: 400, meaning: "item_count isn't a whole number from 1 to 1,000, or isn't 1 for a permanent item." },
+  bad_game_account_id: { httpStatus: 400, meaning: "game_account_id isn't text of up to 200 characters, or null." },
+  bad_purchase_source: { httpStatus: 400, meaning: "purchase_source isn't sale or grant." },
+  bad_purchase_status: { httpStatus: 400, meaning: "purchase_status isn't pending, completed, failed, refunded or charged_back." },
+  no_purchase: { httpStatus: 404, meaning: "The game has no purchase with that ID." },
+  already_refunded: { httpStatus: 409, meaning: "The purchase was refunded or charged back already." },
+  stripe_not_connected: { httpStatus: 409, meaning: "Refunding a sale goes through Stripe, which the game's developer hasn't connected." },
+  receipts_unavailable: { httpStatus: 503, meaning: "Zaisma couldn't sign the purchase's receipt just now." },
 
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },
@@ -227,12 +257,13 @@ export const ADMIN_ERROR_CODES = {
   report_group_closed: { httpStatus: 409, meaning: "Every report in the group is closed already." },
   bad_maximum_group_count: { httpStatus: 400, meaning: "maximum_group_count isn't a whole number from 1 to 100." },
   bad_decision: { httpStatus: 400, meaning: "decision isn't one of the choices the call takes." },
-  cant_decide: { httpStatus: 409, meaning: "It can't be decided that way now: get_report_group lists what a report group can, and decide_notice shows again only a held game and holds none that's taken down." },
+  cant_decide: { httpStatus: 409, meaning: "It can't be decided that way now: get_report_group lists what a report group can, and decide_notice shows again only a held game and holds none that's taken down; decide_country_block lifts only a country the game is blocked in." },
   decision_refused: { httpStatus: 409, meaning: "The decision didn't go through, like putting back an update that matched known abuse material." },
   bad_why: { httpStatus: 400, meaning: "why is blank or over 500 characters." },
 
   // Notices
   bad_notice_kind: { httpStatus: 400, meaning: "notice_kind isn't copyright or defamation." },
+  bad_country_code: { httpStatus: 400, meaning: "country_code isn't a country's two-letter code (ISO 3166-1 alpha-2), like GB." },
 
   // Precedents
   no_precedent: { httpStatus: 404, meaning: "There's no precedent with that ID." },
@@ -261,6 +292,13 @@ export const ADMIN_ERROR_CODES = {
 
   // Publishing before the beta
   unknown_username: { httpStatus: 404, meaning: "No account has that username." },
+
+  // Announcements
+  no_announcement: { httpStatus: 404, meaning: "There's no announcement with that ID." },
+  announcement_ended: { httpStatus: 409, meaning: "The announcement has ended already." },
+  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks." },
+  bad_link_url: { httpStatus: 400, meaning: "link_url isn't an https address or a path on zaisma.com starting with /." },
+  bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 30 characters, or was given without link_url." },
 } as const satisfies Record<string, { httpStatus: number; meaning: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CODES | keyof typeof ADMIN_ERROR_CODES;
@@ -277,11 +315,13 @@ export interface ErrorDetails {
   fix: string;
   /** How long to wait first, when waiting helps. */
   retryAfterSec?: number | null;
+  /** Where the developer confirms it themselves on zaisma.com, for confirmation_needed alone. */
+  confirmUrl?: string;
 }
 
-/** An error answer: { "error": { code, message, field, fix, retry_after_sec } }, the same in the API and the MCP. */
+/** An error answer: { "error": { code, message, field, fix, retry_after_sec } }, the same in the API and the MCP; confirmation_needed adds confirm_url. */
 export interface ErrorAnswer {
-  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null };
+  error: { code: ErrorCode; message: string; field: string | null; fix: string; retry_after_sec: number | null; confirm_url?: string };
 }
 
 /** A refusal the developer API and MCP answer with, as docs/NAMING.md describes. */
@@ -290,6 +330,7 @@ export class ApiError extends Error {
   readonly field: string | null;
   readonly fix: string;
   readonly retryAfterSec: number | null;
+  readonly confirmUrl: string | null;
 
   constructor(
     readonly code: ErrorCode,
@@ -300,6 +341,7 @@ export class ApiError extends Error {
     this.field = details.field ?? null;
     this.fix = details.fix;
     this.retryAfterSec = details.retryAfterSec ?? null;
+    this.confirmUrl = details.confirmUrl ?? null;
   }
 
   /** What happened and what to do, for a page to show. */
@@ -308,7 +350,7 @@ export class ApiError extends Error {
   }
 
   toAnswer(): ErrorAnswer {
-    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec } };
+    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}) } };
   }
 }
 

@@ -6,16 +6,23 @@ Zaisma is the glass, and the game is not. Zaisma's interface is a layer of glass
 
 ## Rules
 
-- **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat color.
-- **Orange only on what you act on.** The runner button (the one main action), the line under the tab you're on, keyboard focus. Never on words, headings or decoration.
-- **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened.
-- **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing.
-- **Buttons move only when pointed at or pressed.** They lift and lean toward the pointer and sink when pressed; at rest they're still. A scene behind the glass may move on its own.
-- **No hotkey hints.** "/" jumps to search, and nothing on the page says so.
-- **The main action shows without scrolling.**
-- **Players first.** Show what helps a player decide or act. Say game developers, never creators.
-- **Game pictures are only the developer's image.** Nothing drawn over covers or screenshots: titles and buttons sit beside a picture, never on it.
-- **No eyebrows and no ALL CAPS.** Headings are sentences.
+Each rule says what holds it. A rule a check can measure has one, so it holds on every page without anyone looking; the rest are judged in the preview, on [Screens](#screens).
+
+- **Pages are only gallery components, layout included.** No page has styles, classes or a sheet of its own; it calls components and lays them out with the layout components. *Held by* `test/site/design.test.ts` ("pages").
+- **Nothing is out of line, on any screen.** Two margins in a pane, rows of one height on one line, corner controls in their corners, no bevel under 4px, nothing spilling or overlapping, no sideways scroll. *Held by* `npm run layout:check` at 320 × 667 and 1440 × 900, light and dark, on every page.
+- **A pane is as wide as what holds it, or as wide as what's in it.** Never a width of its own: one that should take half the screen is a column of Columns. *Held by* the compiler (`paneWidth: "full" | "fit"`) and `test/site/design.test.ts` ("layout").
+- **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat color. *Held by* `test/site/design.test.ts` (one glass, the edge rule).
+- **Orange only on what you act on.** The runner button (the one main action), the line under the tab you're on, keyboard focus. Never on words, headings or decoration. *Judged in the preview.*
+- **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened. *Judged in the preview.*
+- **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing. *Judged in the preview.*
+- **Buttons move only when pointed at or pressed.** They lift and lean toward the pointer and sink when pressed; at rest they're still. A scene behind the glass may move on its own. *Held by* `test/site/design.test.ts` (what you point at never moves).
+- **No hotkey hints.** "/" jumps to search, and nothing on the page says so. *Judged in the preview.*
+- **The main action shows without scrolling.** *Held by* `npm run layout:check` (the runner above the fold, where the page has one).
+- **Players first.** Show what helps a player decide or act. Say game developers, never creators. *Judged in the preview.*
+- **Game pictures are only the developer's image.** Nothing drawn over covers or screenshots: titles and buttons sit beside a picture, never on it. *Held by* `npm run layout:check` (nothing overlaps a cover).
+- **No eyebrows and no ALL CAPS.** Headings are sentences. *Judged in the preview.*
+
+A remark in a preview becomes one of three things: a token's value, a component's option, or a check. It's written here with what holds it, so it holds on every page from then on, built or not.
 
 ## Voice
 
@@ -77,11 +84,11 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 
 ## Shapes
 
-- **Cut corners, never rounded.** Panes are cut 24 and 20, the header 20 and 14, menus 18 and 14. Fields and buttons slant 10px where they meet another (`--control-slant`).
-- **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own: 24 and 20, the header and the gallery's bar 20 and 14, menus 18 and 14. Everything inside, whether a control or a color swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
+- **Cut corners, never rounded.** Panes are cut 18 and 14 (`--pane-cut-large`, `--pane-cut-small`), the header 16 and 12, menus 14 and 12, the same on a phone. Fields and buttons slant 10px where they meet another (`--control-slant`).
+- **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own (`data-glass-corners="pane"`, `"header"` or `"menu"`, or four corners such as `"pane-large pane-small 0 0"`). Everything inside, whether a control or a color swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
   - **In a pane's middle, it's square.** A swatch in the middle of the color pane.
   - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the color pane's top left is cut only there.
-  - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details.
+  - **Beside another in a row, it slants toward it** (Row, `--control-slant`): Play and Details.
   - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom. In a pane that scrolls inside itself, gaps are measured against the whole scrolled content, so how far it's scrolled never changes a cut.
   - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
 
@@ -89,7 +96,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 
 ## Spacing
 
-Applies to the components (`apps/site/src/components/`) and the gallery (`apps/site/src/design-page.ts`). Every gap, padding and margin is one of seven tokens, defined once in `foundations.ts`. Pick one by looking at what sits on each side of the space, never by judging how close two things feel.
+Applies to the components (`apps/site/src/components/`) and the gallery (`apps/site/src/design-page.ts`). Every gap, padding and margin is one of the spacing tokens below, defined once in `tokens.ts`; a page never sets one, since the layout components pick them (see Layout). Pick one by looking at what sits on each side of the space, never by judging how close two things feel.
 
 - A **control** is anything from Actions & Inputs (a button, a field, a switch, the birthday picker).
 - **Words** are a heading, a label, a legend, a hint, an error or a line of text.
@@ -102,17 +109,48 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
-| `--pad-pane` | A pane's edge and what's inside it; also the page's edge | 24px, 18px on a phone |
+| `--pad-pane` | A pane's edge and its words (its margin); also the page's edge | 24px, 18px on a phone |
+| `--pad-frame` | A pane's edge and anything with an edge of its own in it (a control, a field, a table, a cover, an inner pane): the frame gap, also the gap kept from a cut corner | 12px, 10px on a phone |
+| `--pad-words` | How much further in than the frame gap words sit, so they keep the pane's margin: `--pad-pane` less `--pad-frame` (0 inside a slab) | 12px, 8px on a phone |
 | `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a dropdown), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
 | `--pad-tray` | A tray's edge and what's on it: closer than a pane's, still clear of its cut foot | 16px |
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
-- **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
+- **In a pane, controls fill its width.** A row of them is a Row (`layout.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
 - **The row's gap is the edge rule's neighbor distance.** Two controls side by side with their boxes `--gap-control-row-boxes` apart slant toward each other by `--control-slant`; any other distance and they don't. A row of controls uses `--gap-control-row-boxes`, a stack `--gap-control-stack`.
 - **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.
 - **What isn't spacing keeps its own number:** a control's inside (its words and icon to its own edge, set by each control size), a control's own parts (a switch's tabs and the inset round its slab, the birthday's wheels, a list of places), room to scroll or for a scrollbar, and where a small mark sits on what it marks. Each one is named, with its reason, in `NOT_SPACING` in `test/site/design.test.ts`.
 
 `test/site/design.test.ts` checks both: no other number in any gap, padding or margin, and every row of controls `--gap-control-row-boxes` apart and every stack `--gap-control-stack` apart.
+
+## Layout
+
+A page is components put together by the layout components (`apps/site/src/components/layout.ts`, the gallery's Layout group), like any other component. They pick every gap from the spacing table by what's on each side, so nobody passes one, and they go by the room they're given (container queries), never the window's, so a component built once holds wherever it's put.
+
+**One rule, two margins.** In a pane, what has an edge of its own sits at the frame gap (`--pad-frame`), and words keep the pane's margin (`--pad-pane`), `--pad-words` further in. That holds at the pane's edges, its corners and inside rows, so a heading over a field lines up with the field's words, not its box.
+
+Say what each thing is, since the spacing and margins come from it (`LayoutItem`):
+
+- **words:** a heading, a line, a paragraph, a link in words. They keep the pane's margin.
+- **control:** one control, from a control's own function (a button, a field, a switch), which returns a `ControlMarkup` with its size class. A paragraph can't be passed as one: the compiler refuses it.
+- **block:** anything with an edge of its own or a group (a banner, a table, a cover, a row, another stack).
+
+| Component | For |
+| --- | --- |
+| `stack` | Things one under another: a pane's heading, its lines, its fields and its button |
+| `row` | Things side by side, sharing the width `equal`, `lead-fills` (the first takes the rest) or `fit` (placed at the `start`, `end`, `center` or `between`). Its controls take the tallest one's height: `small` 36, `regular` 44, `field` 52, `big` 56 (48 on a phone) |
+| `grid` | Cells of one size, as many to a line as fit their least width (`itemSize`: `cover`, `card`, `figure`) |
+| `track` | A row of covers that scrolls sideways; under a heading with its Row arrows it's a Shelf |
+| `columns` | Two halves of the width side by side, one over the other below two columns of 360px; one may stay in view while the other scrolls (`stickyColumn`) |
+| `paneParts` | A pane's head, body and foot, with one control in its top or bottom end corner |
+
+- **A pane is `full` or `fit`.** Full is as wide as what holds it; fit is as wide as what's in it, its paragraphs running to a reading width at most (`--size-reading`, 60ch). A pane that should take half the screen is a column of `columns`. A sheet fits what's in it too.
+- **Widths are named, never numbers:** a grid's `--size-cover`, `--size-card` and `--size-figure`, a track's covers, the reading width, and shares.
+- **`npm run layout:check`** opens every page in `CHECKED_PAGES` (`apps/site/src/components/checked-pages.ts`) in headless Chrome at 320 × 667 and 1440 × 900, light and dark, and measures it as a person would look at it: the two margins, rows of one height on one line, corner controls in their corners, bevels of at least 4px, nothing spilling or overlapping, the runner above the fold, no sideways scroll. Each failure names the page, the screen, the thing and what was measured. It must pass for any page change, and GitHub's check runs it.
+
+### Screens
+
+`/design/screens?page=/signin` on a local preview shows a page on Julius's phone (320 × 667) and a desktop (1440 × 900), light and dark, side by side, each with what the measuring check finds (`screens.ts`). `page` can be given more than once, to put variants side by side. Pointing at anything in a screen outlines it and says what it is and what placed it: its size class, its layout's gap and why, its pane's width and margins. It's where a page is reviewed, never made: pages are written in code, held by the checks, and judged here, and a remark names the rule to change.
 
 ## Type
 
@@ -179,9 +217,26 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Cut shapes**: Corners are cut, never rounded: 20 and 14 on the header, 24 and 20 on panes. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.
 - **Page settings**: Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.
 - **Motion**: Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.
-- **Spacing**: Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
+- **Spacing**: Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.
 - **City** (`cityStage(options?: CityStageOptions)`, `city.ts`): Zaisma's own live 3D scene, where signing in and making an account happen: one city in an endless sea on a slow cinematic loop, its orange shapes and sea there to tap. Under reduced motion, without WebGL or on a device that can't keep it smooth, a still of the same city stands in, with everything in place.
   - `options`: `isFramed?: boolean`
+
+### Layout
+
+- **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
+  - `options`: `items: LayoutItem[]`, `label?: string`
+- **Row** (`row(options: RowOptions)`, `layout.ts`): Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other.
+  - `options`: `items: LayoutItem[]`, `widths: "equal" | "lead-fills" | "fit"`, `alignment?: "start" | "end" | "center" | "between"`, `label?: string`
+- **Grid** (`grid(options: GridOptions)`, `layout.ts`): Cells of one size, as many to a line as fit: covers, cards, figures. Say what a cell holds and the grid sizes it; it folds to fewer columns as it narrows, to one on a phone, by its own width.
+  - `options`: `items: LayoutItem[]`, `itemSize: "cover" | "card" | "figure"`, `label?: string`
+- **Track** (`track(options: TrackOptions)`, `layout.ts`): A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in. Under a heading row with its Row arrows, it's a shelf.
+  - `options`: `id: string`, `items: LayoutItem[]`, `itemSize: "cover"`, `label?: string`
+- **Columns** (`columns(options: ColumnsOptions)`, `layout.ts`): Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room.
+  - `options`: `columns: [Raw, Raw]`, `stickyColumn?: "first" | "second"`
+- **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
+  - `options`: `head?: { words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
+- **Screens** (`screens(options: ScreensOptions)`, `screens.ts`): One page on a phone at 320 × 667 and a desktop at 1440 × 900, light and dark, side by side, each with what the measuring check finds. Point at anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.
+  - `options`: `path: string`, `title: string`
 
 ### Actions
 
@@ -241,6 +296,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Rail** (`rail(scrollKind: "box" | "page" | "side")`, `navigation.ts`): Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.
 - **Row arrows** (`rowArrows(options: { … })`, `navigation.ts`): Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.
   - `options`: `rowName: string`, `trackId: string`
+- **Shelf** (`shelf(options: ShelfOptions)`, `navigation.ts`): A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.
+  - `options`: `id: string`, `trackId: string`, `title: string`, `titleHref?: string`, `sortTabs?: SwitchTab[]`, `items: LayoutItem[]`
 - **Section tabs** (`sectionTabs(options: SectionTabsOptions)`, `navigation.ts`): A page's own sections, under its title: a game dashboard's Overview, Versions and Players, a profile's Games and Friends. On a phone they scroll sideways, fading at the edge with more.
   - `options`: `label: string`, `tabs: { label: string; href: string; isCurrent: boolean }[]`
 - **Load more** (`loadMore(options: LoadMoreOptions)`, `navigation.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes. Without scripts it's a link to that page.
@@ -248,8 +305,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 ### Panes
 
-- **Glass pane** (`glassPane(options: GlassPaneOptions)`, `foundations.ts`): A sheet of glass that holds a task: signing in, a game at a glance, a form. Its content scrolls inside it rather than shrinking.
-  - `options`: `paneSize: "small" | "medium" | "large" | "full"`, `body: Raw`, `corners?: [number, number, number, number]`, `label?: string`
+- **Glass pane** (`glassPane(options: GlassPaneOptions)`, `foundations.ts`): A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.
+  - `options`: `paneWidth: "full" | "fit"`, `body: Raw`, `label?: string`
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
   - `options`: `head: Raw`, `body: Raw`, `label?: string`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs.
@@ -264,8 +321,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `id: string`, `title: string`, `text: string`, `action: string`, `confirmLabel: string`, `isShown?: boolean`
 - **Notice** (`notice(options: NoticeOptions)`, `panes.ts`): A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.
   - `options`: `text: string`, `tone: "done" | "problem"`, `isInPlace?: boolean`
-- **Banner** (`banner(options: BannerOptions)`, `panes.ts`): Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.
-  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `tone?: "amber"`
+- **Banner** (`banner(options: BannerOptions)`, `panes.ts`): Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. One line, at most one button, and a small Close for what a player can put away.
+  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `tone?: "amber"`, `closeLabel?: string`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`
 - **Pane head** (`paneHead(options: PaneHeadOptions)`, `panes.ts`): A pane's heading with one thing in its top right corner, like a game's Rooms with its room code box. They sit side by side until the pane is too narrow, then the corner's thing goes under the heading.

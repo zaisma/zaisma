@@ -7,6 +7,7 @@ import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { gatherEvidence, type CodeChunk, type ReadCode } from "../../apps/site/src/review-readers.ts";
 import { judgeVersion, settle, type JudgeBrief, type JudgeVersion } from "../../apps/site/src/review-judge.ts";
 import { CLEAN_GAME, makeZip, minifiedBundle } from "../helpers.ts";
+import { pageDataOf } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
@@ -119,12 +120,26 @@ describe("scan and publish", () => {
     expect(game?.review_status).toBe("live");
 
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
-    expect(home).toContain("/g/test-game");
+    expect(home).toContain('"slug":"test-game"');
     const page = await SELF.fetch(`${LOCAL}/g/test-game`);
     const html = await page.text();
     expect(html).toContain('sandbox="allow-scripts allow-same-origin allow-pointer-lock"');
     expect(html).not.toContain("allow-top-navigation");
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  });
+
+  it("marks a build that needs threads, and its game page and frame say so", async () => {
+    const { report } = await uploadAndScan(CLEAN_GAME, { images: connected, ...aiSays("pass") });
+    expect(report.has_threads).toBe(false);
+    const plainPage = await (await SELF.fetch(`${LOCAL}/g/test-game`)).text();
+    expect(pageDataOf(plainPage, "game-page-data").has_threads).toBe(false);
+
+    const threaded = await uploadAndScan({ ...CLEAN_GAME, "index.html": "<!doctype html><title>Threads</title><script>const GODOT_THREADS_ENABLED = true;</script>" }, { images: connected, ...aiSays("pass") }, "threaded-game");
+    expect(threaded.report.decision).toBe("approved");
+    expect(threaded.report.has_threads).toBe(true);
+    const page = await (await SELF.fetch(`${LOCAL}/g/threaded-game`)).text();
+    expect(pageDataOf(page, "game-page-data").has_threads).toBe(true);
+    expect(page).toContain('allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated"');
   });
 
   it("rejects a crypto miner", async () => {
@@ -859,7 +874,7 @@ describe("reports and takedowns", () => {
     form.set("content_rule", "malware");
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: form, redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(410);
-    expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain("/g/test-game");
+    expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain('"slug":"test-game"');
     const log = await env.DB.prepare("SELECT action, reason, actor FROM audit_log WHERE action = 'takedown'").first();
     expect(log).toEqual({ action: "takedown", reason: "The login screen asks for a Steam password", actor: "dev@localhost" });
     const removed = await env.DB.prepare("SELECT review_status, review_reason FROM games WHERE id = ?").bind(gameId).first<{ review_status: string; review_reason: string }>();
@@ -926,7 +941,8 @@ describe("pages", () => {
     await env.DB.prepare("INSERT INTO games (id, slug, title, description, review_status, live_version_id, created_at_ms, updated_at_ms) VALUES ('x1', 'xss-game', '<script>alert(1)</script>', '\"><img onerror=1>', 'live', 'v1', 0, 0)").run();
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
     expect(home).not.toContain("<script>alert(1)");
-    expect(home).toContain("&lt;script&gt;");
+    // The title reaches the home only in its data block, with < escaped.
+    expect(home).toContain("\\u003cscript>alert(1)");
     expect(home).not.toContain('<img onerror');
   });
 

@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACCESS_LOGIN_PREFIX,
   ACCESS_RESOURCE_METADATA_PREFIX,
+  BACKUP_BUCKET_URL,
   adminAccessProblems,
+  backupBucketProblems,
   bucketAccessProblems,
   bucketNames,
   checkBuckets,
@@ -67,6 +69,12 @@ describe("the address judges", () => {
     expect(httpsRedirectProblems(answer(308, { location: expected }), expected)).toEqual([]);
     expect(httpsRedirectProblems(answer(200), expected)).toHaveLength(1);
     expect(httpsRedirectProblems(answer(308, { location: "https://zaisma.com/" }), expected)).toHaveLength(1);
+  });
+  it("backupBucketProblems wants a refusal for a request without a signature", () => {
+    expect(backupBucketProblems(answer(403))).toEqual([]);
+    expect(backupBucketProblems(answer(401))).toEqual([]);
+    expect(backupBucketProblems(answer(200))).toEqual(["answered 200 without being signed in"]);
+    expect(backupBucketProblems(answer(404))).toEqual(["answered 404 without being signed in"]);
   });
   it("privateAddressProblems wants exactly 404", () => {
     expect(privateAddressProblems(answer(404))).toEqual([]);
@@ -197,6 +205,7 @@ describe("checkSecurityAddresses", () => {
         return answer(404);
       }
       if (url.endsWith("/admin") || url.endsWith("/admin/mcp")) return answer(302, { location: `${ACCESS_LOGIN_PREFIX}zaisma.com` });
+      if (url.startsWith(BACKUP_BUCKET_URL)) return answer(url === BACKUP_BUCKET_URL ? 403 : 401);
       // A game's page opens at its version's own address.
       if (url === "https://arena.zaismausercontent.com/") return answer(302, { location: "/_zaisma/versions/version_1/", "cache-control": "no-store" });
       if (url.includes("zaismausercontent.com")) return new Response("game", { headers: gameHeaders() });

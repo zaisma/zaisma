@@ -40,7 +40,7 @@ ${cutButton("Update", { id: "update", type: "button", icon: "download", isSmall:
 
 /** The plate the connection button opens, beside the game like the room's, and the connection's icon for each state. */
 export function connectionPlate(): Raw {
-  return html`<template id="conn-icons">${icon("signal-weak")}${icon("reconnecting")}${icon("signal-lost")}</template><dialog id="conn-dialog" class="game-plate" aria-label="Connection">${glassPane({ paneSize: "small", body: html`<h2 class="conn-title" id="conn-title">Connection</h2><p class="conn-line" id="conn-line"></p>` })}</dialog>`;
+  return html`<template id="conn-icons">${icon("signal-weak")}${icon("reconnecting")}${icon("signal-lost")}</template><dialog id="conn-dialog" class="game-plate" aria-label="Connection">${glassPane({ paneWidth: "fit", body: html`<h2 class="conn-title" id="conn-title">Connection</h2><p class="conn-line" id="conn-line"></p>` })}</dialog>`;
 }
 
 export const GAME_UPDATES_SCRIPT = pageScript(
@@ -137,9 +137,9 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   }
 
   // Reload the game in place, at the version players get now, into a room (code) or not: through the saves
-  // script when it runs (so progress carries over), else straight at the game's address.
-  function reloadGame(code) {
-    const query = code ? "?room=" + code : "";
+  // script when it runs (so progress carries over), else straight at the game's address. A spectator goes back to watching.
+  function reloadGame(code, isSpectator) {
+    const query = code ? "?room=" + code + (isSpectator ? "&watch=1" : "") : "";
     if (gamePage.tester_token) return location.assign("/t/" + gamePage.tester_token + query);
     offeredVersionId = null;
     frameVersionId = null;
@@ -187,7 +187,7 @@ export const GAME_UPDATES_SCRIPT = pageScript(
       if (matchUpdate) matchUpdate.step = "now";
       else matchUpdate = { code: null, step: "now", appliesAt: new Date().toISOString(), isReloading: true };
       showUpdate();
-      reloadGame(typeof d.code === "string" && CODE.test(d.code) ? d.code : null);
+      reloadGame(typeof d.code === "string" && CODE.test(d.code) ? d.code : null, d.isSpectator === true);
     } else if (d.type === "zaisma:version" && typeof d.versionId === "string") {
       frameVersionId = d.versionId;
       // The reloaded game is up: the update is done, and the connection shows from here (it rejoins its room, or its menu shows).

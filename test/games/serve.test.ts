@@ -90,6 +90,25 @@ describe("game server", () => {
     expect((await SELF.fetch(`${G}/gone/sfx/beep.mp3`)).status).toBe(410);
   });
 
+  it("refuses players in a country the game is blocked in, and only there, except on its preview link", async () => {
+    const id = await addGame("blocked-here", "live");
+    const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under GB law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
+    await env.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
+    const from = (countryCode: string, path = "/blocked-here/", headers: Record<string, string> = {}) => SELF.fetch(`${G}${path}`, { headers, cf: { country: countryCode } } as RequestInit);
+    const there = await from("GB");
+    expect(there.status).toBe(451);
+    expect(await there.text()).toContain("available in your country");
+    expect((await from("GB", "/blocked-here/sfx/beep.mp3")).status).toBe(451);
+    expect((await from("DE")).status).toBe(200);
+    expect((await from("XX")).status).toBe(200);
+
+    await env.DB.prepare("UPDATE versions SET preview_link_key = 'k' WHERE game_id = ?").bind(id).run();
+    const grantKey = await createAccessGrant(env.DB, { gameId: id, addressKind: "preview", versionId: `v${id}`, expiresAtMs: Date.now() + 3600_000 });
+    const entered = await SELF.fetch(`${G}/blocked-here--preview/_zaisma/enter?grant=${grantKey}`, { redirect: "manual", cf: { country: "GB" } } as RequestInit);
+    const cookie = (entered.headers.get("set-cookie") ?? "").split(";")[0]!;
+    expect((await from("GB", "/blocked-here--preview/", { cookie })).status).toBe(200);
+  });
+
   it("hides held, pending and unknown games", async () => {
     await addGame("held-one", "held");
     await addGame("pending-one", "pending", false);
@@ -155,6 +174,10 @@ describe("game server", () => {
     expect(await res.text()).toContain("<p>draft</p>");
     expect(res.headers.get("x-robots-tag")).toBe("noindex");
     expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    // Every game is cross-origin isolated in its own frame (Chrome and Edge), with no COEP that would need zaisma.com's page isolated too.
+    expect(res.headers.get("document-isolation-policy")).toBe("isolate-and-credentialless");
+    expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+    expect(res.headers.get("cross-origin-embedder-policy")).toBeNull();
     expect(res.headers.get("cache-control")).toBe("private, no-cache");
     // The cookie is for this game's preview address only.
     expect((await SELF.fetch(`${G}/drafty--tester/`, { headers: { cookie } })).status).toBe(404);
@@ -186,7 +209,12 @@ describe("game server", () => {
     expect(roomed.entered.headers.get("location")).toBe("/live-one--tester/_zaisma/entered?then=%3Froom%3DABCDEF");
     const inside = await SELF.fetch(`${G}/live-one--tester/_zaisma/entered?then=%3Froom%3DABCDEF`, { headers: { cookie: roomed.cookie }, redirect: "manual" });
     expect(inside.headers.get("location")).toBe("/live-one--tester/?room=ABCDEF");
-    expect((await SELF.fetch(`${G}/live-one--tester/`, { headers: { cookie } })).status).toBe(200);
+    const testerPage = await SELF.fetch(`${G}/live-one--tester/`, { headers: { cookie } });
+    expect(testerPage.status).toBe(200);
+    // Tester plays aren't counted, so nothing measures how the game runs there.
+    const testerText = await testerPage.text();
+    expect(testerText).toContain("_zaisma/relay.js");
+    expect(testerText).not.toContain("performance.js");
     // The old addresses with a key in them open nothing.
     expect((await SELF.fetch(`${G}/live-one--${link.token}/`)).status).toBe(404);
   });

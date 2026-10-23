@@ -1,4 +1,5 @@
 import {
+  countryBlocksAnswer,
   IMAGE_LIMITS,
   IMAGE_KINDS,
   isBackgroundShape,
@@ -92,14 +93,18 @@ import {
   type TesterLinkChoices,
   type VersionChoice,
   type ReportReason,
-  FREE_ROOM_PLAY_DURATION_HOURS,
-  FREE_REQUEST_COUNT_PER_MONTH,
+  FREE_HOSTING_CENTS_PER_MONTH,
+  MAXIMUM_GAME_STORAGE_SIZE_BYTES,
+  creditOf,
+  freeUsedPct,
+  hostingShares,
+  hostingUseThisMonth,
+  gameHostingMonth,
+  monthStartDateOf,
+  type PausedReason,
   NEARLY_USED_PCT,
   nextMonthStartDate,
-  GAME_DATABASE_FREE_LIMITS,
   failedPlayerErases,
-  roomUseThisMonth,
-  countedPlayDurationSec,
   requestCountThisMonth,
   ApiError,
   checkIdKind,
@@ -149,6 +154,11 @@ import {
   listRooms,
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
+  checkShownText,
+  type ShownTextOptions,
+  hasThreads,
+  ITEM_FIELDS,
+  purchaseLabelFor,
 } from "@zaisma/core";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -162,13 +172,17 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { keptRoomsRoute } from "./kept-rooms-api.ts";
+import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
+import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
+import { itemsRoute, playerItemsRoute, purchaseSettingsRoute, purchasesRoute } from "./items-api.ts";
 import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shaderJson } from "./backgrounds-api.ts";
 import { exportDownload, exportSummary } from "./game-export.ts";
 import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
-import { playStats, playingNowCounts } from "./plays.ts";
+import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions, replaceWaitingVersions } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
@@ -185,7 +199,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
  *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot or background picture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/shaders?screen=   send a background shader (the GLSL text as the body; see backgrounds-api.ts)
@@ -223,6 +237,12 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games/:slug/export/download   the .zip of everything about the game
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
+ *   GET    /api/dev/games/:slug/kept-rooms     the game's kept rooms and its storage (see kept-rooms-api.ts)
+ *   …/api/dev/games/:slug/items                what the game sells or grants: set and remove items (see items-api.ts)
+ *   PATCH  /api/dev/games/:slug/purchase-settings   refund_policy, refund_policy_text, own_payment_categories
+ *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund (see items-api.ts)
+ *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns
+ *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -268,6 +288,8 @@ export interface Caller {
   placeSha256: string | null;
   /** Whether the account may make, upload and publish games (accounts.can_publish): until the beta, only accounts Zaisma adds. */
   canPublish: boolean;
+  /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts). */
+  isSpendingConfirmed?: boolean;
 }
 
 /** A call that usually follows a change, ready to make (docs/NAMING.md, Next steps). */
@@ -510,7 +532,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -538,7 +560,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("visibility", ...GAME_DETAIL_INPUTS) } }),
+  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("screen"), body: "bytes" }),
@@ -596,6 +618,17 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
+  call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
+  call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
+  call({ method: "PATCH", path: "/games/:slug/purchase-settings", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories") } }),
+  call({ method: "GET", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
+  call({ method: "POST", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
+  call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/players/:player_id/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
   call({ method: "PATCH", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
@@ -640,6 +673,10 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/sign-in-apps", reaches: "account", access: needs("sign_in_app_access", "write"), body: { inputs: plainInputs("name", "kind", "redirect_urls") } }),
   call({ method: "PATCH", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" }, body: { inputs: plainInputs("name", "redirect_urls", "replace_client_secret") } }),
   call({ method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" } }),
+  call({ method: "GET", path: "/credit", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/credit/top-ups", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("amount_cents") } }),
+  call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
+  call({ method: "PATCH", path: "/credit/automatic-top-up", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents") } }),
   call({ method: "GET", path: "/webhooks", reaches: "account", access: needs("webhook_access", "read") }),
   call({ method: "POST", path: "/webhooks", reaches: "account", access: needs("webhook_access", "write"), body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds"), game_slugs: naming("game_list") } } }),
   call({ method: "PATCH", path: "/webhooks/:webhook_id", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" }, body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds", "replace_signing_secret"), game_slugs: naming("game_list") } } }),
@@ -794,7 +831,12 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const checked = await checkCall(request, env, path, apiRoute, caller);
   const { game, pathValues } = checked;
 
-  if (path === "/access" && method === "GET") return answer({ access: accessJson(caller.access), can_publish: caller.canPublish });
+  if (path === "/access" && method === "GET") {
+    // The balance only for a caller that may read the credit.
+    const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents });
+  }
+  if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
   if (path === "/check" && method === "POST") return answer(await checkRoute(env, checked));
   if (path === "/api-keys" && method === "GET") return answer(await apiKeysAnswer(env, caller));
   if (path === "/activity" && method === "GET") return answer(await activityAnswer(env, (await accountById(env.DB, caller.accountId))!, checked.query.get("cursor")));
@@ -809,7 +851,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const keyGames = gameSlugs ? games.filter((game) => gameSlugs.includes(game.slug)) : games;
     // Your forum topics with a reply or change from Zaisma you haven't opened yet.
     const alertsByGameId = await gameAlerts(env, keyGames);
-    return answer({ games: keyGames.map((game) => ({ ...gameJson(env, game), alerts: alertsByGameId.get(game.id)! })), unread_topic_count: unread?.topic_count ?? 0 });
+    return answer({ games: await Promise.all(keyGames.map(async (game) => ({ ...(await gameJson(env, game)), alerts: alertsByGameId.get(game.id)! }))), unread_topic_count: unread?.topic_count ?? 0 });
   }
 
   if (apiRoute.path === "/forum" || apiRoute.path.startsWith("/forum/")) {
@@ -829,8 +871,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (path === "/games" && method === "POST") {
     const body = checked.body;
-    const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) throw new ApiError("bad_title", { message: "title is empty or over 80 characters.", field: "title", fix: "Give the game a title of 1 to 80 characters." });
+    const title = shownTextOrThrow(body.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
@@ -857,7 +898,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await logCallerEvent(env, caller, "game_created", { gameId: made.id });
     return answer(
       {
-        game: gameJson(env, made),
+        game: await gameJson(env, made),
         next_steps: [
           {
             tool: "upload_files",
@@ -906,6 +947,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
+  if (apiRoute.path.startsWith("/games/:slug/items")) return answer(...(await itemsRoute(request, env, game!, pathValues.item_name, caller, checked)));
+  if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund"), caller, checked)));
+  if (apiRoute.path === "/games/:slug/players/:player_id/items") return answer(...(await playerItemsRoute(env, game!, pathValues.player_id!)));
   if (apiRoute.path.startsWith("/games/:slug/shaders") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
@@ -930,7 +976,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     ]);
     const performanceChecks = await performanceChecksFor(env, versions.map((version) => version.id));
     return answer({
-      game: gameJson(env, game),
+      game: await gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
       // The exact number, whatever the public minimum: it's the developer's own game. As on the game page, the larger of browsers and rooms.
       playing_now_player_count: Math.max(playingNow.get(game.id) ?? 0, rooms?.playing.playerCount ?? 0),
@@ -943,7 +989,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (!isImages && method === "PATCH") {
-    const change = settledMinimumAge(game, checkDetailsOrThrow(checked.body));
+    const { monthly_budget_cents: budgetGiven, ...detailBody } = checked.body;
+    const change = settledMinimumAge(game, checkDetailsOrThrow(detailBody));
+    if (budgetGiven !== undefined) await changeBudget(env, game, budgetGiven, caller);
     if (game.review_status === "removed" && change.visibility) {
       throw gameRemoved(game, "its visibility can't change", "visibility");
     }
@@ -1005,7 +1053,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: passedForGore[0]!.id }, after_sec: null, reason: "It passed now that the game is for 16 and up." }]
       : [];
     return answer({
-      game: gameJson(env, changed),
+      game: await gameJson(env, changed),
       review_message: isWaitingForReview ? "The new title or description is checked in about a minute, then shows." : null,
       game_server_problem: gameServerProblem,
       next_steps: [...goreSteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
@@ -1115,7 +1163,46 @@ function badMethod(method: string, path: string): ApiError {
   return new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md lists the methods each path takes." });
 }
 
+/** Shown text from the API, checked (checkShownText), or the error answer: bad_<field>. */
+export function shownTextOrThrow(input: unknown, options: ShownTextOptions): string {
+  const checked = checkShownText(input, options);
+  if ("problem" in checked) {
+    const { field, message, fix } = checked.problem;
+    throw new ApiError(`bad_${field}` as ErrorCode, { message, field, fix });
+  }
+  return checked.text;
+}
+
 /** A game's new details, checked, or the error answer for the first input that's wrong. */
+/**
+ * A game's monthly budget, what it may draw from its developer's credit (docs/DECISIONS.md, "Hosting is priced with
+ * a margin…"): null for no paid hosting, or whole cents of at least 100. Off or lower works with a key; a first or
+ * higher budget needs the developer's passkey on zaisma.com. Lower than this month's charges pauses the game at once;
+ * a budget with room again starts it.
+ */
+async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller): Promise<void> {
+  if (given !== null && !(typeof given === "number" && Number.isInteger(given) && given >= 100)) {
+    throw new ApiError("bad_monthly_budget_cents", {
+      message: `monthly_budget_cents ${JSON.stringify(given)} isn't a budget: whole cents of at least 100 ($1), or null.`,
+      field: "monthly_budget_cents",
+      fix: "Give cents, not dollars: 5000 is $50 a month. null turns paid hosting off, so the game stops at its free allowance.",
+    });
+  }
+  const budgetCents = given as number | null;
+  const isRaising = budgetCents !== null && (game.monthly_budget_cents === null || budgetCents > game.monthly_budget_cents);
+  if (isRaising) checkSpendingConfirmed(env, caller, game.monthly_budget_cents === null ? "Giving a game a budget" : "Raising a game's budget");
+  if (budgetCents === game.monthly_budget_cents) return;
+  await env.DB.prepare("UPDATE games SET monthly_budget_cents = ? WHERE id = ?").bind(budgetCents, game.id).run();
+  game.monthly_budget_cents = budgetCents;
+  await audit(env.DB, game.id, "budget", budgetCents === null ? "No paid hosting" : `Monthly budget: ${budgetCents} cents`, caller.actor);
+  await logCallerEvent(env, caller, "hosting_budget_changed", { gameId: game.id });
+  const month = await gameHostingMonth(env.DB, game.id);
+  if (budgetCents === null) {
+    if (month.used_cents >= FREE_HOSTING_CENTS_PER_MONTH) await pauseNow(env, game.id, "free_used");
+  } else if (budgetCents <= month.charged_cents && month.charged_cents > 0) await pauseNow(env, game.id, "budget_used");
+  else if (isRaising) await clearPauses(env, game.owner_id!, Date.now(), game.id);
+}
+
 function checkDetailsOrThrow(body: Record<string, unknown>) {
   const checked = checkDetails(body);
   if ("problem" in checked) {
@@ -1278,11 +1365,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       });
     }
     const uploadMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
-    if (body.patch_notes !== undefined && typeof body.patch_notes !== "string") throw new ApiError("bad_patch_notes", { message: "patch_notes isn't text.", field: "patch_notes", fix: "Send what changed as text, or leave it out." });
-    const patchNotes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
-    if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) {
-      throw new ApiError("bad_patch_notes", { message: `patch_notes is ${patchNotes.length} characters, over ${FILE_LIMITS.maximumPatchNotesCharacterCount}.`, field: "patch_notes", fix: `Shorten them to ${FILE_LIMITS.maximumPatchNotesCharacterCount} characters; players see them.` });
-    }
+    const patchNotes = body.patch_notes === undefined ? "" : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
@@ -1342,13 +1425,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
       version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
-    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
-    return [{ game: gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
+    return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
@@ -1378,7 +1461,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const nextSteps: NextStep[] = isHidden
       ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
       : [];
-    return [{ game: gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+    return [{ game: await gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
 
   throw badMethod(method, new URL(request.url).pathname);
@@ -1423,7 +1506,7 @@ async function goreVersionPlayersCanReach(env: Env, game: Game): Promise<Version
 
 /** A held or rejected version, which can't be published: why, and what to do, from its review reason or first finding. */
 function notApproved(game: Game, version: Version): ApiError {
-  const why = versionReviewReason(version) ?? findingsFor(version)[0] ?? null;
+  const why = versionReviewReason(version) ?? findingsFor(scanReportOf(version))[0] ?? null;
   return new ApiError("not_approved", {
     message: `This version is ${version.scan_status}, so it can't be published${why ? ` (${why.code}): ${why.message}` : "."}`,
     field: "version_id",
@@ -1550,8 +1633,10 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [gamePlayStats, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomUse, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
+  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, hostingUse, hostingMonth, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
+    // How the game runs for its players; null when the developer turned the measuring off.
+    game.performance_measuring_enabled ? playerPerformance(env.DB, game.id, dayCount) : null,
     env.DB
       .prepare("SELECT date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(game.id, fromDate)
@@ -1565,7 +1650,8 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .prepare("SELECT schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms FROM game_server_schedules WHERE game_id = ? AND version_id = ? ORDER BY schedule_name")
       .bind(game.id, game.live_version_id)
       .all<{ schedule_name: string; cron: string; version_id: string; next_run_at_ms: number; last_run_at_ms: number | null }>(),
-    roomUseThisMonth(env.DB, game.id),
+    hostingUseThisMonth(env.DB, game.id),
+    gameHostingMonth(env.DB, game.id),
     requestCountThisMonth(env.DB, game.id),
     env.DB
       .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(message_count), 0) AS message_count, COALESCE(SUM(inbound_size_bytes), 0) AS inbound_size_bytes, COALESCE(SUM(outbound_message_count), 0) AS outbound_message_count, COALESCE(SUM(outbound_size_bytes), 0) AS outbound_size_bytes FROM room_usage WHERE game_id = ? AND date >= ?")
@@ -1573,7 +1659,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .first<RoomTrafficRow>(),
     env.DB
       .prepare(
-        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
+        "SELECT message_type, direction, SUM(message_count) AS message_count, SUM(size_bytes) AS size_bytes, MAX(largest_size_bytes) AS largest_size_bytes, SUM(backed_up_message_count) AS backed_up_message_count FROM room_message_types WHERE game_id = ? AND date >= ? GROUP BY message_type, direction ORDER BY size_bytes DESC LIMIT ?",
       )
       .bind(game.id, monthStartDate, ROOM_TRAFFIC_MESSAGE_TYPE_COUNT)
       .all<MessageTypeRow>(),
@@ -1584,6 +1670,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   return {
     period_duration_days: dayCount,
     play_stats: gamePlayStats,
+    performance,
     multiplayer_days: roomDays.map((day) => ({
       date: day.date,
       room_count: day.room_count,
@@ -1593,25 +1680,41 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       game_server_cpu_duration_sec: Math.round(day.game_server_cpu_duration_ms / 1000),
       game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, scheduled_run_count: day.game_server_scheduled_run_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
-    // Until Hosting billing exists, new rooms and relayed connections stop at the free tier until the month resets (UTC).
-    room_use_this_month: {
-      room_play_duration_hours: Math.round(monthRoomUse.roomPlayDurationSec / 360) / 10,
-      relayed_size_bytes: monthRoomUse.relayedSizeBytes,
-      game_server_cpu_duration_sec: Math.round(monthRoomUse.gameServerCpuDurationMs / 1000),
-      counted_play_duration_hours: Math.round(monthRoomUse.countedPlayDurationSec / 360) / 10,
-      free_room_play_duration_hours: FREE_ROOM_PLAY_DURATION_HOURS,
-      has_reached_free_hours: monthRoomUse.countedPlayDurationSec >= FREE_ROOM_PLAY_DURATION_HOURS * 3600,
-    },
+    // The one meter: the free allowance as a percentage, what used it as shares, and what credit paid past it.
+    hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth),
     // What each player sends and gets a second, the biggest message types and what to change, so a developer's AI can cut it.
     room_traffic: roomTraffic(monthTraffic, monthMessageTypes),
-    // Requests to the game's own game server (Zaisma.server.request): likewise, past the free ones they stop until the month resets.
-    request_use_this_month: { request_count: monthRequestCount, free_request_count: FREE_REQUEST_COUNT_PER_MONTH, has_reached_free_requests: monthRequestCount >= FREE_REQUEST_COUNT_PER_MONTH },
     // Schedules are free, capped by their shape: up to 10, each at most once a minute.
     schedules: schedules.map((schedule) => ({ schedule_name: schedule.schedule_name, cron: schedule.cron, version_id: schedule.version_id, next_run_at: iso(schedule.next_run_at_ms), last_run_at: iso(schedule.last_run_at_ms) })),
     // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
     // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
     // and a match whose game server is stopped twice ends.
     game_server_errors: hasOwnServer ? errors.map(gameServerErrorJson) : [],
+  };
+}
+
+/**
+ * hosting_use_this_month: the free allowance as a percentage (never dollars), what used it as shares, whether the
+ * game is paused and why, and, for a game with a budget, what credit paid; the raw counts are facts for tuning,
+ * never priced.
+ */
+export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }) {
+  return {
+    free_used_pct: hosting.freeUsedPct,
+    shares: hostingShares(hosting.kinds).map((share) => ({ kind: share.kind, share_pct: share.sharePct })),
+    is_paused: month.paused_at_ms !== null,
+    paused_reason: month.paused_at_ms !== null ? month.paused_reason : null,
+    paused_at: iso(month.paused_at_ms),
+    resets_on_date: nextMonthStartDate(),
+    monthly_budget_cents: game.monthly_budget_cents,
+    spent_from_credit_cents: month.charged_cents,
+    room_play_duration_hours: Math.round(hosting.use.roomPlayDurationSec / 360) / 10,
+    relayed_size_bytes: hosting.use.relayedSizeBytes,
+    game_server_cpu_duration_sec: Math.round((hosting.use.roomCpuDurationMs + hosting.use.outsideRoomCpuDurationMs) / 1000),
+    request_count: hosting.use.requestCount + hosting.use.scheduledRunCount,
+    written_row_count: hosting.use.writtenRowCount,
+    read_row_count: hosting.use.readRowCount,
+    database_size_bytes: hosting.use.databaseSizeBytes,
   };
 }
 
@@ -1631,6 +1734,8 @@ interface MessageTypeRow {
   message_count: number;
   size_bytes: number;
   largest_size_bytes: number;
+  /** Sends that went reliably to a player whose connection was backed up. */
+  backed_up_message_count: number;
 }
 
 /** The month's biggest message types get_stats lists. */
@@ -1640,6 +1745,9 @@ const LARGE_JSON_AVERAGE_SIZE_BYTES = 512;
 const FREQUENT_MESSAGES_PER_PLAYER_SEC = 5;
 const HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC = 32 * 1024;
 const NEAR_LIMIT_SIZE_BYTES = 12 * 1024;
+/** Where the latest_only hint starts: a type sent reliably this often a player-second, with this share of its sends to backed-up players. */
+const LATEST_ONLY_MESSAGES_PER_PLAYER_SEC = 10;
+const LATEST_ONLY_BACKED_UP_PCT = 10;
 
 /** Messages and bytes per player a second, each way, rounded to one decimal; 0 with no player time. */
 function perPlayerTraffic(traffic: RoomTrafficRow) {
@@ -1662,13 +1770,19 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
   const named = (messageType: string) => (messageType === "(none)" ? "Messages without a type" : `"${messageType}" messages`);
   for (const type of types) {
     const averageSizeBytes = type.message_count ? type.size_bytes / type.message_count : 0;
-    const isJson = !["(bytes)", "(zaisma)", "(other)"].includes(type.message_type);
+    const isJson = !["(bytes)", "(zaisma)", "(state)", "(other)"].includes(type.message_type);
     if (isJson && averageSizeBytes >= LARGE_JSON_AVERAGE_SIZE_BYTES && type.message_count / totals.room_play_duration_sec >= FREQUENT_MESSAGES_PER_PLAYER_SEC) {
       hints.push({ code: "json_messages_large", message: `${named(type.message_type)} average ${Math.round(averageSizeBytes)} bytes as JSON. Sending them with room.sendBytes and room.broadcastBytes in a compact form usually cuts them to a third.` });
     }
+    const messagesPerPlayerSec = type.message_count / totals.room_play_duration_sec;
+    const isGameMessage = type.direction === "outbound" && !["(zaisma)", "(state)", "(other)"].includes(type.message_type);
+    if (isGameMessage && messagesPerPlayerSec >= LATEST_ONLY_MESSAGES_PER_PLAYER_SEC && (type.backed_up_message_count ?? 0) * 100 >= type.message_count * LATEST_ONLY_BACKED_UP_PCT) {
+      const which = type.message_type === "(bytes)" ? "Bytes" : named(type.message_type);
+      hints.push({ code: "latest_only_available", message: `${which} go out ${Math.round(messagesPerPlayerSec)} a second to each player, and ${Math.round(((type.backed_up_message_count ?? 0) / type.message_count) * 100)}% of them went to a player whose connection was backed up. Send them with delivery: "latest_only" so a slow player gets only the newest.` });
+    }
   }
   if (perPlayer.outbound_size_bytes_per_player_sec >= HEAVY_OUTBOUND_SIZE_BYTES_PER_PLAYER_SEC) {
-    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see.` });
+    hints.push({ code: "outbound_heavy", message: `Each player gets ${kilobytes(perPlayer.outbound_size_bytes_per_player_sec)} KB a second. Send each player only what changed and only what they can see: the game server's stateSyncEnabled does the first, and its stateView the second.` });
   }
   const largestInbound = types.filter((type) => type.direction === "inbound").sort((first, second) => second.largest_size_bytes - first.largest_size_bytes)[0];
   if (largestInbound && largestInbound.largest_size_bytes >= NEAR_LIMIT_SIZE_BYTES) {
@@ -1690,7 +1804,7 @@ function roomTraffic(traffic: RoomTrafficRow | null, messageTypes: MessageTypeRo
 }
 
 /** What room traffic hints say to change (ROOM_TRAFFIC_HINT in schemas.ts says what each means). */
-type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit";
+type RoomTrafficHintCode = "json_messages_large" | "outbound_heavy" | "message_near_limit" | "latest_only_available";
 
 /** A game server error as it's stored. */
 export interface GameServerErrorRow {
@@ -1739,6 +1853,8 @@ const HISTORY: Record<string, string | null> = {
   takedown: "Zaisma took the game down",
   "notice-held": "A notice hid your game from players; see why",
   "notice-fix-published": null,
+  "country-blocked": "A notice under one country's law blocked your game for players there; see why",
+  "country-block-lifted": "Zaisma lifted a country's block: players there can open your game again",
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,
@@ -1758,6 +1874,7 @@ const HISTORY: Record<string, string | null> = {
   "link-cleared": "A link opens again: its site is off Cloudflare's malware and phishing list",
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
+  "kept-room-deleted": "Deleted a kept room",
   // subject_name is the uploader's public name (copies.ts, stopCopy).
   "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
@@ -1837,9 +1954,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
 }
 
 function readTesterName(given: unknown): string {
-  const name = typeof given === "string" ? given.trim().replace(/\s+/g, " ") : "";
-  if (!name || name.length > 60) throw new ApiError("bad_name", { message: "name is empty or over 60 characters.", field: "name", fix: 'Name the link for who it\'s for, in 1 to 60 characters, like "Playtesters" or "My team".' });
-  return name;
+  return shownTextOrThrow(given, { field: "name", maximumCharacterCount: 60, isRequired: true });
 }
 
 /**
@@ -2187,12 +2302,14 @@ function performanceCheckJson(row: PerformanceCheckRow | null) {
 
 export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
   const preview = previewLinkToken(version);
+  const report = scanReportOf(version);
   return {
     id: version.id,
     file_count: version.file_count,
     size_bytes: version.size_bytes,
     // scanning, held (a person will look), approved or rejected.
     scan_status: version.scan_status,
+    has_threads: hasThreads(report),
     is_live: version.id === game.live_version_id,
     patch_notes: version.patch_notes,
     preview_url: preview ? `${env.SITE_ORIGIN}/p/${preview.token}` : null,
@@ -2203,7 +2320,7 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: findingsFor(version),
+    findings: findingsFor(report),
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
@@ -2217,8 +2334,9 @@ function versionReviewReason(version: Version) {
 }
 
 /** Why the scan held or rejected a version, with the rule and the fix. Child-safety signals are never described: a person needs to look. */
-function findingsFor(version: Version) {
-  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
+const scanReportOf = (version: Version): ScanReport | null => (version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null);
+
+function findingsFor(report: ScanReport | null) {
   if (!report) return [];
   const shown: Finding[] = report.is_child_safety
     ? [{ stage: "static", severity: "hold", code: "needs_review", message: "" }]
@@ -2314,7 +2432,7 @@ export function closedQuery(queryParameters: URLSearchParams, fields: string[]):
 
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
-export function gameJson(env: Env, game: Game) {
+export async function gameJson(env: Env, game: Game) {
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,
@@ -2325,6 +2443,8 @@ export function gameJson(env: Env, game: Game) {
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed, and why.
     review_status: game.review_status,
     review_reason: reasonAnswer(game.review_reason),
+    // Countries whose players can't open it, on a notice under that country's law; [] for none.
+    country_blocks: countryBlocksAnswer(game),
     devices: splitLabels(game.devices),
     controls: splitLabels(game.controls),
     screen_orientation: game.screen_orientation || null,
@@ -2333,6 +2453,7 @@ export function gameJson(env: Env, game: Game) {
     account_offer_enabled: Boolean(game.account_offer_enabled),
     deleted_account_erase_enabled: Boolean(game.deleted_account_erase_enabled),
     friend_joins_enabled: Boolean(game.friend_joins_enabled),
+    performance_measuring_enabled: Boolean(game.performance_measuring_enabled),
     multiplayer_mode: game.multiplayer_mode,
     room_browsing: game.room_browsing,
     account_requirement: game.account_requirement,
@@ -2345,6 +2466,12 @@ export function gameJson(env: Env, game: Game) {
     // Why the title keeps the game off Zaisma's lists ("No slop"); null when nothing does.
     title_listing_reason: reasonAnswer(game.title_listing_reason),
     glass_tint_color: game.glass_tint_color,
+    // What it may draw from the developer's credit each month; null: no paid hosting, it stops at its free allowance.
+    monthly_budget_cents: game.monthly_budget_cents,
+    // What the game page says it sells, from its items: pages and AIs read the label from here alone.
+    purchase_label: await purchaseLabelFor(env.DB, game),
+    refund_policy: game.refund_policy,
+    refund_policy_text: game.refund_policy_text,
     updated_at: iso(game.updated_at_ms),
   };
 }
@@ -2360,8 +2487,11 @@ function linkJson(link: GameLink) {
   };
 }
 
+/** Cents as dollars, like $3.40 or $50. */
+const dollarsText = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "version_rejected", "version_held", "link_flagged", "game_off_lists", "rooms_paused", "requests_paused", "database_paused", "database_writes_paused", "database_full", "rooms_nearly_paused", "requests_nearly_paused", "database_nearly_paused", "database_writes_nearly_paused", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -2384,7 +2514,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   if (!games.length) return alertsByGameId;
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }] = await Promise.all([
+  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
@@ -2392,10 +2522,11 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       )
       .bind(gameIds)
       .all<{ game_id: string; id: string; scan_status: "held" | "rejected"; report_held_at_ms: number | null; created_at_ms: number; is_newest: number }>(),
+    // Each game's month on the meter, as the hosting job last wrote it (hosting-job.ts).
     env.DB
-      .prepare("SELECT game_id, SUM(room_play_duration_sec) AS room_play_duration_sec, SUM(relayed_size_bytes) AS relayed_size_bytes, SUM(game_server_cpu_duration_ms) AS game_server_cpu_duration_ms, SUM(game_server_request_count) AS request_count FROM room_usage WHERE game_id IN (SELECT value FROM json_each(?)) AND date >= ? GROUP BY game_id")
+      .prepare("SELECT game_id, used_cents, charged_cents, paused_at_ms, paused_reason FROM game_hosting_months WHERE game_id IN (SELECT value FROM json_each(?)) AND month_start_date = ?")
       .bind(gameIds, monthStartDate)
-      .all<{ game_id: string; room_play_duration_sec: number; relayed_size_bytes: number; game_server_cpu_duration_ms: number; request_count: number }>(),
+      .all<{ game_id: string; used_cents: number; charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }>(),
     // Counted as get_reports counts them: the last 90 days, never child safety.
     env.DB
       .prepare("SELECT game_id, COUNT(*) AS report_count FROM reports WHERE game_id IN (SELECT value FROM json_each(?)) AND report_status = 'open' AND reported_at_ms > ? AND reason != 'child_safety' AND severity_index > 0 GROUP BY game_id")
@@ -2409,6 +2540,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .prepare("SELECT game_id, kind, listing_reason FROM game_images WHERE game_id IN (SELECT value FROM json_each(?)) AND kind != 'screenshot' AND review_status != 'rejected' AND listing_reason IS NOT NULL")
       .bind(gameIds)
       .all<{ game_id: string; kind: string; listing_reason: string }>(),
+    // Kept rooms' saved worlds share the free storage with the database.
+    env.DB.prepare("SELECT game_id, SUM(saved_size_bytes) AS size_bytes FROM kept_rooms WHERE game_id IN (SELECT value FROM json_each(?)) GROUP BY game_id").bind(gameIds).all<{ game_id: string; size_bytes: number }>(),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -2416,6 +2549,9 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     const reason = reasonAnswer(game.review_reason);
     if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.");
     if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.");
+    for (const block of countryBlocksAnswer(game)) {
+      add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix);
+    }
     const gameVersions = versions.filter((version) => version.game_id === game.id);
     const rejected = gameVersions.find((version) => version.scan_status === "rejected" && version.is_newest);
     if (rejected) add("version_rejected", "Your newest version was rejected, so it can't be published.", `get_version with this version_id says what the scan found and how to fix it; then upload a fixed version.`, rejected.id);
@@ -2437,47 +2573,39 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     if (game.visibility === "listed" && listingReasons.length) {
       add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix);
     }
-    const use = usage.find((row) => row.game_id === game.id);
-    // Each paused line, then the heads-ups; a heads-up is never given alongside its own paused or full kind.
-    const countedSec = use ? countedPlayDurationSec(use.room_play_duration_sec, use.relayed_size_bytes, use.game_server_cpu_duration_ms) : 0;
-    const freeRoomSec = FREE_ROOM_PLAY_DURATION_HOURS * 3600;
-    const requestCount = use?.request_count ?? 0;
-    if (countedSec >= freeRoomSec) {
-      add("rooms_paused", `New rooms and connections between players are paused until the month resets (UTC): this month's ${FREE_ROOM_PLAY_DURATION_HOURS.toLocaleString("en-US")} free player-hours on Zaisma rooms and the relay are used. Matches already running get an hour to finish.`, "Wait for the month to reset, or run rooms on your own server, which is never limited. get_stats shows the month's use.");
-    }
-    if (requestCount >= FREE_REQUEST_COUNT_PER_MONTH) {
-      add("requests_paused", `Requests to the game server are paused until the month resets (UTC): this month's ${FREE_REQUEST_COUNT_PER_MONTH.toLocaleString("en-US")} free ones are used.`, "Wait for the month to reset, or answer requests from your own server, which is never limited. get_stats shows the month's use.");
-    }
+    const month = usage.find((row) => row.game_id === game.id);
     const databaseUse = databaseUses[games.indexOf(game)];
-    const limits = GAME_DATABASE_FREE_LIMITS;
-    const resetDate = nextMonthStartDate();
-    const isReadPaused = Boolean(databaseUse && databaseUse.readRowCount >= limits.readRowCountPerMonth);
-    const isWritePaused = Boolean(databaseUse && !isReadPaused && databaseUse.writtenRowCount >= limits.writtenRowCountPerMonth);
-    const isFull = Boolean(databaseUse && databaseUse.storageSizeBytes >= limits.storageSizeBytes);
-    if (isReadPaused) {
-      add("database_paused", `The game database stopped answering until ${resetDate} (UTC): this month's ${limits.readRowCountPerMonth.toLocaleString("en-US")} free rows read are used.`, "Wait for the month to reset, and read less: add indexes for your WHEREs, and keep what the game reads often in the room's state. get_database shows the month's use.");
-    } else if (isWritePaused) {
-      add("database_writes_paused", `The game database takes no writes until ${resetDate} (UTC): this month's ${limits.writtenRowCountPerMonth.toLocaleString("en-US")} free rows written are used. Reads keep working.`, "Wait for the month to reset, and write less: save a match's results once when it ends, not every tick. get_database shows the month's use.");
+    const storageSizeBytes = (databaseUse?.storageSizeBytes ?? 0) + (keptRooms.find((row) => row.game_id === game.id)?.size_bytes ?? 0);
+    const isFull = Boolean(databaseUse && storageSizeBytes >= MAXIMUM_GAME_STORAGE_SIZE_BYTES);
+    const resetsOn = resetsOnText(Date.now());
+    const budgetCents = game.monthly_budget_cents;
+    // The paused line, then the heads-ups; a heads-up is never given alongside its own paused or full kind.
+    if (month?.paused_at_ms) {
+      const why =
+        month.paused_reason === "budget_used"
+          ? `it used its ${dollarsText(budgetCents ?? month.charged_cents)} budget for this month`
+          : month.paused_reason === "credit_used"
+            ? "your credit ran out"
+            : `it used this month's free hosting (it's back on ${resetsOn})`;
+      const fix =
+        month.paused_reason === "budget_used"
+          ? "Raise its budget with update_game (monthly_budget_cents) to start it again now. get_stats shows the month's use."
+          : month.paused_reason === "credit_used"
+            ? "Add credit with top_up_credit to start it again now. get_credit shows the balance."
+            : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
+      add("hosting_paused", `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`, fix);
     }
     if (isFull) {
-      add("database_full", `The game database is full at its free ${limits.storageSizeBytes / 1024 / 1024} MB: it can change and delete rows, but not grow.`, "Delete rows the game no longer needs with query_database, or export_database to keep them elsewhere. get_database shows its size.");
+      add("database_full", `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.");
     }
-    if (countedSec < freeRoomSec && countedSec >= freeRoomSec * NEARLY_USED_PCT / 100) {
-      add("rooms_nearly_paused", `${NEARLY_USED_PCT}% of this month's ${FREE_ROOM_PLAY_DURATION_HOURS.toLocaleString("en-US")} free player-hours on Zaisma rooms and the relay are used. When they're all used, new rooms and connections between players pause until the month resets (UTC).`, "get_stats shows the month's use. To keep rooms opening, run them on your own server, which is never limited.");
+    if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
+      add("hosting_nearly_paused", `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.");
     }
-    if (requestCount < FREE_REQUEST_COUNT_PER_MONTH && requestCount >= FREE_REQUEST_COUNT_PER_MONTH * NEARLY_USED_PCT / 100) {
-      add("requests_nearly_paused", `${NEARLY_USED_PCT}% of this month's ${FREE_REQUEST_COUNT_PER_MONTH.toLocaleString("en-US")} free requests to the game server are used. When they're all used, requests pause until the month resets (UTC).`, "get_stats shows the month's use. To keep requests answered, answer them from your own server, which is never limited.");
+    if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {
+      add("hosting_budget_nearly_used", `The game has used ${dollarsText(month.charged_cents)} of its ${dollarsText(budgetCents)} budget this month. When it's all used, the game pauses like at the end of its free hosting.`, "Raise its budget with update_game (monthly_budget_cents) to keep it going. get_credit shows every game's spending.");
     }
-    if (databaseUse) {
-      if (!isReadPaused && databaseUse.readRowCount >= limits.readRowCountPerMonth * NEARLY_USED_PCT / 100) {
-        add("database_nearly_paused", `${NEARLY_USED_PCT}% of this month's free rows read from the game database are used. When they're all used, it stops answering until ${resetDate} (UTC).`, "Read less: add indexes for your WHEREs, and keep what the game reads often in the room's state. get_database shows the month's use.");
-      }
-      if (!isReadPaused && !isWritePaused && databaseUse.writtenRowCount >= limits.writtenRowCountPerMonth * NEARLY_USED_PCT / 100) {
-        add("database_writes_nearly_paused", `${NEARLY_USED_PCT}% of this month's free rows written to the game database are used. When they're all used, it takes no writes until ${resetDate} (UTC); reads keep working.`, "Write less often, like saving scores once at the end of a match. get_database shows the month's use.");
-      }
-      if (!isFull && databaseUse.storageSizeBytes >= limits.storageSizeBytes * NEARLY_USED_PCT / 100) {
-        add("database_nearly_full", `The game database is ${NEARLY_USED_PCT}% full: its free storage is ${limits.storageSizeBytes / 1024 / 1024} MB. When it's full, it can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database, or export_database to keep them elsewhere.");
-      }
+    if (databaseUse && !isFull && storageSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) {
+      add("database_nearly_full", `The game's storage (its database and kept rooms) is ${NEARLY_USED_PCT}% full: a game keeps at most ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. When it's full, the database can change and delete rows but not grow.`, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room.");
     }
     const gameFailedErases = failedErases.filter((erase) => erase.game_id === game.id);
     if (gameFailedErases.length) {

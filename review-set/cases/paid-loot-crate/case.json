@@ -1,0 +1,8 @@
+{
+  "title": "Crate Racer",
+  "description": "Race karts and open crates for new skins.",
+  "is_honest": false,
+  "content_rule": "purchases",
+  "protection": null,
+  "why": "A crate bought with real money that gives a random skin is a paid random reward. Selling the skin itself, by name, is fine."
+}

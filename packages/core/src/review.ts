@@ -26,6 +26,8 @@ export const CONTENT_RULES = {
   chat: "Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes.",
   crypto:
     "Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet.",
+  purchases:
+    "Selling paid random rewards (loot boxes), including through coins bought with money, or showing prices in coins or gems without the real price beside them.",
   faked_plays: "Faking plays or players, with bots, scripts or click farms.",
 } as const;
 export type ContentRule = keyof typeof CONTENT_RULES;
@@ -77,6 +79,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
   crypto: {
     fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
     notFine: "an NFT skin shop, an airdrop, \"deposit sats, invite friends, earn more\", or asking for a seed phrase.",
+  },
+  purchases: {
+    explanation: "Players always know what they pay for and what it costs in money: an item is sold by name, and a price in coins or gems shows the real price beside it.",
+    fine: "a free daily chest, a shop that shows \"500 gems ($4.99)\", and cosmetics bought by name.",
+    notFine: "a paid crate with a random skin, gems bought with money spent on a gacha pull, or a shop that sells gem bundles priced only in gems.",
   },
   faked_plays: {
     fine: "asking players to share your game, tester links, and playing your own game.",
@@ -252,6 +259,18 @@ export const REVIEW_CODES = {
     hasOwnMessage: true,
   },
   ai_real_money_gambling: { meaning: "The AI review found real-money gambling.", contentRule: "illegal", fix: `Take out betting with real money or anything bought with it, and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
+  ai_paid_random_rewards: {
+    meaning: "The AI review found paid random rewards (loot boxes): something bought with money, or with coins bought with money, that gives a random item.",
+    contentRule: "purchases",
+    fix: `Sell the item itself, by name, so the player knows what they get, and upload a new version. Free random rewards (a daily chest) are fine. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  ai_coin_price_without_real_price: {
+    meaning: "The AI review found prices in coins or gems with no real price beside them, for coins or gems bought with money.",
+    contentRule: "purchases",
+    fix: `Show the real price beside coin prices (Zaisma.items.list() gives each item's price in the player's currency as priceText), and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
   ai_free_text_chat: { meaning: "The AI review found free-text chat between players.", contentRule: "chat", fix: `Swap typed chat for preset phrases or emotes, and upload a new version. ${FIXED_VERSION_CHECKED} ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_disallowed_crypto: {
     meaning: "The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access.",
@@ -298,6 +317,12 @@ export const REVIEW_CODES = {
     meaning: "A private person sent a defamation notice saying the game falsely accuses them of a crime, so players can't open the game; the message says what it names.",
     contentRule: "defamation",
     fix: `Take out what the notice names and publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} If the claim is true or isn't about a private person, send a counter-notice to safety@zaisma.com instead; zaisma.com/legal/defamation says what to put in it.`,
+    hasOwnMessage: true,
+  },
+  country_law_notice: {
+    meaning: "A notice says the game breaks a law of one country that US law allows, so players in that country can't open it, and everyone else still can; the message says which law and what it names.",
+    contentRule: null,
+    fix: "Take out what the notice names and publish a fixed version (upload_files, then publish_version): a person at Zaisma checks it's gone and lifts the block, usually within a day. If the notice is wrong, write to safety@zaisma.com with the game_slug and why.",
     hasOwnMessage: true,
   },
   developer_account_deleted: {
@@ -457,3 +482,6 @@ export const LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS = 16;
 
 /** The scan found lifelike gore in this version, at any severity (it's kept as info on games for 16 and up). */
 export const needsLifelikeGoreAge = (report: ScanReport | null): boolean => !!report?.findings.some((finding) => finding.code === "ai_lifelike_gore");
+
+/** The build needs threads (SharedArrayBuffer), so it runs only in Chrome and Edge; false on reports from before the flag. */
+export const hasThreads = (report: ScanReport | null): boolean => report?.has_threads === true;

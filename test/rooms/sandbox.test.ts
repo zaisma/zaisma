@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { issueRoomKey } from "@zaisma/core";
+import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -64,7 +64,7 @@ function answerProbe(ws: WebSocket, probeNumber: number) {
   }
 }
 
-async function join(game: string, code: string, joinData?: unknown, samePass?: string) {
+async function join(game: string, code: string, joinData?: unknown, samePass?: string, isSpectator = false) {
   const { pass, player } = samePass ? { pass: samePass, player: null as never } : await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   expect(up.status).toBe(101);
@@ -88,9 +88,16 @@ async function join(game: string, code: string, joinData?: unknown, samePass?: s
     }
   };
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
-  ws.send(JSON.stringify({ type: "hello", pass, ...(joinData !== undefined ? { joinData } : {}) }));
+  ws.send(JSON.stringify({ type: "hello", pass, ...(joinData !== undefined ? { joinData } : {}), ...(isSpectator ? { isSpectator } : {}) }));
   expect((await next()).type).toBe("welcome");
-  return { ws, player, pass, say, next: fromGame };
+  /** The next state update (stateSyncEnabled), without its serverTimeMs, skipping anything else. */
+  const nextState = async () => {
+    for (;;) {
+      const { serverTimeMs, ...frame } = await next();
+      if (frame.type === "state") return frame;
+    }
+  };
+  return { ws, player, pass, say, next: fromGame, nextState };
 }
 
 const COUNTER = `
@@ -112,7 +119,7 @@ export default {
 
 describe("sandboxed game servers", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("runs the game's own server: state, messages and the room API", async () => {
@@ -129,6 +136,28 @@ describe("sandboxed game servers", () => {
 
     a.say("end");
     expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
+  });
+
+  it("gives the game server what each account owns, from its pass, and a guest nothing", async () => {
+    await addSandboxGame(
+      "wardrobe",
+      `export default {
+  maximumPlayerCount: 4,
+  setup: () => ({}),
+  onJoin(state, player, room) { room.send(player.id, { owned: player.ownedItemNames ?? null, everyone: room.players.map((other) => other.ownedItemNames ?? null) }); },
+};`,
+    );
+    const account = await createAccount(e.DB, { id: "supabase-user-wardrobe", username: "Cape_Owner", ageBand: "18+" });
+    await e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ('purchase_wardrobecape1', 'gwardrobe', 'supporter_cape', 'permanent', ?, 'grant', 'completed', 0, 0)")
+      .bind(account.player_id)
+      .run();
+    const roomKey = await issueRoomKey(e.DB, "gwardrobe", account.id);
+    const { pass } = await (await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: "wardrobe", roomKey }) })).json<{ pass: string }>();
+    const owner = await join("wardrobe", "WRDRBE", undefined, pass);
+    expect(await owner.next()).toEqual({ type: "message", data: { owned: ["supporter_cape"], everyone: [["supporter_cape"]] } });
+    const guest = await join("wardrobe", "WRDRBE");
+    expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] } });
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
   });
 
   it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {
@@ -261,6 +290,66 @@ describe("sandboxed game servers", () => {
     again.ws.close(1000);
   });
 
+  it("sends each player their view of the state from the sandbox: a full copy, then what changed", async () => {
+    await addSandboxGame(
+      "cards",
+      `export default {
+  stateSyncEnabled: true,
+  setup: () => ({ turn: 0, hands: {} }),
+  onJoin(state, player) { state.hands[player.id] = ["A", "K"]; },
+  onMessage(state, player, message) { if (message === "draw") state.hands[player.id].push("Q"); },
+  stateView: (state, viewer, room) => ({ myHand: state.hands[viewer.id] || [], cardCounts: Object.fromEntries(Object.entries(state.hands).map(([id, hand]) => [id, hand.length])), players: room.players.length }),
+};`,
+    );
+    const a = await join("cards", "CARDSA");
+    expect(await a.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K"], cardCounts: { [a.player.id]: 2 }, players: 1 } });
+    const b = await join("cards", "CARDSA");
+    expect(await b.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K"], cardCounts: { [a.player.id]: 2, [b.player.id]: 2 }, players: 2 } });
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["cardCounts", b.player.id], 2], [["players"], 2]] });
+    b.say("draw");
+    // A never sees B's cards, only how many he holds.
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["cardCounts", b.player.id], 3]] });
+    expect(await b.nextState()).toEqual({ type: "state", changes: [[["myHand"], ["A", "K", "Q"]], [["cardCounts", b.player.id], 3]] });
+    // B's game connects again: a turn-based room has no tick, so the sandbox sends his copy at once.
+    const again = await join("cards", "CARDSA", undefined, b.pass);
+    expect(await again.nextState()).toEqual({ type: "state", full: { myHand: ["A", "K", "Q"], cardCounts: { [a.player.id]: 2, [b.player.id]: 3 }, players: 2 } });
+  });
+
+  it("sends a real-time game's state after its ticks, even without onTick", async () => {
+    await addSandboxGame("drifter", `export default { ticksPerSec: 20, stateSyncEnabled: true, setup: () => ({ x: 0 }), onTick(state) { state.x++; } };`);
+    const a = await join("drifter", "DRFTAB");
+    const first = await a.nextState();
+    expect(first).toMatchObject({ type: "state", full: { x: expect.any(Number) } });
+    expect(await a.nextState()).toEqual({ type: "state", changes: [[["x"], first.full.x + 1]] });
+    await addSandboxGame("still", `export default { ticksPerSec: 20, stateSyncEnabled: true, setup: () => ({ map: "docks" }) };`);
+    const b = await join("still", "STLLAB");
+    expect(await b.nextState()).toEqual({ type: "state", full: { map: "docks" } });
+  });
+
+  it("takes latest-only sends from the sandbox, and throws in the game's handler on a delivery it doesn't take", async () => {
+    await addSandboxGame(
+      "aimer",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, message, room) {
+    if (message === "bad") room.broadcast({ type: "aim" }, { delivery: "lossy" });
+    else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only", latestKey: "aim" });
+  },
+};`,
+    );
+    const a = await join("aimer", "AMRAAB");
+    a.say("bad");
+    a.say(45);
+    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 } });
+    a.ws.close(1000);
+    let error: { message: string } | null = null;
+    for (let i = 0; i < 40 && !error; i++) {
+      error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gaimer'").first<{ message: string }>();
+      if (!error) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(error!.message).toContain('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
+  });
+
   it("ticks", async () => {
     await addSandboxGame(
       "ticker",
@@ -367,7 +456,7 @@ describe("sandboxed game servers", () => {
     a.ws.close(1000);
   });
 
-  it("runs the game server's onEnding once the game has used the month's free tier, with room.endsAt", async () => {
+  it("runs the game server's onEnding once the game's hosting pauses, with room.endsAt", async () => {
     await addSandboxGame(
       "closing",
       `export default {
@@ -378,11 +467,11 @@ describe("sandboxed game servers", () => {
     );
     const a = await join("closing", "ABCDEF");
     expect(await a.next()).toEqual({ type: "message", data: { endsAt: null } });
-    await e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES ('gclosing', ?, ?)").bind(new Date().toISOString().slice(0, 10), 1000 * 3600).run();
-    // Make the room's 5-minute check on the free tier due now.
+    await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES ('gclosing', ?, 500, ?, 'free_used')").bind(monthStartDateOf(), Date.now()).run();
+    // Make the room's 5-minute check on the game's hosting due now.
     const stub = e.ROOMS.get(e.ROOMS.idFromName("closing:ABCDEF"));
     await runInDurableObject(stub, (room: Room) => {
-      (room as any).freeTierCheckedAtMs = 0;
+      (room as any).hostingCheckedAtMs = 0;
     });
     await runDurableObjectAlarm(stub);
     const ending = await a.next();
@@ -392,15 +481,54 @@ describe("sandboxed game servers", () => {
     a.ws.close(1000);
   });
 
+  it("lets spectators watch: onSpectatorJoin, room.spectators and audience reach the game's own server, and spectators can't send", async () => {
+    await addSandboxGame(
+      "arena",
+      `export default {
+        maximumPlayerCount: 2,
+        maximumSpectatorCount: 5,
+        setup: () => ({}),
+        onJoin(state, player, room) { room.send(player.id, { hi: player.name }); },
+        onSpectatorJoin(state, spectator, room) { room.send(spectator.id, { watching: room.spectators.length, players: room.players.length }); },
+        onMessage(state, player, message, room) {
+          if (message === "all") room.broadcast({ to: "everyone" });
+          if (message === "players") room.broadcast({ to: "players" }, { audience: "players" });
+          if (message === "spectators") room.broadcast({ to: "spectators" }, { audience: "spectators" });
+        },
+      };`,
+    );
+    // Nobody's playing yet: there's nothing to watch, and a spectator never starts a room.
+    const early = await SELF.fetch(`${R}/v1/rooms/arena/WATCHA`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+    const earlySocket = early.webSocket!;
+    earlySocket.accept();
+    const earlyAnswer = new Promise<any>((r) => earlySocket.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
+    earlySocket.send(JSON.stringify({ type: "hello", pass: (await newPass("arena")).pass, isSpectator: true }));
+    expect(await earlyAnswer).toMatchObject({ type: "error", code: "no_room" });
+
+    const a = await join("arena", "WATCHA");
+    expect((await a.next()).data).toEqual({ hi: a.player.name });
+    const watcher = await join("arena", "WATCHA", undefined, undefined, true);
+    expect((await watcher.next()).data).toEqual({ watching: 1, players: 1 });
+    a.say("all");
+    a.say("players");
+    a.say("spectators");
+    expect((await watcher.next()).data).toEqual({ to: "everyone" });
+    expect((await watcher.next()).data).toEqual({ to: "spectators" });
+    expect((await a.next()).data).toEqual({ to: "everyone" });
+    expect((await a.next()).data).toEqual({ to: "players" });
+    watcher.say("hello");
+    expect(await watcher.next()).toMatchObject({ type: "error", code: "spectator_cannot_send" });
+  });
+
   it("won't start a game server with an option it doesn't take, and tells its developer which ones it does", async () => {
     await addSandboxGame("old-names", `export default { tickRate: 20, setup: () => ({}) };`);
     const up = await SELF.fetch(`${R}/v1/rooms/old-names/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
     expect(up.status).toBe(404);
     const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
-    // Errors are kept to 400 characters, which keeps the whole list of options.
+    // Errors are kept to 600 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 
@@ -553,7 +681,7 @@ function tickingSession(asked: { method: string; queued?: any[]; roomChanges?: a
   };
 }
 
-const ROOM = { players: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, awayReason: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
+const ROOM = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, awayReason: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
 const PLAYER = { id: "player_a", name: "A", kind: "guest" as const };
 
 describe("a game server whose sandbox keeps failing", () => {
@@ -601,7 +729,7 @@ describe("a real-time game server in the sandbox", () => {
     expect(await server.stateCopy()).toMatchObject({ said: ["one", "two", "three"], tickCount: 1 });
     // Messages that came before a join go first, with the join's call.
     server.onMessage!(undefined, PLAYER, "four", ROOM);
-    await server.onJoin!(undefined, PLAYER, ROOM, null, { fromRoomCode: null, isReturning: false });
+    await server.onJoin!(undefined, PLAYER, ROOM, null, { fromRoomCode: null, isReturning: false, isSpectator: false });
     expect(asked.at(-1)).toMatchObject({ method: "call onJoin", queued: [{ hook: "onMessage", payload: "four" }] });
     expect(server.stats.callCount).toBe(3);
   });
@@ -641,7 +769,7 @@ describe("a game server's new errors", () => {
     };
     let newErrorCount = 0;
     const server = await wrapSession(async () => session as never, () => {}, {}, () => newErrorCount++);
-    const room = { players: [], isListed: true, isOpen: true, name: null, labels: {}, endsAt: null , serverTimeMs: () => Date.now() } as never;
+    const room = { players: [], spectators: [], isListed: true, isOpen: true, name: null, labels: {}, endsAt: null , serverTimeMs: () => Date.now() } as never;
     await expect(server.onTick!({}, 0.1, room)).rejects.toThrow("boom");
     await expect(server.onTick!({}, 0.1, room)).rejects.toThrow("boom");
     expect(newErrorCount).toBe(1);
@@ -652,5 +780,61 @@ describe("a game server's new errors", () => {
     message = "another";
     await expect(server.onTick!({}, 0.1, room)).rejects.toThrow("another");
     expect(newErrorCount).toBe(2);
+  });
+});
+
+describe("spectators in Zaisma rooms", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+    await addSandboxGame("watched", "export default { maximumPlayerCount: 2, maximumSpectatorCount: 7, setup: () => ({}), onMessage() {} };");
+  });
+
+  /** The game's row in a table once it matches, waiting for the room to write it. */
+  async function rowOnce(sql: string, isWanted: (row: any) => boolean): Promise<any> {
+    let row: any = null;
+    for (let i = 0; i < 50; i++) {
+      row = await e.DB.prepare(sql).bind("gwatched").first();
+      if (row && isWanted(row)) return row;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return row;
+  }
+
+  it("needs a valid pass to watch, like playing", async () => {
+    await join("watched", "WTCHPS");
+    const up = await SELF.fetch(`${R}/v1/rooms/watched/WTCHPS`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+    const ws = up.webSocket!;
+    ws.accept();
+    const answer = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
+    ws.send(JSON.stringify({ type: "hello", pass: "not a pass", isSpectator: true }));
+    expect(await answer).toMatchObject({ type: "error", code: "bad_pass" });
+  });
+
+  it("counts spectators in the room's row apart from its players, and watching isn't player time", async () => {
+    const player = await join("watched", "WTCHRW");
+    const watcher = await join("watched", "WTCHRW", undefined, undefined, true);
+    expect(await rowOnce("SELECT * FROM live_rooms WHERE game_id = ?", (row) => row.spectator_count === 1)).toMatchObject({ player_count: 1, spectator_count: 1, maximum_spectator_count: 7 });
+    // As if the spectator had watched for an hour.
+    await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("watched:WTCHRW")), (_room: Room, state) => {
+      for (const socket of state.getWebSockets()) {
+        const attachment = socket.deserializeAttachment();
+        if (attachment?.isSpectator) socket.serializeAttachment({ ...attachment, joinedAtMs: Date.now() - 3600_000 });
+      }
+    });
+    watcher.ws.close(1000);
+    expect(await rowOnce("SELECT * FROM live_rooms WHERE game_id = ?", (row) => row.spectator_count === 0)).toMatchObject({ player_count: 1, spectator_count: 0 });
+    player.ws.close(1000);
+    const usage = await rowOnce("SELECT * FROM room_usage WHERE game_id = ?", () => true);
+    expect(usage.room_play_duration_sec).toBeLessThan(60);
+  });
+
+  it("tells spectators the match ended once the last player leaves", async () => {
+    const player = await join("watched", "WTCHND");
+    const watcher = await join("watched", "WTCHND", undefined, undefined, true);
+    const closed = new Promise<number>((r) => watcher.ws.addEventListener("close", (ev) => r(ev.code)));
+    player.ws.close(1000);
+    expect(await watcher.next()).toEqual({ type: "ended", message: "The match ended." });
+    expect(await closed).toBe(4000);
+    expect(await rowOnce("SELECT COUNT(*) AS room_count FROM live_rooms WHERE game_id = ?", (row) => row.room_count === 0)).toEqual({ room_count: 0 });
   });
 });

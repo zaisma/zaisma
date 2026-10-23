@@ -42,6 +42,10 @@ export interface Game {
   deleted_account_erase_enabled: number;
   /** 1 when Zaisma's Join (friends on zaisma.com, Zaisma.friends) takes players into its rooms; 0 grays it as "This game doesn't take joins". */
   friend_joins_enabled: number;
+  /** 1 when Zaisma measures how the game runs for its players (load time, frame rate, stutter, crashes), as totals. */
+  performance_measuring_enabled: number;
+  /** What the game may draw from its developer's credit in a month, in cents; NULL: no paid hosting, so it stops at its free allowance. */
+  monthly_budget_cents: number | null;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */
@@ -74,6 +78,8 @@ export interface Game {
   details_waiting_for_review: string | null;
   /** Why the title keeps the game off lists ("No slop"), as JSON (a ReviewReason); NULL when none. */
   title_listing_reason: string | null;
+  /** The countries it's blocked in on a notice under their law, a JSON list of CountryBlock (country-blocks.ts); '[]' for none. */
+  country_blocks: string;
   /** The title a person cleared: the listing check leaves the title alone while it's this. */
   cleared_title: string | null;
   /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */
@@ -81,6 +87,12 @@ export interface Game {
   listing_checked_at_ms: number | null;
   /** The color Zaisma tints its glass with over the game's background, as #RRGGBB; NULL for none. */
   glass_tint_color: string | null;
+  /** Its refund policy (items.ts, REFUND_POLICIES); NULL until the developer states one, which a game that sells anything has. */
+  refund_policy: string | null;
+  /** The refund policy in the developer's own words, with refund_policy own_words only. */
+  refund_policy_text: string | null;
+  /** What it sells through its own payments, a JSON list of item categories; '[]' for nothing. */
+  own_payment_categories: string;
   /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */
@@ -172,6 +184,8 @@ export interface ScanReport {
   read_file_sha256s?: string[];
   /** Another developer's game most of this version's files come from (matches_another_developers_game). For Zaisma's eyes only: the developer is never told which game. */
   matched_game?: { game_id: string; matched_file_count: number; compared_file_count: number };
+  /** The build needs threads (SharedArrayBuffer), found as the check finds needs_threads. Absent on reports from before Threads in Chrome and Edge. */
+  has_threads?: boolean;
 }
 
 /** The AI review in a scan report: readers, then one judge. */
@@ -242,7 +256,7 @@ export const ZAISMA_PLAYER_REPORT_REASONS = ["real_life_threat", "personal_detai
 export type ZaismaPlayerReportReason = (typeof ZAISMA_PLAYER_REPORT_REASONS)[number];
 export const isForZaisma = (playerReason: string): playerReason is ZaismaPlayerReportReason => (ZAISMA_PLAYER_REPORT_REASONS as readonly string[]).includes(playerReason);
 
-/** A room with players in it (migrations/0015_live_rooms.sql, 0034, 0118). */
+/** A room with players in it, or a listed kept room waiting with nobody in it (migrations/0015_live_rooms.sql, 0034, 0118, 0121). */
 export interface LiveRoom {
   game_id: string;
   room_code: string;
@@ -251,6 +265,9 @@ export interface LiveRoom {
   /** Seats held for players out of the match for now, or on their way (migrations/0025_held_seats.sql). */
   held_seat_count: number;
   maximum_player_count: number;
+  /** Spectators watching, and how many the room takes: 0 when its game server turns watching off (migrations/0122_spectators.sql). */
+  spectator_count: number;
+  maximum_spectator_count: number;
   is_listed: number;
   is_open: number;
   /** 1 when Zaisma's Join offers the room; 0 grays it as "Private room" (room.setFriendJoinsEnabled). */
@@ -264,6 +281,8 @@ export interface LiveRoom {
   continent: string | null;
   /** The version the room's sandboxed game server runs; null for built-in game servers (migrations/0118_room_versions.sql). */
   version_id: string | null;
+  /** 1: kept by its game server (room.setKept), so the row stays with nobody in it (migrations/0121_kept_rooms.sql). */
+  is_kept: number;
   created_at_ms: number;
   updated_at_ms: number;
 }

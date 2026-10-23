@@ -5,7 +5,7 @@ import "../../apps/site/src/index.ts";
 import { HOME_SCRIPT } from "../../apps/site/src/home-script.ts";
 
 /**
- * The home page (apps/site/src/home.ts): the game in focus with its pane, and the shelf of Continue playing, Popular, Trending and New under it.
+ * The home page (apps/site/src/home.ts): one shelf of Continue playing, Popular, Trending and New, there from the first frame, with no game picked for the player.
  * The page is the same for everyone, so these read it as a stranger sees it.
  */
 
@@ -15,7 +15,7 @@ const day = (agoDays: number) => new Date(Date.now() - agoDays * DAY_MS).toISOSt
 
 const LIVE_SLUGS = ["home-one", "home-two", "home-three", "home-four", "home-five", "home-six", "home-seven", "home-eight", "home-nine", "home-ten"];
 
-async function homePage(): Promise<{ response: Response; text: string; data: { games: { slug: string; background: unknown; owner_id?: string; id?: string }[]; guest_picks: string[] } }> {
+async function homePage(): Promise<{ response: Response; text: string; data: { games: { slug: string; background: unknown; owner_id?: string; id?: string; description?: string }[] } }> {
   const response = await SELF.fetch(`${SITE}/`);
   const text = await response.text();
   const data = JSON.parse(text.match(/<script type="application\/json" id="home-data">([\s\S]*?)<\/script>/)![1]!);
@@ -56,7 +56,7 @@ describe("the home page", () => {
 
   it("lists Popular, then Trending and New when they have games, after Continue playing", async () => {
     const { text } = await homePage();
-    const headings = [...text.matchAll(/<h2 id="([a-z]+)-title">/g)].map((match) => match[1]);
+    const headings = [...text.matchAll(/<h2 class="shelf-title" id="([a-z]+)-title">/g)].map((match) => match[1]);
     expect(headings[0]).toBe("continue");
     expect(headings).toContain("popular");
     const order = ["continue", "popular", "trending", "new"].filter((id) => headings.includes(id));
@@ -64,23 +64,15 @@ describe("the home page", () => {
     expect(text).toContain('href="/games?sort=popular"');
   });
 
-  it("gives a guest at most Popular's top 8 to open on, in Popular's order", async () => {
-    const { text, data } = await homePage();
-    expect(data.guest_picks.length).toBeLessThanOrEqual(8);
-    expect(data.guest_picks.length).toBeGreaterThan(0);
-    // Popular's covers are on the page in its order; the picks are its first ones.
-    const popular = text.slice(text.indexOf('id="track-popular"'), text.indexOf("</section>", text.indexOf('id="track-popular"')));
-    const onPage = [...popular.matchAll(/href="\/g\/([a-z0-9-]+)"/g)].map((match) => match[1]);
-    expect(onPage.slice(0, data.guest_picks.length)).toEqual(data.guest_picks);
-    expect(data.guest_picks[0]).toBe("home-one");
-  });
-
-  it("links a cover to its game's page and the pane's Play and Details to the game", async () => {
+  it("opens on the shelf itself, with no game picked for the player and nothing staged", async () => {
     const { text } = await homePage();
-    // A game with no cover yet shows the empty well (is-empty), still linking to its page.
-    expect(text).toMatch(/<a class="cover-art cut-carved( is-empty)?" data-cut-line="0" href="\/g\/home-one"/);
-    expect(text).toMatch(/<a class="shell run-wrap" href="\/g\/home-one\?play"/);
-    expect(text).toMatch(/<a class="shell cut-btn[^"]*" href="\/g\/home-one"/);
+    expect(text).not.toContain("home-pane");
+    expect(text).not.toContain('id="home-opening"');
+    expect(text).not.toContain("data-home-staged");
+    // The page's only way to start a game is a game's page: covers link there, and the home has no Play of its own.
+    expect(text).not.toMatch(/href="\/g\/[a-z0-9-]+\?play"/);
+    expect(text).toContain('<a class="cover-art" data-cut-line="0" href="/g/home-one"');
+    expect(text).toMatch(/<h1 class="sr">/);
   });
 
   it("lets a click or tap on a cover follow its link to the game's page, never cancelling it", () => {
@@ -101,26 +93,19 @@ describe("the home page", () => {
     expect(shader.stillUrl).toBe(`${SITE}/shaders/shader-home-three/still.png`);
   });
 
-  it("sends a background's measured tone, so the page can open on its color and glass before it loads", async () => {
-    const { text, data } = await homePage();
+  it("sends a background's measured tone, so the glass follows it without measuring", async () => {
+    const { data } = await homePage();
     const bySlug = Object.fromEntries(data.games.map((game) => [game.slug, game]));
     expect((bySlug["home-three"]!.background as { wide: { tone: unknown } }).wide.tone).toEqual({ averageColor: "#101828", isGlassSmoked: true, glassTint: "rgba(13, 18, 26, 0.46)" });
     expect((bySlug["home-two"]!.background as { wide: { tone: unknown } }).wide.tone).toBeNull();
-    // The opening script, in the head before the first paint, gets every game's slug, the guest picks and the tones there are.
-    const head = text.slice(0, text.indexOf("</head>"));
-    const opening = JSON.parse(head.match(/<script type="application\/json" id="home-opening">([\s\S]*?)<\/script>/)![1]!);
-    expect(opening.slugs).toContain("home-one");
-    expect(opening.guest_picks).toEqual(data.guest_picks);
-    expect(Object.keys(opening.tones)).toEqual(["home-three"]);
-    expect(opening.tones["home-three"].wide.isGlassSmoked).toBe(true);
-    expect(head.indexOf('id="home-opening"')).toBeLessThan(head.search(/<script src="\/js\/home-opening\.[0-9a-f]{16}\.js"><\/script>/));
   });
 
-  it("keeps the games' owners and IDs out of what the browser gets", async () => {
+  it("keeps the games' owners and IDs out of what the browser gets, and what it doesn't need", async () => {
     const { data } = await homePage();
     for (const game of data.games) {
       expect(game.owner_id).toBeUndefined();
       expect(game.id).toBeUndefined();
+      expect(game.description).toBeUndefined();
     }
   });
 
@@ -129,8 +114,19 @@ describe("the home page", () => {
     const second = await homePage();
     expect(second.text).toBe(first.text);
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
-    // What is the player's own comes from the browser (the guest note, Continue playing) and starts hidden.
-    expect(first.text).toMatch(/<section class="home-row" id="home-continue"[^>]*hidden/);
+    // What is the player's own comes from the browser (the guest note, Continue playing, closed news) and starts hidden.
+    expect(first.text).toMatch(/<div class="stack-cell[^"]*" id="home-continue" hidden>/);
+  });
+
+  it("shows Zaisma's current news as a banner the browser opens unless this device closed it, and none once it ends", async () => {
+    await env.DB.prepare("INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_homenews', 'Kept rooms are here.', '/forum', NULL, ?, ?, ?, 'test')").bind(Date.now() - 1000, Date.now() + DAY_MS, Date.now()).run();
+    const { text } = await homePage();
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-news" hidden><div data-announcement-id="announcement_homenews">/);
+    expect(text).toContain("Kept rooms are here.");
+    expect(text).toMatch(/href="\/forum"[\s\S]*?Read more/);
+    expect(text).toContain('class="banner-close"');
+    await env.DB.prepare("UPDATE announcements SET ends_at_ms = ? WHERE id = 'announcement_homenews'").bind(Date.now() - 1).run();
+    expect((await homePage()).text).not.toContain("home-news");
   });
 
   it("refuses to be framed by other sites, as every page does", async () => {

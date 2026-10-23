@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -32,6 +32,8 @@ const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = `http://localhost:${PORTS.mail}`;
+// The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
+const FEEDBACK = `http://localhost:${PORTS.feedback}`;
 const EMAIL = "preview@zaisma.test";
 // The token Cloudflare's test keys answer for (the preview uses them).
 const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
@@ -58,6 +60,8 @@ writeFileSync(
   [`SITE_ORIGIN=${SITE}`, `SIGN_IN_SIGNING_KEY='${readFileSync(signInKeyFile, "utf8")}'`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
     // Email codes go to the stand-in mailbox, never to a real address.
     `EMAIL_OUTBOX_URL=${MAIL}/`,
+    // The feedback overlay and its comments (workers/site.mjs, withFeedback): the preview's entry only, never production.
+    `PREVIEW_FEEDBACK_ORIGIN=${FEEDBACK}`,
     // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
     "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`,
     // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
@@ -139,6 +143,8 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), Stri
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-dns.mjs"), String(PORTS.dns)], { stdio: "ignore" }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-mail.mjs"), String(PORTS.mail), STATE], { stdio: "ignore" }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-turnstile.mjs"), String(PORTS.turnstile)], { stdio: "ignore" }));
+const feedbackLog = openSync(join(STATE, "feedback.log"), "w");
+children.push(spawn("node", [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-site.mjs"), String(PORTS.signInSite), SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID], { stdio: "ignore" }));
 // One at a time: they share the preview's database, and starting together can find it locked.
 children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
@@ -255,6 +261,17 @@ seedGamePage();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
+// Country blocks, again this run: Night Drive in the United States, where the preview's own requests come from (its 451 page,
+// and the home leaves it out), and Four in a Row in the United Kingdom, which still plays here (its dashboard's alert).
+const countryBlock = (countryCode, words) =>
+  JSON.stringify([{ country_code: countryCode, review_reason: { code: "country_law_notice", message: `A notice under ${countryCode} law names this: ${words}`, content_rule: null }, blocked_at_ms: Date.now() }]).replaceAll("'", "''");
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `UPDATE games SET country_blocks = '${countryBlock("US", "A court order names the street race on level 2.")}' WHERE slug = 'night-drive';
+     UPDATE games SET country_blocks = '${countryBlock("GB", "Ofcom says the chant in the lobby stirs up racial hatred under the Public Order Act 1986.")}' WHERE slug = 'four-in-a-row'`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
 // clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
 spawnSync(
@@ -271,6 +288,8 @@ await seedWrongPasswords();
 await seedProtectAccount();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
+// An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
+seedAnnouncements();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
@@ -329,6 +348,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   or choose a .glsl file to preview it before sending; the purple glass tint)
                   ${SITE}/dashboard/arena/details#background  (a shader the check refused: "It flashes more than 3 times a second…")
                   ${GAMES}/shard-dodge/_zaisma/background?screen=phone  (the shader runner alone, on the game's own site)
+  Country blocks  ${SITE}/g/night-drive  (blocked in the United States, where the preview's requests come from: the 451 page, and the home leaves it out);
+                  ${SITE}/dashboard/four-in-a-row  (blocked in the United Kingdom: the alert; it still plays here); ${SITE}/admin/games/ for either
+                  game's Country blocks section; ${SITE}/legal/content-rules  (the paragraph under "If a game breaks a rule")
   Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
@@ -363,13 +385,18 @@ Zaisma preview is running. Nothing here touches the live site.
   Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
                   and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
   Room traffic    ${SITE}/dashboard/arena/players#multiplayer  (Room traffic this month under the use table: four numbers per player
-                  a second, the biggest message types and the "move" hint; Free hosting above it names the hours its game server's CPU adds)
+                  a second, the biggest message types and the "move" hint)
+  Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
+                  (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
+                  (100% free, "$3.40 of $5 budget this month"),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
   Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test; the code arrives in the mailbox below)
   Mailbox         ${MAIL}  (the email codes the preview sent, as players get them; nothing goes to a real address)
+  Feedback        the Feedback button at the bottom right of every page: click a thing or drag a box to comment; a session runs
+                  npm run feedback for every open comment with its pictures, and its replies show on the page
   Wrong passwords ${SITE}/signin  (Guessed_At had 20 wrong passwords today: its password shows the lockout message; get in
                   with Forgot password, guessed@example.test, and its account page says so once, then its password
                   works on this device. Guessed_Twice has no email or passkey: its account page adds both buttons)
@@ -414,6 +441,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   then Players, Block: Zaisma asks beside the game; a guest's block is for the session)
   Players plate   ${SITE}/g/arena?play  (Players in the bar: who's in the room with Mute and ⋯, with two windows in one room),
                   ${SITE}/g/tiny-farm?play  (a game with its own netcode), ${SITE}/g/shard-dodge?play  (single player: no button)
+  Spectators      ${SITE}/friends  (Kit_Spark's full room: Join grayed, Watch beside it),  ${SITE}/g/arena#rooms  ("· 2 watching"
+                  and Watch),  ${SITE}/g/arena?play  then the room's code in another window as ?room=CODE&watch=1  (Players:
+                  "1 watching" for the player, "You're watching" for the spectator)
   Ages            ${SITE}/g/shard-dodge  (16 and up: signed out, "Needs a Zaisma account"; as Quiet_Comet, 14, closed with
                   Find other games, and missing from ${SITE}/ and ${SITE}/friends; as Preview_Studio, Play opens it),
                   ${SITE}/dashboard/shard-dodge/details  (Ages on 16 and up, Zaisma accounts locked to Accounts only)
@@ -622,6 +652,11 @@ async function seed() {
       { link_name: "prize", destination_url: "https://scam-prizes.example/claim", is_on_game_page: false },
     ],
   });
+  // Tiny Farm's items, kept beside its folder as a developer keeps them in git (zaisma items set), with the refund policy a price needs.
+  await api("PATCH", "/games/tiny-farm/purchase-settings", { refund_policy: "unused_within_14_days" });
+  for (const { item_name: itemName, ...fields } of JSON.parse(readFileSync(join(ROOT, "scripts/preview/tiny-farm-items.json"), "utf8"))) {
+    await api("PUT", `/games/tiny-farm/items/${itemName}`, fields);
+  }
   // Shard Dodge's links on its game page, each in its site's look (Discord and the website only for
   // signed-in adults), and a share picture of its own that shared links show instead of the cover.
   await api("PATCH", "/games/shard-dodge", {
@@ -742,6 +777,8 @@ async function seed() {
   const { tester: team } = await api("POST", `/games/${secret.slug}/testers`, { name: "My team", version_choice: "newest_passed", ends_at: new Date(Date.now() + 14 * 86400_000).toISOString() });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: new URL(tester.link_url).pathname, team: new URL(team.link_url).pathname, arena: new URL(arena.link_url).pathname }));
+  // Star Haul: a game with a $2 budget that used it this month, so its hosting is paused (seedHolds writes the month).
+  await api("POST", "/games", { title: "Star Haul", slug: "star-haul", description: "Haul cargo between stations before the pirates catch you.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] });
 
   await seedHolds(api, upload, go, form);
 
@@ -766,7 +803,7 @@ async function seed() {
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
 async function seedEngineSamples(api, upload) {
-  const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
+  const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", "godot-threads": "Godot with threads", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
   const samples = [];
   for (const engine of engines) {
@@ -995,25 +1032,47 @@ async function seedHolds(api, upload, go, form) {
     ruling("review_precedent_previewactive001", "active", "pass", "A story that mentions Dogecoin", "A story that mentions another coin without promoting it.", standIn, `'{"is_passing":true,"cases":[],"summary":"Held: 4 cases came out right with the ruling in force."}', ${Date.now()}`),
   ].join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 
-  // Rocket Lab: this month's free player-hours on Zaisma rooms used up, so new rooms are paused
-  // (the developer home's alert). Not a game the preview's multiplayer is tried on. Tried again while
-  // the running rooms have the database busy.
+  // The hosting meter (packages/core/src/hosting.ts), each game's month as the hosting job writes it (game_hosting_months).
+  // Rocket Lab: 2,500 hours in rooms, all of its free hosting, so it's paused (the developer home's alert). Not a game the
+  // preview's multiplayer is tried on. Tried again while the running rooms have the database busy.
   for (let i = 0; i < 5; i++) {
-    // And Cave Crew: 120 hours in rooms and 860 MB through Zaisma's relay this month (43 more hours), for the stats line that counts both.
-    // And Four in a Row: 850 of its 1,000 free hours this month, for the 80% heads-up on its card and Overview.
+    // And Cave Crew: 250 hours in rooms and 15 GB through Zaisma's relay this month, 40% of its free hosting, mostly the relay.
+    // And Four in a Row: 2,125 hours, 85% of it, for the heads-up on its card and Overview.
     // And Arena, whose own game server runs on Zaisma: 40 hours in rooms with 2,500 CPU-seconds (1,500 past the 1,000
-    // they include, 30 more hours), and its room traffic: big JSON "move" snapshots 12 times a player-second, for the hint.
+    // they include), its room traffic (big JSON "move" snapshots 12 times a player-second, 15% of them to players whose
+    // connection was backed up, for the hints), and requests and CPU outside rooms that take it past its free hosting:
+    // $3.40 of its $5 budget, from its developer's $20 top-up. And Star Haul at its $2 budget, paused.
     const arenaTraffic = [
       "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count) SELECT id, date('now'), 30, 144000, 4322000, 207520000, 1892000, 1586880000, 2500000, 8640000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, message_count = excluded.message_count, inbound_size_bytes = excluded.inbound_size_bytes, outbound_message_count = excluded.outbound_message_count, outbound_size_bytes = excluded.outbound_size_bytes, game_server_cpu_duration_ms = excluded.game_server_cpu_duration_ms",
       ...[
-        ["move", "outbound", 1728000, 1555200000, 1400],
-        ["input", "inbound", 4320000, 207360000, 64],
-        ["(zaisma)", "outbound", 150000, 30000000, 2100],
-        ["chat", "outbound", 14000, 1680000, 360],
-        ["chat", "inbound", 2000, 160000, 300],
-      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes`),
+        ["move", "outbound", 1728000, 1555200000, 1400, 259200],
+        ["input", "inbound", 4320000, 207360000, 64, 0],
+        ["(zaisma)", "outbound", 150000, 30000000, 2100, 0],
+        ["chat", "outbound", 14000, 1680000, 360, 0],
+        ["chat", "inbound", 2000, 160000, 300, 0],
+      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes, backedUpMessageCount]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes}, ${backedUpMessageCount} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes, backed_up_message_count = excluded.backed_up_message_count`),
     ].join("; ");
-    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+    const hostingSql = [
+      // Arena's requests and CPU outside rooms: 600 cents of CPU and 226 of requests, on the first of the month.
+      "INSERT INTO room_usage (game_id, date, game_server_request_count, outside_room_cpu_duration_ms) SELECT id, date('now', 'start of month'), 1412500, 150000000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET game_server_request_count = excluded.game_server_request_count, outside_room_cpu_duration_ms = excluded.outside_room_cpu_duration_ms",
+      "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec) SELECT id, date('now'), 300, 12600000 FROM games WHERE slug = 'star-haul' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec",
+      "UPDATE games SET monthly_budget_cents = 500 WHERE slug = 'arena'",
+      "UPDATE games SET monthly_budget_cents = 200 WHERE slug = 'star-haul'",
+      ...[
+        ["rocket-lab", 500, 0, "'free_used'", "unixepoch('now', '-20 minutes') * 1000"],
+        ["four-in-a-row", 425, 0, "NULL", "NULL"],
+        ["cave-crew", 200, 0, "NULL", "NULL"],
+        ["arena", 840, 340, "NULL", "NULL"],
+        ["star-haul", 700, 200, "'budget_used'", "unixepoch('now', '-2 hours') * 1000"],
+      ].map(([slug, usedCents, chargedCents, pausedReason, pausedAtMs]) => `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, paused_at_ms, paused_reason) SELECT id, date('now', 'start of month'), ${usedCents}, ${chargedCents}, ${pausedAtMs}, ${pausedReason} FROM games WHERE slug = '${slug}' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`),
+      // The developer's $20 top-up and what the two games drew from it.
+      "DELETE FROM credit_entries WHERE owner_id = (SELECT owner_id FROM games WHERE slug = 'arena')",
+      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, stripe_object_id, refundable_until_ms, created_at_ms) SELECT 'top_up_preview00000000001', owner_id, 'top_up', 2000, 'pi_preview_1', unixepoch('now', '+170 days') * 1000, unixepoch('now', '-10 days') * 1000 FROM games WHERE slug = 'arena'",
+      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000001', owner_id, 'hosting_charge', -340, id, unixepoch('now', '-1 hours') * 1000 FROM games WHERE slug = 'arena'",
+      "INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, game_id, created_at_ms) SELECT 'credit_entry_preview00000002', owner_id, 'hosting_charge', -200, id, unixepoch('now', '-2 hours') * 1000 FROM games WHERE slug = 'star-haul'",
+      "UPDATE owners SET credit_balance_cents = 1460 WHERE id = (SELECT owner_id FROM games WHERE slug = 'arena')",
+    ].join("; ");
+    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 9000000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 900000, 20000, 310, 15000000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 7650000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; " + hostingSql], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     if (inserted.status === 0) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -1253,6 +1312,8 @@ async function seedProfiles(go, form, people) {
  * The game's Join switches: Swift_Otter is in an Arena room the game made private, and Red_Lantern in
  * Cave Crew, which turned Join off. Four in a Row joins players by itself (quickJoin), and it and Cave
  * Crew have more open rooms than a list shows, so only Four in a Row's says Play finds you one.
+ * Spectators: Arena's room has 2 watching (its Rooms tab), and Kit_Spark's full room takes spectators,
+ * so Watch stays live beside a grayed Join.
  */
 function seedFriendsNow() {
   const later = 4102444800000;
@@ -1274,7 +1335,11 @@ function seedFriendsNow() {
     `UPDATE presences SET game_id = ${game("rocket-lab")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Quiet_Comet")}`,
     `UPDATE presences SET game_id = ${game("shard-dodge")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Moss_Runner")}`,
     room("arena", "MSSRNR", 3, 8, "DE", "EU", "Moss_Runner")[0],
+    // A kept world asleep with nobody in it (Kept rooms): listed below the room with players, with an empty seat meter and Join.
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, is_kept, country, continent, created_at_ms, updated_at_ms) SELECT ${game("arena")}, 'NRTHWC', 0, 8, 1, 'Northwatch', 1, 'DE', 'EU', ${later}, ${later} ${ifMade}`,
+    `INSERT OR REPLACE INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) SELECT ${game("arena")}, 'NRTHWC', 'Northwatch', 2400000, ${later}, ${later}, ${later} ${ifMade}`,
     ...room("four-in-a-row", "KTSPRK", 2, 2, "US", "NA", "Kit_Spark"),
+    `UPDATE live_rooms SET spectator_count = 2, maximum_spectator_count = 20 WHERE room_code IN ('MSSRNR', 'KTSPRK')`,
     // Tiny Farm plays on a server of its own: Tall_Pine is in one of its rooms there, so Join carries the server (Friends in games).
     `UPDATE games SET own_server_urls = '["wss://play.example.com"]' WHERE slug = 'tiny-farm'`,
     `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, server_url, joined_at_ms, updated_at_ms) SELECT ${game("tiny-farm")}, 'TNYFRM', ${player("Tall_Pine")}, 'wss://play.example.com', ${later}, ${later} ${ifMade}`,
@@ -1448,6 +1513,16 @@ function seedSecurityLog() {
     "UPDATE accounts SET where_used_from_enabled = 0 WHERE username = 'Moss_Runner'",
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * Short news on the home's banner (apps/site/src/announcements.ts): one current announcement with a link, from an
+ * hour ago to 30 days ahead, refreshed every run under the same ID, so a player who closed it doesn't see it again.
+ */
+function seedAnnouncements() {
+  const nowMs = Date.now();
+  const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 
 /**

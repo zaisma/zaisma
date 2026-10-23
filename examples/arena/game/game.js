@@ -1,16 +1,17 @@
-// Arena client: sends input when it changes and draws the game server's
-// snapshots, smoothed by drawing slightly in the past between two snapshots.
+// Arena client: sends input when it changes and draws the game server's state,
+// smoothed by room.smoothedState(): a moment behind, between the two updates around then.
 const canvas = document.querySelector("canvas");
 const context = canvas.getContext("2d");
 const statusElement = document.getElementById("status");
 const boardElement = document.getElementById("board");
 const PLATFORM_RADIUS = 360;
 const BODY_RADIUS = 18;
-const DRAW_DELAY_MS = 100; // behind the newest snapshot
+
+/** @typedef {{ name: string, color: string, x: number, y: number, score: number, isDashing: boolean, isOut: boolean }} ShownBody */
+/** @typedef {{ bodies: Record<string, ShownBody> }} World */
 
 /** @type {Zaisma.Room | null} */
 let room = null;
-let snapshots = []; // [{ receivedAtMs, bodies: Map(id -> { x, y, score, isDashing, isOut, name, color }) }]
 const flashes = [];
 
 function resize() {
@@ -35,9 +36,9 @@ function sendInput() {
   }
   const input = [Math.round(inputX * 10) / 10, Math.round(inputY * 10) / 10];
   const key = input.join(",");
-  if (key !== lastSentInput && room) { lastSentInput = key; room.send({ input }); }
+  if (key !== lastSentInput && room && !room.isSpectator) { lastSentInput = key; room.send({ input }); }
 }
-function dash() { if (room) room.send({ dash: true }); }
+function dash() { if (room && !room.isSpectator) room.send({ dash: true }); }
 addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (key === " " || key === "shift") { if (!event.repeat) dash(); event.preventDefault(); return; }
@@ -79,35 +80,27 @@ function draw() {
   context.strokeStyle = "#3a3d44";
   context.stroke();
 
-  // Pick the two snapshots around (now - DRAW_DELAY_MS) and blend between them.
-  const drawAtMs = performance.now() - DRAW_DELAY_MS;
-  let before = snapshots[0], after = snapshots[0];
-  for (let i = 0; i < snapshots.length - 1; i++) {
-    if (snapshots[i].receivedAtMs <= drawAtMs && snapshots[i + 1].receivedAtMs >= drawAtMs) { before = snapshots[i]; after = snapshots[i + 1]; break; }
-    if (snapshots[i + 1].receivedAtMs < drawAtMs) { before = after = snapshots[i + 1]; }
-  }
-  if (!before) return;
-  const blend = after === before ? 0 : Math.min(1, Math.max(0, (drawAtMs - before.receivedAtMs) / (after.receivedAtMs - before.receivedAtMs)));
+  // The world 100 ms behind the room's clock, positions blended between the two updates around then.
+  const world = /** @type {World | null} */ (room && room.smoothedState());
+  if (!world) return;
   const myId = room && room.me && room.me.id;
   // Players whose connection dropped are frozen by the game server, and drawn dimmed until they're back.
   const lostIds = new Set(room ? room.players.filter((player) => player.awayReason === "lost").map((player) => player.id) : []);
 
-  for (const [id, now] of after.bodies) {
-    const then = before.bodies.get(id) || now;
-    if (now.isOut) continue;
-    const x = then.x + (now.x - then.x) * blend;
-    const y = then.y + (now.y - then.y) * blend;
+  for (const [id, body] of Object.entries(world.bodies)) {
+    if (body.isOut) continue;
+    const { x, y } = body;
     context.globalAlpha = lostIds.has(id) ? 0.35 : 1;
     context.beginPath();
     context.arc(x, y, BODY_RADIUS, 0, Math.PI * 2);
-    context.fillStyle = now.color;
+    context.fillStyle = body.color;
     context.fill();
-    if (now.isDashing) { context.lineWidth = 5; context.strokeStyle = "#fff"; context.stroke(); }
+    if (body.isDashing) { context.lineWidth = 5; context.strokeStyle = "#fff"; context.stroke(); }
     if (id === myId) { context.lineWidth = 3; context.strokeStyle = "#fff"; context.beginPath(); context.arc(x, y, BODY_RADIUS + 7, 0, Math.PI * 2); context.stroke(); }
     context.fillStyle = "#ddd";
     context.font = "14px system-ui, sans-serif";
     context.textAlign = "center";
-    context.fillText(lostIds.has(id) ? `${now.name} (reconnecting…)` : now.name, x, y - BODY_RADIUS - 10);
+    context.fillText(lostIds.has(id) ? `${body.name} (reconnecting…)` : body.name, x, y - BODY_RADIUS - 10);
   }
   context.globalAlpha = 1;
   for (let i = flashes.length - 1; i >= 0; i--) {
@@ -123,15 +116,19 @@ function draw() {
 }
 requestAnimationFrame(draw);
 
-function onSnapshot(bodies) {
-  snapshots.push({ receivedAtMs: performance.now(), bodies: new Map(bodies.map((body) => [body.id, body])) });
-  if (snapshots.length > 10) snapshots.shift();
+/** The scores board, redrawn only when a score, name or color changed. */
+let shownBoard = "";
+function showBoard(/** @type {World} */ world) {
+  const bodies = Object.entries(world.bodies).sort(([, first], [, second]) => second.score - first.score);
+  const board = JSON.stringify(bodies.map(([id, body]) => [id, body.name, body.score, body.color]));
+  if (board === shownBoard) return;
+  shownBoard = board;
   boardElement.innerHTML = "";
-  for (const body of [...bodies].sort((first, second) => second.score - first.score)) {
+  for (const [id, body] of bodies) {
     const line = document.createElement("div");
     line.textContent = `${body.name}  ${body.score}`;
     line.style.color = body.color;
-    if (room && room.me && body.id === room.me.id) line.style.fontWeight = "700";
+    if (room && room.me && id === room.me.id) line.style.fontWeight = "700";
     boardElement.append(line);
   }
 }
@@ -149,7 +146,7 @@ colorButton.onclick = () => {
   color = COLORS[(COLORS.indexOf(color) + 1) % COLORS.length];
   try { localStorage.setItem("arena:color", color); } catch { /* fine */ }
   showColor();
-  if (room) room.send({ color });
+  if (room && !room.isSpectator) room.send({ color });
 };
 const inviteButton = document.getElementById("invite");
 inviteButton.onclick = async () => {
@@ -187,22 +184,25 @@ document.getElementById("friends").onclick = () => room && Zaisma.openSafetyPane
 async function start(roomCode) {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
-    room = roomCode ? await Zaisma.joinRoom({ roomCode, joinData: color ? { color } : null }) : await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
+    // A friend's Watch on Zaisma points to their arena to watch it, without playing.
+    room = roomCode
+      ? await Zaisma.joinRoom({ roomCode, joinData: color ? { color } : null })
+      : Zaisma.rooms.isLinkedAsSpectator
+        ? await Zaisma.joinRoom({ isSpectator: true })
+        : await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
   } catch (error) {
     // The developer made multiplayer need a Zaisma account: ask the guest to sign in without leaving the game, then join as the account.
     if (error.code === "account_needed") return askToSignIn();
     statusElement.textContent = error.message;
     return;
   }
-  statusElement.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
+  statusElement.textContent = room.isSpectator ? "Watching. Reload without the watch link to play." : room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
   setTimeout(() => { if (statusElement.textContent.startsWith("Practice")) statusElement.textContent = ""; }, 4000);
+  room.on("state", (state) => showBoard(/** @type {World} */ (state)));
   room.on("message", (message) => {
-    if (message.snapshot) onSnapshot(message.snapshot);
-    if (message.knockedOutId) {
-      const latest = snapshots.at(-1);
-      const body = latest && latest.bodies.get(message.knockedOutId);
-      if (body) flashes.push({ x: body.x, y: body.y, startedAtMs: performance.now() });
-    }
+    const world = /** @type {World | null} */ (room && room.state);
+    const body = message.knockedOutId && world && world.bodies[message.knockedOutId];
+    if (body) flashes.push({ x: body.x, y: body.y, startedAtMs: performance.now() });
   });
   // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
   room.on("connectionStatus", (connectionStatus) => {

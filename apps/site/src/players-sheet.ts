@@ -5,7 +5,7 @@ import { cutButton, textLink } from "./components/actions.ts";
 import { pictureFrame } from "./components/data.ts";
 import { tag } from "./components/foundations.ts";
 import { sheet } from "./components/panes.ts";
-import { friendJoinButton } from "./friends-now.ts";
+import { friendJoinButton, friendWatchButton } from "./friends-now.ts";
 import { html, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { profilePath } from "./profiles.ts";
@@ -19,7 +19,7 @@ import { profilePath } from "./profiles.ts";
  *
  *   GET /friends/among?player_ids=a,b   which of these players are accounts, by the name Zaisma knows
  *                                       them by, and whether each is a friend of the signed-in player
- *   GET /g/:slug/players/friends?room=  the friends playing that game, outside that room, with Join
+ *   GET /g/:slug/players/friends?room=  the friends playing that game, outside that room, with Join (and Watch)
  */
 export async function handlePlayersSheet(request: Request, env: Env, path: string): Promise<Response | null> {
   const friendsMatch = path.match(/^\/g\/([a-z0-9-]+)\/players\/friends$/);
@@ -63,13 +63,17 @@ const PLAYER_ID = /^player_[a-z0-9]{1,40}$/;
 /** Only compared with friends' rooms, never shown, so any six letters or digits will do. */
 const ROOM_CODE = /^[A-Z0-9]{6}$/;
 
-/** Friends playing the game, each with Join, grayed with why when it won't work; none for a friend in no room Zaisma knows. */
+/**
+ * Friends playing the game, each with Join, grayed with why when it won't work; none for a friend in no
+ * room Zaisma knows. Watch beside it when their room takes spectators, by the same rules.
+ */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="players-note">None of your friends are playing this right now.</p>`;
   return html`<ul class="list-rows">${friends.map((friend) => {
     const join = friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
+    const watch = friend.watch ? { room_code: friend.watch.room_code ?? "", server_url: null, refusal: friend.watch.refusal, refusing_friend_names: [friend.username] } : null;
     // When Join won't work, why is said under the name, in words.
-    return html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${join?.refusal ? html`<span class="list-row-detail">${joinRefusalText(join)}</span>` : ""}</span>${join ? html`<span class="list-row-end">${friendJoinButton(slug, join)}</span>` : ""}</div></li>`;
+    return html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${join?.refusal ? html`<span class="list-row-detail">${joinRefusalText(join)}</span>` : ""}</span>${join || watch ? html`<span class="list-row-end">${join ? friendJoinButton(slug, join) : ""}${watch ? friendWatchButton(slug, watch) : ""}</span>` : ""}</div></li>`;
   })}</ul>`;
 }
 
@@ -86,6 +90,7 @@ export function playersSheet(options: { gameOrigin: string; slug: string; title:
 <h3 class="players-heading" id="players-room-title">In this room<span id="players-count"></span></h3>
 <ul class="list-rows" id="players-list"></ul>
 <p class="players-note" id="players-note" hidden></p>
+<p class="players-note" id="players-watching" hidden></p>
 </section>
 <section class="players-part" id="players-friends" aria-labelledby="players-friends-title" hidden>
 <h3 class="players-heading" id="players-friends-title">Friends playing ${options.title}</h3>
@@ -164,7 +169,9 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     if (!f || e.source !== f.contentWindow || e.origin !== GAME_ORIGIN || !d) return;
     if (d.type === "zaisma:players" && typeof d.code === "string" && CODE.test(d.code) && Array.isArray(d.players)) {
       const players = d.players.slice(0, 50).filter((each) => each && typeof each.id === "string" && each.id.length <= 60).map((each) => ({ id: each.id, name: text(each.name, 40) || "A player", kind: each.kind === "account" ? "account" : "guest" }));
-      room = { code: d.code, myPlayerId: typeof d.myPlayerId === "string" ? d.myPlayerId : null, players, muted: ids(d.mutedPlayerIds), blocked: ids(d.blockedPlayerIds), lasting: ids(d.lastingBlockedPlayerIds) };
+      // How many watch: a count, never who (spectators can't reach the players, so their names would only expose them).
+      const spectatorCount = typeof d.spectatorCount === "number" && d.spectatorCount > 0 ? Math.min(Math.floor(d.spectatorCount), 999) : 0;
+      room = { code: d.code, myPlayerId: typeof d.myPlayerId === "string" ? d.myPlayerId : null, isSpectator: d.isSpectator === true, spectatorCount, players, muted: ids(d.mutedPlayerIds), blocked: ids(d.blockedPlayerIds), lasting: ids(d.lastingBlockedPlayerIds) };
       hasSeenRoom = true;
       lookUp();
       update();
@@ -204,6 +211,9 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
       ? HAS_ZAISMA_ROOMS || hasSeenRoom ? "Players show here once you're in a room." : "This game keeps its own player list. Mute, block and report are in its menu."
       : others.length ? "" : "Nobody else is here yet.";
     note.hidden = !note.textContent;
+    const watching = $("players-watching");
+    watching.textContent = room && room.spectatorCount ? (room.isSpectator ? "You're watching" + (room.spectatorCount > 1 ? ", with " + (room.spectatorCount - 1) + " more" : "") : room.spectatorCount + " watching") : room && room.isSpectator ? "You're watching" : "";
+    watching.hidden = !watching.textContent;
     others.forEach((other) => list.appendChild(row(other)));
   }
 

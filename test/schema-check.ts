@@ -7,7 +7,7 @@ import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
 
-const UNITS = ["ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct"];
+const UNITS = ["ms", "sec", "min", "hours", "days", "years", "bytes", "px", "deg", "pct", "cents", "minor_units"];
 const RATE = /_per_(sec|min|hour|day)$/;
 /** Short forms and vague words that never make a name on their own (rules 1 and 3). */
 const VAGUE = new Set(["t", "data", "info", "value", "result", "context", "time", "size", "length", "rate", "duration", "timeout", "delay", "interval", "count", "at", "since", "url", "max", "min"]);
@@ -23,6 +23,8 @@ const IRREGULAR_PLURALS = new Set(["people", "media"]);
 const FORMATS = new Set(["base64", "markdown"]);
 /** A pattern that says an ID's kind (docs/NAMING.md, IDs). */
 const ID_PATTERN = new RegExp(`^\\^(${ID_KINDS.join("|")})_`);
+/** IDs that aren't Zaisma's, so they say no kind: the game's own ID for a player's account, given back as the game sent it. */
+const OUTSIDE_IDS = new Set(["game_account_id"]);
 /** Objects whose keys are the caller's own, not ours: next steps' arguments, and a game database's rows, by its own columns. */
 const OPEN_OBJECTS = new Set(["arguments", "rows[]", "local_storage_items", "indexeddb_databases[]"]);
 
@@ -75,7 +77,7 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
     const unitSuffix = tokens.length > 1 && UNITS.includes(last);
     if (!types.includes("array") && PLURALS.has(last) && !unitSuffix) say("a plural names a list; a number of things is <thing>_count");
     if ((name === "id" || name.endsWith("_id")) && !types.includes("string")) say("an ID is a string");
-    if ((name === "id" || name.endsWith("_id")) && !(typeof s.pattern === "string" && ID_PATTERN.test(s.pattern))) say("an ID says its kind: give it a pattern like ^version_");
+    if ((name === "id" || name.endsWith("_id")) && !OUTSIDE_IDS.has(name) && !(typeof s.pattern === "string" && ID_PATTERN.test(s.pattern))) say("an ID says its kind: give it a pattern like ^version_");
     walk(s, path);
   };
   walk(schema, where);

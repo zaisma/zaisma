@@ -14,6 +14,7 @@ import {
   profileView,
   readProfileText,
   reportProfile,
+  requestCountryCode,
   saveProfileText,
   type Account,
   type ProfileReportReason,
@@ -22,9 +23,9 @@ import {
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
-import { JOIN_OFF_STYLES, joinButton } from "./friends-now.ts";
+import { JOIN_OFF_STYLES, joinAndWatch } from "./friends-now.ts";
 import { tile } from "./home.ts";
-import { accountPicture, html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { accountPicture, html, layout, message, metalButton, raw, scriptTags, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { checkProfile } from "./profile-check.ts";
 
@@ -70,7 +71,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
     if (!post) return done(redirect(`${profilePath(owner.username)}?edit`));
     const form = await request.formData();
     const read = readProfileText({ display_name: form.get("display_name"), bio: form.get("bio"), link_urls: form.getAll("link_url").map(String) }, owner);
-    if ("error" in read) return done(await profilePage(env, owner, visitor, { kind: "owner" }, query, { error: read.error, given: form }));
+    if ("error" in read) return done(await profilePage(env, owner, visitor, { kind: "owner" }, query, requestCountryCode(request), { error: read.error, given: form }));
     if (await saveProfileText(env.DB, owner.id, read.profileText)) await checkProfile(env, owner.id);
     return done(redirect(`${profilePath(owner.username)}?saved`));
   }
@@ -100,7 +101,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
     : !visitor ? { kind: "anyone" }
     : (await areFriends(env.DB, visitor.id, owner.id)) ? { kind: "friend", accountId: visitor.id }
     : { kind: "signed_in", accountId: visitor.id };
-  return done(await profilePage(env, owner, visitor, viewer, query));
+  return done(await profilePage(env, owner, visitor, viewer, query, requestCountryCode(request)));
 }
 
 /** Covers for the games on a profile, by slug. */
@@ -122,10 +123,11 @@ interface EditState {
   given: FormData;
 }
 
-async function profilePage(env: Env, owner: Account, visitor: Account | null, viewer: ProfileViewer, query: URLSearchParams, editState?: EditState): Promise<Response> {
+async function profilePage(env: Env, owner: Account, visitor: Account | null, viewer: ProfileViewer, query: URLSearchParams, countryCode: string | null, editState?: EditState): Promise<Response> {
   // Games for players older than the one looking stay off the page (18 signed out: every listed game).
   const viewerAgeFloorYears = visitor ? AGE_BAND_FLOOR_YEARS[visitor.age_band] : 18;
-  const view = await profileView(env.DB, owner, viewer, viewerAgeFloorYears);
+  // Games blocked in the viewer's country stay off it too.
+  const view = await profileView(env.DB, owner, viewer, viewerAgeFloorYears, undefined, countryCode);
   // Only the blocker's own menu says they blocked this player.
   const hasVisitorBlocked = visitor !== null && visitor.id !== owner.id && (await hasBlocked(env.DB, visitor.id, owner.id));
   // Playing now goes through the same rules as /friends (friends-now.ts); the owner previewing as a friend sees it as a friend would.
@@ -160,7 +162,7 @@ ${view.published_games.length
     : ""}
 ${playingNow
     ? html`<h2 class="rule-h">Playing now</h2><div class="grid games playing-now">${playingNow.game
-        ? html`<div>${tile({ slug: playingNow.game.slug, title: playingNow.game.title, cover: playingNow.game.cover_image_id ? `/img/${playingNow.game.cover_image_id}` : null, square: playingNow.game.square_image_id ? `/img/${playingNow.game.square_image_id}` : null })}${playingNow.join && viewer.kind !== "owner" ? html`<div class="join-row">${joinButton(playingNow.game.slug, playingNow.join)}</div>` : ""}</div>`
+        ? html`<div>${tile({ slug: playingNow.game.slug, title: playingNow.game.title, cover: playingNow.game.cover_image_id ? `/img/${playingNow.game.cover_image_id}` : null, square: playingNow.game.square_image_id ? `/img/${playingNow.game.square_image_id}` : null })}${(playingNow.join || playingNow.watch) && viewer.kind !== "owner" ? html`<div class="join-row">${joinAndWatch(playingNow.game.slug, playingNow)}</div>` : ""}</div>`
         : html`<div class="hit block"><span class="tile"><span class="pic"><span class="named"><span>A game that isn't out yet</span></span></span></span></div>`}</div>`
     : ""}
 ${played?.length
@@ -172,7 +174,7 @@ ${view.mutual_friends.length
     ? html`<h2 class="rule-h">Friends you both have</h2><ul class="faces">${view.mutual_friends.map((friend) => html`<li>${profileLink(friend.username, html`${accountPicture(friend.username, "sm")}<span>${friend.username}</span>`)}</li>`)}</ul>`
     : ""}
 </div>
-<style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
+<style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
 ${scriptTags(PROFILE_SCRIPT)}`;
   const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: editState ? 400 : 200, headers: response.headers });
@@ -224,8 +226,11 @@ ${Array.from({ length: MAXIMUM_LINK_COUNT }, (_, i) => html`<input name="link_ur
 }
 
 /** A link out of Zaisma says where it goes first, like a forum link (unless the site is trusted in this browser). */
-function outLink(linkUrl: string): Raw {
-  const parsedUrl = new URL(linkUrl);
+function outLink(linkUrl: string): Raw | string {
+  // Only an http: or https: address is linked, whatever the column holds (shownAddress).
+  const address = shownAddress(linkUrl);
+  if (!address) return "";
+  const parsedUrl = new URL(address);
   const label = (parsedUrl.hostname.replace(/^www\./, "") + parsedUrl.pathname).replace(/\/$/, "");
   return html`<a class="out" href="/forum/out?to=${encodeURIComponent(parsedUrl.href)}" data-out="${parsedUrl.href}" data-host="${parsedUrl.hostname}" rel="nofollow ugc noopener">${label}</a>`;
 }

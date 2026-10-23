@@ -47,7 +47,7 @@ function answerProbes(room: RoomCore, sent: Record<string, any[]>) {
     }
   }
 }
-const nobodyJoined = { fromRoomCode: null, isReturning: false };
+const nobodyJoined = { fromRoomCode: null, isReturning: false, isSpectator: false };
 
 describe("RoomCore", () => {
   it("runs join, message and leave through the game server", () => {
@@ -58,8 +58,10 @@ describe("RoomCore", () => {
     expect(sent.a![0]).toEqual({
       type: "welcome",
       me: { id: "a", name: "A", kind: "guest" },
+      isSpectator: false,
       players: [{ id: "a", name: "A", kind: "guest", awayReason: null }],
       room: { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} },
+      spectatorCount: 0,
       hostPlayerId: null,
       awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null },
       endsAt: null,
@@ -193,7 +195,7 @@ describe("RoomCore", () => {
     room.receive("a", msg("start"));
     expect(room.isOpen).toBe(false);
     expect(room.listingChanged).toBe(true);
-    expect(sent.b!.at(-1)).toEqual({ type: "room", room: { isListed: true, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} } });
+    expect(sent.b!.at(-1)).toEqual({ type: "room", room: { isListed: true, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} }, spectatorCount: 0 });
     expect(room.join({ id: "c", name: "C", kind: "guest" })).toEqual({ isAllowed: false, code: "closed" });
     room.leave("b");
     expect(room.join({ id: "b", name: "B", kind: "guest" })).toEqual({ isAllowed: true, isRejoin: false });
@@ -221,7 +223,7 @@ describe("RoomCore", () => {
     expect(room.receive("b", JSON.stringify({ type: "room", isOpen: false }))).toBe("not_allowed");
     expect(room.isOpen).toBe(true);
     expect(room.receive("a", JSON.stringify({ type: "room", isListed: false, isOpen: false }))).toBeNull();
-    expect(sent.b!.at(-1)).toEqual({ type: "room", room: { isListed: false, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} } });
+    expect(sent.b!.at(-1)).toEqual({ type: "room", room: { isListed: false, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} }, spectatorCount: 0 });
     // Without host controls, only the game server decides.
     const plain = new RoomCore(counter, transport().t);
     plain.join({ id: "a", name: "A", kind: "guest" });
@@ -341,7 +343,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -521,7 +523,7 @@ describe("kicking and turning players away", () => {
     (room as any).api.setFriendJoinsEnabled(true);
     expect((room as any).api.friendJoinsEnabled).toBe(true);
     expect(room.listingChanged).toBe(true);
-    expect(sent.a!.at(-1)).toEqual({ type: "room", room: { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} } });
+    expect(sent.a!.at(-1)).toEqual({ type: "room", room: { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} }, spectatorCount: 0 });
     // A sleeping room wakes with it as it was.
     (room as any).api.setFriendJoinsEnabled(false);
     expect(new RoomCore(counter, transport().t, { state: room.state, room: room.saved }).friendJoinsEnabled).toBe(false);
@@ -727,7 +729,7 @@ describe("players who walk away", () => {
     expect(room.receive("a", msg("hit"))).toBeNull();
     c.now += 60_000;
     expect(room.receive("a", say("back", { joinData: { color: "red" } }))).toBeNull();
-    expect(room.state.joined.at(-1)).toEqual(["a", { fromRoomCode: null, isReturning: true }]);
+    expect(room.state.joined.at(-1)).toEqual(["a", { fromRoomCode: null, isReturning: true, isSpectator: false }]);
     expect(sent.a!.at(-1)).toMatchObject({ type: "players" });
     expect(room.heldSeatCount).toBe(0);
     expect(closed).toEqual([]);
@@ -826,7 +828,7 @@ describe("players who walk away", () => {
     expect(room.state.left).toEqual([["a", "lost"], ["b", "left"]]);
     expect(room.heldSeatCount).toBe(1);
     expect(room.join({ id: "a", name: "A", kind: "guest" })).toEqual({ isAllowed: true, isRejoin: false });
-    expect(room.state.joined.at(-1)).toEqual(["a", { fromRoomCode: null, isReturning: true }]);
+    expect(room.state.joined.at(-1)).toEqual(["a", { fromRoomCode: null, isReturning: true, isSpectator: false }]);
     // A player out of the match whose connection then closes on purpose is gone for good.
     room.receive("a", say("idle"));
     room.leave("a");
@@ -1514,5 +1516,529 @@ describe("A match moving to a version published now", () => {
     expect(heard).toEqual([]);
     expect(sent.a!.at(-1)).toMatchObject({ type: "versionUpdate", step: "coming" });
     expect(() => defineGameServer({ setup: () => ({}), onVersionUpdate: "soon" } as never)).toThrow("onVersionUpdate isn't a function.");
+  });
+});
+
+describe("spectators", () => {
+  const PLAYER_A = { id: "a", name: "A", kind: "guest" as const };
+  const PLAYER_B = { id: "b", name: "B", kind: "guest" as const };
+  const WATCHER = { id: "w", name: "W", kind: "account" as const };
+  const arena = (overrides: Partial<GameServer> = {}) =>
+    defineGameServer({
+      maximumPlayerCount: 2,
+      maximumSpectatorCount: 3,
+      setup: () => ({ watched: [] as string[], left: [] as string[], asked: [] as boolean[] }),
+      onSpectatorJoin: (s, spectator) => void s.watched.push(spectator.id),
+      onSpectatorLeave: (s, spectator) => void s.left.push(spectator.id),
+      onMessage(_s, _p, message, room) {
+        if (message === "all") room.broadcast({ to: "everyone" });
+        if (message === "players") room.broadcast({ to: "players" }, { audience: "players" });
+        if (message === "spectators") room.broadcast({ to: "spectators" }, { audience: "spectators" });
+        if (message === "bytes") room.broadcastBytes(new Uint8Array([7]), { audience: "spectators" });
+        if (message === "one") room.send("w", { to: "w" });
+        if (message === "kick") room.kick("w", { keepOut: true });
+      },
+      ...overrides,
+    });
+
+  it("checks maximumSpectatorCount: a whole number from 0 to 100", () => {
+    for (const given of [-1, 101, 2.5, "20"]) {
+      expect(() => defineGameServer({ maximumSpectatorCount: given as never, setup: () => ({}) })).toThrow(GameServerError);
+    }
+    expect(() => defineGameServer({ maximumSpectatorCount: 100, setup: () => ({}) })).not.toThrow();
+    let refusal: unknown;
+    try {
+      defineGameServer({ maximumSpectatorCount: 101, setup: () => ({}) });
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toMatchObject({ code: "bad_option", field: "maximumSpectatorCount", fix: "Give a whole number from 0 to 100, like 20, or leave it out so nobody watches." });
+  });
+
+  it("lets a spectator watch a full, closed room without counting as playing", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    room.join(PLAYER_B);
+    expect(room.join({ id: "c", name: "C", kind: "guest" })).toMatchObject({ isAllowed: false, code: "full" });
+    expect(room.join(WATCHER, { isSpectator: true })).toEqual({ isAllowed: true, isRejoin: false });
+    expect(sent.w![0]).toMatchObject({ type: "welcome", isSpectator: true, spectatorCount: 1, players: [{ id: "a" }, { id: "b" }], awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null } });
+    expect(room.playingCount).toBe(2);
+    expect(room.spectatorCount).toBe(1);
+    expect([...room.players.keys()]).toEqual(["a", "b"]);
+    expect(room.state.watched).toEqual(["w"]);
+    // Everyone hears how many watch.
+    expect(sent.a!.at(-1)).toMatchObject({ type: "room", spectatorCount: 1 });
+  });
+
+  it("sends spectators what goes to everyone or to them, never what goes only to players", () => {
+    const { t, sent, frames } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    room.join(WATCHER, { isSpectator: true });
+    const heard = () => sent.w!.filter((message) => message.type === "message").map((message) => message.data);
+    room.receive("a", msg("all"));
+    room.receive("a", msg("players"));
+    room.receive("a", msg("spectators"));
+    room.receive("a", msg("one"));
+    expect(heard()).toEqual([{ to: "everyone" }, { to: "spectators" }, { to: "w" }]);
+    expect(sent.a!.filter((message) => message.type === "message").map((message) => message.data)).toEqual([{ to: "everyone" }, { to: "players" }]);
+    room.receive("a", msg("bytes"));
+    expect(frames.w).toHaveLength(1);
+    expect(frames.a).toBeUndefined();
+  });
+
+  it("refuses an audience it doesn't know, as a mistake in the game's call", () => {
+    const { t } = transport();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const room = new RoomCore(arena({ onMessage: (_s, _p, _message, room) => room.broadcast("x", { audience: "crowd" as never }) }), t);
+    room.join(PLAYER_A);
+    room.receive("a", msg("go"));
+    expect(String(errors.mock.calls.at(-1)?.[1])).toContain('Give "everyone", "players" or "spectators"');
+    errors.mockRestore();
+  });
+
+  it("refuses anything a spectator sends but probe answers, and keeps it off the room's message count", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    room.join(WATCHER, { isSpectator: true });
+    const messageCount = room.messageCount;
+    expect(room.receive("w", msg("all"))).toBe("spectator_cannot_send");
+    expect(room.receive("w", JSON.stringify({ type: "here" }))).toBe("spectator_cannot_send");
+    expect(room.receiveBytes("w", new Uint8Array([1]))).toBe("spectator_cannot_send");
+    const probe = sent.w!.find((message) => message.type === "probe");
+    expect(room.receive("w", JSON.stringify({ type: "probe_answer", probeNumber: probe.probeNumber }))).toBeNull();
+    expect(room.messageCount).toBe(messageCount);
+    expect(sent.a!.filter((message) => message.type === "message")).toEqual([]);
+    // Limited like anyone's messages.
+    let lastCode: string | null = null;
+    for (let i = 0; i < ROOM_LIMITS.gameMessageBurstCount + 5; i++) lastCode = room.receive("w", msg("x"));
+    expect(lastCode).toBe("too_fast");
+  });
+
+  it("turns away the spectator past maximumSpectatorCount with watching_full, and nobody where it's 0", async () => {
+    const { t } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    for (const id of ["w1", "w2", "w3"]) expect(room.join({ id, name: id, kind: "guest" }, { isSpectator: true }).isAllowed).toBe(true);
+    expect(await room.admit({ id: "w4", name: "w4", kind: "guest" }, null, { isSpectator: true })).toEqual({ isAllowed: false, code: "watching_full" });
+    expect(room.join({ id: "w4", name: "w4", kind: "guest" }, { isSpectator: true })).toMatchObject({ isAllowed: false, code: "watching_full" });
+    // A spectator reconnecting keeps their place.
+    expect(room.join({ id: "w1", name: "w1", kind: "guest" }, { isSpectator: true })).toEqual({ isAllowed: true, isRejoin: true });
+
+    const off = new RoomCore(arena({ maximumSpectatorCount: undefined }), transport().t);
+    off.join(PLAYER_A);
+    expect(await off.admit(WATCHER, null, { isSpectator: true })).toEqual({ isAllowed: false, code: "watching_full" });
+  });
+
+  it("asks canJoin with joinInfo.isSpectator, and lets a closed room be watched", async () => {
+    const asked: boolean[] = [];
+    const room = new RoomCore(
+      arena({
+        canJoin: (_s, player, _room, _joinData, joinInfo) => {
+          asked.push(joinInfo.isSpectator);
+          return player.id !== "nope" || { refusalMessage: "No watching for you." };
+        },
+      }),
+      transport().t,
+    );
+    expect(await room.admit(PLAYER_A)).toEqual({ isAllowed: true });
+    room.join(PLAYER_A);
+    room.join(PLAYER_B);
+    room.isOpen = false;
+    expect(await room.admit(WATCHER, null, { isSpectator: true })).toEqual({ isAllowed: true });
+    expect(await room.admit({ id: "nope", name: "N", kind: "guest" }, null, { isSpectator: true })).toEqual({ isAllowed: false, code: "refused", message: "No watching for you." });
+    expect(asked).toEqual([false, true, true]);
+  });
+
+  it("keeps a player in the match from watching it too, and a spectator who joins the match stops watching", async () => {
+    const { t } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    expect(await room.admit(PLAYER_A, null, { isSpectator: true })).toMatchObject({ isAllowed: false, code: "bad_message" });
+    room.join(WATCHER, { isSpectator: true });
+    expect(room.join(WATCHER).isAllowed).toBe(true);
+    expect(room.spectatorCount).toBe(0);
+    expect(room.players.has("w")).toBe(true);
+    expect(room.state.left).toEqual(["w"]);
+  });
+
+  it("lets a spectator go with onSpectatorLeave, holding no seat, and kicks one with keepOut", async () => {
+    const { t, sent, closed } = transport();
+    const room = new RoomCore(arena(), t);
+    room.join(PLAYER_A);
+    room.join(WATCHER, { isSpectator: true });
+    room.leave("w", "lost");
+    expect(room.state.left).toEqual(["w"]);
+    expect(room.heldSeatCount).toBe(0);
+    expect(room.spectatorCount).toBe(0);
+    expect(sent.a!.at(-1)).toMatchObject({ type: "room", spectatorCount: 0 });
+
+    room.join(WATCHER, { isSpectator: true });
+    room.receive("a", msg("kick"));
+    expect(sent.w!.at(-1)).toMatchObject({ type: "kicked", isKeptOut: true });
+    expect(closed).toContain("w");
+    expect(room.state.left).toEqual(["w", "w"]);
+    expect(await room.admit(WATCHER, null, { isSpectator: true })).toMatchObject({ isAllowed: false, code: "kept_out" });
+  });
+
+  it("never walks a spectator away, and tells them when the match ends", () => {
+    let nowMs = 1_000_000;
+    const { t, sent, closed } = transport();
+    const room = new RoomCore(arena({ idleTimeoutSec: 30 }), t, { now: () => nowMs });
+    room.join(PLAYER_A);
+    room.join(WATCHER, { isSpectator: true });
+    answerProbes(room, sent);
+    nowMs += 3600_000;
+    room.receive("a", JSON.stringify({ type: "here" }));
+    answerProbes(room, sent);
+    room.sweep();
+    expect(room.spectatorCount).toBe(1);
+    expect(sent.w!.some((message) => message.type === "away")).toBe(false);
+    room.end("Game over");
+    expect(sent.w!.at(-1)).toEqual({ type: "ended", message: "Game over" });
+    expect(closed).toContain("w");
+    expect(room.spectatorCount).toBe(0);
+  });
+});
+
+describe("state sync", () => {
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  /** A transport whose players are backed up when the test says, as bufferedAmount says on your own server. */
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const backedUp = new Set<string>();
+    const t: Transport = {
+      send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)),
+      sendBytes: (id, frame) => (sent[id] ??= []).push({ type: "bytes", bytes: [...frame.subarray(1)] }),
+      close: () => {},
+      isBackedUp: (id) => backedUp.has(id),
+    };
+    return { t, sent, backedUp, states: (id: string) => (sent[id] ?? []).filter((message) => message.type === "state").map(({ serverTimeMs, ...frame }) => frame) };
+  };
+  /** A turn-based card game: each player sees their own hand and how many cards the others hold. */
+  const cards = defineGameServer({
+    stateSyncEnabled: true,
+    setup: () => ({ turn: 0, hands: {} as Record<string, string[]> }),
+    onJoin: (s, p) => void (s.hands[p.id] = ["A", "K"]),
+    onMessage(s, p, message) {
+      if (message === "draw") s.hands[p.id]!.push("Q");
+      if (message === "pass") s.turn++;
+    },
+    stateView: (s, viewer) => ({ turn: s.turn, myHand: s.hands[viewer.id] ?? [], cardCounts: Object.fromEntries(Object.entries(s.hands).map(([id, hand]) => [id, hand.length])) }),
+  });
+
+  it("sends a joining player a full copy, then only what changed, each their own view", () => {
+    const { t, states } = recording();
+    const room = new RoomCore(cards, t);
+    room.join(player("ana"));
+    expect(states("ana")).toEqual([{ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2 } } }]);
+    room.join(player("bo"));
+    expect(states("bo")).toEqual([{ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2, bo: 2 } } }]);
+    expect(states("ana").at(-1)).toEqual({ type: "state", changes: [[["cardCounts", "bo"], 2]] });
+    room.receive("bo", msg("draw"));
+    // Ana never sees Bo's cards, only how many he has.
+    expect(states("ana").at(-1)).toEqual({ type: "state", changes: [[["cardCounts", "bo"], 3]] });
+    expect(states("bo").at(-1)).toEqual({ type: "state", changes: [[["myHand"], ["A", "K", "Q"]], [["cardCounts", "bo"], 3]] });
+    // A handler that changes nothing anyone sees sends nothing.
+    const sentCount = states("ana").length;
+    room.receive("ana", msg("nothing"));
+    expect(states("ana")).toHaveLength(sentCount);
+  });
+
+  it("sends a spectator the state too: a full copy as they come to watch, their own view, then what changed", () => {
+    const { t, states } = recording();
+    const room = new RoomCore(defineGameServer({ ...cards, maximumSpectatorCount: 5 }), t);
+    room.join(player("ana"));
+    room.join(player("wes"), { isSpectator: true });
+    // A spectator holds no hand, so their view has none.
+    expect(states("wes")).toEqual([{ type: "state", full: { turn: 0, myHand: [], cardCounts: { ana: 2 } } }]);
+    room.receive("ana", msg("pass"));
+    expect(states("wes").at(-1)).toEqual({ type: "state", changes: [[["turn"], 1]] });
+  });
+
+  it("sends a ticking room's changes after each tick, with the room's clock, and a reconnecting player a full copy", () => {
+    let now = 1_000_000;
+    const { t, sent, states } = recording();
+    const racing = defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 0 }), onTick: (s) => void s.x++ });
+    const room = new RoomCore(racing, t, { now: () => now });
+    room.join(player("ana"));
+    expect(states("ana")).toEqual([]);
+    room.tick(0.05);
+    expect(sent.ana!.filter((message) => message.type === "state")).toEqual([{ type: "state", serverTimeMs: now, full: { x: 1 } }]);
+    now += 50;
+    room.tick(0.05);
+    expect(sent.ana!.at(-1)).toEqual({ type: "state", serverTimeMs: now, changes: [[["x"], 2]] });
+    room.leave("ana", "lost");
+    room.tick(0.05);
+    expect(states("ana")).toHaveLength(2);
+    room.join(player("ana"));
+    room.tick(0.05);
+    // Nobody played meanwhile, so the room didn't tick: her new connection gets the next state in full.
+    expect(states("ana").at(-1)).toEqual({ type: "state", full: { x: 3 } });
+    // Without onTick, every tick still has its round.
+    const still = recording();
+    const quiet = new RoomCore(defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 7 }) }), still.t);
+    quiet.join(player("ana"));
+    quiet.tick(0.05);
+    expect(still.states("ana")).toEqual([{ type: "state", full: { x: 7 } }]);
+  });
+
+  it("skips a backed-up player, then sends them a full copy once they catch up", () => {
+    const { t, states, backedUp } = recording();
+    const racing = defineGameServer({ stateSyncEnabled: true, ticksPerSec: 20, setup: () => ({ x: 0 }), onTick: (s) => void s.x++ });
+    const room = new RoomCore(racing, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    room.tick(0.05);
+    backedUp.add("ana");
+    room.tick(0.05);
+    room.tick(0.05);
+    expect(states("ana")).toEqual([{ type: "state", full: { x: 1 } }]);
+    expect(states("bo").at(-1)).toEqual({ type: "state", changes: [[["x"], 3]] });
+    backedUp.delete("ana");
+    room.tick(0.05);
+    expect(states("ana").at(-1)).toEqual({ type: "state", full: { x: 4 } });
+
+    // A turn-based room has no tick: the copy goes as soon as they've caught up.
+    const turns = recording();
+    const cardRoom = new RoomCore(cards, turns.t);
+    cardRoom.join(player("ana"));
+    turns.backedUp.add("ana");
+    cardRoom.join(player("bo"));
+    expect(turns.states("ana")).toHaveLength(1);
+    expect(cardRoom.isCatchingUp).toBe(true);
+    cardRoom.catchUp();
+    expect(turns.states("ana")).toHaveLength(1);
+    turns.backedUp.delete("ana");
+    cardRoom.catchUp();
+    expect(turns.states("ana").at(-1)).toEqual({ type: "state", full: { turn: 0, myHand: ["A", "K"], cardCounts: { ana: 2, bo: 2 } } });
+    expect(cardRoom.isCatchingUp).toBe(false);
+  });
+
+  it("in Zaisma rooms, counts a player backed up when a probe is late past their ping with 64 KB sent since their last answer", () => {
+    let now = 1_000_000;
+    const big = "x".repeat(40 * 1024);
+    const pushing = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, room) => room.broadcast(message === "big" ? big : message) });
+    const sent: Record<string, any[]> = {};
+    const room = new RoomCore(pushing, { send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: () => {} }, { now: () => now });
+    room.join(player("ana"));
+    room.join(player("bo"));
+    const answerAll = (id: string) => {
+      for (const probe of sent[id]!.filter((message) => message.type === "probe" && !message.isAnswered)) {
+        probe.isAnswered = true;
+        room.receive(id, JSON.stringify({ type: "probe_answer", probeNumber: probe.probeNumber }));
+      }
+    };
+    now += 40;
+    answerAll("ana");
+    answerAll("ana");
+    expect(room.isBackedUp("ana")).toBe(false);
+    // A probe goes out, then 80 KB: late, but not yet past her 40 ms ping and 250 ms.
+    room.receive("bo", msg("big"));
+    room.receive("bo", msg("big"));
+    (room as any).probe("ana");
+    now += 200;
+    expect(room.isBackedUp("ana")).toBe(false);
+    now += 100;
+    expect(room.isBackedUp("ana")).toBe(true);
+    answerAll("ana");
+    expect(room.isBackedUp("ana")).toBe(false);
+    // Late with little sent: a slow answer on a quiet connection isn't a backlog.
+    const quiet = new RoomCore(pushing, { send: () => {}, close: () => {} }, { now: () => now });
+    quiet.join(player("cy"));
+    now += 2000;
+    expect(quiet.isBackedUp("cy")).toBe(false);
+  });
+
+  it("doesn't send a view over maximumStateViewSizeBytes, and tells the game's errors once", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { t, states } = recording();
+      const huge = defineGameServer({ stateSyncEnabled: true, setup: () => ({ map: "x".repeat(ROOM_LIMITS.maximumStateViewSizeBytes) }), onMessage: () => {} });
+      const room = new RoomCore(huge, t);
+      room.join(player("ana"));
+      room.receive("ana", msg("again"));
+      expect(states("ana")).toEqual([]);
+      expect(errors.mock.calls.filter(([line]) => String(line).includes("over the 1024 KB a player can be sent"))).toHaveLength(1);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("checks the options", () => {
+    expect(() => defineGameServer({ stateSyncEnabled: "yes" as never, setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateSyncEnabled" }));
+    expect(() => defineGameServer({ stateView: () => ({}), setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateView" }));
+    expect(() => defineGameServer({ stateSyncEnabled: true, stateView: {} as never, setup: () => ({}) })).toThrow(expect.objectContaining({ code: "bad_option", field: "stateView" }));
+  });
+});
+
+describe("latest-only messages", () => {
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+  const recording = () => {
+    const sent: Record<string, any[]> = {};
+    const backedUp = new Set<string>();
+    const t: Transport = {
+      send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)),
+      sendBytes: (id, frame) => (sent[id] ??= []).push({ type: "bytes", bytes: [...frame.subarray(1)] }),
+      close: () => {},
+      isBackedUp: (id) => backedUp.has(id),
+    };
+    return { t, sent, backedUp, game: (id: string) => (sent[id] ?? []).filter((message) => message.type === "message" || message.type === "bytes").map((message) => message.data ?? message.bytes) };
+  };
+  /** Whatever a player's message says to send, the game server sends: { send, options }. */
+  const echo = defineGameServer({
+    setup: () => ({}),
+    onMessage(_s, _p, message: any, room) {
+      if (message.bytes) room.broadcastBytes(new Uint8Array(message.bytes), message.options);
+      else if (message.to) room.send(message.to, message.send, message.options);
+      else room.broadcast(message.send, message.options);
+    },
+  });
+
+  it("skips older latest-only messages for a backed-up player, keeps reliable ones, and sends the newest once they catch up", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    backedUp.add("ana");
+    for (const x of [1, 2, 3]) room.receive("bo", msg({ send: { type: "position", x }, options: { delivery: "latest_only" } }));
+    room.receive("bo", msg({ send: { type: "chat", text: "hi" } }));
+    room.receive("bo", msg({ send: { type: "aim", angle: 9 }, options: { delivery: "latest_only", latestKey: "aim" } }));
+    room.receive("bo", msg({ bytes: [7], options: { delivery: "latest_only" } }));
+    room.receive("bo", msg({ bytes: [8], options: { delivery: "latest_only" } }));
+    // The reliable one went at once; the latest-only ones wait.
+    expect(game("ana")).toEqual([{ type: "chat", text: "hi" }]);
+    // Bo isn't backed up: he gets every one.
+    expect(game("bo").filter((data: any) => data.type === "position")).toHaveLength(3);
+    room.catchUp();
+    expect(game("ana")).toHaveLength(1);
+    backedUp.delete("ana");
+    room.catchUp();
+    expect(game("ana")).toEqual([{ type: "chat", text: "hi" }, { type: "position", x: 3 }, { type: "aim", angle: 9 }, [8]]);
+    expect(room.isCatchingUp).toBe(false);
+  });
+
+  it("sends what waited before a newer latest-only message once a player is no longer backed up", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    backedUp.add("ana");
+    room.receive("ana", msg({ to: "ana", send: { type: "position", x: 1 }, options: { delivery: "latest_only" } }));
+    room.receive("ana", msg({ to: "ana", send: { type: "score", points: 5 }, options: { delivery: "latest_only" } }));
+    backedUp.delete("ana");
+    room.receive("ana", msg({ to: "ana", send: { type: "position", x: 2 }, options: { delivery: "latest_only" } }));
+    expect(game("ana")).toEqual([{ type: "position", x: 1 }, { type: "score", points: 5 }, { type: "position", x: 2 }]);
+  });
+
+  it("keeps up to 64 slots a player: the 65th key replaces the least recently replaced", () => {
+    const { t, backedUp, game } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    backedUp.add("ana");
+    const api = (room as any).api;
+    for (let i = 0; i <= ROOM_LIMITS.maximumLatestOnlySlotCount; i++) api.send("ana", { key: i }, { delivery: "latest_only", latestKey: `k${i}` });
+    backedUp.delete("ana");
+    room.catchUp();
+    const got = game("ana");
+    expect(got).toHaveLength(ROOM_LIMITS.maximumLatestOnlySlotCount);
+    expect(got[0]).toEqual({ key: 1 });
+    expect(got.at(-1)).toEqual({ key: ROOM_LIMITS.maximumLatestOnlySlotCount });
+  });
+
+  it("refuses a delivery or latestKey it doesn't take, saying what to give", () => {
+    const room = new RoomCore(echo, recording().t);
+    room.join(player("ana"));
+    const api = (room as any).api;
+    expect(() => api.broadcast({}, { delivery: "lossy" })).toThrow('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
+    expect(() => api.send("ana", {}, { latestKey: "x".repeat(41) })).toThrow("room.send's latestKey must be text up to 40 characters");
+    expect(() => api.send("ana", {}, { priority: 1 })).toThrow("room.send doesn't take priority. It takes: delivery, latestKey.");
+    expect(() => api.sendBytes("ana", new Uint8Array([1]), { delivery: 1 })).toThrow("room.sendBytes's delivery is 1.");
+  });
+
+  it("counts reliable messages that went to a backed-up player, for get_stats' hint", () => {
+    const { t, backedUp } = recording();
+    const room = new RoomCore(echo, t);
+    room.join(player("ana"));
+    room.join(player("bo"));
+    backedUp.add("ana");
+    room.receive("bo", msg({ send: { type: "position", x: 1 } }));
+    room.receive("bo", msg({ send: { type: "position", x: 2 }, options: { delivery: "latest_only" } }));
+    expect(room.takeTraffic().messageTypes.find((type) => type.direction === "outbound" && type.messageType === "position")).toMatchObject({ messageCount: 3, backedUpMessageCount: 1 });
+  });
+});
+
+describe("Kept rooms", () => {
+  it("tells the game server its room's code, or null where the transport has none", () => {
+    const seen: (string | null)[] = [];
+    const server = defineGameServer({ setup: () => ({}), onJoin: (_state, _player, room) => void seen.push(room.roomCode) });
+    new RoomCore(server, { ...transport().t, roomCode: "WRLD22" }).join({ id: "a", name: "A", kind: "guest" });
+    new RoomCore(server, transport().t).join({ id: "b", name: "B", kind: "guest" });
+    expect(seen).toEqual(["WRLD22", null]);
+  });
+
+  it("keeps a room through room.setKept, tells the transport through listingChanged once, and does nothing after the end", () => {
+    const room = new RoomCore(counter, transport().t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    const api = (room as any).api;
+    expect(api.isKept).toBe(false);
+    room.listingChanged = false;
+    room.dirty = false;
+    api.setKept(true);
+    expect(api.isKept).toBe(true);
+    expect(room.isKept).toBe(true);
+    expect(room.listingChanged).toBe(true);
+    expect(room.dirty).toBe(true);
+    // The same again changes nothing.
+    room.listingChanged = false;
+    room.dirty = false;
+    api.setKept(true);
+    expect(room.listingChanged).toBe(false);
+    expect(room.dirty).toBe(false);
+    // And back to an ordinary room.
+    api.setKept(false);
+    expect(api.isKept).toBe(false);
+    expect(room.listingChanged).toBe(true);
+
+    // An ended room stays as it was.
+    room.receive("a", msg("end"));
+    expect(room.ended).toBe(true);
+    room.listingChanged = false;
+    api.setKept(true);
+    expect(api.isKept).toBe(false);
+    expect(room.listingChanged).toBe(false);
+  });
+
+  it("saves isKept with the room, so a kept room wakes kept and an ordinary one doesn't", () => {
+    const room = new RoomCore(counter, transport().t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    expect(room.saved.isKept).toBeUndefined();
+    expect(new RoomCore(counter, transport().t, { state: room.state, room: room.saved }).isKept).toBe(false);
+    (room as any).api.setKept(true);
+    expect(room.saved.isKept).toBe(true);
+    const woken = new RoomCore(counter, transport().t, { state: room.state, room: room.saved });
+    expect(woken.isKept).toBe(true);
+    expect((woken as any).api.isKept).toBe(true);
+  });
+
+  it("reserves a kept room only when room.reserve asks for one", () => {
+    const reserved: RoomStart[] = [];
+    const lobby = new RoomCore(counter, { ...transport().t, reserve: (_code, start) => void reserved.push(start) });
+    lobby.join({ id: "a", name: "A", kind: "guest" });
+    (lobby as any).api.reserve({ playerIds: ["a"], isKept: true });
+    (lobby as any).api.reserve({ playerIds: ["a"] });
+    expect(reserved[0]!.isKept).toBe(true);
+    expect("isKept" in reserved[1]!).toBe(false);
+    expect(new RoomCore(counter, transport().t, { start: reserved[0]! }).isKept).toBe(true);
+    expect(new RoomCore(counter, transport().t, { start: reserved[1]! }).isKept).toBe(false);
+  });
+
+  it("gives a room saved as it emptied lostDurationSec 0, however long it slept", () => {
+    const nowMs = Date.parse("2026-10-21T12:00:00Z");
+    const weekAgoMs = nowMs - 7 * 24 * 3600 * 1000;
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one", true)).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 0, savedVersionId: "version_one" });
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one")).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 7 * 24 * 3600, savedVersionId: "version_one" });
+    expect(restoreInfoOf(weekAgoMs, nowMs, null, false).lostDurationSec).toBe(7 * 24 * 3600);
   });
 });

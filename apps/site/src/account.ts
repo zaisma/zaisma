@@ -107,11 +107,12 @@ import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
-import { cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
-import { glassPane, type IconName } from "./components/foundations.ts";
+import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
+import { row } from "./components/layout.ts";
+import { type IconName } from "./components/foundations.ts";
 import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
-import { header, rail } from "./components/navigation.ts";
+import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
 import { pageScript } from "./page-scripts.ts";
 import { foundWords } from "./leaked-keys.ts";
@@ -124,6 +125,7 @@ import { deleteSaveFiles } from "./saves.ts";
 import { accountDataFileName, accountDataZip } from "./account-data.ts";
 import { tellAccountDeleted, type WaitUntil } from "./webhooks.ts";
 import { carryProof, confirmationOf, recordProof } from "./session-proofs.ts";
+import { refundForDeletion } from "./credit-api.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
 
 /**
@@ -642,6 +644,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
+    await refundForDeletion(env, account.id);
     await deleteAccount(env.DB, account.id);
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
@@ -781,15 +784,17 @@ const USERNAME_SCRIPT = pageScript("username-check", `(() => {
     if (template) { status.className = kind === "bad" ? "field-error" : "field-hint"; if (kind === "bad") status.setAttribute("role", "alert"); else status.removeAttribute("role"); }
     else status.className = "hint" + (kind ? " " + kind : "");
   };
+  // In the city's look the suggestions are a row (layout.ts): each one a copy of the template's cell, its button named for it.
+  const row = box.querySelector(".layout-row") || box;
   const suggest = (names) => {
-    box.replaceChildren();
+    row.replaceChildren();
     if (names.length && !template) box.append(Object.assign(document.createElement("span"), { textContent: "Free:" }));
     for (const name of names) {
-      let button;
-      if (template) { button = template.content.firstElementChild.cloneNode(true); button.value = name; button.querySelector(".face > span:last-child").textContent = name; }
-      else button = Object.assign(document.createElement("button"), { type: "button", className: "btn ghost", textContent: name });
+      let cell, button;
+      if (template) { cell = template.content.querySelector(".row-cell").cloneNode(true); button = cell.querySelector("button"); button.value = name; button.querySelector(".face > span:last-child").textContent = name; }
+      else cell = button = Object.assign(document.createElement("button"), { type: "button", className: "btn ghost", textContent: name });
       button.dataset.username = name;
-      box.append(button);
+      row.append(cell);
     }
     box.hidden = !names.length;
   };
@@ -857,8 +862,7 @@ function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptio
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}
-${scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}</div>`,
+    body: cityPane({ header: header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true }), label: title, body, after: scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : [])) }),
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });
 }
@@ -920,7 +924,7 @@ ${botCheck(env, "sign_in")}
 ${runButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
 <p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
-<div class="ways-in pane-stack" id="ways"${providers.length ? "" : raw(" hidden")}>
+<div class="pane-stack" id="ways"${providers.length ? "" : raw(" hidden")}>
 <p class="or">or</p>
 <div class="ways">${passkeyWay(next ?? "/", true)}${providerButtons(providers, next)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>
@@ -1001,7 +1005,7 @@ ${cutField({ id: "signin-email", name: "email", label: "Email", type: "email", i
 ${botCheck(env, "email_code")}
 ${runButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sending" })}
 </form>
-<div class="ways-in" id="ways" hidden>
+<div class="pane-stack" id="ways" hidden>
 <p class="or">or</p>
 <div class="ways">${passkeyWay(back, false)}</div>
 <p class="field-error" role="alert" id="passkey-error" hidden></p>
@@ -1194,16 +1198,16 @@ const botCheck = (env: Env, action: TurnstileAction) => (env.TURNSTILE_SITE_KEY 
 
 /**
  * The username, in the city's look: what it says as it's typed (free, taken, why not) under it, and free ones close
- * to it to tap (USERNAME_SCRIPT, which copies the template's button for each). The server says the same when the form
+ * to it to tap, a row of small buttons (USERNAME_SCRIPT, which copies the template's cell for each). The server says the same when the form
  * comes back, so it works without the script.
  */
 function usernameCutField(given: JoinGiven): Raw {
-  const suggestions = given.suggestions ?? [];
-  const suggestion = (username: string) => cutButton(username, { type: "button", isSmall: true, buttonValue: username });
+  const freeUsernames = given.suggestions ?? [];
+  const suggestions = (usernames: string[]) => row({ widths: "fit", items: usernames.map((username) => ({ kind: "control" as const, markup: cutButton(username, { type: "button", isSmall: true, buttonValue: username }) })) });
   return html`<div class="cut-field">${cutField({ id: "username-box", name: "username", label: "Username", type: "text", icon: "person", text: given.username ?? "", autocomplete: "username", isRequired: true })}
 <p class="${given.usernameError ? "field-error" : "field-hint"}" id="username-status" data-resting="${USERNAME_HINT}"${given.usernameError ? raw(' role="alert"') : ""}>${given.usernameError ?? USERNAME_HINT}</p>
-<div class="control-row suggestions" id="username-suggestions"${suggestions.length ? "" : raw(" hidden")}>${suggestions.map(suggestion)}</div>
-<template id="username-suggestion">${suggestion("")}</template></div>`;
+<div id="username-suggestions"${freeUsernames.length ? "" : raw(" hidden")}>${suggestions(freeUsernames)}</div>
+<template id="username-suggestion">${suggestions([""])}</template></div>`;
 }
 
 const TERMS_LINE = html`<p class="note">By making an account you agree to the ${textLink("content rules", "/legal/content-rules")} and our ${textLink("privacy policy", "/legal/privacy")}.</p>`;
@@ -1315,12 +1319,14 @@ export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   stats_access: ["Stats", "Stats, player reports and history."],
   database_access: ["Game databases", "Read-only sees tables and use, and exports. Write runs SQL and imports."],
   save_access: ["Players' saves", "Read-only reads saves and their copies. Write changes, resets and restores them."],
+  purchase_access: ["Items and purchases", "Read-only sees items, sales and grants. Write sets items, grants them and refunds."],
   forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
+  credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups and refunds, and turns spending off or down; turning it on or up always needs your passkey here."],
 };
 
-const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", purchase_access: "items and purchases", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks", credit_access: "credit" };
 
 /** The common words for each choice, as GitHub's tokens say them. */
 export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };

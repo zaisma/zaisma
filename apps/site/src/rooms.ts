@@ -1,4 +1,4 @@
-import { ROOM_PAGE_ROOM_COUNT, checkText, gameBySlug, hasSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
+import { ROOM_PAGE_ROOM_COUNT, checkText, gameBySlug, hasSpace, hasWatchSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { cutButton, textButton } from "./components/actions.ts";
 import { selectField } from "./components/choices.ts";
@@ -125,12 +125,14 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
   const hasNames = shown.some((each) => each.name);
   const labelNames = [...new Set(shown.flatMap((each) => each.labels.map(([labelName]) => labelName)))].slice(0, MAXIMUM_LABEL_COLUMN_COUNT);
   const hasPlaces = rooms.some((room) => room.location);
+  const hasWatching = rooms.some((room) => room.spectatorCount > 0);
   const columns: TableColumn[] = [
     { label: "Code", widthPx: 84 },
     ...(hasNames ? [{ label: "Room", widthPx: 160 }] : []),
     ...labelNames.map((labelName) => ({ label: labelName, widthPx: hasNames ? 84 : undefined })),
     ...(hasPlaces ? [{ label: "Where", widthPx: 64 }] : []),
     { label: "Players", isNumeric: true, widthPx: 88, isSortable: true },
+    ...(hasWatching ? [{ label: "Watching", isNumeric: true, widthPx: 88 }] : []),
     { label: "Join", isLabelHidden: true },
   ];
   const rows = shown.map(({ room, name, labels }) => {
@@ -140,6 +142,7 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
     const labelOf = new Map(labels);
     const join = hasSpace(room) ? html`<span role="group" aria-label="${joinLabel}">${cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })}</span>` : "Full";
     // A named room can be reported: its Report is a flat icon beside Join, quieter than it.
+    const watch = hasWatchSpace(room) ? cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true }) : "";
     const report = name ? textButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } }) : "";
     return [
       html`<code>${room.roomCode}</code>`,
@@ -147,7 +150,8 @@ function roomsTable(slug: string, rooms: ListedRoom[], regionName: string | null
       ...labelNames.map((labelName) => labelOf.get(labelName) ?? ""),
       ...(hasPlaces ? [room.location ? country({ countryCode: room.location.countryCode, countryName: room.location.countryName, isNameHidden: true }) : ""] : []),
       filled,
-      report ? html`<div class="control-row">${join}${report}</div>` : join,
+      ...(hasWatching ? [room.spectatorCount ? String(room.spectatorCount) : ""] : []),
+      report || watch ? html`<div class="control-row">${join}${watch}${report}</div>` : join,
     ];
   });
   return table({ id: "rooms-table", label: regionName ? `Open rooms in ${regionName}` : "Open rooms", columns, rows, rowSlice, emptyText, isCompact: true, isEven: true, headColumn: "last" });

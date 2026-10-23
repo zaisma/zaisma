@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DRIFT_SHADER, STARWARD_SHADER } from "./shaders.ts";
@@ -10,7 +10,8 @@ import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DR
  * only on what you act on. Everything the other component files import from here is re-exported below.
  */
 export { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
-export { TOKEN_STYLES } from "./tokens.ts";
+export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
+import { cutPolygon } from "./tokens.ts";
 export { GLASS_SCRIPT, WATCH_SCRIPT } from "./glass-script.ts";
 export { BACKDROP_SCRIPT } from "./backdrop-script.ts";
 
@@ -26,21 +27,22 @@ export function ago(durationMs: number): string {
   return dayCount === 1 ? "yesterday" : `${dayCount} days ago`;
 }
 
-export const PANE_SIZES = { small: 320, medium: 480, large: 720 } as const;
-
 export interface GlassPaneOptions {
-  paneSize: "small" | "medium" | "large" | "full";
+  /**
+   * "full": as wide as what holds it. "fit": as wide as what's in it, its paragraphs running to a reading width (--size-reading) at
+   * most. A pane never takes a width of its own: one that should take half the screen is a column of a full-width columns layout.
+   */
+  paneWidth: "full" | "fit";
   body: Raw;
-  /** Cut corners: top left, top right, bottom right, bottom left. Panes are 24 and 20. */
-  corners?: [number, number, number, number];
   label?: string;
 }
 
-/** A pane of Zaisma's glass (panes.ts's Glass pane shows it): cut corners, a drawn rim, clear glass. Long content scrolls inside it, so nothing in it shrinks. */
+/**
+ * A pane of Zaisma's glass (panes.ts's Glass pane shows it): cut corners (the pane cut tokens), a drawn rim, clear glass. Long content
+ * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
+ */
 export function glassPane(options: GlassPaneOptions): Raw {
-  const corners = (options.corners ?? [24, 20, 24, 20]).join(" ");
-  const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
-  return pane;
+  return html`<section class="glass glass-pane ${options.paneWidth}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
 /**
@@ -49,10 +51,11 @@ export function glassPane(options: GlassPaneOptions): Raw {
  * ones are square where they meet, and the tray has no rim along its top: it runs straight on from the pane (data-glass-open). It's the
  * same glass, light or smoked, only thinner: a clearer tint and a fainter rim, its bevel as wide. What sits on a tray fits it like
  * anything on a pane: square under its square top, cut at an even gap into its cut foot.
- * Its padding (--pad-tray) is closer than a pane's and its foot's cuts smaller (16 and 12), still clear of what sits in its corners.
+ * What has an edge sits on it at the frame gap, like a pane's; its words are closer than a pane's (--pad-tray), and its foot's cuts
+ * smaller (16 and 12), still a bevel at what sits in its corners.
  */
 export function tray(options: { head: Raw; body: Raw; label?: string }): Raw {
-  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="24 20 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
+  return html`<section class="tray-group"${options.label ? html` aria-label="${options.label}"` : ""}><div class="glass tray-head" data-glass data-glass-corners="pane-large pane-small 0 0">${EDGE}${options.head}</div><div class="glass tray" data-glass data-glass-open="top" data-glass-corners="0 0 16 12">${EDGE}${options.body}</div></section>`;
 }
 
 /** Zaisma's logo, a link home: the wordmark (the header, the gallery's bar) or the mark alone (the footer). --logo-height sets its size. */
@@ -149,7 +152,7 @@ export interface SheetMarkupOptions {
  * can reach it. SHEET_SCRIPT opens it from any button that names it (aria-controls); Esc and its close button close it natively.
  */
 export function sheetMarkup(options: SheetMarkupOptions): Raw {
-  return html`<dialog class="sheet glass${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="24 20 24 20"${options.isShown ? raw(" open") : ""}>${EDGE}<div class="sheet-in"><div class="sheet-head"><h2 class="sheet-title" id="${options.id}-title">${options.title}</h2><form class="sheet-close" method="dialog">${options.closeButton}</form></div>${options.body}</div></dialog>`;
+  return html`<dialog class="sheet glass${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}<div class="sheet-in"><div class="sheet-head"><h2 class="sheet-title" id="${options.id}-title">${options.title}</h2><form class="sheet-close" method="dialog">${options.closeButton}</form></div>${options.body}</div></dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -173,7 +176,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  glassPane({ paneSize: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
+  glassPane({ paneWidth: "full", body: html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul>` });
 
 component({
   name: "Color",
@@ -182,13 +185,13 @@ component({
   summary: "Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Color: the gallery's swatches. */
-.swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
+.swatches { list-style: none; margin: 0; padding: var(--pad-words); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: var(--type-facts); }
 /* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
 .swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
 .swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: var(--type-code); }
-.divider-sample { display: grid; }
+.divider-sample { display: grid; padding: var(--pad-words); }
 .divider-sample strong { font: var(--type-name); }
 .divider-sample span { font: var(--type-facts); color: var(--muted); }
 .divider-sample p { margin: var(--gap-words-control) 0 0; padding-top: var(--gap-words-control); border-top: var(--divider); font: var(--type-words); color: var(--ink-2); }
@@ -198,7 +201,7 @@ component({
     { label: "Every token", markup: swatches(), isWide: true },
     {
       label: "The divider: a line between two parts of one pane",
-      markup: glassPane({ paneSize: "small", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
+      markup: glassPane({ paneWidth: "fit", body: html`<div class="divider-sample"><strong>emma_r</strong><span>Online</span><p>Your profile · Friends · Settings</p></div>` }),
     },
   ],
 });
@@ -254,17 +257,15 @@ export interface PageSettings {
   };
 }
 
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
-
 /** The settings as attributes for <html>. Only a #rrggbb color is taken as a hue, so a game's color can't carry anything else into the page. */
 export function pageSettingsAttributes(settings: PageSettings): Raw {
-  const hueColor = settings.glass?.hueColor;
-  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor && HEX_COLOR.test(hueColor) ? html` style="--glass-hue:${hueColor}"` : ""}`;
+  const hueColor = shownColor(settings.glass?.hueColor);
+  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor ? html` style="--glass-hue:${hueColor}"` : ""}`;
 }
 
 /** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */
 const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; cards: [string, string][] }) =>
-  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, isGlassAdaptive: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
+  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, isGlassAdaptive: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
 
@@ -286,7 +287,7 @@ component({
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
    What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */
 .glass-play { position: relative; width: 100%; height: 360px; overflow: hidden; touch-action: none; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
+  clip-path: ${cutPolygon("pane")}; }
 .glass-play > i { position: absolute; display: block; }
 .glass-play .sun { left: 8%; top: 40px; width: 150px; height: 150px; border-radius: 50%; background: #F7931A; animation: glass-drift-a 14s ease-in-out infinite alternate; }
 .glass-play .bar { left: 34%; top: 150px; width: 260px; height: 70px; background: #3B6FD0; transform: rotate(-14deg); animation: glass-drift-b 18s ease-in-out infinite alternate; }
@@ -315,7 +316,7 @@ component({
     {
       label: "Any size: drag it, pull its corner, or use the arrow keys (Shift to resize)",
       isWide: true,
-      markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="24 20 24 20" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
+      markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="pane" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
     },
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
@@ -323,7 +324,7 @@ component({
     {
       label: "Thin to thick",
       isWide: true,
-      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
+      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
     },
   ],
 });
@@ -345,7 +346,7 @@ export function backdrop(options: BackdropOptions = {}): Raw {
 }
 
 const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
-  html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div></div>`;
+  html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div></div>`;
 
 component({
   name: "Backdrop",
@@ -359,9 +360,15 @@ component({
   background: radial-gradient(60% 55% at 22% 28%, var(--backdrop-a), transparent 70%), radial-gradient(55% 55% at 78% 68%, var(--backdrop-b), transparent 70%),
     radial-gradient(45% 40% at 52% 4%, var(--backdrop-c), transparent 70%), var(--backdrop-base); }
 .backdrop.is-framed { position: absolute; }
+/* A shader that lost its drawing context (the browser keeps only so many) shows what's under it until it's drawn again, never the browser's broken canvas. */
+.backdrop.is-lost { visibility: hidden; }
+/* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
+.backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
+.backdrop.world.is-shown { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .backdrop.world { transition: none !important; } }
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
-  clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
+  clip-path: ${cutPolygon("pane")}; }
 .backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
 /* Taller, holding a row of glass: the Glass foundation's light examples. */
 .backdrop-frame.is-tall { height: 260px; gap: var(--gap-block-block); padding: var(--pad-pane); }

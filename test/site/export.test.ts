@@ -137,7 +137,7 @@ describe("export everything", () => {
   });
 
   it("needs read access to everything it covers, and an account starts two a minute", async () => {
-    const noSaves = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: null })).token;
+    const noSaves = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null })).token;
     const refused = await api("/games/sky-hopper/export", { key: noSaves });
     expect(refused.status).toBe(403);
     expect(refused.answer.error.code).toBe("key_not_allowed");

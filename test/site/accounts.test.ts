@@ -18,6 +18,7 @@ import { pageDataOf, pageScriptNames, pageScriptText, strictScriptProblems } fro
 import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
+import { pageProblems } from "./page-rules.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -1557,6 +1558,57 @@ describe("friends", () => {
     expect(refused).not.toContain('href="/g/arena-game?room=ROOMAA"');
   });
 
+  it("shows Watch beside Join for a room that takes spectators, by Join's rules, live on a full or closed room", async () => {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES ('g-arena', 'arena-game', 'Arena', 'live', 'listed', 'v1', 'own', ?, ?)").bind(now, now).run();
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "quiet_comet@example.com", "Quiet_Comet");
+    expect((await ben.go(`/friends/add/${await inviteFrom(ana)}`, {})).status).toBe(303);
+    const benPlayerId = (await accountById(env.DB, users.get("quiet_comet@example.com")!))!.player_id;
+    await env.DB.prepare("INSERT INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', ?, ?, ?)").bind(benPlayerId, now, now).run();
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES ('g-arena', 'ROOMAA', 2, 8, 1, ?, ?)").bind(now, now).run();
+    await ben.go("/api/presence", undefined, { method: "POST", body: "{}" });
+    const watchLink = 'href="/g/arena-game?room=ROOMAA&watch=1"';
+    const pages = async () => [await (await ana.go("/friends")).text(), await (await ana.go("/g/arena-game/friends")).text(), await (await ana.go("/@Quiet_Comet")).text(), await (await ana.go("/g/arena-game/players/friends")).text()];
+
+    // A game server that doesn't take spectators: no Watch at all.
+    for (const page of await pages()) {
+      expect(page).toContain('href="/g/arena-game?room=ROOMAA"');
+      expect(page).not.toContain(">Watch<");
+    }
+    // One that does: Watch beside Join, everywhere Join is.
+    await env.DB.prepare("UPDATE live_rooms SET maximum_spectator_count = 20, spectator_count = 2").run();
+    for (const page of await pages()) expect(page).toContain(watchLink);
+    // A full or closed room can still be watched, while Join grays.
+    await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
+    const closed = await (await ana.go("/friends")).text();
+    expect(closed).toContain('data-reason="Match in progress"');
+    expect(closed).toContain(watchLink);
+    await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 8").run();
+    expect(await (await ana.go("/g/arena-game/players/friends")).text()).toContain(watchLink);
+    // No room for another spectator.
+    await env.DB.prepare("UPDATE live_rooms SET spectator_count = 20").run();
+    for (const page of await pages()) {
+      expect(page).toContain('aria-label="Watch: Watching full"');
+      expect(page).not.toContain(watchLink);
+    }
+    await env.DB.prepare("UPDATE live_rooms SET spectator_count = 2").run();
+    // Join's social rules gray Watch too: a private room, Join off for the game, a friend who doesn't take joins.
+    await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 0").run();
+    expect(await (await ana.go("/friends")).text()).toContain('aria-label="Watch: Private room"');
+    await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 1").run();
+    await env.DB.prepare("UPDATE games SET friend_joins_enabled = 0").run();
+    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('aria-label="Watch: This game doesn&#39;t take joins"');
+    await env.DB.prepare("UPDATE games SET friend_joins_enabled = 1").run();
+    await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
+    for (const page of await pages()) {
+      expect(page).toContain("Watch: Quiet_Comet isn&#39;t taking joins");
+      expect(page).not.toContain("?room=ROOMAA");
+    }
+  });
+
   it("takes invites back, lets them run out, and keeps a few waiting at most", async () => {
     const ana = new Browser();
     await join(ana, "ana@example.com", "Night_Owl");
@@ -2338,8 +2390,8 @@ describe("a game for 16 and up", () => {
 
     // A younger account never finds it: home and Continue playing; everyone else does.
     expect(await (await teen.go("/")).text()).not.toContain("grown-up");
-    expect(await (await adult.go("/")).text()).toContain("/g/grown-up");
-    expect(await (await guest.go("/")).text()).toContain("/g/grown-up");
+    expect(await (await adult.go("/")).text()).toContain('"slug":"grown-up"');
+    expect(await (await guest.go("/")).text()).toContain('"slug":"grown-up"');
     for (const b of [teen, adult]) await b.go("/api/me/played/grown-up", undefined, { method: "POST", body: "{}" });
     expect(await (await teen.go("/api/me/played")).json()).toEqual({ played: [] });
     expect(((await (await adult.go("/api/me/played")).json()) as { played: { slug: string }[] }).played.map((played) => played.slug)).toEqual(["grown-up"]);
@@ -2421,7 +2473,7 @@ describe("API keys on the account page", () => {
     expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
 
     // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
-    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
+    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
     const customToken = (await (await makeKey(b, device, custom)).text()).match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
     const customAccess = (await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${customToken}` } })).json()) as { access: { area_access: Record<string, string> } };
     expect(customAccess.access.area_access).toMatchObject({ stats_access: "read", database_access: "none", sign_in_app_access: "none", webhook_access: "none" });
@@ -2571,7 +2623,7 @@ describe("the dashboard", () => {
     const refused = await b.go("/dashboard/hop/details", { title: "" });
     expect(refused.status).toBe(400);
     const refusedText = await refused.text();
-    expect(refusedText).toContain("title is empty or over 80 characters. Give a title of 1 to 80 characters.");
+    expect(refusedText).toContain("title is empty. Give 1 to 80 characters.");
     expect(refusedText).toContain('<a href="/dashboard/hop/details" aria-current="page">');
   });
 
@@ -2758,8 +2810,7 @@ describe("recently played", () => {
   it("shows games on the home page and patch notes on the game page", async () => {
     await liveGame("hop", "Hop");
     const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect(home).toContain('id="home-title"');
-    expect(home).toContain('href="/g/hop?play"');
+    expect((pageDataOf(home, "home-data") as { games: { slug: string }[] }).games.map((game) => game.slug)).toContain("hop");
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
     expect(page).toContain('<section id="updates">');
@@ -3377,6 +3428,8 @@ describe("Sign in with Zaisma", () => {
     expect(consentPage).toContain("Sign in to Sky Hopper Online");
     expect(consentPage).toContain("Never your email");
     expect(consentPage).toContain("skyhopper.test");
+    // Only gallery components, laid out by them: no style, class or sheet of its own.
+    expect(pageProblems(consentPage)).toEqual([]);
     expect(consent.headers.get("content-security-policy")).toContain("form-action 'self' https://skyhopper.test");
 
     const code = await allow(player, appId);

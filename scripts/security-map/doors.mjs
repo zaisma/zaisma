@@ -13,8 +13,8 @@ import { extractSymbol } from "./anchors.mjs";
 const DEVELOPER = "apps/site/src/developer.ts";
 const anchorOf = (sourcePath, symbolName) => ({ anchor_id: `${sourcePath}:${symbolName}`, source_path: sourcePath, symbol_name: symbolName });
 
-function door({ door_id, door_name, door_kind, sector_id, source_path, anchors, gives = [], trusts = [], covered_by_door_id = null }) {
-  return { door_id, door_name, door_kind, sector_id, source_path, anchors, gives: [...new Set(gives)].sort(), trusts: [...new Set(trusts)].sort(), covered_by_door_id };
+function door({ door_id, door_name, door_kind, sector_id, source_path, anchors, gives = [], trusts = [], covered_by_door_id = null, stored_value = null }) {
+  return { door_id, door_name, door_kind, sector_id, source_path, anchors, gives: [...new Set(gives)].sort(), trusts: [...new Set(trusts)].sort(), covered_by_door_id, stored_value };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -390,10 +390,32 @@ export function tokenDoors() {
 
 // ---------------------------------------------------------------------------------------------------
 
+const STORED_VALUES_SOURCE = "apps/site/src/stored-values.ts";
+
+/**
+ * One door per stored value (STORED_VALUES, apps/site/src/stored-values.ts): what an attacker who can save a
+ * value wants is for it to act on someone else's page, as them, so it's in the accounts sector. It follows
+ * the value from the doors that save it to the pages that show it, and is anchored on the check that shapes
+ * it, esc and the list itself, so a change to any of them makes its cases stale.
+ */
+export function storedValueDoors(site) {
+  return site.STORED_VALUES.map((entry) =>
+    door({
+      door_id: `stored-value:${entry.stored}`,
+      door_name: `${entry.stored} (${entry.format}, from ${entry.source})`,
+      door_kind: "stored_value",
+      sector_id: "accounts",
+      source_path: STORED_VALUES_SOURCE,
+      anchors: [...(entry.checked_by ? [anchorOf(entry.checked_by.source_path, entry.checked_by.symbol_name)] : []), anchorOf("apps/site/src/markup.ts", "esc"), anchorOf(STORED_VALUES_SOURCE, "STORED_VALUES")],
+      stored_value: { format: entry.format, source: entry.source, saved_by_door_ids: [...entry.saved_by_door_ids].sort(), shown_on_door_ids: [...entry.shown_on_door_ids].sort() },
+    }),
+  );
+}
+
 /** Every door in the code, sorted by id. site is loadSiteModule()'s answer. */
 export async function collectDoors(repoRoot, site, warn = () => {}) {
   const api = apiDoors(site, warn);
-  const all = [...api, ...(await mcpDoors(site, api)), ...adminDoors(site), ...pageDoors(repoRoot, warn), ...gameFileDoors(repoRoot), ...roomDoors(repoRoot), ...tokenDoors()];
+  const all = [...api, ...(await mcpDoors(site, api)), ...adminDoors(site), ...pageDoors(repoRoot, warn), ...gameFileDoors(repoRoot), ...roomDoors(repoRoot), ...tokenDoors(), ...storedValueDoors(site)];
   const seen = new Set();
   for (const each of all) {
     if (seen.has(each.door_id)) throw new Error(`Two doors have the id ${each.door_id}; door ids key the map, so each must be unique.`);

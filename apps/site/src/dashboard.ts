@@ -1,8 +1,9 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_HOUR_CPU_DURATION_SEC, PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC, PLAYER_HOUR_RELAYED_SIZE_BYTES, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { shownColor } from "./markup.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -495,13 +496,7 @@ interface DatabaseJson {
     read_row_count: number;
     written_row_count: number;
     storage_size_bytes: number;
-    free_read_row_count: number;
-    free_written_row_count: number;
-    free_storage_size_bytes: number;
-    has_reached_free_reads: boolean;
-    has_reached_free_writes: boolean;
-    has_reached_free_storage: boolean;
-    reset_date: string;
+    maximum_storage_size_bytes: number;
   };
 }
 type Loaded = { game: GameJson; alerts: GameAlertJson[]; images: ImageJson[]; backgrounds: BackgroundJson[]; shaders: ShaderJson[]; versions: VersionJson[]; testers: TesterJson[] };
@@ -588,15 +583,10 @@ ${body}
 const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: string; label: string }>> = {
   version_rejected: { section: "versions", hash: "", label: "See why" },
   version_held: { section: "versions", hash: "", label: "See why" },
-  rooms_paused: { section: "players", hash: "#hosting", label: "Free hosting" },
-  requests_paused: { section: "players", hash: "#hosting", label: "Free hosting" },
-  database_paused: { section: "database", hash: "", label: "Database" },
-  database_writes_paused: { section: "database", hash: "", label: "Database" },
+  hosting_paused: { section: "players", hash: "#hosting", label: "Hosting" },
   database_full: { section: "database", hash: "", label: "Database" },
-  rooms_nearly_paused: { section: "players", hash: "#hosting", label: "Free hosting" },
-  requests_nearly_paused: { section: "players", hash: "#hosting", label: "Free hosting" },
-  database_nearly_paused: { section: "database", hash: "", label: "Database" },
-  database_writes_nearly_paused: { section: "database", hash: "", label: "Database" },
+  hosting_nearly_paused: { section: "players", hash: "#hosting", label: "Hosting" },
+  hosting_budget_nearly_used: { section: "players", hash: "#hosting", label: "Hosting" },
   database_nearly_full: { section: "database", hash: "", label: "Database" },
   reports_open: { section: "players", hash: "#reports", label: "See them" },
   link_flagged: { section: "details", hash: "#links", label: "Links" },
@@ -702,32 +692,41 @@ const nextMonthStart = (nowMs = Date.now()) => {
  * play online, or have used some.
  */
 function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
-  const use = stats.room_use_this_month;
-  const requestUse = stats.request_use_this_month;
-  const showsRequests = own || requestUse.request_count > 0;
-  if (game.multiplayer_mode === "none" && !use.counted_play_duration_hours && !use.has_reached_free_hours && !showsRequests) return "";
+  const use = stats.hosting_use_this_month;
+  if (game.multiplayer_mode === "none" && !use.free_used_pct && !use.is_paused && !own && use.monthly_budget_cents === null) return "";
   const resetDay = nextMonthStart();
-  const percent = (usedNumber: number, freeNumber: number) => Math.min(100, Math.round((usedNumber / Math.max(freeNumber, 1)) * 100));
-  const relayHours = Math.round((use.relayed_size_bytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 10) / 10;
-  // What the game server's CPU adds is what's left once room time and the relay are counted.
-  const cpuHours = Math.max(0, Math.round((use.counted_play_duration_hours - use.room_play_duration_hours - use.relayed_size_bytes / PLAYER_HOUR_RELAYED_SIZE_BYTES) * 10) / 10);
-  const parts = use.relayed_size_bytes > 0 || cpuHours > 0
-    ? html`<small>${[
-        `${formatted(use.room_play_duration_hours)} in Zaisma rooms`,
-        ...(use.relayed_size_bytes > 0 ? [`${formatted(relayHours)} from ${formatted(Math.round(use.relayed_size_bytes / 1_000_000))} MB through Zaisma's relay`] : []),
-        ...(cpuHours > 0 ? [`${formatted(cpuHours)} from ${formatted(use.game_server_cpu_duration_sec)} CPU-seconds of your game server`] : []),
-      ].join(", ")}</small>`
+  const shares = use.shares.length ? html`<small>${use.shares.map((share) => `${HOSTING_KIND_LABELS[share.kind]} ${share.share_pct}%`).join(", ")}</small>` : "";
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+  const pausedWhy =
+    use.paused_reason === "budget_used"
+      ? "This month's budget is used: raise it to start again."
+      : use.paused_reason === "credit_used"
+        ? "Your credit ran out: add credit to start again."
+        : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
+  const paused = use.is_paused
+    ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
-  return html`<h2 class="rule-h" id="hosting">Free hosting <span class="muted">This month</span></h2>
-<p class="hosting-lead">Your game is on Zaisma's free tier. Hosting is counted in player-hours: one player in a Zaisma room for an hour is one, and so is every 20 MB Zaisma's relay sends your players when they connect to each other, and every ${PLAYER_HOUR_CPU_DURATION_SEC} CPU-seconds your game server runs past the ${PLAYER_HOUR_INCLUDED_CPU_DURATION_SEC} each player-hour includes. The first ${formatted(use.free_room_play_duration_hours)} each month are free.</p>
-<div class="numbers hosting">
-<div class="num plate${use.has_reached_free_hours ? " reached" : ""}"><strong>${formatted(use.counted_play_duration_hours)}</strong><span>player-hours used</span><small>${use.has_reached_free_hours ? html`All ${formatted(use.free_room_play_duration_hours)} free ones used: new rooms and connections between players open again on ${resetDay}` : html`of ${formatted(use.free_room_play_duration_hours)} free`}</small><span class="meter"><span style="width:${percent(use.counted_play_duration_hours, use.free_room_play_duration_hours)}%"></span></span>${parts}</div>
-${showsRequests
-    ? html`<div class="num plate${requestUse.has_reached_free_requests ? " reached" : ""}"><strong>${formatted(requestUse.request_count)}</strong><span>requests to your game server</span><small>of ${formatted(requestUse.free_request_count)} free${requestUse.has_reached_free_requests ? html`, all used: they answer request_limit until ${resetDay}` : ""}</small><span class="meter"><span style="width:${percent(requestUse.request_count, requestUse.free_request_count)}%"></span></span></div>`
-    : ""}
-</div>
-<p class="hint">Starts again from 0 on ${resetDay} (UTC). Hosting billing isn't here yet, so for now the free tier is the most a game can use: once it's used, new rooms and connections between players don't open until the month resets, and matches already running carry on. Rooms and a relay on your own servers are never counted.</p>`;
+  const freeMeter = html`<span class="meter"><span style="width:${use.free_used_pct}%"></span></span>`;
+  const budgetCents = use.monthly_budget_cents;
+  if (budgetCents === null) {
+    return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
+${paused}<div class="numbers hosting">
+<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${freeMeter}${shares}</div>
+</div>`;
+  }
+  // Paid hosting carries on where the free allowance ends: one meter, the free part first, then the budget. The free
+  // part is a share of the bar, never sized by dollars, and a game living on its budget isn't warned about it.
+  const budgetUsedPct = Math.min(100, Math.round((use.spent_from_credit_cents / Math.max(budgetCents, 1)) * 100));
+  const isIntoBudget = use.free_used_pct >= 100;
+  return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
+${paused}<div class="numbers hosting">
+<div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}">${isIntoBudget
+    ? html`<strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget, after this month's free hosting. Resets ${resetDay}.</span>`
+    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}<span class="meter split"><span class="part free"><i style="width:${use.free_used_pct}%"></i></span><span class="part paid"><i style="width:${budgetUsedPct}%"></i></span></span><span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span>${shares}</div>
+</div>`;
 }
+
+const HOSTING_KIND_LABELS: Record<Stats["hosting_use_this_month"]["shares"][number]["kind"], string> = { room_play: "Rooms", game_server_cpu: "Game server CPU", relayed_data: "Relay", database: "Database", requests: "Requests" };
 
 /**
  * The game's own SQLite database: the month's use, its tables beside how to reach it. The SQL console
@@ -736,15 +735,14 @@ ${showsRequests
 function databaseSection(slug: string, database: DatabaseJson | string): Raw {
   if (typeof database === "string") return html`<p class="error" role="alert">${database}</p>`;
   const use = database.database_use_this_month;
-  const meter = (label: string, usedNumber: number, freeNumber: number, shown: (shownNumber: number) => string, reached: boolean) =>
-    html`<div class="num plate${reached ? " reached" : ""}"><strong>${shown(usedNumber)}</strong><span>${label}</span><small>of ${shown(freeNumber)} free${reached ? ", all used" : ""}</small><span class="meter"><span style="width:${Math.min(100, Math.round((usedNumber / Math.max(freeNumber, 1)) * 100))}%"></span></span></div>`;
+  const meter = (label: string, usedNumber: number, shown: (shownNumber: number) => string) => html`<div class="num plate"><strong>${shown(usedNumber)}</strong><span>${label}</span></div>`;
   const tables = database.tables;
   return html`<div class="numbers">
-${meter("Rows read this month", use.read_row_count, use.free_read_row_count, formatted, use.has_reached_free_reads)}
-${meter("Rows written this month", use.written_row_count, use.free_written_row_count, formatted, use.has_reached_free_writes)}
-${meter("Stored", use.storage_size_bytes, use.free_storage_size_bytes, sizeText, use.has_reached_free_storage)}
+${meter("Rows read this month", use.read_row_count, formatted)}
+${meter("Rows written this month", use.written_row_count, formatted)}
+${meter("Stored", use.storage_size_bytes, sizeText)}
 </div>
-<p class="hint">Reads and writes start again from 0 on ${use.reset_date} (UTC). Until hosting billing is ready, past the free reads queries stop, past the free writes only reads work, and a full database can change and delete rows but not grow.</p>
+<p class="hint">The database counts on the game's hosting meter with everything else it runs (Players, Hosting). A game keeps up to ${sizeText(use.maximum_storage_size_bytes)}.</p>
 <div class="database">
 <aside class="tables">
 <h2 class="rule-h">Tables</h2>
@@ -1168,16 +1166,17 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 <div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
 </div>`;
   };
+  const glassTintColor = shownColor(game.glass_tint_color);
   return html`<div class="bg-panel" data-game-address="${gameAddress}">
-<div class="bg-preview not-steel" aria-label="Live preview"${game.glass_tint_color ? raw(` style="--glass-hue:${game.glass_tint_color}"`) : ""}>
+<div class="bg-preview not-steel" aria-label="Live preview"${glassTintColor ? html` style="--glass-hue:${glassTintColor}"` : ""}>
 <iframe class="backdrop is-framed" data-backdrop="frame" data-adapts-glass src="${gameAddress}_zaisma/shader-preview" sandbox="allow-scripts allow-same-origin" title="Background preview" tabindex="-1"></iframe>
 <img class="bg-picture" alt="" hidden>
-<div class="glass bg-sample" data-glass data-glass-corners="24 20 24 20">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
+<div class="glass bg-sample" data-glass data-glass-corners="pane">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
 <p class="bg-note" role="status" hidden></p>
 </div>
 <p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>
 ${backgrounds.map(screenPanel)}
-<form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${game.glass_tint_color ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${game.glass_tint_color ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
+<form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${glassTintColor ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${glassTintColor ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
 <p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is a <code>.glsl</code> file with Shadertoy's <code>mainImage</code>, reading <code>iResolution</code> and <code>iTime</code>, up to 16 KB: it's drawn and checked before it can show, and players' browsers draw it at about half resolution, 30 frames a second. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
 </div>${scriptTags(BACKGROUND_PREVIEW_SCRIPT)}`;
 }
@@ -1217,7 +1216,15 @@ interface Stats {
     game_server_cpu_duration_sec: number;
     game_server: { call_count: number; request_count: number; scheduled_run_count: number; crash_count: number; stopped_count: number; ended_match_count: number } | null;
   }[];
-  room_use_this_month: { room_play_duration_hours: number; relayed_size_bytes: number; game_server_cpu_duration_sec: number; counted_play_duration_hours: number; free_room_play_duration_hours: number; has_reached_free_hours: boolean };
+  hosting_use_this_month: {
+    free_used_pct: number;
+    shares: { kind: "room_play" | "game_server_cpu" | "relayed_data" | "database" | "requests"; share_pct: number }[];
+    is_paused: boolean;
+    paused_reason: "free_used" | "budget_used" | "credit_used" | null;
+    monthly_budget_cents: number | null;
+    spent_from_credit_cents: number;
+    request_count: number;
+  };
   room_traffic: {
     inbound_messages_per_player_sec: number;
     inbound_size_bytes_per_player_sec: number;
@@ -1226,7 +1233,6 @@ interface Stats {
     message_types: { message_type: string; direction: "inbound" | "outbound"; message_count: number; size_bytes: number; largest_size_bytes: number; average_size_bytes: number }[];
     traffic_hints: { code: string; message: string }[];
   };
-  request_use_this_month: { request_count: number; free_request_count: number; has_reached_free_requests: boolean };
   schedules: { schedule_name: string; cron: string; version_id: string; next_run_at: string; last_run_at: string | null }[];
   game_server_errors: { kind: "crash" | "stopped"; message: string; occurrence_count: number; version_id: string; last_at: string }[];
 }
@@ -1482,6 +1488,20 @@ const GAME_STYLES = `
 .numbers.hosting .num:only-child{grid-column:1/-1;max-width:560px}
 .numbers.hosting .meter{height:8px}
 .numbers.hosting .meter+small{margin-top:6px}
+.meter.split{display:flex;gap:3px;background:none;box-shadow:none}
+.meter.split .part{display:block;height:100%;background:rgba(0,0,0,.45);box-shadow:inset 0 1px 1px rgba(0,0,0,.6)}
+.meter.split .free{flex:1}
+.meter.split .paid{flex:2}
+.meter.split i{display:block;height:100%;background:var(--chrome)}
+.num.reached .meter.split i{background:var(--warn)}
+.meter-labels{display:flex;margin-top:6px}
+.meter-labels small{flex:1}
+.meter-labels small+small{flex:2;padding-left:3px}
+.hosting-paused{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);padding:14px 18px;margin:0 0 16px;max-width:680px}
+.hosting-paused strong{display:block;font-size:20px;color:var(--warn);margin-bottom:4px}
+.hosting-paused p{margin:0;color:var(--text)}
+.hosting-paused small{display:block;margin-top:4px;color:var(--text-2)}
+.num.reached .meter-labels small,.num.reached .meter-labels+small{color:inherit}
 @media (max-width:640px){.numbers.hosting{grid-template-columns:minmax(0,1fr)}}
 .database{display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px;align-items:start;margin-top:8px}
 .database .note p{margin:0}

@@ -52,7 +52,7 @@ export default {
   ticksPerSec: 20,         // up to 60; leave out for turn-based games so the room sleeps between moves
   setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
   onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
-                                                       // joinInfo: { fromRoomCode, isReturning } (isReturning: back to a held seat)
+                                                       // joinInfo: { fromRoomCode, isReturning, isSpectator } (isReturning: back to a held seat)
   canJoin(state, player, room, joinData, joinInfo) {}, // true (or nothing) lets them in; false or { refusalMessage } turns them away
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
   onMessage(state, player, message, room) {},
@@ -62,8 +62,8 @@ export default {
   schedules: [{ name: "daily-reset", cron: "0 0 * * *" }], // runs by itself, in UTC (below)
   onSchedule(run, server) {},                  // run.name: which schedule is due
 };
-// room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
-// room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId }), room.sendBytes(playerId, bytes),
+// room.broadcast(message, { exceptPlayerId, delivery }), room.send(playerId, message, { delivery }), room.players, room.end(message),
+// room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId, delivery }), room.sendBytes(playerId, bytes, { delivery }),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
 // await room.database.query(sql, values), await room.database.batch([{ sql, values }])  (the game database, below)
 ```
@@ -83,6 +83,31 @@ Each player's ping, measured by the room, is `room.pingDurationMs(playerId)` on 
 A room takes up to 100 players at up to 60 ticks a second. Each player's game sends up to 30 messages a second (a burst of 60), so a game at 60 ticks sends two inputs in one message; the game server can still send every tick. Past 100 players, split a world into rooms and move players between them (`room.moveTo`).
 
 **Bytes:** for snapshots and inputs where JSON is too big, a game sends bytes with `room.sendBytes(bytes)` (an `ArrayBuffer` or any typed array) and gets them with `room.on("bytes", (bytes, fromPlayerId) => {})`; the game server takes them in `onBytes` and sends them with `room.broadcastBytes(bytes)` and `room.sendBytes(playerId, bytes)`. `fromPlayerId` is the player they came from when the game server passes one player's bytes on (`room.broadcastBytes(bytes, { fromPlayerId: player.id })`, as the relay does), else `null`. Bytes have the same limits as messages: up to 16 KB each, counted together with them. The MCP's `get_stats` shows each game's room traffic per player and its biggest message types, with hints on what to send as bytes or send less.
+
+**Sending only what changed:** turn on `stateSyncEnabled` and keep the world in the game server's state; each player then gets a full copy as they join and after that only what changed, after every tick (or every move, in a turn-based game), with no code to send it. `stateView(state, viewer, room)` cuts what each player sees: only what's near them in a big world, or without the other team's cards. In the game, `room.state` is the player's view and `room.smoothedState()` the same a moment (100 ms) behind, with positions moving evenly between updates. A player whose connection is backed up gets nothing until they've caught up, then a full copy. See `examples/arena`, and "State sync" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md).
+
+```ts
+// A 100-player world where each player gets only the players within 800 units of them.
+export default {
+  maximumPlayerCount: 100,
+  ticksPerSec: 30,
+  stateSyncEnabled: true,
+  setup: () => ({ players: {} }),
+  onJoin(state, player) { state.players[player.id] = { name: player.name, x: 0, y: 0, health: 100 }; },
+  onLeave(state, player) { delete state.players[player.id]; },
+  stateView(state, viewer) {
+    const me = state.players[viewer.id];
+    const nearby = {};
+    for (const [id, other] of Object.entries(state.players)) {
+      if (me && Math.hypot(other.x - me.x, other.y - me.y) <= 800) nearby[id] = { name: other.name, x: Math.round(other.x), y: Math.round(other.y), health: other.health };
+    }
+    return { players: nearby };
+  },
+};
+// In the game: requestAnimationFrame(function draw() { drawPlayers(room.smoothedState()?.players ?? {}); requestAnimationFrame(draw); });
+```
+
+**Messages that can be dropped:** `{ delivery: "latest_only" }` on any send, from the game server or the game, marks a message only the newest of matters, like positions every tick or where a player aims: while a player's connection is backed up, a newer one with the same `latestKey` (by default its `type`) replaces it, and the newest goes once they catch up. Zaisma's rooms carry them over the WebSocket today, and the same call moves to real datagrams once Cloudflare carries them. `get_stats` says which of your message types would gain from it (`latest_only_available`).
 
 Games without server code can use the built-in `relay` (up to 16 players), which passes each message to everyone else as `{ fromPlayerId, data }`, and bytes with their `fromPlayerId`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
@@ -129,8 +154,8 @@ async onMessage(state, player, message, room) {
 
 - **`query(sql, values)`** runs one statement and answers its rows as objects (`[]` when it returns none). `values` fill its `?`s in order: text, numbers, `null` or a `Uint8Array` (use 1 and 0 for true and false; store objects as `JSON.stringify` and read them with `JSON.parse` or SQLite's JSON functions). To see what an `INSERT`, `UPDATE` or `DELETE` changed, add `RETURNING`.
 - **`batch([{ sql, values }, ...])`** runs up to 100 statements in one transaction, so they all happen or none do (moving an item between two inventories, say), and answers each one's rows. `BEGIN` and `COMMIT` aren't taken; batch is the transaction.
-- **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `database_write_limit`, `database_read_limit`, `database_storage_limit` and `database_unavailable`.
-- **Free on Zaisma up to 500,000 rows written and 500 million rows read a month, and 500 MB stored, per game.** Until hosting billing is ready, a game past its written rows can't write until the month resets (UTC), and one at its storage can change and delete rows but not grow; reads keep working. Past its read rows, it waits for the month too. Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows.
+- **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `hosting_paused` (the game's hosting is paused this month, below), `database_full` (its storage, the database and kept rooms together, is at the 10 GB a game can have: it can change and delete rows but not grow) and `database_unavailable`.
+- **Part of the game's hosting on Zaisma.** Rows written and read, and what it stores, count on the game's one hosting meter with its rooms and requests (see "Hosting" below). Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows. When the game's hosting pauses, the database keeps answering for the hour running matches get, so their last saves land, then answers `hosting_paused` until it starts again.
 - **You and your AI reach it too:** look at its tables and use, query it, fix data, change tables and roll it back to any minute in the last 30 days through the developer API, the MCP (`get_database`, `query_database`, `batch_database`, `restore_database`) or `zaisma database` in a terminal, with the same checks and limits (see "The game database" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md)).
 - **Take it out, bring it in:** the whole database goes out and in as SQLite's own SQL dump (`export_database`, `import_database`), or as a ready SQLite file from a terminal: `zaisma database export <game> game.sqlite` and `zaisma database import <game> game.sqlite`.
 - **The same code on your own server:** the Node runner keeps the database in a local SQLite file (below), checked the same way, with no limits. Moving between Zaisma and your own server is one command each way: export to the file the runner uses, or import the runner's file.
@@ -172,7 +197,51 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 
 The new room runs the same game server, and its `setup(setupData)` gets your setup data, so it can start the match already set up (players can read it but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `isListed: true` (with a `name` and `labels` if you like). To send players to a room that's already running instead, like the next area of an open world, use `room.moveTo(roomCode, { playerIds, joinData })`: the other room's `canJoin` decides, and `onMoved(state, moveResult, room)` hears `{ roomCode, movedPlayers, refusals }`. A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
-Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Each player-hour includes 25 CPU-seconds of your game server; past that, every 50 CPU-seconds counts one more player-hour, over the game's whole month. Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `error.code === "month_limit"`, while matches already running carry on.
+**Kept rooms** are for worlds that last, like a survival server: a kept room doesn't end when everyone leaves, but sleeps with its state saved, costs nothing while it sleeps, and wakes as it was when someone joins, a day or a month later.
+
+```ts
+room.setKept(true);  // in your game server, like in setup or when players build their first base
+```
+
+A listed kept room stays on the game page's Rooms tab with nobody in it, like a server waiting for players (`Zaisma.rooms.list` says `isKept`). A world waking from its sleep runs `onRestored` with `restoreInfo.lostDurationSec` 0 and `restoreInfo.savedAt`, so you can grow crops for the time that passed, and it wakes on the game's live version, with `restoreInfo.savedVersionId` saying which one saved it. `room.end()` ends it for good, and `room.setKept(false)` makes it an ordinary room again. Saved worlds count toward the game's storage with its database, on its hosting meter: at the 10 GB a game can have, new rooms can't be kept until you make room, but kept rooms keep saving. List and delete them with `list_kept_rooms` and `delete_kept_room`, or `zaisma kept-rooms`. A room made with `room.reserve({ ..., isKept: true })` starts kept. On your own server the Node runner keeps them in `--room-state`.
+
+`room.roomCode` tells the game server which room it's in, so a game with one shared world can keep only that room and turn players away from any other code, even from a changed page:
+
+```ts
+canJoin(state, player, room) { return room.roomCode === "WRLD22" || { refusalMessage: "Join the main world." }; },
+onJoin(state, player, room) { room.setKept(true); },
+```
+
+Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player.
+
+**Hosting.** Everything a game runs on Zaisma's servers (room time, game server CPU past the 25 CPU-seconds each player-hour includes, data Zaisma's relay sends its players, its database, and requests and schedule runs to its game server) counts on one meter, and every game gets a free allowance each month (UTC), about 2,500 player-hours of a game that only uses rooms. Your dashboard and `get_stats` show it as a percentage, with what used it. Past it, a game keeps going only when its developer has added hosting credit and given it a monthly budget (`monthly_budget_cents`; see "Hosting and credit" in [docs/DEVELOPER-API.md](docs/DEVELOPER-API.md)). Otherwise its hosting pauses until the month resets: no new rooms open (joining fails with `error.code === "hosting_paused"`), no new relayed connections or requests start, and matches already running get an hour to finish (`room.endsAt`, the game server's `onEnding`, the SDK's `ending` event). Game files, saves, sign-in, publishing and spectators are never on the meter, and your own servers never are.
+
+#### Spectators
+
+A game server that turns watching on lets people watch a match without playing, like a tournament's crowd or friends waiting for the next round:
+
+```ts
+export default {
+  maximumSpectatorCount: 20,   // up to 100; leave it out, or 0, and nobody can watch
+  onSpectatorJoin(state, spectator, room) { room.send(spectator.id, { type: "snapshot", state }); },  // catch them up
+  onSpectatorLeave(state, spectator, room) {},
+  onTick(state, tickDurationSec, room) {
+    room.broadcast({ type: "positions", positions: state.positions });                       // players and spectators
+    room.broadcast({ type: "hands", hands: state.hands }, { audience: "players" });          // never the spectators
+    room.broadcast({ type: "commentary", text: state.commentary }, { audience: "spectators" });
+  },
+};
+```
+
+```js
+const room = await Zaisma.joinRoom({ isSpectator: Zaisma.rooms.isLinkedAsSpectator });  // in the game
+room.isSpectator;    // watching: room.send and room.sendBytes throw error.code "spectator_cannot_send"
+room.spectatorCount; // how many watch; the "room" event says when it changes
+```
+
+A spectator gets everything the room sends everyone (`audience` picks who: `"everyone"`, the default, `"players"` or `"spectators"`, for `room.broadcast` and `room.broadcastBytes`), and `room.send(spectator.id, ...)` reaches one. They send nothing, so they can't bother players or dodge the room's limits; they're never in `room.players`, don't count toward `maximumPlayerCount` or "playing now", are never idle or away, and are free: watching isn't player time. `room.spectators` lists them, `joinInfo.isSpectator` tells `canJoin` a watcher is asking, and `room.kick` works on them too. A closed or full room can still be watched (watching a match under way is the point); a room with nobody playing can't (`no_room`), and one whose audience is full answers `watching_full`. When the last player leaves, the spectators are told the match ended.
+
+On zaisma.com, Watch shows beside Join (friends playing, the Players plate, the Rooms tab) for games that take spectators, with the same rules as Join, and opens the game with `Zaisma.rooms.isLinkedAsSpectator` true. The Rooms tab and the Players plate say how many are watching, never who.
 
 #### Players who walk away
 
@@ -245,7 +314,7 @@ const { isClaimed } = await Zaisma.server.request({ type: "claimDailyReward" });
 - **`onRequest(player, request, server)`** answers what the game gets back: plain JSON, up to 1 MB, within 10 seconds. `player` is who sent it, from their player pass, so a player can't claim someone else's reward. `request` is the game's plain JSON, up to 16 KB, from the player's browser, so check it like any message and say what it's for in its `type`. There's no room and no state: what lasts goes in `server.database`, the same game database the game's rooms use.
 - **Rooms or not:** a game server with only `onRequest` needs no `setup()` and runs no rooms; one with both does both. Requests work whatever the game's multiplayer setting, as long as its live version has the game server in its `zaisma-server/` folder or `zaisma-server.js`, run in the same sealed sandbox as its rooms.
 - **Errors:** the game gets an `error.code`: `no_request_handler` (no `onRequest`), `game_server_error` (it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds; you see why with your game server's errors in the dashboard and `get_stats`, with the file and line), `request_limit`, `too_big`, `slow_down` (over about 120 a minute from one address) and the pass's own (`unchecked`, `account_needed`, `bad_pass`). A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
-- **Free on Zaisma up to 1 million requests a month per game.** Until hosting billing is ready, past them requests answer `request_limit` until the month resets (UTC). Your dashboard and `get_stats` show the month's count.
+- **Part of the game's hosting on Zaisma.** Each request, webhook event and schedule run counts on the game's hosting meter, and so does its CPU past the first 10 ms (see "Hosting" above). While the game's hosting is paused, requests answer `hosting_paused`. Your dashboard and `get_stats` show the month's count.
 - **On your own server** the Node runner answers the same requests at `POST /v1/requests/<game>` on its port, with `server.database` its local SQLite file: `Zaisma.server.request(request, { serverUrl: "https://play.example.com" })`. Any server can answer them the same way: the body is `{ pass, request }` as JSON (sent as `text/plain`, so browsers need no preflight), and the answer `{ answer }` or `{ error: { code, message } }`.
 
 #### Schedules
@@ -271,7 +340,7 @@ export default {
 
 - **`cron`** is the usual five fields, minute hour day-of-month month day-of-week, always in UTC: numbers, `*`, ranges (`1-5`), steps (`*/15`) and lists (`1,15`). `"0 4 * * 1"` is Mondays at 04:00. So a schedule runs at most once a minute; anything faster belongs in a room's `onTick`. A cron that doesn't read stops the game server starting, and says why.
 - **`onSchedule(run, server)`** gets `run.name`, `run.cron` and `run.scheduledAt`, the minute it was due (an ISO time). There's no room, no player and no state: what lasts goes in `server.database`, the same game database the game's rooms and requests use. It has 30 seconds. A run can rarely come late or twice (after a restart), so make it safe to repeat, like a reset that checks `run.scheduledAt`.
-- **Up to 10 schedules, free on Zaisma.** They run with the live version's game server, whatever the multiplayer setting, within a minute of it going live; a version without them stops them, and so does a game taken down. A game server with only schedules needs no `setup()` and runs no rooms. Your dashboard and `get_stats` show each schedule with its next and last run, the runs per day, and any errors with the schedule's name, file and line.
+- **Up to 10 schedules on Zaisma.** Each run counts as a request on the game's hosting meter, and a paused game's schedules don't run. They run with the live version's game server, whatever the multiplayer setting, within a minute of it going live; a version without them stops them, and so does a game taken down. A game server with only schedules needs no `setup()` and runs no rooms. Your dashboard and `get_stats` show each schedule with its next and last run, the runs per day, and any errors with the schedule's name, file and line.
 - **On your own server** the Node runner runs the same schedules at the same minutes while it's up, with `server.database` its local SQLite file, and prints a run's errors. A run due while it's down is missed.
 
 #### Calling other servers, with secrets
@@ -325,7 +394,7 @@ Blocks come the same way: `block_tag_ids`, the tags of up to 100 accounts it has
 
 ### Connections between players
 
-Peer-to-peer code (WebRTC, what PeerJS and Godot's WebRTC use) works on Zaisma unchanged, and players never learn each other's internet address: the games server puts a small script (`packages/sdk/relay.js`) first in every page, which sends every connection through Cloudflare's relay (TURN) with Zaisma's relay servers, whatever `iceServers` the game asks for. That also gets connections through school and office networks. Your signaling still runs where it does now (Zaisma rooms or one of the game's own servers, like PeerJS's server). A relay of your own stays when it's on one of the game's own servers; Zaisma's relay counts toward the free player-hours (every 20 MB it sends your players is one), and stops at them like rooms until hosting billing. There's no setting to connect directly, and the scan holds code that makes connections from a frame of its own to get around the relay (`relay_bypass`).
+Peer-to-peer code (WebRTC, what PeerJS and Godot's WebRTC use) works on Zaisma unchanged, and players never learn each other's internet address: the games server puts a small script (`packages/sdk/relay.js`) first in every page, which sends every connection through Cloudflare's relay (TURN) with Zaisma's relay servers, whatever `iceServers` the game asks for. That also gets connections through school and office networks. Your signaling still runs where it does now (Zaisma rooms or one of the game's own servers, like PeerJS's server). A relay of your own stays when it's on one of the game's own servers; Zaisma's relay counts on the game's hosting meter (every 20 MB it sends your players costs what a player-hour in a room does), and starts no new connections while the game's hosting is paused, like rooms. There's no setting to connect directly, and the scan holds code that makes connections from a frame of its own to get around the relay (`relay_bypass`).
 
 ### Cloud saves
 
@@ -334,6 +403,10 @@ Signed-in players' progress follows them to any device, with no code in the game
 ### Links to your own sites
 
 A game opens its store, Patreon, Steam page or Discord with `await Zaisma.links.open("store")`, from a tap or key press: the links registered on the game (its `links`, in the dashboard, `update_game` or `zaisma links set`). Zaisma's page shows "You're leaving Zaisma" with the address over the game's corner, and the game hears `"opened"` or `"stayed"`. Guests and under-18 accounts open only links on trusted store, payment and video sites. See "Registered links" in `docs/DEVELOPER-API.md`.
+
+### Items players own
+
+A game lists what it sells or grants as items (`set_item`, or `zaisma items set <slug> items.json` from a file kept beside the game): permanent ones a player owns for good on every device, and consumables the game counts. Prices are the game's own, in any of Stripe's currencies with a price per country if you like, and Zaisma takes no cut. A player's pass lists the items they own, so `Zaisma.items.owns("skin_red-dragon")` in the game and `player.ownedItemNames` on any game server need no extra call, and every purchase or grant has a receipt any server checks with `verifyReceipt`. See "Items and purchases" in `docs/DEVELOPER-API.md`.
 
 ### How games are kept safe
 

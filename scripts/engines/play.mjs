@@ -3,21 +3,23 @@
 // Chrome, and checks it got there unchanged and works: the upload command sent it, the scan passed it on
 // its own (scripts/preview/run.mjs seeds them with no hand approval), and on its game page the engine
 // starts, draws moving frames, and throws nothing and is refused nothing (no blocked file or address); Zaisma's own run
-// in Chrome found it starting, and the files its page preloads are the ones the game then uses.
+// in Chrome found it starting, the files its page preloads are the ones the game then uses, and the game page got
+// Zaisma's measuring of how it ran.
 //
 //   npm run engines:play                    against this checkout's preview (npm run preview:start first)
 //   CHROME_PATH=/path/to/chrome npm run engines:play
 //
 // Chrome is driven over its DevTools protocol with Node's own WebSocket, so it needs no dependency. Each
 // sample says it started by setting window.zaismaEngineSample = { engine, version, started: true }.
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findChrome, openChrome } from "../chrome.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
+// The first Chrome with Document-Isolation-Policy, which games need for threads.
+const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
 const failures = [];
 const fail = (line) => {
@@ -40,14 +42,17 @@ for (const engine of engines) {
   else if (sample.scan_status !== "approved") fail(`${engine}: the scan left it ${sample.scan_status}: ${JSON.stringify(sample.findings)}`);
   // Zaisma's own run in Chrome (apps/site/src/performance-check.ts) started it too, and found it working.
   else if (sample.performance_check?.check_status !== "checked") fail(`${engine}: its run in Chrome is ${sample.performance_check?.check_status ?? "missing"}, not checked.`);
-  else {
+  // Local Browser Run is miniflare's pinned Chrome, older than the 137 a threaded build needs (Document-Isolation-Policy): its run can't start one.
+  else if (engine.endsWith("-threads") && Number(/Chrome (\d+)/.exec(sample.performance_check.browser_description)?.[1] ?? 0) < MINIMUM_ISOLATING_CHROME_VERSION) {
+    console.log(`  skip ${engine}: its run in Chrome is on ${sample.performance_check.browser_description}, which can't isolate a game frame (${MINIMUM_ISOLATING_CHROME_VERSION}+)`);
+  } else {
     const { loading_duration_sec: loadingDurationSec, notes } = sample.performance_check;
     if (loadingDurationSec === null) fail(`${engine}: its run in Chrome saw no first frame.`);
     for (const note of notes.filter((note) => ["error_at_start", "missing_file_at_start", "no_frame_drawn"].includes(note.code))) fail(`${engine}: its run in Chrome says ${note.code}: ${note.message}`);
   }
 }
 
-const chrome = await openChrome();
+const chrome = await startChrome();
 try {
   for (const sample of samples.filter((candidate) => engines.includes(candidate.engine) && candidate.scan_status === "approved")) {
     console.log(`${sample.engine}: ${site}/g/${sample.slug}?play`);
@@ -64,11 +69,21 @@ async function play(chrome, sample) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
+  // Every frame's scripts, by "<session> <context id>": the game's frame has its own process and DevTools
+  // session (an out-of-process frame), since Document-Isolation-Policy isolates it.
   const contexts = new Map();
   const problems = [];
-  const off = chrome.listen(sessionId, (method, params) => {
-    if (method === "Runtime.executionContextCreated") contexts.set(params.context.id, params.context.origin);
-    if (method === "Runtime.executionContextDestroyed") contexts.delete(params.executionContextId);
+  const offs = [];
+  const watch = (frameSessionId) => offs.push(chrome.listen(frameSessionId, (method, params) => onEvent(frameSessionId, method, params)));
+  const onEvent = (frameSessionId, method, params) => {
+    // Runtime.enable reports the contexts a frame already has, so nothing waits for it.
+    if (method === "Target.attachedToTarget" && params.targetInfo.type === "iframe") {
+      const childSessionId = params.sessionId;
+      watch(childSessionId);
+      for (const [childMethod, childParams] of [["Runtime.enable", {}], ["Log.enable", {}], ["Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }]]) chrome.send(childMethod, childParams, childSessionId).catch(() => {});
+    }
+    if (method === "Runtime.executionContextCreated") contexts.set(`${frameSessionId} ${params.context.id}`, { frameSessionId, contextId: params.context.id });
+    if (method === "Runtime.executionContextDestroyed") contexts.delete(`${frameSessionId} ${params.executionContextId}`);
     if (method === "Runtime.exceptionThrown") problems.push(`threw: ${params.exceptionDetails.exception?.description ?? params.exceptionDetails.text}`.split("\n")[0]);
     // Engines report their own errors with console.error (Unity, Godot), and the game page's own count too.
     if (method === "Runtime.consoleAPICalled" && params.type === "error") problems.push(`console.error: ${params.args.map((arg) => arg.value ?? arg.description ?? "").join(" ")}`.split("\n")[0]);
@@ -79,20 +94,28 @@ async function play(chrome, sample) {
     if ((method === "Log.entryAdded" && unusedPreload.test(params.entry.text)) || (method === "Runtime.consoleAPICalled" && params.type === "warning" && unusedPreload.test(params.args.map((arg) => arg.value ?? "").join(" ")))) {
       problems.push(`preload not used: ${method === "Log.entryAdded" ? params.entry.text : params.args.map((arg) => arg.value ?? "").join(" ")}`.split("\n")[0]);
     }
-  });
+  };
+  watch(sessionId);
   try {
     await send("Runtime.enable");
     await send("Log.enable");
     await send("Page.enable");
+    await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    // What the game frame's measuring (packages/sdk/performance.js) sends the game page, kept for the check below.
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: "window.zaismaPerformanceReports = []; addEventListener('message', (e) => { if (e.data && e.data.type === 'zaisma:performance') window.zaismaPerformanceReports.push(e.data); });" });
     await send("Page.navigate", { url: `${site}/g/${sample.slug}?play` });
 
     let started = null;
+    let gameContext = null;
     for (const startedAt = Date.now(); !started && Date.now() - startedAt < START_TIMEOUT_MS; await wait(500)) {
-      for (const contextId of contexts.keys()) {
-        const { result } = await send("Runtime.evaluate", { contextId, expression: "JSON.stringify(window.zaismaEngineSample ?? null)", returnByValue: true }).catch(() => ({ result: {} }));
+      for (const context of contexts.values()) {
+        const { result } = await chrome.send("Runtime.evaluate", { contextId: context.contextId, expression: "JSON.stringify(window.zaismaEngineSample ?? null)", returnByValue: true }, context.frameSessionId).catch(() => ({ result: {} }));
         const said = result.value ? JSON.parse(result.value) : null;
-        if (said?.started) started = said;
+        if (said?.started) {
+          started = said;
+          gameContext = context;
+        }
       }
     }
     if (!started) fail(`${sample.engine}: didn't start within ${START_TIMEOUT_MS / 1000} s.`);
@@ -100,6 +123,11 @@ async function play(chrome, sample) {
     else if (started.engine !== sample.engine.split("-")[0]) fail(`${sample.engine}: the page says it's ${started.engine}.`);
     else {
       console.log(`  started: ${started.engine} ${started.version}`);
+      // A threaded build (a folder ending in -threads) runs only in a game frame isolated by Document-Isolation-Policy.
+      if (sample.engine.endsWith("-threads")) {
+        const { result } = await chrome.send("Runtime.evaluate", { contextId: gameContext.contextId, expression: `crossOriginIsolated === true && typeof SharedArrayBuffer === "function"`, returnByValue: true }, gameContext.frameSessionId);
+        if (result.value !== true) fail(`${sample.engine}: the game frame isn't cross-origin isolated`);
+      }
       // Two pictures of the game a second apart: every sample moves, so a frozen or blank game shows as the same picture.
       await wait(2000);
       const first = await screenshot(send);
@@ -108,10 +136,20 @@ async function play(chrome, sample) {
       if (first === second) fail(`${sample.engine}: the game didn't draw anything new in a second.`);
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
+      // Zaisma measured how it ran: a report with its load time and seconds of frames, its first 10 seconds in.
+      let measured = null;
+      for (const waitedAt = Date.now(); !measured && Date.now() - waitedAt < 20_000; await wait(1000)) {
+        const { result } = await send("Runtime.evaluate", { expression: "JSON.stringify((window.zaismaPerformanceReports || []).find((report) => report.loading_duration_sec !== null && report.measured_duration_sec > 0) || null)", returnByValue: true });
+        measured = JSON.parse(result.value ?? "null");
+      }
+      if (!measured) fail(`${sample.engine}: the game page got no performance report with a load time and frame seconds.`);
+      else console.log(`  measured: drew in ${measured.loading_duration_sec} s, ${measured.measured_duration_sec} s of frames`);
     }
-    for (const problem of new Set(problems)) fail(`${sample.engine}: ${problem}`);
+    // Emscripten's pthreads warn on every threaded build that waits on the main thread (Godot's does): a warning, not a failure.
+    const isThreadsWarning = (problem) => sample.engine.endsWith("-threads") && problem.startsWith("console.error: Blocking on the main thread is very dangerous");
+    for (const problem of new Set(problems)) if (!isThreadsWarning(problem)) fail(`${sample.engine}: ${problem}`);
   } finally {
-    off();
+    for (const off of offs) off();
     await chrome.send("Target.closeTarget", { targetId }).catch(() => {});
   }
 }
@@ -124,73 +162,11 @@ async function screenshot(send) {
   return data;
 }
 
-/** Headless Chrome with WebGL in software (CI runners have no GPU), and a DevTools connection to it. */
-async function openChrome() {
-  const path = [
-    process.env.CHROME_PATH,
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ...playwrightChromes(),
-  ].find((candidate) => candidate && existsSync(candidate));
+/** Headless Chrome (scripts/chrome.mjs): CHROME_PATH, the system's, or one downloaded. */
+async function startChrome() {
+  const path = await findChrome();
   if (!path) stop("No Chrome found: set CHROME_PATH to a Chrome or Chromium.");
-  const profile = mkdtempSync(join(tmpdir(), "zaisma-engines-"));
-  const child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
-  const address = await new Promise((resolve, reject) => {
-    let output = "";
-    child.stderr.on("data", (chunk) => {
-      output += chunk;
-      const match = output.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (match) resolve(match[1]);
-    });
-    child.on("exit", (code) => reject(new Error(`Chrome stopped (${code}): ${output.slice(-500)}`)));
-  });
-  const socket = new WebSocket(address);
-  await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject)));
-  let nextId = 1;
-  const waiting = new Map();
-  const listeners = new Set();
-  socket.onmessage = ({ data }) => {
-    const message = JSON.parse(data);
-    if (message.id && waiting.has(message.id)) {
-      const { resolve, reject } = waiting.get(message.id);
-      waiting.delete(message.id);
-      if (message.error) reject(new Error(message.error.message));
-      else resolve(message.result);
-    } else if (message.method) for (const listener of listeners) listener(message);
-  };
-  return {
-    send: (method, params = {}, sessionId) =>
-      new Promise((resolve, reject) => {
-        const id = nextId++;
-        waiting.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      }),
-    listen: (sessionId, onEvent) => {
-      const listener = (message) => message.sessionId === sessionId && onEvent(message.method, message.params);
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    // Chrome writes to its profile until it has exited, so it goes after.
-    close: async () => {
-      socket.close();
-      const exited = new Promise((resolve) => child.once("exit", resolve));
-      child.kill();
-      await exited;
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
-    },
-  };
-}
-
-/** Chromium that Playwright downloaded, newest first, for machines without Chrome. */
-function playwrightChromes() {
-  const cache = join(homedir(), process.platform === "darwin" ? "Library/Caches/ms-playwright" : ".cache/ms-playwright");
-  if (!existsSync(cache)) return [];
-  return readdirSync(cache)
-    .filter((name) => name.startsWith("chromium-"))
-    .sort()
-    .reverse()
-    .flatMap((name) => ["chrome-mac-arm64", "chrome-mac", "chrome-mac-x64"].map((folder) => join(cache, name, folder, "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")).concat(join(cache, name, "chrome-linux64/chrome"), join(cache, name, "chrome-linux/chrome")));
+  return openChrome(path, "zaisma-engines-");
 }
 
 function readJson(path) {

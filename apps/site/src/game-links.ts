@@ -6,7 +6,7 @@ import { cutButton, runButton } from "./components/actions.ts";
 import { checkField } from "./components/choices.ts";
 import { glassPane } from "./components/foundations.ts";
 import { codeField } from "./components/inputs.ts";
-import { html, raw, type Raw } from "./html.ts";
+import { html, raw, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -96,7 +96,7 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
  */
 export function leavingCard(gameTitle: string): Raw {
   return html`<aside class="game-card" id="link-ask" role="dialog" aria-labelledby="link-title" hidden>${glassPane({
-    paneSize: "small",
+    paneWidth: "fit",
     body: html`<div class="link-part" id="link-open">
 <h2 id="link-title">You're leaving Zaisma</h2>
 <p>${gameTitle} wants to open:</p>
@@ -195,7 +195,9 @@ linkAsk.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLink("
 export function developerLinks(links: GameLink[]): Raw | string {
   if (!links.length) return "";
   return html`<nav class="control-row" aria-label="The developer's links">${links.map((link) => {
-    const { brand, label } = linkBrand(link.destination_url);
-    return cutButton(label, { href: link.destination_url, icon: brand === "website" ? "globe" : `site-${brand}`, isNewTab: true, dataAttributes: { site: brand } });
+    const destinationUrl = shownAddress(link.destination_url);
+    if (!destinationUrl) return "";
+    const { brand, label } = linkBrand(destinationUrl);
+    return cutButton(label, { href: destinationUrl, icon: brand === "website" ? "globe" : `site-${brand}`, isNewTab: true, dataAttributes: { site: brand } });
   })}</nav>`;
 }

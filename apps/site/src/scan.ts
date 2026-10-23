@@ -70,6 +70,7 @@ import { queuePerformanceCheck } from "./performance-check.ts";
 import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
 import { turnOffLeakedKeys } from "./leaked-keys.ts";
+import { buildHasThreads } from "../../../packages/cli/check.mjs";
 
 /** Most text we read for the static checks. Bigger games are held for a person. */
 const MAXIMUM_STATIC_TEXT_SIZE_BYTES = 40 * 1024 * 1024;
@@ -280,6 +281,8 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
     images: { provider: images.provider, is_connected: images.isConnected, checked_media_count: images.checkedMediaCount, reused_media_count: images.reusedMediaCount },
     ai: review.ai,
     is_child_safety: isChildSafety,
+    // What the check finds as needs_threads: the unpacked texts, and every file's path (a coi-serviceworker).
+    has_threads: buildHasThreads([...texts.map(({ path, text }) => ({ path, contentText: text })), ...files.map(({ path }) => ({ path, contentText: null }))]),
     ...(review.evidence ? { evidence: review.evidence, read_file_sha256s: review.readFileSha256s } : {}),
     ...(matchedGame ? { matched_game: { game_id: matchedGame.gameId, matched_file_count: matchedGame.matchedFileCount, compared_file_count: matchedGame.comparedFileCount } } : {}),
   };
@@ -818,6 +821,7 @@ const emptyReport = (decision: ScanReport["decision"], findings: Finding[]): Sca
   images: { provider: "none", is_connected: false, checked_media_count: 0 },
   ai: null,
   is_child_safety: false,
+  has_threads: false,
 });
 
 /** A scan that didn't finish after its tries: held for a person, the error kept for Zaisma's eyes. */

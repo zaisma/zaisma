@@ -1,7 +1,9 @@
 import {
   ApiError,
   DATABASE_RESTORE_LIMITS,
-  GAME_DATABASE_FREE_LIMITS,
+  MAXIMUM_GAME_STORAGE_SIZE_BYTES,
+  gameHostingMonth,
+  hostingUseThisMonth,
   ISO_TIME,
   addDatabaseRestore,
   databaseRestoreById,
@@ -9,7 +11,6 @@ import {
   iso,
   isIdOf,
   newId,
-  nextMonthStartDate,
   playersErasedSince,
   queuePlayerErase,
   recentDatabaseRestores,
@@ -19,7 +20,7 @@ import {
 } from "@zaisma/core";
 import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-server";
 import type { DeveloperDatabaseAnswer, StatementResult } from "../../rooms/src/database.ts";
-import type { CheckedCall, NextStep } from "./developer.ts";
+import { hostingUseJson, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -48,9 +49,8 @@ export async function databaseRoute(env: Env, game: Game, what: string | undefin
   if (!service) throw new ApiError("database_unavailable", { message: "This Zaisma has no game databases connected.", fix: "On zaisma.com this doesn't happen; on your own Zaisma, bind the rooms Worker's GameDatabaseService as GAME_DATABASES (apps/site/wrangler.jsonc)." });
 
   if (!what) {
-    const [overviewAnswer, restores] = await Promise.all([service.overview(game.id), recentDatabaseRestores(env.DB, game.id)]);
+    const [overviewAnswer, restores, hostingUse, hostingMonth] = await Promise.all([service.overview(game.id), recentDatabaseRestores(env.DB, game.id), hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id)]);
     const overview = readAnswer(overviewAnswer, null);
-    const limits = GAME_DATABASE_FREE_LIMITS;
     const usage = overview.usage;
     return [
       {
@@ -60,14 +60,10 @@ export async function databaseRoute(env: Env, game: Game, what: string | undefin
           read_row_count: usage.readRowCount,
           written_row_count: usage.writtenRowCount,
           storage_size_bytes: usage.storageSizeBytes,
-          free_read_row_count: limits.readRowCountPerMonth,
-          free_written_row_count: limits.writtenRowCountPerMonth,
-          free_storage_size_bytes: limits.storageSizeBytes,
-          has_reached_free_reads: usage.readRowCount >= limits.readRowCountPerMonth,
-          has_reached_free_writes: usage.writtenRowCount >= limits.writtenRowCountPerMonth,
-          has_reached_free_storage: usage.storageSizeBytes >= limits.storageSizeBytes,
-          reset_date: nextMonthStartDate(),
+          maximum_storage_size_bytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES,
         },
+        // The database is on the game's one hosting meter with everything else it runs.
+        hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth),
         restores: restores.map(restoreJson),
       },
     ];
@@ -269,8 +265,7 @@ function readAnswer<T>(answer: DeveloperDatabaseAnswer<T>, sqlField: string | nu
   if ("queryResult" in answer) return answer.queryResult;
   const { code, message, fix } = answer.error;
   const field = code === "bad_sql" ? sqlField : code === "bad_values" ? (sqlField === "sql" ? "values" : sqlField) : code === "bad_cursor" ? "cursor" : null;
-  const isMonthLimit = code === "database_read_limit" || code === "database_write_limit";
-  const retryAfterSec = isMonthLimit ? Math.ceil((Date.parse(`${nextMonthStartDate()}T00:00:00Z`) - Date.now()) / 1000) : code === "database_unavailable" ? 5 : null;
+  const retryAfterSec = code === "database_unavailable" ? 5 : null;
   throw new ApiError(code, { message, field, fix, retryAfterSec });
 }
 

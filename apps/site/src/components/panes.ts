@@ -1,10 +1,11 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, MARK, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, MARK, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
 import { selectField } from "./choices.ts";
+import { stack } from "./layout.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -61,7 +62,7 @@ export interface DropdownOptions {
 
 /** A dropdown: a pane of the glass that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.headExtra ?? ""}</div>` : ""}${options.items.map((menuItem) =>
+  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="menu">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
     "kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem),
   )}</div>`;
 }
@@ -121,8 +122,11 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     menu.classList.toggle("shut", !open); menu.setAttribute("aria-hidden", String(!open));
     if (open) { place(menu); if (focusFirst && items(menu)[0]) items(menu)[0].focus({ preventScroll: true }); }
   }
-  var menus = Array.prototype.slice.call(document.querySelectorAll('.dropdown[role="menu"]'));
-  menus.forEach(function (menu) {
+  // Every menu on the page, and any added later: one gone from the page is let go.
+  var menus = [];
+  function shown() { menus = menus.filter(function (menu) { return menu.isConnected; }); return menus; }
+  window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
+    menus.push(menu);
     if (!menu.classList.contains("shut")) requestAnimationFrame(function () { place(menu); });
     menu.addEventListener("keydown", function (event) {
       var list = items(menu), at = list.indexOf(document.activeElement);
@@ -139,9 +143,9 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     toggle(menu, button.getAttribute("aria-expanded") !== "true", event.detail === 0);
   });
   document.addEventListener("pointerdown", function (event) {
-    menus.forEach(function (menu) { var button = buttonOf(menu); if (!menu.classList.contains("shut") && !menu.contains(event.target) && !(button && button.contains(event.target))) toggle(menu, false); });
+    shown().forEach(function (menu) { var button = buttonOf(menu); if (!menu.classList.contains("shut") && !menu.contains(event.target) && !(button && button.contains(event.target))) toggle(menu, false); });
   });
-  function placeAll() { menus.forEach(place); }
+  function placeAll() { shown().forEach(place); }
   window.zaismaWatch.resize(placeAll);
   window.zaismaWatch.scroll(placeAll);
 })();
@@ -149,7 +153,7 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
 
 const DROPDOWN_STYLES = `
 /* A dropdown: a pane of the glass hanging just under its button, holding a short list of choices. */
-.dropdown { position: fixed; z-index: 11; width: 260px; padding: var(--pad-inner-pane); --glass-tint: var(--glass-dropdown);
+.dropdown { position: fixed; z-index: 11; width: 260px; padding: var(--pad-inner-pane); --pad-words: 0px; --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
@@ -177,18 +181,20 @@ const DROPDOWN_STYLES = `
 `;
 
 const PANE_STYLES = `
-/* The pane: Zaisma's glass, the same as the home's and the header's. No sheen. Small, medium and large are 320, 480 and 720 wide; full is the whole width. */
+/* The pane: Zaisma's glass, the same as the home's and the header's. No sheen. Full is the whole width; fit is as wide as what's in it,
+   with its paragraphs running to a reading width at most, so words set it the way a line of text would. */
 .glass-pane { display: flex; flex-direction: column; max-width: 100%; }
-.glass-pane.small { width: ${PANE_SIZES.small}px; }
-.glass-pane.medium { width: ${PANE_SIZES.medium}px; }
-.glass-pane.large { width: ${PANE_SIZES.large}px; }
 .glass-pane.full { width: 100%; }
+.glass-pane.fit { width: fit-content; }
+.glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
-/* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). */
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); }
+/* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
+   edge of its own sits there, and its words keep the pane's margin, --pad-words further in (layout.ts places them). */
+.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-frame);
+  --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
-   scrolls the rail is hidden and the pane keeps its own padding, so what sits in its corner still takes the corner's cut. */
-.glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-pane) + 16px); }
+   scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
+.glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
@@ -196,6 +202,10 @@ const PANE_STYLES = `
 /* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }
+/* Headings and paragraphs in a pane, a tray or a sheet keep its margin at its sides wherever they sit (layout.ts's edge rules give its top
+   and bottom); inside anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's
+   own padding wins over this. */
+:where(.glass-pane > .pane-in, .tray, .sheet-in) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
 `;
 
 const COVER_STYLES = `
@@ -212,6 +222,8 @@ const COVER_STYLES = `
 /* No cover yet: the well, with Zaisma's mark in quiet ink in its middle. */
 .cover-art.is-empty .cover-picture { display: grid; place-items: center; color: var(--muted); }
 .cover-art.is-empty .cover-picture > svg:not(.cut-line) { width: 26%; height: auto; fill: currentColor; }
+/* No cover yet: Zaisma's mark, whole, in the well (the home's script marks it). */
+.cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
@@ -277,11 +289,12 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
-  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. Its content scrolls inside it rather than shrinking.",
+  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.",
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
-    { label: "Sign-in, medium", markup: glassPane({ paneSize: "medium", body: signInBody("example-pane-medium") }), isWide: true },
+    { label: "Fit: as wide as what's in it", markup: glassPane({ paneWidth: "fit", body: signInBody("example-pane-fit") }), isWide: true },
+    { label: "Full: as wide as what holds it (one that should take half the screen goes in Columns)", markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>Rooms</h2>` }, { kind: "words", markup: html`<p>267 playing now in 78 rooms.</p>` }] }) }), isWide: true },
   ],
 });
 
@@ -308,8 +321,8 @@ component({
    tint (--glass-tray), a fainter sheen (--glass-tray-sheen), less blur, the colors behind it less lifted, and a fainter rim, its bevel as wide. */
 .tray-group { display: flex; flex-direction: column; }
 .tray-head { padding: var(--pad-pane); }
-/* Thinner glass, closer padding: a tray sits its pieces nearer its edge than a pane does (--pad-tray, not --pad-pane), still clear of its cut foot. */
-.tray { --glass-tint: var(--glass-tray); --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-tray); }
+/* Thinner glass, closer words: what has an edge sits at the frame gap, like a pane's, and its words keep the tray's margin, --pad-tray, closer than a pane's. */
+.tray { --glass-tint: var(--glass-tray); --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; padding: var(--pad-frame); --pad-words: calc(var(--pad-tray) - var(--pad-frame)); }
 .tray > .edge { opacity: 0.45; }
 .tray-sample-title { margin: 0; font: var(--type-section); }
 .tray-sample-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--gap-block-block); }
@@ -444,8 +457,8 @@ component({
 `,
   render: pictureViewer,
   examples: [
-    { label: "A game's screenshots", isWide: true, markup: glassPane({ paneSize: "full", label: "Screenshots", body: pictureViewer({ id: "example-viewer", title: "Ashen Crown", pictureUrls: STAND_IN_PICTURES }) }) },
-    { label: "One picture", markup: glassPane({ paneSize: "medium", label: "Screenshots", body: pictureViewer({ id: "example-viewer-one", title: "Verdant", pictureUrls: [STAND_IN_PICTURES[4]!] }) }) },
+    { label: "A game's screenshots", isWide: true, markup: glassPane({ paneWidth: "full", label: "Screenshots", body: pictureViewer({ id: "example-viewer", title: "Ashen Crown", pictureUrls: STAND_IN_PICTURES }) }) },
+    { label: "One picture", markup: glassPane({ paneWidth: "fit", label: "Screenshots", body: pictureViewer({ id: "example-viewer-one", title: "Verdant", pictureUrls: [STAND_IN_PICTURES[4]!] }) }) },
   ],
 });
 
@@ -501,8 +514,9 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
 const SHEET_STYLES = `
 /* A sheet: a dialog of the panes' glass over the page, which dims behind it (dimmed, not blurred, so it stays cheap). It comes up a
    little as it opens and drops away as it closes, the dimming fading with it; nothing in it waits for that. Centered on a wide screen; on
-   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. */
-.sheet { width: min(480px, calc(100% - 2 * var(--pad-pane))); max-width: none; max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
+   a phone it rises from the foot of the screen, a gap from its edges. What's in it scrolls inside it, under its head. Like a pane that fits,
+   it's as wide as what's in it, its words running to a reading width at most. */
+.sheet { width: fit-content; max-width: calc(100% - 2 * var(--pad-pane)); max-height: calc(100dvh - 2 * var(--pad-pane)); margin: auto; padding: 0; border: 0; overflow: visible; color: var(--ink);
   --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
@@ -514,13 +528,16 @@ const SHEET_STYLES = `
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* In place (the gallery's still copy): a pane where it sits. */
 .sheet.in-place { position: relative; z-index: auto; margin: 0; }
-.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
+/* A sheet is a pane: it pads at the frame gap, so its close button sits in its top end corner and takes the corner's cut, and its words keep
+   the pane's margin (--pad-words). */
+.sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: what's in it keeps clear of the rail. */
-.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-pane) + 14px); }
+.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
 .sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
-.sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.sheet-title { flex: 1; margin: 0; padding: var(--pad-words) 0 0 var(--pad-words); font: var(--type-section); color: var(--ink); text-wrap: balance; }
 .sheet-close, .sheet-form { margin: 0; }
-.sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
+.sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
   .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
@@ -575,7 +592,7 @@ export interface NoticeOptions {
 /** A notice: a moment that just happened ("Saved", "Couldn't save: you're offline"), in the header's glass just under the header. */
 export function notice(options: NoticeOptions): Raw {
   const isProblem = options.tone === "problem";
-  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="18 14 18 14">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
+  return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}" data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
 }
 
 /** Notices: one that's done leaves after 4 s (it waits while you point at it); a problem leaves when its close button is pressed. Notices a page adds later are watched too. */
@@ -638,34 +655,41 @@ export interface BannerOptions {
   action?: { label: string; href: string };
   /** Amber glass: something to keep in mind while you're here, like a tester link's terms. Left out, the panes' clear glass. */
   tone?: "amber";
+  /** A small Close at its end, for news the player can put away; what it does (hiding it, remembering) is the page script's, on .banner-close. */
+  closeLabel?: string;
 }
 
 /** A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held version). One line and at most one button. */
 export function banner(options: BannerOptions): Raw {
-  return html`<div class="banner glass${options.tone ? ` ${options.tone}` : ""}" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
+  return html`<div class="banner glass${options.tone ? ` ${options.tone}` : ""}" data-glass data-glass-corners="header">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}${options.closeLabel ? html`<span class="banner-close">${cutButton(options.closeLabel, { type: "button", icon: "close", isLabelHidden: true })}</span>` : ""}</div>`;
 }
 
 component({
   name: "Banner",
   slug: "banner",
   group: "panes",
-  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.",
+  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. One line, at most one button, and a small Close for what a player can put away.",
   styles: `
 /* A banner: a strip of the panes' glass, the width of the page's content, holding one line of words and at most one cut button at its
    end, which fits the strip's corners. On a phone the button goes under the words. */
-.banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-control); width: 100%; min-height: 60px; padding: var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-tray); font: var(--type-words); color: var(--ink); }
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-control); width: 100%; min-height: 60px; padding: var(--pad-inner-pane); font: var(--type-words); color: var(--ink); }
+/* Its words start at a tray's margin; its button, which has an edge, at an inner pane's, so in a corner it keeps the corner's bevel. */
+.banner > .edge + :is(.ico, .banner-text) { margin-inline-start: calc(var(--pad-tray) - var(--pad-inner-pane)); }
 .banner > .ico { flex: none; color: var(--ink-2); }
 .banner-text { flex: 1 1 0; min-width: 0; }
 .banner > .cut-btn { flex: none; }
 /* Amber: the warning tag's color laid into the glass. */
 .banner.amber { --glass-layer: linear-gradient(var(--tag-warning), var(--tag-warning)); }
 .banner.amber > .ico { color: var(--tag-warning-ink); }
-@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
+/* Close sits last, as tall as the button beside it; on a phone it stays at the end of the words' line, and the button goes under both. */
+.banner-close { flex: none; display: flex; }
+@media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; order: 1; } }
 `,
   render: banner,
   examples: [
     { label: "Playing as a guest", isWide: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device until you make an account.", icon: "person", action: { label: "Make an account", href: "#banner" } }) },
     { label: "A held version", isWide: true, markup: banner({ text: "Version 14 is held: a person looks at it, usually within a day.", icon: "clock", action: { label: "See why", href: "#banner" } }) },
+    { label: "News you can close", isWide: true, markup: banner({ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", icon: "megaphone", action: { label: "Read more", href: "#banner" }, closeLabel: "Close" }) },
     { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
     { label: "Amber: to keep in mind", isWide: true, markup: banner({ text: "You're testing this game with a link from its developer. Your progress stays in this browser.", icon: "warning", tone: "amber" }) },
   ],
@@ -706,11 +730,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
   if (!isOnPage) {
     const buttons = html`<div class="control-row">${options.backHref ? cutButton("Back", { href: options.backHref }) : ""}${runButton(nextLabel, { type: "submit" })}</div>`;
-    return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
+    return glassPane({ paneWidth: "full", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body"${stepIndex === options.currentIndex ? "" : raw(" hidden")}>${step.body ?? ""}</div>`);
   const buttons = html`<div class="control-row" data-step-buttons>${cutButton("Back", { type: "button", isHidden: options.currentIndex === 0 })}${runButton(nextLabel, { type: "submit" })}</div>`;
-  return glassPane({ paneSize: "medium", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
+  return glassPane({ paneWidth: "full", body: html`${stepLine}<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}">${bodies}${buttons}</form>` });
 }
 
 /**
@@ -779,6 +803,8 @@ component({
    reads as moving on; the ones ahead are faint. The step's words and fields come next, then Back and Next. */
 .step-line { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap-control-row); }
 .step-line > li { display: grid; gap: var(--gap-words-control); font: var(--type-facts); color: var(--muted); transition: color 0.3s; }
+/* The marks run from the pane's frame gap; the first step's words keep the pane's margin. */
+.step-line > li:first-child > .step-label { padding-inline-start: var(--pad-words); }
 .step-mark { position: relative; display: block; height: 4px; overflow: hidden; background: var(--line); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
 .step-fill { position: absolute; inset: 0; background: linear-gradient(90deg, #E9820C, var(--run)); transform: scaleX(0); transform-origin: left; transition: transform 0.6s cubic-bezier(.2,.8,.2,1); }
 .step-line > li.is-done { color: var(--ink-2); }
@@ -810,12 +836,12 @@ component({
 // data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
-const spacingPane = (body: Raw) => glassPane({ paneSize: "small", body });
+const spacingPane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 component({
   name: "Spacing",
   slug: "spacing",
   group: "foundations",
-  summary: "Every gap, padding and margin is one of seven tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
+  summary: "Every gap, padding and margin is one of these tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
   styles: `
 /* Spacing: the space each example is about, hatched over it. */
 .spacing-example { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-control); justify-items: start; width: 100%; }
@@ -843,11 +869,15 @@ component({
     },
     {
       label: "Two blocks, here two labeled fields in a pane: 24px",
-      markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
+      markup: spacingExample("--gap-block-block", html`<div data-spacing-show="gap" data-spacing-of=".layout-stack">${spacingPane(stack({ items: [{ kind: "control", markup: cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" }) }, { kind: "control", markup: cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" }) }] }))}</div>`),
     },
     {
-      label: "A pane's edge and what's in it, and the page's edge: 24px (18px on a phone)",
-      markup: spacingExample("--pad-pane", html`<div class="glass example-pane" data-glass data-glass-corners="24 20 24 20" data-spacing-show="pad">${runButton("Sign in", { type: "button", isFullWidth: true })}</div>`),
+      label: "A pane's edge and anything with an edge of its own (a button, a field, a cover, a table): the frame gap, 12px (10px on a phone)",
+      markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(runButton("Sign in", { type: "button", isFullWidth: true }))}</div>`),
+    },
+    {
+      label: "A pane's edge and its words: 24px (18px on a phone), --pad-words further in than the frame gap",
+      markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: runButton("Sign in", { type: "button", isFullWidth: true }) }] }))}</div>`),
     },
     {
       label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",
@@ -894,7 +924,7 @@ component({
     {
       label: "A heading with a code box in its corner",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: paneHead({ heading: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: html`<form class="control-row">${cutField({ id: "pane-head-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "Room code", isLabelHidden: true })}${cutButton("Join", { type: "button" })}</form>` }) }),
+      markup: glassPane({ paneWidth: "full", body: paneHead({ heading: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: html`<form class="control-row">${cutField({ id: "pane-head-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "Room code", isLabelHidden: true })}${cutButton("Join", { type: "button" })}</form>` }) }),
     },
   ],
 });
@@ -934,7 +964,7 @@ component({
     {
       label: "Pickers and a Refresh over a table",
       isWide: true,
-      markup: glassPane({ paneSize: "full", body: toolRow({
+      markup: glassPane({ paneWidth: "full", body: toolRow({
         items: [
           selectField({ id: "tool-row-region", name: "region", label: "Region", isSmall: true, choices: [{ label: "All", choiceValue: "", icon: "globe" }, { label: "Europe", choiceValue: "EU", icon: "globe-europe", badgeCount: 60 }] }),
           selectField({ id: "tool-row-mode", name: "mode", label: "Mode", isSmall: true, choices: [{ label: "Any", choiceValue: "" }, { label: "Survival", choiceValue: "survival" }] }),

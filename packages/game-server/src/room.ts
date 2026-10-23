@@ -12,6 +12,7 @@ import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind } from "./pass.ts";
 import type { Server } from "./requests.ts";
 import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
+import { newStateTracker, type StateChange, type StateFrame, type StateTracker } from "./state-sync.ts";
 import type { WebhookEvent } from "./webhooks.ts";
 
 export interface Player {
@@ -21,29 +22,49 @@ export interface Player {
   name: string;
   /** A signed-in Zaisma account, or a guest. */
   kind: PlayerKind;
+  /**
+   * The permanent items the account owns in this game, by item_name, from the pass it joined with (its
+   * owned_item_names): check one with player.ownedItemNames?.includes("skin_red-dragon"). Absent for guests
+   * and when the player owns nothing here. Only the game server sees it; other players' games never do.
+   */
+  ownedItemNames?: string[];
 }
 
 export interface Room {
+  /**
+   * This room's code, like K7Q2MX: the code players join it by. Use it to treat rooms differently, like
+   * keeping only your one shared world (setKept in "WRLD22", canJoin refusing elsewhere). null only in a
+   * room made before Zaisma rooms knew their codes.
+   */
+  readonly roomCode: string | null;
   /** Players in the room right now, in join order. */
   readonly players: readonly Player[];
-  /** Send a message to every player, or everyone but one (exceptPlayerId). */
+  /**
+   * Spectators watching the room (maximumSpectatorCount), in join order: they get what the room sends
+   * everyone, send nothing and don't count as playing. Never in players.
+   */
+  readonly spectators: readonly Player[];
+  /**
+   * Send a message to every player and spectator (audience), or everyone but one (exceptPlayerId).
+   * delivery "latest_only" lets a player whose connection is backed up skip it for a newer one (SendOptions).
+   */
   broadcast(message: unknown, broadcastOptions?: BroadcastOptions): void;
-  /** Send a message to one player. */
-  send(playerId: string, message: unknown): void;
+  /** Send a message to one player or spectator. */
+  send(playerId: string, message: unknown, sendOptions?: SendOptions): void;
   /**
    * Send bytes to every player, or everyone but one (exceptPlayerId), like a compact snapshot of the
    * world. fromPlayerId says whose they are when you pass one player's bytes on; each player's game gets
    * them as the "bytes" event, with that player's ID or null.
    */
   broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void;
-  /** Send bytes to one player. */
-  sendBytes(playerId: string, bytes: Uint8Array): void;
+  /** Send bytes to one player or spectator. */
+  sendBytes(playerId: string, bytes: Uint8Array, sendOptions?: SendOptions): void;
   /** End the match: everyone is told why (message) and disconnected, and the room closes. */
   end(message?: string): void;
   /**
-   * When Zaisma will end this match, an ISO time, or null. Set once the game has used this month's free
-   * multiplayer time on Zaisma rooms, an hour ahead, so your game can save and tell its players
-   * (onEnding runs then); never set on your own server.
+   * When Zaisma will end this match, an ISO time, or null. Set once the game's hosting on Zaisma rooms
+   * pauses for the month (its free allowance, or its developer's budget or credit, is used), an hour after
+   * the pause, so your game can save and tell its players (onEnding runs then); never set on your own server.
    */
   readonly endsAt: string | null;
   /** Shown in room lists (the game page and Zaisma.rooms.list). A hidden room still works by code and link. */
@@ -59,6 +80,13 @@ export interface Room {
    */
   readonly friendJoinsEnabled: boolean;
   setFriendJoinsEnabled(isEnabled: boolean): void;
+  /**
+   * A kept room doesn't end when everyone leaves: it sleeps with its state saved and wakes when someone
+   * joins, for worlds that last. Its saved state counts against the game's storage. room.end() ends it
+   * for good. setKept(false) makes it an ordinary room again, whose state goes a day after it empties.
+   */
+  readonly isKept: boolean;
+  setKept(isKept: boolean): void;
   /** The room's name, like "Ana's castle", or null. Up to 40 characters. */
   readonly name: string | null;
   /** Up to 4 labels players can filter by, like { Mode: "Classic", Map: "Docks" }. */
@@ -148,9 +176,31 @@ export interface Room {
   applyVersionUpdate(): void;
 }
 
-export interface BroadcastOptions {
+/** Who a broadcast reaches: players and spectators (everyone), only the players, or only the spectators. */
+export type Audience = "everyone" | "players" | "spectators";
+
+/**
+ * How a message goes: "reliable" (the default) reaches every player in order. "latest_only" may be
+ * dropped: a player whose connection is backed up skips older ones and gets the newest once they catch
+ * up, like positions sent every tick. In Zaisma rooms it rides the WebSocket today, and moves to real
+ * datagrams the day Cloudflare carries them, with no change to your game.
+ */
+export type Delivery = "reliable" | "latest_only";
+
+export interface SendOptions {
+  delivery?: Delivery;
+  /**
+   * For "latest_only": which messages replace each other while a player is backed up, up to 40
+   * characters, like "positions". Defaults to the message's type field when it's a string, else "".
+   */
+  latestKey?: string;
+}
+
+export interface BroadcastOptions extends SendOptions {
   /** A player who doesn't get it, like the one whose move this is. */
   exceptPlayerId?: string;
+  /** Who gets it: "everyone" (the default: players and spectators), "players" or "spectators". */
+  audience?: Audience;
 }
 
 export interface BytesBroadcastOptions extends BroadcastOptions {
@@ -180,10 +230,12 @@ export interface MoveResult {
 /**
  * How a player came in: fromRoomCode, the code of the room that sent them (room.moveTo), or null.
  * isReturning: they're coming back to the seat the room held for them, after walking away or losing their connection.
+ * isSpectator: they come to watch (joinRoom({ isSpectator: true })), not to play.
  */
 export interface JoinInfo {
   fromRoomCode: string | null;
   isReturning: boolean;
+  isSpectator: boolean;
 }
 
 /**
@@ -192,8 +244,15 @@ export interface JoinInfo {
  */
 export type AwayReason = "idle" | "hidden" | "lost";
 
+/** A player as players' games see them: who they are, never what they own (that's the game server's, from the pass). */
+export type ShownPlayer = Omit<Player, "ownedItemNames">;
+
+function shownPlayer(player: Player): ShownPlayer {
+  return { id: player.id, name: player.name, kind: player.kind };
+}
+
 /** A player as the room lists them to every player's game: awayReason says why they aren't playing, or null while they play. */
-export interface ListedPlayer extends Player {
+export interface ListedPlayer extends ShownPlayer {
   awayReason: AwayReason | null;
 }
 
@@ -233,6 +292,8 @@ export interface ReserveOptions extends RoomInfo {
   isListed?: boolean;
   /** false: friends can't Join the new room from Zaisma ("Private room"). */
   friendJoinsEnabled?: boolean;
+  /** true: the new room is kept (room.setKept). */
+  isKept?: boolean;
 }
 
 /** How a reserved room starts, as the room that made it sends it on. */
@@ -243,6 +304,8 @@ export interface RoomStart extends Pick<RoomSettings, "isListed" | "name" | "lab
   keptOut?: Record<string, string>;
   /** The code of the room that made this one, where awayMode "lobby" sends players. Added by the transport. */
   lobbyRoomCode?: string;
+  /** Kept (room.setKept) from the start. */
+  isKept?: boolean;
 }
 
 /** A room's name and labels, as a game sets them. */
@@ -263,6 +326,12 @@ type HandlerResult<S> = void | S | Promise<void | S>;
 export interface GameServer<S = any> {
   /** Up to 100. Defaults to 8. */
   maximumPlayerCount?: number;
+  /**
+   * Spectators a room takes, up to 100: they watch a match without playing (joinRoom({ isSpectator: true })),
+   * get what the room sends everyone, send nothing, don't count as playing or toward maximumPlayerCount,
+   * and are free (off the player-hour meter). Leave it out, or 0, and nobody can watch.
+   */
+  maximumSpectatorCount?: number;
   /** Ticks a second, up to 60. Leave out for turn-based games so the room can sleep between moves. */
   ticksPerSec?: number;
   /**
@@ -297,6 +366,13 @@ export interface GameServer<S = any> {
    * run, so you can freeze their character; held seats come after (seatHoldDurationSec).
    */
   reconnectTimeoutSec?: number;
+  /**
+   * Send each player the state, then only what changes: a full copy when they join (and after their
+   * connection was backed up), then the changes after each tick, or after each handler in a turn-based
+   * game. Their game reads it as room.state, or room.smoothedState() to move evenly between updates.
+   * Off by default. The state goes as JSON, so keep it plain; cut what each player sees with stateView.
+   */
+  stateSyncEnabled?: boolean;
   /**
    * How often a real-time room saves its state, in seconds: 1 to 60, default 5. A restarted room comes
    * back with the last saved state (onRestored). Turn-based rooms save after every change and ignore it.
@@ -368,6 +444,10 @@ export interface GameServer<S = any> {
    * within reconnectTimeoutSec.
    */
   onLeave?(state: S, player: Player, room: Room, leaveInfo: LeaveInfo): HandlerResult<S>;
+  /** A spectator came to watch: send them what they need to follow the match, like the whole state once. */
+  onSpectatorJoin?(state: S, spectator: Player, room: Room): HandlerResult<S>;
+  /** A spectator stopped watching (left, lost their connection or was kicked). No seat is held. */
+  onSpectatorLeave?(state: S, spectator: Player, room: Room): HandlerResult<S>;
   /**
    * A player walked away (idle, hidden) or their connection dropped (lost). For idle and hidden, with
    * onAway they stay in the room and your game decides what happens: kick them, move them
@@ -387,8 +467,8 @@ export interface GameServer<S = any> {
   /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec (more when a tick was skipped). */
   onTick?(state: S, tickDurationSec: number, room: Room): HandlerResult<S>;
   /**
-   * Zaisma will end this match at room.endsAt, because the game used this month's free multiplayer
-   * time: save what should outlive it and tell your players. Runs once; each player's game also gets
+   * Zaisma will end this match at room.endsAt, because the game's hosting paused for the month: save
+   * what should outlive it and tell your players. Runs once; each player's game also gets
    * the "ending" event. Never runs on your own server.
    */
   onEnding?(state: S, room: Room): HandlerResult<S>;
@@ -401,6 +481,13 @@ export interface GameServer<S = any> {
    * reconnectTimeoutSec.
    */
   onRestored?(state: S, restoreInfo: RestoreInfo, room: Room): HandlerResult<S>;
+  /**
+   * With stateSyncEnabled: what this player sees of the state, like only what's near them in a big
+   * world, or without the other team's hidden cards. Leave it out and everyone sees all of it. Answer
+   * plain JSON, a new object or parts of the state; don't change the state here. Keep it cheap: it runs
+   * for every player on every tick. viewer is the player it's for.
+   */
+  stateView?(state: S, viewer: Player, room: Room): unknown;
   /**
    * The developer published a version with match_update_mode "now", and this match moves to it. With
    * this handler the room waits for you: call room.applyVersionUpdate() at a good moment, like the end of
@@ -428,9 +515,13 @@ export interface RestoreInfo {
   savedVersionId: string | null;
 }
 
-/** A restored room's restoreInfo, from when its state was saved and the version that saved it. */
-export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null): RestoreInfo {
-  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
+/**
+ * A restored room's restoreInfo, from when its state was saved and the version that saved it. A state
+ * saved as the room emptied (isSavedEmpty) lost nothing, however long ago: a kept world waking after a week
+ * reads savedAt for the time that passed.
+ */
+export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null, isSavedEmpty = false): RestoreInfo {
+  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: isSavedEmpty ? 0 : Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
 }
 
 /**
@@ -463,12 +554,14 @@ export function readJoinAnswer(answer: unknown): { isAllowed: true } | { isAllow
 /** Everything a game server object may have, in the order the docs give them. Anything else is refused. */
 export const GAME_SERVER_OPTIONS = [
   "maximumPlayerCount",
+  "maximumSpectatorCount",
   "ticksPerSec",
   "hostControlsEnabled",
   "idleCheck",
   "idleTimeoutSec",
   "awayMode",
   "seatHoldDurationSec",
+  "stateSyncEnabled",
   "reconnectTimeoutSec",
   "stateSaveIntervalSec",
   "setup",
@@ -476,6 +569,8 @@ export const GAME_SERVER_OPTIONS = [
   "canJoin",
   "onMoved",
   "onLeave",
+  "onSpectatorJoin",
+  "onSpectatorLeave",
   "onAway",
   "onBack",
   "onMessage",
@@ -483,6 +578,7 @@ export const GAME_SERVER_OPTIONS = [
   "onTick",
   "onEnding",
   "onRestored",
+  "stateView",
   "onVersionUpdate",
   "onRequest",
   "schedules",
@@ -494,6 +590,8 @@ export const ROOM_LIMITS = {
   /** Players in one room: what one room carries at 60 ticks a second (test/rooms/room-load.test.ts). */
   maximumPlayerCount: 100,
   defaultMaximumPlayerCount: 8,
+  /** Spectators in one room: each send costs the room time, so its audience is bounded like its players. Bigger audiences are a stream. */
+  maximumSpectatorCount: 100,
   maximumTicksPerSec: 60,
   /** A room's name, its labels, and each label's name and value. */
   maximumNameCharacterCount: 40,
@@ -545,6 +643,19 @@ export const ROOM_LIMITS = {
   maximumUnansweredSentBytes: 2 * 1024 * 1024,
   /** Unanswered probes the room remembers per player; the oldest is forgotten past it. */
   maximumUnansweredProbeCount: 16,
+  /** A player's view of the state as JSON (stateSyncEnabled): bigger views aren't sent, and the game's errors say so once. */
+  maximumStateViewSizeBytes: 1024 * 1024,
+  /**
+   * A player is backed up with this much sent and not yet through: on your own server, the socket's
+   * bufferedAmount; in Zaisma rooms, sent since the last probe they answered, while a probe of theirs is
+   * backedUpDelayMs later than their ping. State sync skips them, and latest-only messages wait for them in slots.
+   */
+  backedUpSizeBytes: 64 * 1024,
+  backedUpDelayMs: 250,
+  /** A latest-only message's latestKey. */
+  maximumLatestKeyCharacterCount: 40,
+  /** Latest-only messages waiting for a backed-up player, one per latestKey; past it, the oldest is dropped. */
+  maximumLatestOnlySlotCount: 64,
 } as const;
 
 /** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
@@ -596,19 +707,24 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
     );
   }
   for (const field of GAME_SERVER_OPTIONS) {
-    if (field.startsWith("on") || field === "canJoin" || field === "setup") {
+    if (field.startsWith("on") || field === "canJoin" || field === "setup" || field === "stateView") {
       if (server[field] !== undefined && typeof server[field] !== "function") throw bad(field, `${field} isn't a function.`, `Give ${field} as a function, or leave it out.`);
     }
   }
   checkSchedules(server.schedules, typeof server.onSchedule === "function");
-  const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec } = server;
+  const { maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, reconnectTimeoutSec, stateSaveIntervalSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);
+  }
+  if (maximumSpectatorCount !== undefined && !(Number.isInteger(maximumSpectatorCount) && maximumSpectatorCount >= 0 && maximumSpectatorCount <= ROOM_LIMITS.maximumSpectatorCount)) {
+    throw bad("maximumSpectatorCount", `maximumSpectatorCount is ${JSON.stringify(maximumSpectatorCount)}.`, `Give a whole number from 0 to ${ROOM_LIMITS.maximumSpectatorCount}, like 20, or leave it out so nobody watches.`);
   }
   if (ticksPerSec !== undefined && !(typeof ticksPerSec === "number" && ticksPerSec > 0 && ticksPerSec <= ROOM_LIMITS.maximumTicksPerSec)) {
     throw bad("ticksPerSec", `ticksPerSec is ${JSON.stringify(ticksPerSec)}.`, `Give a number above 0 and up to ${ROOM_LIMITS.maximumTicksPerSec}, like 30, or leave it out for a turn-based game.`);
   }
   if (hostControlsEnabled !== undefined && typeof hostControlsEnabled !== "boolean") throw bad("hostControlsEnabled", "hostControlsEnabled isn't true or false.", "Give true or false.");
+  if (server.stateSyncEnabled !== undefined && typeof server.stateSyncEnabled !== "boolean") throw bad("stateSyncEnabled", "stateSyncEnabled isn't true or false.", "Give true to send each player the state and then only what changes, or leave it out.");
+  if (server.stateView !== undefined && !server.stateSyncEnabled) throw bad("stateView", "stateView only works with stateSyncEnabled.", "Add stateSyncEnabled: true, or leave stateView out.");
   if (idleCheck !== undefined && idleCheck !== "server" && idleCheck !== "client" && idleCheck !== "off") {
     throw bad("idleCheck", `idleCheck is ${JSON.stringify(idleCheck)}.`, 'Give "server" (the room checks, after idleTimeoutSec), "client" (each player\'s game decides) or "off".');
   }
@@ -677,9 +793,29 @@ export interface RoomSettings {
  * ROOM_LIMITS.maximumGameMessageSizeBytes and counted with its messages, for the game server's onBytes.
  * Every binary frame the room sends starts with one byte, the length in UTF-8 bytes of the player ID
  * they came from (0 for the game server), then that ID, then the bytes (bytesFrame).
+ *
+ * State sync (stateSyncEnabled): {type: "state", serverTimeMs, full} with the player's whole view, the
+ * first time and after their connection was backed up, then {type: "state", serverTimeMs, changes} with
+ * what changed since (StateChange, state-sync.ts). serverTimeMs is the room's clock as it was sent.
+ *
+ * Spectators (maximumSpectatorCount): a hello with isSpectator: true watches. A spectator's welcome says
+ * isSpectator: true, and they get the players, the state and every message sent to everyone, but they send
+ * nothing: only probe answers, and anything else gets spectator_cannot_send. welcome and every "room"
+ * message carry spectatorCount, and a "room" message goes out whenever it changes.
  */
 export type ServerMessage =
-  | { type: "welcome"; me: Player; players: ListedPlayer[]; room: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks; endsAt: string | null; probeIntervalSec: number | null }
+  | {
+      type: "welcome";
+      me: ShownPlayer;
+      isSpectator: boolean;
+      players: ListedPlayer[];
+      room: RoomSettings;
+      spectatorCount: number;
+      hostPlayerId: string | null;
+      awayChecks: AwayChecks;
+      endsAt: string | null;
+      probeIntervalSec: number | null;
+    }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
   // A version published "now": coming at appliesAt (an ISO time), then now, just before the room closes its connections (VERSION_UPDATE_CLOSE_CODE). isReloading: the game's files changed, so it reloads.
@@ -687,9 +823,11 @@ export type ServerMessage =
   | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
   | { type: "away"; reason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
   | { type: "kicked"; message: string; isKeptOut: boolean }
-  | { type: "room"; room: RoomSettings }
+  | { type: "room"; room: RoomSettings; spectatorCount: number }
   | { type: "move"; roomCode: string }
   | { type: "message"; data: unknown }
+  | { type: "state"; serverTimeMs: number; full: unknown }
+  | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
   // versionId: with other_version, the version the room runs, which the game reloads at.
   | { type: "error"; code: RoomErrorCode; message: string; versionId?: string }
@@ -710,11 +848,13 @@ export type RoomErrorCode =
   | "kept_out"
   | "refused"
   | "no_room"
-  | "month_limit"
+  | "hosting_paused"
   | "account_needed"
   | "game_not_open_to_player"
   | "blocked_player_here"
-  | "other_version";
+  | "other_version"
+  | "watching_full"
+  | "spectator_cannot_send";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
@@ -731,15 +871,17 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   kept_out: "You were removed from this room.",
   refused: "The game didn't let you into this room.",
   no_room: "That room isn't running.",
-  month_limit: "This game has used this month's multiplayer time. New rooms open again next month.",
+  hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
   account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
   game_not_open_to_player: "This game isn't open to this account.",
   blocked_player_here: "Someone you blocked is in this room.",
   other_version: "This room runs another version of the game, so the game reloads at it first.",
+  watching_full: "Nobody else can watch this room right now.",
+  spectator_cannot_send: "Spectators watch; they can't send to the room.",
 };
 
 /** What players are told when Zaisma ends a match at room.endsAt. */
-export const MONTH_LIMIT_END_MESSAGE = "This game has used this month's multiplayer time, so this match has ended. New rooms open again next month.";
+export const HOSTING_PAUSED_END_MESSAGE = "This game's hosting is paused, so this match has ended. New rooms open again when the month resets or its developer adds credit.";
 
 /**
  * isListed, isOpen, the players who have been in the room, the players kept out of it and a reserved
@@ -763,6 +905,8 @@ export interface SavedRoom extends RoomSettings {
   friendships?: [string, string][];
   /** When Zaisma will end the match (room.endsAt), once it's set. */
   endsAt?: string;
+  /** Kept (room.setKept): it sleeps with its state when everyone leaves, instead of going a day later. */
+  isKept?: boolean;
 }
 
 /** A seat held for a player out of the match: who, why they're out, and until when. */
@@ -816,12 +960,16 @@ export interface Transport {
    * "move" message, then hand the answer to this room's moved(). Without it, rooms can't move players.
    */
   moveTo?(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void;
+  /** This room's code, as room.roomCode. Without it, null. */
+  roomCode?: string;
   /** The game's database, as room.database. Without it, its calls fail with database_unavailable. */
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
   secrets?: Readonly<Record<string, string>>;
   /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
   applyVersionUpdate?(): void;
+  /** Whether a player's connection holds ROOM_LIMITS.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
+  isBackedUp?(playerId: string): boolean;
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -899,11 +1047,33 @@ export const QUEUES_INPUT = Symbol("queuesInput");
  */
 export const PAIR_CHANGE_COUNT = Symbol("pairChangeCount");
 
+/**
+ * Marks a game server that runs state sync itself, like Zaisma's sandboxed ones, whose state lives in the
+ * sandbox: its calls send their frames through the room's STATE_SYNC, and the room calls this, with the
+ * state and its API, when a round is due outside them (a player reconnecting, or catching up, in a turn-based room).
+ */
+export const SYNCS_STATE = Symbol("syncsState");
+
+/**
+ * On a room's API object, for a game server that runs state sync itself (SYNCS_STATE): viewers() says
+ * which players are backed up and which need a full copy (taken: each is said once), and send() sends a
+ * frame to some of them.
+ */
+export const STATE_SYNC = Symbol("stateSync");
+
+/** What STATE_SYNC hands a game server that runs state sync itself. */
+export interface StateSyncHooks {
+  viewers(): { backedUpPlayerIds: string[]; fullCopyPlayerIds: string[] };
+  send(playerIds: unknown, frame: unknown): void;
+}
+
 /** Messages a room's traffic counts by type: their data.type, like "move", or one of these. */
 export const NO_MESSAGE_TYPE = "(none)";
 export const BYTES_MESSAGE_TYPE = "(bytes)";
 export const ZAISMA_MESSAGE_TYPE = "(zaisma)";
 export const OTHER_MESSAGE_TYPE = "(other)";
+/** State sync's updates (stateSyncEnabled). */
+export const STATE_MESSAGE_TYPE = "(state)";
 /** Message types a room counts apart in each direction; any more count as OTHER_MESSAGE_TYPE. */
 const MAXIMUM_MESSAGE_TYPE_COUNT = 20;
 /** A game's message type: up to 40 letters, digits and _ - . : */
@@ -911,13 +1081,17 @@ const MESSAGE_TYPE_PATTERN = /^[A-Za-z0-9_\-.:]{1,40}$/;
 
 export type TrafficDirection = "inbound" | "outbound";
 
-/** One message type's traffic in one direction: how many, their bytes and the largest. */
+/**
+ * One message type's traffic in one direction: how many, their bytes and the largest, and how many of
+ * those sent reliably went to a player whose connection was backed up (for the latest_only hint).
+ */
 export interface MessageTypeTraffic {
   messageType: string;
   direction: TrafficDirection;
   messageCount: number;
   sizeBytes: number;
   largestSizeBytes: number;
+  backedUpMessageCount: number;
 }
 
 /**
@@ -942,11 +1116,13 @@ export function addTraffic(first: RoomTraffic, second: RoomTraffic): RoomTraffic
   for (const type of second.messageTypes) {
     const key = `${type.direction} ${type.messageType}`;
     const kept = types.get(key);
-    if (!kept) types.set(key, { ...type });
+    if (!kept) types.set(key, { ...type, backedUpMessageCount: type.backedUpMessageCount ?? 0 });
     else {
       kept.messageCount += type.messageCount;
       kept.sizeBytes += type.sizeBytes;
       kept.largestSizeBytes = Math.max(kept.largestSizeBytes, type.largestSizeBytes);
+      // Traffic a room kept from before backed-up sends were counted has none.
+      kept.backedUpMessageCount = (kept.backedUpMessageCount ?? 0) + (type.backedUpMessageCount ?? 0);
     }
   }
   return {
@@ -966,7 +1142,8 @@ function messageTypeOf(messageData: unknown): string {
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
 const REMEMBERED_PLAYER_COUNT = 64;
 
-const NOBODY_JOINED: JoinInfo = { fromRoomCode: null, isReturning: false };
+const NOBODY_JOINED: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: false };
+const WATCHING: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: true };
 
 /** Two players with a block between them, in either order (player IDs have no spaces). */
 const pairKey = (firstPlayerId: string, secondPlayerId: string) => (firstPlayerId < secondPlayerId ? `${firstPlayerId} ${secondPlayerId}` : `${secondPlayerId} ${firstPlayerId}`);
@@ -976,6 +1153,8 @@ const blockKey = (blockerPlayerId: string, blockedPlayerId: string) => `${blocke
 export class RoomCore<S = any> {
   state: S;
   readonly players = new Map<string, Player>();
+  /** Spectators watching (maximumSpectatorCount): never in players, never counted as playing. */
+  readonly spectators = new Map<string, Player>();
   ended = false;
   /** When Zaisma will end this match (room.endsAt), or null. */
   endsAt: string | null = null;
@@ -996,8 +1175,10 @@ export class RoomCore<S = any> {
   friendJoinsEnabled = true;
   name: string | null = null;
   labels: Record<string, string> = {};
+  /** Kept (room.setKept): the transport keeps its state when it empties. */
+  isKept = false;
   /**
-   * Set when the player count, isListed or isOpen changed, so the room list can be brought up to date,
+   * Set when the player count, isListed, isOpen or isKept changed, so the room list can be brought up to date,
    * and when the room's blocks changed, since a sleeping room's saved room is written with its listing.
    */
   listingChanged = false;
@@ -1034,8 +1215,17 @@ export class RoomCore<S = any> {
   private buckets = new Map<string, { tokenCount: number; filledAtMs: number }>();
   /** Probes this room has sent, to every player: each probe's number. */
   private probeCount = 0;
+  /** What each player was last sent of the state (stateSyncEnabled), unless the game server runs state sync itself (SYNCS_STATE). */
+  private readonly stateTracker: StateTracker | null;
+  /** For a game server that runs state sync itself: players with a new connection, who need a full copy. */
+  private readonly fullCopyPlayerIds = new Set<string>();
+  /** A turn-based room's players state sync skipped as backed up, who get a full copy once they catch up. */
+  private readonly stateSkippedPlayerIds = new Set<string>();
+  /** Latest-only messages waiting for each backed-up player, by "<kind>:<latestKey>", least recently replaced first. */
+  private readonly latestSlots = new Map<string, Map<string, Outgoing>>();
   private readonly now: () => number;
   readonly maximumPlayerCount: number;
+  readonly maximumSpectatorCount: number;
   private readonly api: Room;
   readonly server: GameServer<S>;
   private readonly transport: Transport;
@@ -1056,7 +1246,8 @@ export class RoomCore<S = any> {
    * startOptions.presence saying when each of its players was last heard from and the idle check
    * their game asked for. A restarted real-time room (startOptions.restoreInfo, with its saved state)
    * skips setup: startOptions.lostPlayers, the players in its match at the save who aren't connected,
-   * come back as away (reason "lost"), and onRestored runs once.
+   * come back as away (reason "lost"), and onRestored runs once. startOptions.spectators are spectators
+   * still connected to a room waking from sleep.
    */
   constructor(
     server: GameServer<S>,
@@ -1064,6 +1255,7 @@ export class RoomCore<S = any> {
     startOptions: {
       state?: S;
       players?: Player[];
+      spectators?: Player[];
       room?: SavedRoom;
       start?: RoomStart;
       presence?: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }>;
@@ -1076,6 +1268,12 @@ export class RoomCore<S = any> {
     this.transport = transport;
     this.now = startOptions.now ?? Date.now;
     this.maximumPlayerCount = server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount;
+    this.maximumSpectatorCount = server.maximumSpectatorCount ?? 0;
+    this.stateTracker = server.stateSyncEnabled && !(server as { [SYNCS_STATE]?: unknown })[SYNCS_STATE] ? newStateTracker(ROOM_LIMITS.maximumStateViewSizeBytes) : null;
+    for (const spectator of startOptions.spectators ?? []) {
+      this.spectators.set(spectator.id, spectator);
+      this.presence.set(spectator.id, newPresence(this.now(), {}));
+    }
     for (const player of startOptions.players ?? []) {
       this.players.set(player.id, player);
       const was = startOptions.presence?.[player.id];
@@ -1106,6 +1304,7 @@ export class RoomCore<S = any> {
       for (const [id, reason] of Object.entries(saved.kept ?? {})) if (this.players.has(id) && !this.kept.has(id) && reason !== "lost") this.kept.set(id, reason);
       this.lobbyRoomCode = saved.lobbyRoomCode ?? null;
       this.endsAt = saved.endsAt ?? null;
+      this.isKept = saved.isKept === true;
       for (const [first, second] of saved.accountBlocks ?? []) this.accountBlocks.add(pairKey(first, second));
       for (const [blocker, blocked] of saved.sessionBlocks ?? []) this.sessionBlocks.add(blockKey(blocker, blocked));
       for (const [first, second] of saved.friendships ?? []) this.friendships.add(pairKey(first, second));
@@ -1120,6 +1319,7 @@ export class RoomCore<S = any> {
       this.setupData = start.setupData ?? null;
       this.keepOut(start.keptOut);
       this.lobbyRoomCode = start.lobbyRoomCode ?? null;
+      this.isKept = start.isKept === true;
     }
     // A restarted room's players who aren't connected: in the match until leave() below makes them away, as a dropped connection does.
     const restoreInfo = startOptions.state !== undefined ? startOptions.restoreInfo : undefined;
@@ -1144,16 +1344,31 @@ export class RoomCore<S = any> {
     }
     const core = this;
     this.api = {
+      roomCode: transport.roomCode ?? null,
       get players() {
         return [...core.players.values()];
       },
-      broadcast: (message, broadcastOptions) => this.broadcast(message, broadcastOptions?.exceptPlayerId),
-      send: (playerId, message) => {
-        if (this.players.has(playerId)) this.sendText(playerId, JSON.stringify({ type: "message", data: message } satisfies ServerMessage), undefined, messageTypeOf(message));
+      get spectators() {
+        return [...core.spectators.values()];
+      },
+      broadcast: (message, broadcastOptions) => {
+        const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "audience", "delivery", "latestKey"], "room.broadcast");
+        const delivery = readDelivery(given, "room.broadcast", defaultLatestKey(message));
+        this.deliver(
+          this.audienceOf(given.audience, "room.broadcast").filter((id) => id !== given.exceptPlayerId),
+          { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) },
+          delivery,
+        );
+      },
+      send: (playerId, message, sendOptions) => {
+        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.send"), "room.send", defaultLatestKey(message));
+        if (this.isViewer(playerId)) this.deliver([playerId], { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) }, delivery);
       },
       broadcastBytes: (bytes, broadcastOptions) => this.broadcastBytes(bytes, broadcastOptions),
-      sendBytes: (playerId, bytes) => {
-        if (this.players.has(playerId)) this.sendFrame([playerId], bytesFrame(readBytes(bytes, "room.sendBytes"), null));
+      sendBytes: (playerId, bytes, sendOptions) => {
+        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.sendBytes"), "room.sendBytes", "");
+        const frame = bytesFrame(readBytes(bytes, "room.sendBytes"), null);
+        if (this.isViewer(playerId)) this.deliver([playerId], { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
       },
       end: (message) => this.end(message ?? "The match is over."),
       get endsAt() {
@@ -1171,6 +1386,10 @@ export class RoomCore<S = any> {
         return core.friendJoinsEnabled;
       },
       setFriendJoinsEnabled: (isEnabled) => this.settle({ friendJoinsEnabled: Boolean(isEnabled) }),
+      get isKept() {
+        return core.isKept;
+      },
+      setKept: (isKept) => this.setKept(Boolean(isKept)),
       get name() {
         return core.name;
       },
@@ -1193,6 +1412,7 @@ export class RoomCore<S = any> {
       },
     };
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
+    Object.defineProperty(this.api, STATE_SYNC, { value: { viewers: () => this.stateViewers(), send: (playerIds, frame) => this.sendStateFrom(playerIds, frame) } satisfies StateSyncHooks });
     if (restoreInfo) this.restored(restoreInfo, lostPlayers);
   }
 
@@ -1233,6 +1453,7 @@ export class RoomCore<S = any> {
       ...(this.reconnectUntilMs.size ? { reconnecting: Object.fromEntries([...this.reconnectUntilMs].map(([id, untilMs]) => [id, { player: this.players.get(id)!, untilMs }])) } : {}),
       ...(this.lobbyRoomCode ? { lobbyRoomCode: this.lobbyRoomCode } : {}),
       ...(this.endsAt ? { endsAt: this.endsAt } : {}),
+      ...(this.isKept ? { isKept: true } : {}),
       ...this.savedBlocks(),
     };
   }
@@ -1356,11 +1577,23 @@ export class RoomCore<S = any> {
     return this.server.ticksPerSec !== undefined;
   }
 
+  /** How many are watching. */
+  get spectatorCount(): number {
+    return this.spectators.size;
+  }
+
   /**
    * Whether a player may come in: the room's own rules (over, kept out, closed, full), then the game
    * server's canJoin with the join data the player brought. Call before join; join checks the room's rules again.
+   * admitOptions.isSpectator: they come to watch, which a closed or full room still takes (spectatorDoor).
    */
-  async admit(player: Player, joinData: unknown = null): Promise<Admission> {
+  async admit(player: Player, joinData: unknown = null, admitOptions: { isSpectator?: boolean } = {}): Promise<Admission> {
+    if (admitOptions.isSpectator) {
+      const spectatorDoor = this.spectatorDoor(player.id);
+      if (spectatorDoor) return spectatorDoor;
+      // A spectator reconnecting doesn't ask again.
+      return this.spectators.has(player.id) ? { isAllowed: true } : this.ask(player, joinData, WATCHING);
+    }
     const door = this.door(player.id);
     if (door) return door;
     // Players already in, players another room sent (asked when it sent them) and players coming back to a held seat don't ask again.
@@ -1371,7 +1604,8 @@ export class RoomCore<S = any> {
   /** The game server's canJoin, then the room's rules again, since things may change while it decides. */
   private async ask(player: Player, joinData: unknown, joinInfo: JoinInfo): Promise<Admission> {
     const isMoving = joinInfo.fromRoomCode !== null;
-    if (!this.server.canJoin) return this.door(player.id, isMoving) ?? { isAllowed: true };
+    const door = () => (joinInfo.isSpectator ? this.spectatorDoor(player.id) : this.door(player.id, isMoving));
+    if (!this.server.canJoin) return door() ?? { isAllowed: true };
     await this.settled();
     let answer: unknown;
     try {
@@ -1389,7 +1623,7 @@ export class RoomCore<S = any> {
       const message = tidy(read.refusalMessage, ROOM_LIMITS.maximumMessageCharacterCount);
       return { isAllowed: false, code: "refused", ...(message ? { message } : {}) };
     }
-    return this.door(player.id, isMoving) ?? { isAllowed: true };
+    return door() ?? { isAllowed: true };
   }
 
   /**
@@ -1405,6 +1639,21 @@ export class RoomCore<S = any> {
     if (this.players.has(id) || this.seat(id) || this.holding(id)) return null;
     if (!isMoving && !this.isOpen && !this.known.has(id)) return { isAllowed: false, code: "closed" };
     if (this.players.size + this.countHeldSeats() >= this.maximumPlayerCount) return { isAllowed: false, code: "full" };
+    return null;
+  }
+
+  /**
+   * The room's own rules for a spectator coming in, or null if they may: a match that's over, and a player
+   * kept out, keep them out, and so does a full audience; a closed or full room doesn't, since watching a
+   * match under way is the point. A player in the match can't watch it too.
+   */
+  private spectatorDoor(id: string): Admission | null {
+    if (this.ended) return { isAllowed: false, code: "ended" };
+    const keptOutMessage = this.keptOut.get(id);
+    if (keptOutMessage !== undefined) return { isAllowed: false, code: "kept_out", message: keptOutMessage };
+    if (this.players.has(id)) return { isAllowed: false, code: "bad_message", message: "You're playing in this room, so you can't watch it too." };
+    if (this.spectators.has(id)) return null;
+    if (this.spectators.size >= this.maximumSpectatorCount) return { isAllowed: false, code: "watching_full" };
     return null;
   }
 
@@ -1453,7 +1702,7 @@ export class RoomCore<S = any> {
     for (const player of ask.players) {
       const verdict: Admission = this.players.has(player.id)
         ? { isAllowed: false, code: "bad_message", message: "Already in that room." }
-        : await this.ask(player, joinData, { fromRoomCode: ask.fromRoomCode, isReturning: false });
+        : await this.ask(player, joinData, { fromRoomCode: ask.fromRoomCode, isReturning: false, isSpectator: false });
       if (verdict.isAllowed) {
         this.expected.set(player.id, { joinData, fromRoomCode: ask.fromRoomCode, untilMs: this.now() + SEAT_MS });
         answer.movedPlayerIds.push(player.id);
@@ -1467,23 +1716,27 @@ export class RoomCore<S = any> {
    * A player arrives. Joining again with the same ID (a reconnect) keeps their place. The player who
    * makes the room can hide it from the start (a private match), turn friends' Join off, and name and label it. joinData is
    * what the player's game sent along, for onJoin; clientIdle is the idle check it asked for (idleCheck "client").
+   * isSpectator: they come to watch (watch).
    */
   join(
     player: Player,
-    joinOptions: { isListed?: boolean; friendJoinsEnabled?: boolean; joinData?: unknown; clientIdle?: ClientIdle } & RoomInfo = {},
+    joinOptions: { isListed?: boolean; friendJoinsEnabled?: boolean; joinData?: unknown; clientIdle?: ClientIdle; isSpectator?: boolean } & RoomInfo = {},
   ): { isAllowed: true; isRejoin: boolean } | { isAllowed: false; code: RoomErrorCode; message?: string } {
+    if (joinOptions.isSpectator) return this.watch(player);
     // A player whose time to reconnect ran out while the room slept comes back to their held seat instead.
     this.expireReconnects();
     const isRejoin = this.players.has(player.id);
     const door = this.door(player.id);
     if (door && !door.isAllowed) return door;
+    // A spectator who joins the match stops watching first.
+    this.stopWatching(player.id);
     // A player another room sent brings what that room's game server passed, not what their browser sent.
     const seat = isRejoin ? null : this.seat(player.id);
     const back = isRejoin || seat ? null : this.holding(player.id);
     this.expected.delete(player.id);
     if (back) this.held.delete(player.id);
     const joinData = seat ? seat.joinData : (joinOptions.joinData ?? null);
-    const joinInfo: JoinInfo = seat ? { fromRoomCode: seat.fromRoomCode, isReturning: false } : back ? { fromRoomCode: null, isReturning: true } : NOBODY_JOINED;
+    const joinInfo: JoinInfo = seat ? { fromRoomCode: seat.fromRoomCode, isReturning: false, isSpectator: false } : back ? { fromRoomCode: null, isReturning: true, isSpectator: false } : NOBODY_JOINED;
     if (this.known.size === 0) {
       if (joinOptions.isListed === false) this.isListed = false;
       if (joinOptions.friendJoinsEnabled === false) this.friendJoinsEnabled = false;
@@ -1499,9 +1752,17 @@ export class RoomCore<S = any> {
     this.remember(player.id);
     this.presence.set(player.id, newPresence(this.now(), joinOptions.clientIdle === undefined ? (this.presence.get(player.id)?.clientIdle ?? {}) : clientIdle(joinOptions.clientIdle)));
     const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
-    this.sendText(player.id, JSON.stringify({ type: "welcome", me: player, players: this.list(), room: this.settings(), hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage));
+    this.sendText(
+      player.id,
+      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+    );
     // Every room gets a first ping and clock sample right away, ticking or not.
     this.probe(player.id);
+    // A new connection starts with nothing of the state: a full copy comes with the next round.
+    if (this.server.stateSyncEnabled) {
+      this.stateTracker?.forget(player.id);
+      this.fullCopyPlayerIds.add(player.id);
+    }
     // A new connection hears its blocks afresh, and everyone else before the game or the player list says they're here.
     this.toldBlocks.delete(player.id);
     this.tellBlocks();
@@ -1511,15 +1772,67 @@ export class RoomCore<S = any> {
       this.broadcastPlayers();
     } else if (isReconnect) this.cameBack(player);
     else if (this.kept.has(player.id)) this.back(player.id);
+    // A turn-based room has no tick to bring a returning connection its copy of the state.
+    if (isRejoin && !this.ticking) this.syncSoon();
     return { isAllowed: true, isRejoin };
+  }
+
+  /**
+   * A spectator comes to watch: welcomed with the players and the room, probed for their ping and the
+   * room's clock like a player, and the game hears it (onSpectatorJoin). Nothing they do counts as playing.
+   */
+  private watch(spectator: Player): { isAllowed: true; isRejoin: boolean } | { isAllowed: false; code: RoomErrorCode; message?: string } {
+    const door = this.spectatorDoor(spectator.id);
+    if (door && !door.isAllowed) return door;
+    const isRejoin = this.spectators.has(spectator.id);
+    this.spectators.set(spectator.id, spectator);
+    this.presence.set(spectator.id, newPresence(this.now(), {}));
+    const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
+    this.sendText(
+      spectator.id,
+      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+    );
+    this.probe(spectator.id);
+    // A new connection starts with nothing of the state: a full copy comes with the next round.
+    if (this.server.stateSyncEnabled) {
+      this.stateTracker?.forget(spectator.id);
+      this.fullCopyPlayerIds.add(spectator.id);
+    }
+    if (!isRejoin) {
+      this.listingChanged = true;
+      this.run(() => this.server.onSpectatorJoin?.(this.state, spectator, this.api));
+      this.tellRoom();
+    }
+    // A turn-based room has no tick to bring them their copy of the state, nor a handler that did.
+    if (!this.ticking && (isRejoin || !this.server.onSpectatorJoin)) this.syncSoon();
+    return { isAllowed: true, isRejoin };
+  }
+
+  /** A spectator stops watching: gone at once, and the game hears it (onSpectatorLeave) once the handler running now is done. */
+  private stopWatching(spectatorId: string): void {
+    const spectator = this.spectators.get(spectatorId);
+    if (!spectator) return;
+    this.spectators.delete(spectatorId);
+    this.presence.delete(spectatorId);
+    this.buckets.delete(spectatorId);
+    this.latestSlots.delete(spectatorId);
+    this.stateSkippedPlayerIds.delete(spectatorId);
+    this.fullCopyPlayerIds.delete(spectatorId);
+    this.listingChanged = true;
+    this.soon(() => {
+      if (this.ended) return;
+      this.run(() => this.server.onSpectatorLeave?.(this.state, spectator, this.api));
+      this.tellRoom();
+    });
   }
 
   /**
    * A player's connection closed: they left (closed the game, or followed a move), or it was lost. A
    * lost player stays in the match as away for reconnectTimeoutSec (onAway, reason "lost"), then
-   * leaves it with their seat held for a while, so they can still come straight back.
+   * leaves it with their seat held for a while, so they can still come straight back. A spectator just goes.
    */
   leave(playerId: string, reason: "left" | "lost" = "left"): void {
+    if (this.spectators.has(playerId)) return this.stopWatching(playerId);
     if (this.held.has(playerId)) {
       // A player out of the match went for good: their seat is free. A lost connection keeps it held.
       if (reason === "left") {
@@ -1554,6 +1867,9 @@ export class RoomCore<S = any> {
   /** Take a player out of the match, forgetting what the room knew about them while they were in. */
   private out(playerId: string): void {
     this.players.delete(playerId);
+    this.latestSlots.delete(playerId);
+    this.stateSkippedPlayerIds.delete(playerId);
+    this.fullCopyPlayerIds.delete(playerId);
     this.kept.delete(playerId);
     this.reconnectUntilMs.delete(playerId);
     this.presence.delete(playerId);
@@ -1678,7 +1994,8 @@ export class RoomCore<S = any> {
     this.expireReconnects();
     const nowMs = this.now();
     for (const [id, presence] of [...this.presence]) {
-      if (this.kept.has(id)) continue;
+      // Spectators give no input, so they're never idle or away; a dead connection still drops them.
+      if (this.kept.has(id) || this.spectators.has(id)) continue;
       const idleTimeoutSec = this.idleTimeoutSecFor(id);
       if (idleTimeoutSec !== null && nowMs - presence.seenAtMs >= idleTimeoutSec * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
       else if (this.ticking && presence.hiddenAtMs !== undefined && nowMs - presence.hiddenAtMs >= ROOM_LIMITS.hiddenTimeoutSec * 1000) this.walkAway(id, "hidden");
@@ -1696,6 +2013,7 @@ export class RoomCore<S = any> {
 
   /** A raw text message from a client. Returns an error code if it was refused. */
   receive(playerId: string, text: string): RoomErrorCode | null {
+    if (this.spectators.has(playerId)) return this.receiveFromSpectator(playerId, text);
     const player = this.players.get(playerId);
     const isHeld = !player && this.held.has(playerId);
     if ((!player && !isHeld) || this.ended) return "ended";
@@ -1758,6 +2076,8 @@ export class RoomCore<S = any> {
 
   /** Bytes from a client (a binary frame). Returns an error code if they were refused. */
   receiveBytes(playerId: string, bytes: Uint8Array): RoomErrorCode | null {
+    // Spectators send nothing; limited like anyone's messages, so refusing them costs little.
+    if (this.spectators.has(playerId)) return this.ended ? "ended" : this.take(playerId) ? "spectator_cannot_send" : "too_fast";
     const player = this.players.get(playerId);
     const isHeld = !player && this.held.has(playerId);
     if ((!player && !isHeld) || this.ended) return "ended";
@@ -1775,6 +2095,23 @@ export class RoomCore<S = any> {
   }
 
   /**
+   * A spectator's text: answers to the room's probes, and nothing else (spectator_cannot_send). Kept out of
+   * the room's message count and traffic, so watching stays off the meter, and limited like anyone's messages.
+   */
+  private receiveFromSpectator(spectatorId: string, text: string): RoomErrorCode | null {
+    if (this.ended) return "ended";
+    if (text.length <= ROOM_LIMITS.maximumGameMessageSizeBytes) {
+      try {
+        const message = JSON.parse(text) as { type?: unknown; probeNumber?: unknown } | null;
+        if (message?.type === "probe_answer" && this.answer(spectatorId, message.probeNumber)) return null;
+      } catch {
+        // Refused below.
+      }
+    }
+    return this.take(spectatorId) ? "spectator_cannot_send" : "too_fast";
+  }
+
+  /**
    * A player's message or bytes for the game server: through the queue of handlers, or at once for a
    * game server that only queues them for its next call (QUEUES_INPUT).
    */
@@ -1787,8 +2124,8 @@ export class RoomCore<S = any> {
     }
   }
 
-  /** Count messages in or out for the room's traffic: how many, their bytes and the largest of them. */
-  private countTraffic(direction: TrafficDirection, messageType: string, messageCount: number, sizeBytes: number): void {
+  /** Count messages in or out for the room's traffic: how many, their bytes and the largest of them, and how many went to a backed-up player. */
+  private countTraffic(direction: TrafficDirection, messageType: string, messageCount: number, sizeBytes: number, backedUpMessageCount = 0): void {
     if (messageCount === 0) return;
     const traffic = this.traffic;
     if (direction === "inbound") traffic.inboundSizeBytes += sizeBytes;
@@ -1799,14 +2136,15 @@ export class RoomCore<S = any> {
     let kept = traffic.messageTypes.get(`${direction} ${messageType}`);
     if (!kept) {
       const typeCountKey = direction === "inbound" ? "inboundTypeCount" : "outboundTypeCount";
-      if (traffic[typeCountKey] >= MAXIMUM_MESSAGE_TYPE_COUNT && messageType !== OTHER_MESSAGE_TYPE) return this.countTraffic(direction, OTHER_MESSAGE_TYPE, messageCount, sizeBytes);
+      if (traffic[typeCountKey] >= MAXIMUM_MESSAGE_TYPE_COUNT && messageType !== OTHER_MESSAGE_TYPE) return this.countTraffic(direction, OTHER_MESSAGE_TYPE, messageCount, sizeBytes, backedUpMessageCount);
       if (messageType !== OTHER_MESSAGE_TYPE) traffic[typeCountKey]++;
-      kept = { messageType, direction, messageCount: 0, sizeBytes: 0, largestSizeBytes: 0 };
+      kept = { messageType, direction, messageCount: 0, sizeBytes: 0, largestSizeBytes: 0, backedUpMessageCount: 0 };
       traffic.messageTypes.set(`${direction} ${messageType}`, kept);
     }
     kept.messageCount += messageCount;
     kept.sizeBytes += sizeBytes * messageCount;
     kept.largestSizeBytes = Math.max(kept.largestSizeBytes, sizeBytes);
+    kept.backedUpMessageCount += backedUpMessageCount;
   }
 
   /** The room's traffic since the last time it was taken, and start counting afresh. */
@@ -1864,7 +2202,41 @@ export class RoomCore<S = any> {
     this.name = next.name;
     this.labels = next.labels;
     this.listingChanged = true;
-    this.sendEach(this.players.keys(), JSON.stringify({ type: "room", room: next } satisfies ServerMessage));
+    this.tellRoom();
+  }
+
+  /** Tell every player and spectator the room's settings and how many are watching. */
+  private tellRoom(): void {
+    this.sendEach(this.everyone(), JSON.stringify({ type: "room", room: this.settings(), spectatorCount: this.spectators.size } satisfies ServerMessage));
+  }
+
+  /** The players and the spectators: everyone the room tells what happens in it. */
+  private everyone(): string[] {
+    return [...this.players.keys(), ...this.spectators.keys()];
+  }
+
+  /** Whether the room sends to this player: they're in the match, or watching. */
+  private isViewer(playerId: string): boolean {
+    return this.players.has(playerId) || this.spectators.has(playerId);
+  }
+
+  /** Who a broadcast reaches (BroadcastOptions.audience). Anything else is a mistake in the game's call. */
+  private audienceOf(audience: unknown, call: string): string[] {
+    if (audience === undefined || audience === "everyone") return this.everyone();
+    if (audience === "players") return [...this.players.keys()];
+    if (audience === "spectators") return [...this.spectators.keys()];
+    throw new Error(`${call}'s audience is ${typeof audience === "string" ? JSON.stringify(audience.slice(0, 40)) : typeof audience}. Give "everyone", "players" or "spectators", or leave it out for everyone.`);
+  }
+
+  /**
+   * Keep the room, or stop keeping it (room.setKept). The transport may turn a keep back (a game past its
+   * free storage), so it hears through listingChanged; players are told nothing.
+   */
+  setKept(isKept: boolean): void {
+    if (this.isKept === isKept || this.ended) return;
+    this.isKept = isKept;
+    this.listingChanged = true;
+    this.dirty = true;
   }
 
   /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
@@ -1872,7 +2244,7 @@ export class RoomCore<S = any> {
     if (!this.transport.reserve) throw new Error("Reserved rooms aren't available here");
     if (this.ended) throw new Error("This room has ended");
     // A game server in a sandbox picks the code itself (roomCode), since it tells the game at once.
-    const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "name", "labels", "roomCode"], "room.reserve");
+    const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "isKept", "name", "labels", "roomCode"], "room.reserve");
     const playerIds = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].filter((id) => this.players.has(id));
     if (!playerIds.length) throw new Error("room.reserve needs playerIds of players who are in this room");
     const checked = checkRoomData(given.setupData);
@@ -1885,6 +2257,7 @@ export class RoomCore<S = any> {
       setupData: checked.checkedData,
       isListed: given.isListed === true,
       ...(given.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}),
+      ...(given.isKept === true ? { isKept: true } : {}),
       name: nameAndLabels.name ?? null,
       labels: nameAndLabels.labels ?? {},
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
@@ -1941,9 +2314,17 @@ export class RoomCore<S = any> {
     const given = closed(kickOptions ?? {}, ["message", "keepOut"], "room.kick");
     const player = this.players.get(playerId);
     const held = this.held.get(playerId);
-    if ((!player && !held) || this.ended) return;
+    const isSpectator = this.spectators.has(playerId);
+    if ((!player && !held && !isSpectator) || this.ended) return;
     const message = tidy(given.message, ROOM_LIMITS.maximumMessageCharacterCount) || ERROR_TEXT.kept_out;
     const isKeptOut = given.keepOut === true;
+    if (isSpectator) {
+      if (isKeptOut) this.keepOut({ [playerId]: message });
+      this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
+      this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
+      this.stopWatching(playerId);
+      return;
+    }
     this.known.delete(playerId);
     if (isKeptOut) this.keepOut({ [playerId]: message });
     // A player whose connection dropped has none to tell or close.
@@ -1992,11 +2373,147 @@ export class RoomCore<S = any> {
     if (this.ended) return;
     this.expireReconnects();
     this.probeDue();
+    this.catchUp();
     // A room where everyone walked away stops running until someone's back.
-    if (!this.server.onTick || this.playingCount === 0) return;
+    if (this.playingCount === 0) return;
+    // State sync's round comes after onTick; without one, every tick.
+    if (!this.server.onTick) return this.syncState();
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
-    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
+    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api), true);
+  }
+
+  /**
+   * Players who caught up: their latest-only messages go now, and in a turn-based room, players state sync
+   * skipped get a full copy. Ticking rooms check each tick and at each probe answer; your own server's
+   * runner also every 50 ms while isCatchingUp.
+   */
+  catchUp(): void {
+    if (this.ended) return;
+    for (const id of [...this.latestSlots.keys()]) {
+      if (!this.isViewer(id) || this.isLost(id)) this.latestSlots.delete(id);
+      else if (!this.isBackedUp(id)) this.sendLatest(id);
+    }
+    let hasCaughtUp = false;
+    for (const id of [...this.stateSkippedPlayerIds]) {
+      if (this.isViewer(id) && !this.isLost(id) && this.isBackedUp(id)) continue;
+      this.stateSkippedPlayerIds.delete(id);
+      hasCaughtUp ||= this.isViewer(id);
+    }
+    if (hasCaughtUp) this.syncSoon();
+  }
+
+  /** Whether anything waits for a player to catch up: latest-only messages, or a turn-based room's state. */
+  get isCatchingUp(): boolean {
+    return this.latestSlots.size > 0 || this.stateSkippedPlayerIds.size > 0;
+  }
+
+  /**
+   * Whether a player's connection is backed up: the transport says (the socket's bufferedAmount on your
+   * own server), or, in Zaisma rooms, a probe of theirs is ROOM_LIMITS.backedUpDelayMs later than their
+   * ping with ROOM_LIMITS.backedUpSizeBytes or more sent since the last probe they answered.
+   */
+  isBackedUp(playerId: string): boolean {
+    if (!this.isViewer(playerId) || this.isLost(playerId)) return false;
+    if (this.transport.isBackedUp) return this.transport.isBackedUp(playerId);
+    const presence = this.presence.get(playerId);
+    const oldest = presence?.unansweredProbes.values().next().value;
+    if (!presence || !oldest) return false;
+    return this.now() - oldest.sentAtMs > (presence.pingDurationMs ?? 0) + ROOM_LIMITS.backedUpDelayMs && presence.sentByteCount - presence.answeredSentByteCount >= ROOM_LIMITS.backedUpSizeBytes;
+  }
+
+  /** The players who see the state: everyone in the match with a connection, and the spectators. */
+  private stateViewerIds(): string[] {
+    return this.everyone().filter((id) => !this.isLost(id));
+  }
+
+  /** Which viewers are backed up this round; a turn-based room remembers them, to send a full copy once they catch up. */
+  private backedUpViewers(viewerIds: string[]): Set<string> {
+    const backedUpPlayerIds = new Set(viewerIds.filter((id) => this.isBackedUp(id)));
+    if (!this.ticking) for (const id of backedUpPlayerIds) this.stateSkippedPlayerIds.add(id);
+    return backedUpPlayerIds;
+  }
+
+  /** A round of state sync (stateSyncEnabled): each player's view, in full or what changed since their last. */
+  private syncState(): void {
+    const tracker = this.stateTracker;
+    if (!tracker || this.ended) return;
+    const viewerIds = this.stateViewerIds();
+    const stateView = this.server.stateView;
+    const state = this.state;
+    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, (this.players.get(viewerId) ?? this.spectators.get(viewerId))!, this.api) : null, this.backedUpViewers(viewerIds));
+    for (const problem of round.problems) console.error(`Game server error: ${problem}`);
+    for (const { playerIds, frame } of round.frames) this.sendState(playerIds, frame);
+  }
+
+  /** A round of state sync once the handler running now is done, for a room with no handler about to run. */
+  private syncSoon(): void {
+    if (!this.server.stateSyncEnabled || this.ended) return;
+    const syncs = (this.server as { [SYNCS_STATE]?: (state: S, room: Room) => HandlerResult<S> })[SYNCS_STATE];
+    if (syncs) return this.run(() => syncs(this.state, this.api));
+    if (this.queue) this.queue = this.queue.then(() => this.syncState());
+    else this.soon(() => this.syncState());
+  }
+
+  /** For a game server that runs state sync itself: who's backed up this round, and who needs a full copy (said once). */
+  private stateViewers(): { backedUpPlayerIds: string[]; fullCopyPlayerIds: string[] } {
+    const fullCopyPlayerIds = [...this.fullCopyPlayerIds].filter((id) => this.isViewer(id));
+    this.fullCopyPlayerIds.clear();
+    return { backedUpPlayerIds: [...this.backedUpViewers(this.stateViewerIds())], fullCopyPlayerIds };
+  }
+
+  /** A frame from a game server that runs state sync itself, checked like anything a game hands the room. */
+  private sendStateFrom(playerIds: unknown, frame: unknown): void {
+    if (!Array.isArray(playerIds) || !frame || typeof frame !== "object") return;
+    const keys = Object.keys(frame);
+    if (keys.length !== 1 || (keys[0] !== "full" && !(keys[0] === "changes" && Array.isArray((frame as { changes?: unknown }).changes)))) return;
+    this.sendState(
+      playerIds.filter((id): id is string => typeof id === "string" && this.isViewer(id)),
+      frame as StateFrame,
+    );
+  }
+
+  /** Send a state frame to players in the match, with the room's clock, counted as state sync's traffic. */
+  private sendState(playerIds: string[], frame: StateFrame): void {
+    if (!playerIds.length) return;
+    this.sendEach(playerIds, JSON.stringify({ type: "state", serverTimeMs: this.now(), ...frame } as ServerMessage), STATE_MESSAGE_TYPE);
+  }
+
+  /**
+   * A game's message or bytes for some players. Reliable ones go to all of them, counting those that went to
+   * a backed-up player; latest-only ones wait in a slot for each backed-up player, replacing an older one there.
+   */
+  private deliver(playerIds: string[], outgoing: Outgoing, delivery: ReadDelivery): void {
+    const ids = playerIds.filter((id) => !this.isLost(id));
+    if (!delivery.isLatestOnly) return this.sendOut(ids, outgoing, ids.filter((id) => this.isBackedUp(id)).length);
+    const ready: string[] = [];
+    for (const id of ids) {
+      if (!this.isBackedUp(id)) {
+        // Anything still waiting for them goes first, so the newest arrives last.
+        if (this.latestSlots.has(id)) this.sendLatest(id);
+        ready.push(id);
+        continue;
+      }
+      let slots = this.latestSlots.get(id);
+      if (!slots) this.latestSlots.set(id, (slots = new Map()));
+      const slotKey = `${"frame" in outgoing ? "bytes" : "message"}:${delivery.latestKey}`;
+      slots.delete(slotKey);
+      slots.set(slotKey, outgoing);
+      if (slots.size > ROOM_LIMITS.maximumLatestOnlySlotCount) slots.delete(slots.keys().next().value!);
+    }
+    this.sendOut(ready, outgoing, 0);
+  }
+
+  /** A player's waiting latest-only messages, least recently replaced first. */
+  private sendLatest(playerId: string): void {
+    const slots = this.latestSlots.get(playerId);
+    this.latestSlots.delete(playerId);
+    for (const outgoing of slots?.values() ?? []) this.sendOut([playerId], outgoing, 0);
+  }
+
+  private sendOut(playerIds: string[], outgoing: Outgoing, backedUpMessageCount: number): void {
+    if ("frame" in outgoing) this.sendFrame(playerIds, outgoing.frame, backedUpMessageCount);
+    else this.sendEach(playerIds, outgoing.text, outgoing.messageType, backedUpMessageCount);
   }
 
   /**
@@ -2006,25 +2523,25 @@ export class RoomCore<S = any> {
   startVersionUpdate(versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean }, isHeld: boolean): void {
     if (this.ended || this.versionUpdate?.versionId === versionUpdate.versionId) return;
     this.versionUpdate = versionUpdate;
-    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "coming", ...versionUpdate } satisfies ServerMessage));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "versionUpdate", step: "coming", ...versionUpdate } satisfies ServerMessage));
     if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { versionId: versionUpdate.versionId, forcedAt: versionUpdate.appliesAt }, this.api));
   }
 
   /** The switch is happening: every player hears it just before the room closes their connections. */
   tellVersionUpdateNow(): void {
     if (!this.versionUpdate) return;
-    this.sendEach(this.players.keys(), JSON.stringify({ type: "versionUpdate", step: "now", ...this.versionUpdate } satisfies ServerMessage));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "versionUpdate", step: "now", ...this.versionUpdate } satisfies ServerMessage));
   }
 
   /**
    * Zaisma will end this match at endsAt (an ISO time): every player hears it and onEnding runs, once.
-   * Only Zaisma rooms call it, when the game has used the month's free tier.
+   * Only Zaisma rooms call it, when the game's hosting pauses.
    */
   startEnding(endsAt: string): void {
     if (this.ended || this.endsAt !== null) return;
     this.endsAt = endsAt;
     this.dirty = true;
-    this.sendEach(this.players.keys(), JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage));
     if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api));
   }
 
@@ -2033,41 +2550,40 @@ export class RoomCore<S = any> {
     this.ended = true;
     this.listingChanged = true;
     const text = JSON.stringify({ type: "ended", message } satisfies ServerMessage);
-    for (const id of [...this.players.keys(), ...this.held.keys()]) {
+    for (const id of [...this.players.keys(), ...this.held.keys(), ...this.spectators.keys()]) {
       if (this.isLost(id)) continue;
       this.sendText(id, text);
       this.transport.close(id, ENDED_CLOSE_CODE, "Match ended");
     }
     this.players.clear();
+    this.spectators.clear();
     this.held.clear();
     this.kept.clear();
     this.reconnectUntilMs.clear();
     this.presence.clear();
+    this.latestSlots.clear();
+    this.stateSkippedPlayerIds.clear();
   }
 
   /** The players as every player's game lists them, with why each isn't playing. */
   private list(): ListedPlayer[] {
-    return [...this.players.values()].map((player) => ({ ...player, awayReason: this.kept.get(player.id) ?? null }));
+    return [...this.players.values()].map((player) => ({ ...shownPlayer(player), awayReason: this.kept.get(player.id) ?? null }));
   }
 
-  private broadcast(message: unknown, exceptPlayerId?: string): void {
-    const text = JSON.stringify({ type: "message", data: message } satisfies ServerMessage);
-    this.sendEach([...this.players.keys()].filter((id) => id !== exceptPlayerId), text, messageTypeOf(message));
-  }
-
-  /** room.broadcastBytes: one frame, built once, to every player but exceptPlayerId. */
+  /** room.broadcastBytes: one frame, built once, to the audience (everyone, by default) but exceptPlayerId. */
   private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void {
-    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId"], "room.broadcastBytes");
+    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId", "audience", "delivery", "latestKey"], "room.broadcastBytes");
+    const delivery = readDelivery(given, "room.broadcastBytes", "");
     const fromPlayerId = typeof given.fromPlayerId === "string" ? given.fromPlayerId : null;
     const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), fromPlayerId);
-    this.sendFrame([...this.players.keys()].filter((id) => id !== given.exceptPlayerId), frame);
+    this.deliver(this.audienceOf(given.audience, "room.broadcastBytes").filter((id) => id !== given.exceptPlayerId), { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
   }
 
   /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
-  private sendFrame(given: string[], frame: Uint8Array): void {
+  private sendFrame(given: string[], frame: Uint8Array, backedUpMessageCount = 0): void {
     if (!this.transport.sendBytes) throw new Error("Sending bytes isn't available here");
     const playerIds = given.filter((id) => !this.isLost(id));
-    this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length);
+    this.countTraffic("outbound", BYTES_MESSAGE_TYPE, playerIds.length, frame.length, backedUpMessageCount);
     this.depth++;
     try {
       for (const id of playerIds) {
@@ -2081,17 +2597,17 @@ export class RoomCore<S = any> {
   }
 
   private broadcastPlayers(): void {
-    this.sendEach(this.players.keys(), JSON.stringify({ type: "players", players: this.list(), hostPlayerId: this.hostPlayerId } satisfies ServerMessage));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "players", players: this.list(), hostPlayerId: this.hostPlayerId } satisfies ServerMessage));
   }
 
   /**
    * Send one text to several players, counting its bytes once. A player it drops for falling behind
    * leaves once everyone has it, so nobody hears of the leave before the rest of this text.
    */
-  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE): void {
+  private sendEach(playerIds: Iterable<string>, text: string, messageType = ZAISMA_MESSAGE_TYPE, backedUpMessageCount = 0): void {
     const byteCount = utf8ByteCount(text);
     const ids = [...playerIds].filter((id) => !this.isLost(id));
-    this.countTraffic("outbound", messageType, ids.length, byteCount);
+    this.countTraffic("outbound", messageType, ids.length, byteCount, backedUpMessageCount);
     this.depth++;
     try {
       for (const id of ids) this.sendText(id, text, byteCount, null);
@@ -2139,10 +2655,10 @@ export class RoomCore<S = any> {
     this.countTraffic("outbound", ZAISMA_MESSAGE_TYPE, 1, text.length);
   }
 
-  /** A ticking room probes each player in the match every ROOM_LIMITS.probeIntervalSec, and drops those who stopped answering. */
+  /** A ticking room probes each player in the match, and each spectator, every ROOM_LIMITS.probeIntervalSec, and drops those who stopped answering. */
   private probeDue(): void {
     const nowMs = this.now();
-    for (const id of [...this.players.keys()]) {
+    for (const id of this.everyone()) {
       const presence = this.presence.get(id);
       if (presence && !this.kept.has(id) && nowMs - presence.lastProbeAtMs >= ROOM_LIMITS.probeIntervalSec * 1000) this.probe(id);
     }
@@ -2168,6 +2684,8 @@ export class RoomCore<S = any> {
     for (const number of [...presence.unansweredProbes.keys()]) if (number <= (probeNumber as number)) presence.unansweredProbes.delete(number);
     // The first measurement: probe again at once, so the player's game hears its ping too, even in a room that doesn't tick.
     if (previousMs === null) this.probe(playerId);
+    // An answer is when a backed-up connection shows it caught up.
+    this.soon(() => this.catchUp());
     return true;
   }
 
@@ -2194,8 +2712,12 @@ export class RoomCore<S = any> {
     return true;
   }
 
-  /** Run a game server handler. A crash in game code is logged and never takes the room down. */
-  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>): void {
+  /**
+   * Run a game server handler. A crash in game code is logged and never takes the room down. State sync's
+   * round follows a turn-based room's handlers and a real-time room's tick (isTick).
+   */
+  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>, isTick = false): void {
+    const isSyncing = this.stateTracker !== null && (isTick || !this.ticking);
     if (!this.queue) {
       let next: HandlerResult<S> | Promise<HandlerResult<S>>;
       this.depth++;
@@ -2211,6 +2733,7 @@ export class RoomCore<S = any> {
       if (!isPromise(next)) {
         if (next !== undefined) this.state = next as S;
         this.dirty = true;
+        if (isSyncing) this.syncState();
         this.flush();
         return;
       }
@@ -2225,6 +2748,7 @@ export class RoomCore<S = any> {
         const next = await handler();
         if (next !== undefined) this.state = next as S;
         this.dirty = true;
+        if (isSyncing) this.syncState();
       } catch (error) {
         console.error("Game server error:", error);
       } finally {
@@ -2264,6 +2788,29 @@ interface Presence {
 /** A player's presence as they come in: nothing sent and nothing measured yet. A room waking from sleep starts its probes afresh. */
 function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
   return { seenAtMs, clientIdle, sentByteCount: 0, answeredSentByteCount: 0, lastProbeSentByteCount: 0, lastProbeAtMs: 0, unansweredProbes: new Map(), pingDurationMs: null };
+}
+
+/** A game's message or bytes on their way out: the text or binary frame, and its type for the traffic counts. */
+type Outgoing = { text: string; messageType: string } | { frame: Uint8Array; messageType: string };
+
+/** A send's delivery as the room acts on it: latest-only, with its latestKey, or reliable. */
+type ReadDelivery = { isLatestOnly: false } | { isLatestOnly: true; latestKey: string };
+
+/** A latest-only message's latestKey when the game gives none: its type field when that's text, else "". */
+function defaultLatestKey(message: unknown): string {
+  const type = message && typeof message === "object" ? (message as { type?: unknown }).type : undefined;
+  return typeof type === "string" ? type : "";
+}
+
+/** A send's delivery and latestKey, checked: mistakes throw, naming what to give. defaultKey is the latestKey when it gives none. */
+function readDelivery(given: SendOptions, call: string, defaultKey: string): ReadDelivery {
+  const { delivery, latestKey } = given;
+  if (delivery !== undefined && delivery !== "reliable" && delivery !== "latest_only") throw new Error(`${call}'s delivery is ${JSON.stringify(delivery)}. Give "reliable" (the default) or "latest_only".`);
+  if (latestKey !== undefined && (typeof latestKey !== "string" || latestKey.length > ROOM_LIMITS.maximumLatestKeyCharacterCount)) {
+    throw new Error(`${call}'s latestKey must be text up to ${ROOM_LIMITS.maximumLatestKeyCharacterCount} characters, like "positions".`);
+  }
+  if (delivery !== "latest_only") return { isLatestOnly: false };
+  return { isLatestOnly: true, latestKey: latestKey ?? defaultKey };
 }
 
 /** Bytes a game handed the room, as a Uint8Array: anything else is a mistake in the game's call. */

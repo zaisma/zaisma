@@ -1,6 +1,6 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { GAME_DATABASE_FREE_LIMITS, issueRoomKey } from "@zaisma/core";
+import { MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
 
@@ -67,6 +67,16 @@ export default {
 };
 `;
 
+/** Polls until work answers something, for what the database writes in the background. */
+async function until<T>(work: () => Promise<T | null | undefined>): Promise<T> {
+  for (let i = 0; i < 100; i++) {
+    const found = await work();
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Never happened");
+}
+
 describe("game database", () => {
   beforeEach(async () => {
     await e.DB.exec("DELETE FROM alert_notices; DELETE FROM player_erases; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
@@ -122,64 +132,75 @@ describe("game database", () => {
     expect(await a.ask({ sql: "SELECT 'a;b' AS word; -- done" })).toEqual([{ word: "a;b" }]);
   });
 
-  it("stops writes at the free rows written this month, and keeps reads working", async () => {
+  it("keeps reading and writing for the hour after its game's hosting pauses, then answers hosting_paused", async () => {
     await addSandboxGame("busy", LEADERBOARD);
     const a = await join("busy", "ABCDEF");
     await a.next();
     await a.ask({ score: 10 });
     const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gbusy"));
-    await runInDurableObject(stub, (database: GameDatabaseObject) => {
-      (database as unknown as { usage: { writtenRowCount: number } }).usage.writtenRowCount = GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth;
-    });
-    expect(await a.ask({ score: 20 })).toMatchObject({ code: "database_write_limit", message: expect.stringContaining("500,000") });
-    expect(await a.ask({ sql: "SELECT best_score FROM scores" })).toEqual([{ best_score: 10 }]);
+    // Paused just now: the game's running matches have their hour, and their saves land.
+    await stub.setHostingPause(Date.now());
+    expect(await a.ask({ score: 20 })).toEqual([{ best_score: 20 }]);
+    // The hour is up: reads and writes stop.
+    await stub.setHostingPause(Date.now() - MATCH_FINISH_DURATION_SEC * 1000 - 1000);
+    expect(await a.ask({ score: 30 })).toMatchObject({ name: "DatabaseError", code: "hosting_paused", message: expect.stringContaining("hosting is paused") });
+    expect(await a.ask({ sql: "SELECT best_score FROM scores" })).toMatchObject({ code: "hosting_paused" });
+    // The data is still the developer's: the table list, exports and erasing a player work.
+    expect((await stub.overview()).tables.map((table) => table.name)).toEqual(["scores"]);
+    expect(await stub.exportForDeveloper(null)).toMatchObject({ queryResult: expect.anything() });
+    expect(await a.ask({ erase: "player_nobody" })).toEqual([{ tableName: "scores", erasedRowCount: 0 }]);
+    // Last month's pause is over, and so is one the site cleared (a top-up).
+    await stub.setHostingPause(Date.UTC(2020, 0, 15));
+    expect(await a.ask({ score: 40 })).toEqual([{ best_score: 40 }]);
+    await stub.setHostingPause(Date.now() - MATCH_FINISH_DURATION_SEC * 1000 - 1000);
+    await stub.setHostingPause(null);
+    expect(await a.ask({ sql: "SELECT best_score FROM scores" })).toEqual([{ best_score: 40 }]);
   });
 
-  it("notices once a month when the game's writes reach 80% and all of the free rows, for its alert_raised event", async () => {
-    await addSandboxGame("noticed", LEADERBOARD);
-    const a = await join("noticed", "ABCDEF");
+  it("adds its rows read and written and its storage to the day's use for the hosting meter, at most once a minute", async () => {
+    await addSandboxGame("metered", LEADERBOARD);
+    const a = await join("metered", "ABCDEF");
     await a.next();
     await a.ask({ score: 10 });
-    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gnoticed"));
-    const setWritten = (writtenRowCount: number) =>
-      runInDurableObject(stub, (database: GameDatabaseObject, state) => {
-        // The object knows its game by the name it's reached with.
-        expect(state.id.name).toBe("gnoticed");
-        (database as unknown as { usage: { writtenRowCount: number } }).usage.writtenRowCount = writtenRowCount;
-      });
-    const notices = async (want: (rows: any[]) => boolean) => {
-      let found: any[] = [];
-      for (let i = 0; i < 50; i++) {
-        found = (await e.DB.prepare("SELECT game_id, alert_kind, month_start_date, noticed_at_ms, told_webhooks_at_ms FROM alert_notices ORDER BY alert_kind").all()).results;
-        if (want(found)) return found;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      return found;
-    };
-    // Nothing near the line yet.
-    expect(await notices(() => false)).toEqual([]);
-
-    // One row short of 80%: the next write crosses it.
-    await setWritten((GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth * 80) / 100 - 1);
-    expect(await a.ask({ score: 20 })).toEqual([{ best_score: 20 }]);
-    const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-    const nearly = await notices((rows) => rows.length > 0);
-    expect(nearly).toEqual([{ game_id: "gnoticed", alert_kind: "database_writes_nearly_paused", month_start_date: monthStartDate, noticed_at_ms: expect.any(Number), told_webhooks_at_ms: null }]);
-
-    // More writes past it notice nothing new.
-    expect(await a.ask({ score: 30 })).toEqual([{ best_score: 30 }]);
-    expect(await a.ask({ score: 40 })).toEqual([{ best_score: 40 }]);
-    expect(await notices(() => false)).toEqual(nearly);
-
-    // One row short of all of them: the write that reaches the line still goes in, and is noticed.
-    await setWritten(GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth - 1);
-    expect(await a.ask({ score: 50 })).toEqual([{ best_score: 50 }]);
-    const both = await notices((rows) => rows.length > 1);
-    expect(both.map((row) => row.alert_kind)).toEqual(["database_writes_nearly_paused", "database_writes_paused"]);
-    // Kept with the month's usage, so a restart doesn't notice them again.
-    await runInDurableObject(stub, (_database: GameDatabaseObject, state) => {
-      expect(state.storage.kv.get<{ noticedAlertKinds: string[] }>("usage")?.noticedAlertKinds).toEqual(["database_writes_nearly_paused", "database_writes_paused"]);
+    await a.ask({ sql: "SELECT * FROM scores" });
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gmetered"));
+    const today = new Date().toISOString().slice(0, 10);
+    const day = () => e.DB.prepare("SELECT date, database_written_row_count, database_read_row_count, database_size_bytes FROM room_usage WHERE game_id = 'gmetered'").first<{ date: string; database_written_row_count: number; database_read_row_count: number; database_size_bytes: number }>();
+    // Nothing until a minute after the object started.
+    expect(await day()).toBeNull();
+    const minuteIsUp = () => runInDurableObject(stub, (database: GameDatabaseObject) => void ((database as unknown as { recordedAtMs: number }).recordedAtMs = 0));
+    // The minute is up: the next use, or the site reading it for the game's alerts, adds everything waiting, with the size then.
+    await minuteIsUp();
+    const usage = await stub.usageThisMonth();
+    const first = await until(day);
+    expect(first).toEqual({ date: today, database_written_row_count: usage.writtenRowCount, database_read_row_count: usage.readRowCount, database_size_bytes: usage.storageSizeBytes });
+    expect(first.database_written_row_count).toBeGreaterThan(0);
+    // Within the next minute, it waits.
+    await a.ask({ score: 20, id: "player_other" });
+    expect((await day())!.database_written_row_count).toBe(first.database_written_row_count);
+    await minuteIsUp();
+    await a.ask({ sql: "SELECT count(*) AS score_count FROM scores" });
+    const second = await until(async () => {
+      const row = (await day())!;
+      return row.database_written_row_count > first.database_written_row_count ? row : null;
     });
+    const after = await stub.usageThisMonth();
+    expect(second).toEqual({ date: today, database_written_row_count: after.writtenRowCount, database_read_row_count: after.readRowCount, database_size_bytes: after.storageSizeBytes });
+  });
+
+  it("stops growing at the most storage a game can have, its database and kept rooms together", async () => {
+    await addSandboxGame("full", LEADERBOARD);
+    const a = await join("full", "ABCDEF");
+    await a.next();
+    await a.ask({ score: 10 });
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gfull"));
+    // Kept rooms take the rest of the 10 GB.
+    await runInDurableObject(stub, (database: GameDatabaseObject, state) => {
+      (database as unknown as { keptRooms: { sizeBytes: number; readAtMs: number } }).keptRooms = { sizeBytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES - state.storage.sql.databaseSize, readAtMs: Date.now() };
+    });
+    expect(await a.ask({ sql: "CREATE TABLE notes (body TEXT)" })).toMatchObject({ code: "database_full", message: expect.stringContaining("10 GB") });
+    // Changing and deleting rows still work.
+    expect(await a.ask({ sql: "UPDATE scores SET best_score = 11 RETURNING best_score" })).toEqual([{ best_score: 11 }]);
   });
 
   it("counts the rows read and written this month", async () => {
@@ -196,7 +217,7 @@ describe("game database", () => {
     expect(usage.storageSizeBytes).toBeGreaterThan(0);
   });
 
-  it("erases a player from every table with a player_id column, in one transaction, past the free writes", async () => {
+  it("erases a player from every table with a player_id column, in one transaction, while the game's hosting is paused", async () => {
     await addSandboxGame("erasing", LEADERBOARD);
     const a = await join("erasing", "ABCDEF");
     await a.next();
@@ -207,11 +228,11 @@ describe("game database", () => {
     await a.ask({ sql: 'CREATE TABLE "Odd ""Name""" (Player_ID TEXT, item TEXT)' });
     await a.ask({ batch: [{ sql: 'INSERT INTO "Odd ""Name""" VALUES (?, ?)', values: ["player_mia", "sword"] }, { sql: 'INSERT INTO "Odd ""Name""" VALUES (?, ?)', values: ["player_mia", "shield"] }] });
     await a.ask({ sql: "CREATE TABLE nobody (player_id TEXT)" });
-    // Past the month's free writes, the erase still runs: it only deletes.
+    // While the game's hosting is paused, the erase still runs: it only deletes.
     const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gerasing"));
+    await stub.setHostingPause(Date.now() - MATCH_FINISH_DURATION_SEC * 1000 - 1000);
     // Its use saved, as it is after the first minute: Cloudflare's own table (_cf_KV) is left out of the erase.
     await runInDurableObject(stub, (database: GameDatabaseObject, state) => {
-      (database as unknown as { usage: { writtenRowCount: number } }).usage.writtenRowCount = GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth;
       state.storage.kv.put("usage", (database as unknown as { usage: unknown }).usage);
     });
     expect(await a.ask({ erase: "player_mia" })).toEqual([
@@ -219,6 +240,7 @@ describe("game database", () => {
       { tableName: "nobody", erasedRowCount: 0 },
       { tableName: "scores", erasedRowCount: 1 },
     ]);
+    await stub.setHostingPause(null);
     expect(await a.ask({ sql: "SELECT player_id FROM scores" })).toEqual([{ player_id: "player_kai" }]);
     // Another column naming the player is left alone: it's other players' history too.
     expect(await a.ask({ sql: "SELECT winner_player_id FROM matches" })).toEqual([{ winner_player_id: "player_mia" }]);
@@ -239,9 +261,9 @@ describe("game database", () => {
     // What a restore rolled back comes back: the larger of each count, this month's alone.
     const month = new Date().toISOString().slice(0, 7);
     const usage = await stub.usageThisMonth();
-    await stub.carryUsage({ month, readRowCount: 0, writtenRowCount: 1_000, noticedAlertKinds: ["database_nearly_full"] });
-    expect(await stub.usageThisMonth()).toMatchObject({ month, readRowCount: usage.readRowCount, writtenRowCount: 1_000, noticedAlertKinds: ["database_nearly_full"] });
-    await stub.carryUsage({ month: "2020-01", readRowCount: 9_999_999, writtenRowCount: 9_999_999, noticedAlertKinds: [] });
+    await stub.carryUsage({ month, readRowCount: 0, writtenRowCount: 1_000 });
+    expect(await stub.usageThisMonth()).toMatchObject({ month, readRowCount: usage.readRowCount, writtenRowCount: 1_000 });
+    await stub.carryUsage({ month: "2020-01", readRowCount: 9_999_999, writtenRowCount: 9_999_999 });
     expect(await stub.usageThisMonth()).toMatchObject({ writtenRowCount: 1_000 });
   });
 

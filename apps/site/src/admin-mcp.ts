@@ -21,6 +21,10 @@ import {
   versionsForGame,
   CONTENT_RULES,
   NOTICE_KINDS,
+  countryBlocksAnswer,
+  countryName,
+  isKnownCountryCode,
+  readCountryBlocks,
   CHAT_REVIEW_STATUSES,
   readReviewReason,
   reviewReasonAnswer,
@@ -33,6 +37,7 @@ import {
   type ReviewPrecedent,
   type PrecedentDecision,
   type ScanReport,
+  hasThreads,
   type Triage,
   type Version,
 } from "@zaisma/core";
@@ -49,12 +54,16 @@ import { CHAT_REVIEW_DECISIONS, decideChatReview, type ChatReviewDecision } from
 import { setAccountCanPublish } from "./admin-publishing.ts";
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
 import { changesSince } from "./scan.ts";
+import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
 import {
+  ANNOUNCEMENT_CHANGED,
+  ANNOUNCEMENT_LIST,
   CHAT_REVIEW_DECIDED,
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
   NOTICE_DECIDED,
+  COUNTRY_BLOCK_DECIDED,
   PUBLISHING_ACCOUNT_LIST,
   BLOCKED_SCRIPT_LIST,
   SECURITY_SPIKE_LIST,
@@ -109,7 +118,9 @@ Chat reviews: sexual messages from adults to teens that Zaisma's chat filter sto
 
 Security: list_security_spikes shows the hours when something across Zaisma passed its threshold (many wrong passwords or sign-ins on new devices from one network, many keys made, databases exported or scripts blocked), each of which emailed the admin as it happened; list_blocked_scripts shows what zaisma.com's script policy blocked. A spike isn't a hole by itself: look for what it points at (one network, one page) and say what you'd check. Blocked scripts' sources and pages are what browsers said: untrusted.
 
-Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
+Announcements: short news Zaisma posts for players, shown at the top of zaisma.com's home for every player until it ends or the player closes it; one shows at a time, the newest current one. list_announcements shows what's showing, coming and recently ended; post_announcement posts one; end_announcement ends one now. Every player sees them: say what you'd post, word for word, then wait for the admin to agree before calling post_announcement or end_announcement.
+
+Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, announcement_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
 
 /** Who's deciding, for the audit log. */
 interface AdminCaller {
@@ -209,6 +220,7 @@ function gameAnswer(game: Game) {
     game_server_name: gameServerOf(game),
     has_own_servers: ownServerUrlsOf(game).length > 0,
     review_reason: reasonAnswer(game.review_reason),
+    country_blocks: countryBlocksAnswer(game),
     created_at: iso(game.created_at_ms)!,
   };
 }
@@ -223,6 +235,7 @@ async function versionAnswer(env: Env, game: Game, version: Version) {
   return {
     id: version.id,
     scan_status: version.scan_status,
+    has_threads: hasThreads(scan),
     is_live: game.live_version_id === version.id,
     patch_notes: version.patch_notes,
     published_at: iso(version.published_at_ms),
@@ -892,6 +905,52 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
+    name: "decide_country_block",
+    title: "Block a game in one country, or lift it",
+    description:
+      "A notice from a court, regulator or police in one country, under a law US law doesn't share (the UK's hatred offences, say), that reached safety@zaisma.com: block stops players in that country opening the game, on their word without judging it, and everyone else still can; its page, files, rooms and Zaisma's lists leave it out there. The developer reads why (which law and what it names) in get_game's country_blocks, an alert and a country_blocks_changed webhook. lift ends it, once the live version no longer has what the notice names (publishing one emails the admin). Blocking a country again replaces its why. Only a notice from that country's authorities blocks a game: a player's complaint goes through the Report button and the content rules. The same as the Country blocks form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
+      'Not: { "decision": "block", "country_code": "UK", "why": "…" } (the United Kingdom is GB, its ISO 3166-1 alpha-2 code)\n' +
+      'Not: { "decision": "block", "why": "…" } for every country (a game breaking Zaisma\'s own rules is held or taken down instead)',
+    inputSchema: {
+      ...object(
+        {
+          slug: { type: "string", maxLength: 60, description: "The game's link name, as in zaisma.com/g/<slug>, from the link the notice gives." },
+          decision: { enum: ["block", "lift"], description: "block: players in country_code can't open the game; lift: they can again." },
+          country_code: { type: "string", pattern: "^[A-Z]{2}$", description: "The country the notice is from, ISO 3166-1 alpha-2, like GB or DE." },
+          why: { type: "string", minLength: 1, maxLength: 500, description: "For block, which law and what the notice names (the words or scene), written for the developer, who reads it. For lift, why, for the audit log." },
+        },
+        ["slug", "decision", "country_code", "why"],
+      ),
+      examples: [
+        { slug: "border-patrol", decision: "block", country_code: "GB", why: "Ofcom says the recruitment poster in level 3 stirs up racial hatred under the Public Order Act 1986." },
+        { slug: "border-patrol", decision: "lift", country_code: "GB", why: "Version 6 no longer has the poster." },
+      ],
+    },
+    outputSchema: COUNTRY_BLOCK_DECIDED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const slug = String(toolArguments.slug);
+      const game = await gameBySlug(env.DB, slug);
+      if (!game) throw new ApiError("no_game", { message: `There's no game at zaisma.com/g/${slug}.`, field: "slug", fix: "Check the link in the notice: the slug is what follows zaisma.com/g/." });
+      const decision = String(toolArguments.decision);
+      const countryCode = String(toolArguments.country_code);
+      if (!isKnownCountryCode(countryCode)) {
+        throw new ApiError("bad_country_code", { message: `${countryCode} isn't a country's code.`, field: "country_code", fix: "Give the country's ISO 3166-1 alpha-2 code, like GB for the United Kingdom or DE for Germany." });
+      }
+      if (decision === "lift" && !readCountryBlocks(game).some((block) => block.country_code === countryCode)) {
+        throw new ApiError("cant_decide", { message: `${slug} isn't blocked in ${countryName(countryCode)}, so there's nothing to lift.`, field: "country_code", fix: "get_game shows its country_blocks." });
+      }
+      const form = new FormData();
+      form.set("country_code", countryCode);
+      form.set("reason", String(toolArguments.why).trim());
+      const response = await adminForm(env, `/admin/games/${game.id}/${decision === "block" ? "country-block" : "country-block-lift"}`, form, actor);
+      if (response.status !== 303) {
+        throw new ApiError("decision_refused", { message: "The decision didn't go through.", field: "decision", fix: `Look at it on zaisma.com/admin/games/${game.id}.` });
+      }
+      return { decision, game: gameAnswer((await gameBySlug(env.DB, slug))!), next_steps: [] };
+    },
+  },
+  {
     name: "list_publishing_accounts",
     title: "Who can publish",
     description: "The accounts that can make, upload and publish games before the beta, each with its username, player ID and how many games it has. Everyone else gets publishing_not_open until the beta opens.",
@@ -963,7 +1022,85 @@ export const ADMIN_TOOLS: AdminTool[] = [
       };
     },
   },
+  {
+    name: "list_announcements",
+    title: "Announcements",
+    description:
+      "Short news Zaisma posts for players, shown at the top of zaisma.com's home: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. One shows at a time, the newest current one (is_shown).",
+    inputSchema: object({}),
+    outputSchema: ANNOUNCEMENT_LIST,
+    annotations: read,
+    run: async (_, { env }) => {
+      const { announcements, shownAnnouncementId, nowMs } = await listAnnouncements(env);
+      return { announcements: announcements.map((announcement) => announcementAnswer(announcement, nowMs, shownAnnouncementId)) };
+    },
+  },
+  {
+    name: "post_announcement",
+    title: "Post an announcement",
+    description:
+      "Post short news for players. It shows at the top of zaisma.com's home for every player, signed in or not, from starts_at until ends_at or until the player closes it. One shows at a time: the newest current one (the latest starts_at), so a new one replaces what's showing. Ask the admin first, with the exact words.\n\n" +
+      'Not: { "text": "<b>New!</b> Read [the post](https://…)" } (plain text only; put the link in link_url)\n' +
+      'Not: { "link_label": "See more" } without link_url (a label needs a link)\n' +
+      'Not: { "ends_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", at most 60 days after starts_at)',
+    inputSchema: {
+      ...object(
+        {
+          text: { type: "string", minLength: 1, maxLength: MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, description: "One or two plain sentences: no markup, addresses or line breaks." },
+          link_url: { type: "string", minLength: 1, maxLength: MAXIMUM_LINK_URL_CHARACTER_COUNT, format: "uri-reference", description: 'Where its link goes: an https address, or a path on zaisma.com starting with /, like "/forum". Leave it out for no link.' },
+          link_label: { type: "string", minLength: 1, maxLength: MAXIMUM_LINK_LABEL_CHARACTER_COUNT, description: 'The link\'s words; "Read more" when left out. Only with link_url.' },
+          starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts showing, an ISO time from an hour ago to 90 days ahead; now when left out." },
+          ends_at: { type: "string", format: "date-time", maxLength: 40, description: "When it stops showing, an ISO time after now and starts_at, at most 60 days after starts_at." },
+        },
+        ["text", "ends_at"],
+      ),
+      examples: [{ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", link_url: "/forum", link_label: "See how", ends_at: "2026-11-15T00:00:00Z" }],
+    },
+    outputSchema: ANNOUNCEMENT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const optional = (name: string) => (toolArguments[name] === undefined ? undefined : String(toolArguments[name]));
+      const posted = await postAnnouncement(env, { text: String(toolArguments.text), linkUrl: optional("link_url"), linkLabel: optional("link_label"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
+      const { shownAnnouncementId, nowMs } = await listAnnouncements(env);
+      return {
+        announcement: announcementAnswer(posted, nowMs, shownAnnouncementId),
+        next_steps: [{ tool: "list_announcements", arguments: {}, after_sec: null, reason: "What players see now and what's coming." }],
+      };
+    },
+  },
+  {
+    name: "end_announcement",
+    title: "End an announcement",
+    description: "End an announcement now: it leaves zaisma.com's home at once, and one that hadn't started never shows. Ask the admin first.",
+    inputSchema: object({ announcement_id: idInput("announcement", "An announcement's ID from list_announcements.") }, ["announcement_id"]),
+    outputSchema: ANNOUNCEMENT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const ended = await endAnnouncement(env, String(toolArguments.announcement_id), actor);
+      const { shownAnnouncementId, nowMs } = await listAnnouncements(env);
+      return {
+        announcement: announcementAnswer(ended, nowMs, shownAnnouncementId),
+        next_steps: shownAnnouncementId ? [{ tool: "list_announcements", arguments: {}, after_sec: null, reason: "Another one is showing on the home now." }] : [],
+      };
+    },
+  },
 ];
+
+/** An announcement, as the admin tools answer it. */
+function announcementAnswer(announcement: Announcement, nowMs: number, shownAnnouncementId: string | null) {
+  return {
+    id: announcement.id,
+    text: announcement.text,
+    link_url: announcement.link_url,
+    link_label: shownLinkLabel(announcement),
+    starts_at: iso(announcement.starts_at_ms)!,
+    ends_at: iso(announcement.ends_at_ms)!,
+    announcement_status: announcementStatus(announcement, nowMs),
+    is_shown: announcement.id === shownAnnouncementId,
+    created_at: iso(announcement.created_at_ms)!,
+    created_by: announcement.created_by,
+  };
+}
 
 /** A kept chat message, as list_chat_reviews and decide_chat_review answer it. */
 function chatReviewAnswer(review: AdminChatReview) {
@@ -991,6 +1128,7 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   maximum_group_count: "bad_maximum_group_count",
   decision: "bad_decision",
   notice_kind: "bad_notice_kind",
+  country_code: "bad_country_code",
   why: "bad_why",
   precedent: "bad_precedent",
   title: "bad_title",
@@ -1007,6 +1145,11 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   answer_post_id: "bad_answer_post_id",
   slug: "bad_slug",
   chat_review_status: "bad_chat_review_status",
+  text: "bad_text",
+  link_url: "bad_link_url",
+  link_label: "bad_link_label",
+  starts_at: "bad_time",
+  ends_at: "bad_time",
 };
 /** An ID that isn't one of its kind is one that doesn't exist; one of another kind gets wrong_id_kind. */
 const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> = {
@@ -1019,6 +1162,7 @@ const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> 
   post_id: { kind: "post", code: "no_post", fix: "get_topic lists a topic's posts, and list_topics the posts to check, with their IDs." },
   answer_post_id: { kind: "post", code: "bad_answer_post_id", fix: "get_topic lists the topic's posts with their IDs; null clears the answer." },
   chat_review_id: { kind: "chat_review", code: "no_chat_review", fix: "list_chat_reviews lists them with their IDs." },
+  announcement_id: { kind: "announcement", code: "no_announcement", fix: "list_announcements lists them with their IDs." },
 };
 
 /** What a schema takes, in words: "one of dismiss, bug", "1 to 500 characters", "true or false". */
@@ -1029,6 +1173,7 @@ function expected(schema: Record<string, unknown>): string {
   if (types.includes("boolean")) return "true or false";
   if (types.includes("integer")) return `a whole number from ${schema.minimum} to ${schema.maximum}`;
   if (types.includes("object")) return `an object with ${(schema.required as string[]).join(", ")}${Object.keys(schema.properties as object).length > (schema.required as string[]).length ? ` (and if you like ${Object.keys(schema.properties as object).filter((key) => !(schema.required as string[]).includes(key)).join(", ")})` : ""}${orNull}`;
+  if (schema.format === "date-time") return `an ISO time with Z or an offset, like "2026-11-01T17:00:00Z"${orNull}`;
   if (typeof schema.pattern === "string") return `an ID like ${(schema.examples as string[] | undefined)?.[0] ?? schema.pattern}${orNull}`;
   return `text of ${schema.minLength ?? 0} to ${schema.maxLength} characters${orNull}`;
 }

@@ -34,6 +34,8 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   AccessJwtClaims: ["exp", "nbf"],
   SupabaseJwtClaims: ["exp", "timestamp"],
   PassClaims: ["iat", "exp"],
+  ReceiptClaims: ["iat", "jti"],
+  ReceiptClaimsInput: ["iat", "jti"],
   IdTokenClaims: ["iat", "exp", "auth_time"],
   AccessTokenClaims: ["iat", "exp"],
   CollectedClientData: ["crossOrigin"],
@@ -43,6 +45,7 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   R2RangeFields: ["offset", "length", "suffix"],
   CloudflareDnsAnswer: ["Answer", "data"],
   TurnAnalyticsAnswer: ["data"],
+  StripeEvent: ["data"],
 };
 /** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
 const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };
@@ -93,6 +96,8 @@ function isNumberShaped(name: string): boolean {
   const all = words(name);
   if (all.length > 2 && all[all.length - 2] === "per" && NUMBER_ENDINGS.has(all[all.length - 3]!)) return true;
   const last = all[all.length - 1]!;
+  // Money in the smallest unit of the currency beside it: price_minor_units.
+  if (all.length > 1 && all[all.length - 2] === "minor" && last === "units") return true;
   return NUMBER_ENDINGS.has(last) || (all.length > 1 && all[all.length - 2] === "per" && UNITS.has(last));
 }
 

@@ -7,10 +7,11 @@ import type { Raw } from "../markup.ts";
  * gallery shows. Each group file (foundations.ts, actions.ts, …) defines its components as it loads;
  * components/index.ts imports them all and bundles their styles and scripts for the pages.
  */
-export type ComponentGroup = "foundations" | "actions" | "inputs" | "navigation" | "panes" | "data";
+export type ComponentGroup = "foundations" | "layout" | "actions" | "inputs" | "navigation" | "panes" | "data";
 
 export const COMPONENT_GROUPS: { group: ComponentGroup; name: string }[] = [
   { group: "foundations", name: "Foundations" },
+  { group: "layout", name: "Layout" },
   { group: "actions", name: "Actions" },
   { group: "inputs", name: "Inputs" },
   { group: "navigation", name: "Navigation" },

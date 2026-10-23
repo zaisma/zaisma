@@ -136,9 +136,9 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     database.prepare("UPDATE presences SET game_id = NULL, game_seen_at_ms = NULL WHERE game_id = ?").bind(gameId),
     database.prepare("DELETE FROM performance_checks WHERE version_id IN (SELECT id FROM versions WHERE game_id = ?)").bind(gameId),
     ...[
-      "play_days", "play_returns", "play_tickets", "play_networks", "room_usage", "room_message_types", "live_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
-      "game_server_errors", "game_server_schedules", "game_log_days", "alert_notices", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
-      "audit_log", "reports", "versions",
+      "play_days", "play_returns", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
+      "game_server_errors", "game_server_schedules", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
+      "game_items", "purchases", "audit_log", "reports", "versions",
     ].map(deleteFrom),
     database.prepare("DELETE FROM games WHERE id = ?").bind(gameId),
     deleteFrom("game_deletions"),

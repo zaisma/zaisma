@@ -9,7 +9,11 @@ import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
-import { BACKDROP_SCRIPT, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import * as layoutComponents from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { pageStyles } from "../../apps/site/src/page-styles.ts";
+import { PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
+import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
@@ -26,12 +30,18 @@ import inputsSource from "../../apps/site/src/components/inputs.ts?raw";
 import navigationSource from "../../apps/site/src/components/navigation.ts?raw";
 import panesSource from "../../apps/site/src/components/panes.ts?raw";
 import dataSource from "../../apps/site/src/components/data.ts?raw";
+import layoutSource from "../../apps/site/src/components/layout.ts?raw";
+import layoutGallerySource from "../../apps/site/src/components/layout-gallery.ts?raw";
+import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
+import citySource from "../../apps/site/src/components/city.ts?raw";
+import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
   "design-page.ts": galleryPageSource,
 };
 
@@ -63,7 +73,7 @@ describe("the gallery", () => {
 
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
-    const problems = Object.entries({ actions, inputs, navigation, panes, data }).flatMap(([file, exports]) =>
+    const problems = Object.entries({ actions, inputs, navigation, panes, data, layout: layoutComponents }).flatMap(([file, exports]) =>
       Object.entries(exports)
         .filter(([, value]) => typeof value === "function")
         .filter(([, value]) => renders.filter((render) => render === value).length !== 1)
@@ -151,7 +161,7 @@ describe("the gallery", () => {
       }
     }
     // Classes that only say a state or a size, shared with things that aren't glass.
-    for (const state of ["shut", "is-compact", "is-page", "is-collapsed", "medium", "small", "large", "full", "face"]) glassClasses.delete(state);
+    for (const state of ["shut", "is-compact", "is-page", "is-collapsed", "fit", "full", "face"]) glassClasses.delete(state);
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
@@ -339,7 +349,7 @@ describe("the gallery", () => {
 
 describe("components", () => {
   it("put a page's settings on it, taking only a #rrggbb color as the glass's hue", () => {
-    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
+    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColor: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2e9e6b"');
     expect(pageSettingsAttributes({}).html).toBe("");
     for (const hueColor of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColor } }).html).toBe("");
   });
@@ -442,7 +452,7 @@ describe("components", () => {
     expect(BACKDROP_SCRIPT).toContain('document.querySelectorAll("[data-glass]:not([data-cut-line])")');
     expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
     expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
-    expect(BACKDROP_SCRIPT).toContain('el.getAttribute("data-glass-corners")');
+    expect(BACKDROP_SCRIPT).toContain('window.zaismaCorners(el, "pane")');
     expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];`);
     expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
     // Every shader keeps its own mainImage: the pass calls it once a pixel.
@@ -489,13 +499,7 @@ const GALLERY_ONLY = new Set<string>([
   "component-section", "component-name", "component-summary", "examples", "example", "wide", "example-stage", "example-name",
   // Frames an example is shown in: a header over a stand-in page that scrolls under it, a dropdown hanging from its button, a short box
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
-  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample", "example-pane",
-]);
-
-// Classes a script or a screen reader uses, with no look of their own.
-const UNSTYLED_HOOKS = new Set<string>([
-  "bday-read", // The birthday's spoken summary (and .sr hides it).
-  "row", // A row of covers, for the rail's marks.
+  "header-frame", "tall", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
 ]);
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
@@ -539,7 +543,6 @@ const OWN_GLASS = new Map<string, string>([
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
   ['class="backdrop-frame is-tall', "the Glass foundation's own demos of the light glass bends and the pointer's light"],
-  ['data-spacing-show', "the Spacing foundation's demos, which mark a pane's own padding and gap"],
 ]);
 
 const LINK_IN_CONTROL = new Set<string>([
@@ -579,6 +582,8 @@ const NOT_SPACING = new Set<string>([
   ".chart-inner | padding", ".usage-track | padding",
   // A chart's number where you point: a small label's own room round its words.
   ".chart-tip | padding",
+  // A cover with no picture yet: Zaisma's mark, whole, with room round it in the well, a share of the cover's size.
+  ".cover.is-placeholder .cover-art img | padding",
   // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
@@ -599,10 +604,8 @@ const NOT_SPACING = new Set<string>([
   // Lines words up with the places' words under them.
   ".dropdown-head | padding",
   // Room to scroll, or for a scrollbar or a page's rail.
-  ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
+  ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
   ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
-  // Room for the covers to lift into, given back round the row.
-  ".track | padding", ".track | margin",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".text-line | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.
@@ -645,44 +648,35 @@ function matchesSubject(element: Element, subject: string): boolean {
   return classes.every((each) => element.classes.includes(each));
 }
 
-describe("the example page", () => {
-  it("is built only from components: every class comes from one, and nothing is styled in place", async () => {
-    const { response, text } = await page("/design/example");
-    expect(response.status).toBe(200);
-    const body = text.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "");
-    const componentCss = COMPONENT_STYLES();
-    const styledBy = (name: string) => new RegExp(`\\.${name.replace(/[-]/g, "\\-")}(?![\\w-])`).test(componentCss);
-    const problems = [...body.matchAll(/\sclass="([^"]*)"/g)]
-      .flatMap(([, list = ""]) => list.split(/\s+/).filter(Boolean))
-      .filter((name) => !styledBy(name) && !UNSTYLED_HOOKS.has(name))
-      .map((name) => `.${name} comes from no component`);
-    // A page places components; its own look is a component's. Only the variables a component offers (--swatch, the pane's cut) or a placed size may be set.
-    for (const [, style = ""] of body.matchAll(/\sstyle="([^"]*)"/g)) if (/(^|;)\s*(color|background|border|font|box-shadow|filter|opacity)/.test(style)) problems.push(`style="${style}" restyles a piece`);
-    expect([...new Set(problems)]).toEqual([]);
-    expect(text).not.toContain("<style");
+describe("pages", () => {
+  // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md). Pages signed in are checked
+  // where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every page is measured in Chrome by
+  // npm run layout:check (scripts/layout-check.mjs).
+  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/oauth/authorize?client_id=nope"];
+
+  it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
+    for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);
+    expect(pageStyles().map((style) => style.name).sort()).toEqual([...PAGE_SHEETS].sort());
   });
 
-  it("uses the cached stylesheet and the components' script, like every page", async () => {
-    const { text } = await page("/design/example");
-    expect(text).toMatch(/<link rel="stylesheet" href="\/css\/site\.[0-9a-f]{16}\.css">/);
-    expect(text).toMatch(/<script src="\/js\/components\.[0-9a-f]{16}\.js"/);
+  it("are only gallery components: no style, class or stylesheet of their own, and no component's insides", async () => {
+    for (const path of PUBLIC_PAGES) expect(pageProblems((await page(path)).text), path).toEqual([]);
   });
-});
 
-describe("pages' stylesheets", () => {
-  it("are linked, never written into the page: a page carries only its own markup and a link to a file cached for good", async () => {
+  it("are linked to the cached stylesheet and the components' script, never written into the page", async () => {
     for (const path of ["/", "/design/example", "/design", "/design/actions"]) {
       const { response, text } = await page(path);
       expect(response.status, path).toBe(200);
       const sheet = path.startsWith("/design") && path !== "/design/example" ? "design" : "site";
       expect(text, path).toMatch(new RegExp(`<link rel="stylesheet" href="/css/${sheet}\\.[0-9a-f]{16}\\.css">`));
+      expect(text, path).toMatch(/<script src="\/js\/components\.[0-9a-f]{16}\.js"/);
       // The components' own CSS (200 KB) is in the file; what a page writes itself is small.
       expect(text.length, path).toBeLessThan(120_000);
       expect(text, path).not.toContain(".cut-btn {");
     }
   });
 
-  it("are served from /css/<name>.<hash>.css named for their contents, cached for good; an older address gets the current one uncached", async () => {
+  it("are served their sheet from /css/<name>.<hash>.css named for its contents, cached for good; an older address gets the current one uncached", async () => {
     const { text } = await page("/design/example");
     const path = text.match(/href="(\/css\/site\.[0-9a-f]{16}\.css)"/)![1]!;
     const sheet = await SELF.fetch(`${SITE}${path}`);
@@ -700,5 +694,89 @@ describe("pages' stylesheets", () => {
     expect(await older.text()).toBe(css);
     for (const wrong of ["/css/nothing.0000000000000000.css", "/css/site.css", "/css/", "/css/../index.ts"]) expect((await SELF.fetch(`${SITE}${wrong}`)).status, wrong).toBe(404);
     expect((await SELF.fetch(`${SITE}${path}`, { method: "POST" })).status).toBe(405);
+  });
+
+  it("fail the rule on a style, a class or a sheet of their own, and on a component's insides", () => {
+    expect(pageProblems('<div class="glass-pane" style="width:390px"><p class="game-note">Hi</p><div class="control-row"></div></div><style>.x{}</style>')).toEqual([
+      "writes a <style> of its own",
+      'style="width:390px" sets width:390px, which no component offers',
+      ".game-note comes from no component",
+      ".control-row is a component's inside, not for a page",
+    ]);
+  });
+});
+
+describe("layout", () => {
+  const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
+  const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
+  const control = (markup: ReturnType<typeof actions.cutButton>): LayoutItem => ({ kind: "control", markup });
+  const cells = (markup: string) => [...markup.matchAll(/<div class="((?:stack|row|grid)-cell[^"]*)"/g)].map((match) => match[1]!.split(" "));
+
+  it("stacks things with the gap picked from what's on each side, never one passed", () => {
+    const markup = stack({ items: [words("Welcome back"), words("Sign in to keep your progress."), control(actions.runButton("Sign in")), control(actions.cutButton("Cancel")), control(inputs.cutField({ name: "email", label: "Email", type: "email", icon: "mail" })), block("A table")] }).html;
+    expect(cells(markup).map((classes) => classes.find((each) => each.startsWith("gap-top-")) ?? "")).toEqual(["", "gap-top-words-words", "gap-top-words-control", "gap-top-control-stack", "gap-top-block-block", "gap-top-block-block"]);
+    // Words keep the pane's margin; controls and blocks sit at the frame gap.
+    expect(cells(markup).map((classes) => classes[1])).toEqual(["is-words", "is-words", "is-control", "is-control", "is-control", "is-block"]);
+    expect(STACK_STYLES).toContain(".stack-cell.is-words { padding-inline: var(--pad-words); }");
+  });
+
+  it("shares a row's width as it's told: the lead fills and the rest fit their words, equal shares, or each fits", () => {
+    const items = [control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))];
+    expect(cells(row({ widths: "lead-fills", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, false]);
+    expect(cells(row({ widths: "equal", items }).html).map((classes) => classes.includes("fills"))).toEqual([true, true]);
+    expect(cells(row({ widths: "fit", alignment: "end", items }).html).map((classes) => classes.includes("fills"))).toEqual([false, false]);
+    expect(row({ widths: "fit", alignment: "end", items }).html).toContain('class="layout-row alignment-end"');
+    // Two controls side by side slant toward each other: their boxes overlap by the edge rule's neighbor distance.
+    expect(cells(row({ widths: "lead-fills", items }).html)[0]).toContain("gap-end-control-row-boxes");
+    expect(ROW_STYLES).toContain(".layout-row > .row-cell.gap-end-control-row-boxes { margin-inline-end: var(--gap-control-row-boxes); }");
+  });
+
+  it("sets every control in a row to one height, the tallest one's", () => {
+    const heightOf = (items: LayoutItem[]) => /data-control-height="([a-z]+)"/.exec(row({ widths: "fit", items }).html)?.[1];
+    expect(heightOf([control(actions.cutButton("Dismiss", { isSmall: true })), control(actions.cutButton("Read more"))])).toBe("regular");
+    expect(heightOf([control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))])).toBe("field");
+    expect(heightOf([control(actions.runButton("Play", { isBig: true })), control(actions.cutButton("Details"))])).toBe("big");
+    expect(ROW_STYLES).toContain('.layout-row[data-control-height="big"] > .row-cell > .cut-btn');
+    // A field that shows its label sits on its box: the row lines its controls up on the boxes.
+    expect(row({ widths: "lead-fills", items: [control(inputs.cutField({ name: "room", label: "Room code", type: "text", icon: "people" })), control(actions.cutButton("Join"))] }).html).toContain("is-on-field-boxes");
+  });
+
+  it("puts a pane's corner control in its corner, and keeps a text button's words at the pane's margin", () => {
+    const markup = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: actions.cutButton("Refresh") }, body: html`<p>Rooms here</p>`, foot: { end: actions.textButton("See all") } }).html;
+    expect(markup).toMatch(/<div class="pane-head"><div class="pane-head-words"><h2>Rooms<\/h2><\/div><div class="pane-head-end"><button class="shell cut-btn"/);
+    expect(markup).toContain('<div class="pane-foot-end is-words">');
+    expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
+  });
+
+  it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
+    expect(grid({ itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
+    // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
+    const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
+    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
+    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)"];
+    const problems: string[] = [];
+    for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
+      for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {
+        const rest = NAMED_LENGTHS.reduce((left, named) => left.split(named).join(""), sizeValue).replace(/var\(--[a-z-]+\)/g, "");
+        if (/\d(px|em|rem|vw|vh|cqi|cqw)/.test(rest)) problems.push(`${property}: ${sizeValue.trim()}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("gives a pane the whole width or what's in it, never a width of its own: one that should take half the screen is a column", () => {
+    expect(glassPane({ paneWidth: "fit", body: html`<p>Hi</p>` }).html).toContain('class="glass glass-pane fit"');
+    const paneWidths = [...COMPONENT_STYLES().matchAll(/\.glass-pane(?:\.[a-z-]+)*\s*\{[^}]*?\bwidth:\s*([^;]+);/g)].map((match) => match[1]!.trim());
+    expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content"]);
+    const halves = columns({ columns: [html`<p>A</p>`, html`<p>B</p>`] }).html;
+    expect(halves.match(/<div class="column">/g)).toHaveLength(2);
+    expect(COLUMNS_STYLES).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+    expect(COLUMNS_STYLES).toContain(`@container (max-width: ${2 * COLUMN_LEAST_PX + 24 - 1}px)`);
+  });
+
+  it("is made of controls only from the controls' own functions, so a paragraph can't be passed as one", () => {
+    const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts"];
+    const makers = Object.entries(SOURCES).filter(([, source]) => /\bcontrolMarkup\(|new ControlMarkup\(/.test(source)).map(([file]) => file);
+    expect(makers.filter((file) => !MAKERS.includes(file))).toEqual([]);
   });
 });

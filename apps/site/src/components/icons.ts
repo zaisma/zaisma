@@ -22,6 +22,7 @@ export const ICONS = {
   "globe-oceania": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M9.6 11.4l3.1-.6 1.9 1.3.2 1.9-1.7 1.3-2.1-.2-1.5-1.3z"/>'),
   "globe-south-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M8.8 10.2l2.5.4 1.5 1.9-.8 2.5-1.7 2.1-.8-2.3-.8-2.3z"/>'),
   globe: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2z"/>'),
+  megaphone: stroke("0 0 20 20", '<path d="M3 8v4h3l7 4V4L6 8z"/><path d="M6 12l1.4 4.4h2.2L8.6 12.6M15.6 7.6a3.2 3.2 0 0 1 0 4.8"/>'),
   clock: stroke("0 0 16 16", '<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.5"/>', ' stroke-width="1.5"'),
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),

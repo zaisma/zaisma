@@ -1,6 +1,7 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isOldEnoughFor, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
+import { signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
 import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
@@ -15,6 +16,7 @@ export { GameSecretsObject, GameSecretsService } from "./secrets.ts";
 export { GameServerOutbound } from "./outbound.ts";
 export { GameStorageService } from "./game-storage.ts";
 export { GameRoomsService } from "./room-updates.ts";
+export { ReceiptSigningService } from "./receipts.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;
@@ -66,6 +68,7 @@ export interface RoomGame {
   room_browsing: string;
   account_requirement: AccountRequirement;
   minimum_player_age_years: number;
+  country_blocks: string;
 }
 
 /**
@@ -81,9 +84,10 @@ async function isTooYoungFor(database: D1Database, game: Pick<RoomGame, "minimum
   return !row || !isOldEnoughFor(row.age_band, game.minimum_player_age_years);
 }
 
-export async function playableGame(database: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
-  return game && game.review_status === "live" && game.live_version_id ? game : null;
+/** A live game, or null; given the player's country (a browser's own call), also null when the game is blocked there (country-blocks.ts). */
+export async function playableGame(database: D1Database, slug: string, countryCode: string | null = null): Promise<RoomGame | null> {
+  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years, country_blocks FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  return game && game.review_status === "live" && game.live_version_id && !isBlockedInCountry(game, countryCode) ? game : null;
 }
 
 /**
@@ -123,11 +127,7 @@ async function testerLinkFor(env: Env, slug: string, testerId: string | null): P
   return link ? { page: `/t/${link.token}`, tester: testerId } : null;
 }
 
-let signing: { secret: string; key: Promise<SigningKey> } | null = null;
-export function signingKey(env: Env): Promise<SigningKey> {
-  if (signing?.secret !== env.PASS_SIGNING_KEY) signing = { secret: env.PASS_SIGNING_KEY, key: loadSigningKey(env.PASS_SIGNING_KEY) };
-  return signing.key;
-}
+export { signingKey } from "./signing.ts";
 
 /**
  * The opaque chat group an open-and-social account carries in this game's passes: a keyed hash of the
@@ -155,6 +155,16 @@ async function keyedHash(env: Env, text: string): Promise<string> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 20);
 }
 
+/** The player's first language, for how prices are written ("$1.99", "1,99 €"); never what they cost. */
+function shownLocale(acceptLanguage: string | null): string {
+  const first = acceptLanguage?.split(",")[0]?.split(";")[0]?.trim();
+  try {
+    return first ? (Intl.NumberFormat.supportedLocalesOf([first])[0] ?? "en-US") : "en-US";
+  } catch {
+    return "en-US";
+  }
+}
+
 function json(body: unknown, httpStatus = 200, origin?: string): Response {
   const headers: Record<string, string> = { "Cache-Control": "no-store" };
   if (origin) {
@@ -168,7 +178,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "month_limit" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request";
+type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request";
 
 function failure(code: CallErrorCode, message: string, httpStatus: number, origin?: string, field?: string): Response {
   return json({ error: { code, message, ...(field ? { field } : {}) } }, httpStatus, origin);
@@ -235,7 +245,7 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
     // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? await accountName(env, claims.sub) : claims.name;
     if (!name) return requestFailure("bad_pass", cors);
-    player = { id: claims.sub, name, kind: claims.kind };
+    player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return requestFailure("bad_pass", cors);
@@ -284,7 +294,8 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
   if (!account) return failure("bad_pass", "This player's account is gone.", 401, cors);
 
   if (!isSettingRoom) {
-    const friends = await friendsInGameOf(env.DB, account.id, game.id);
+    // Watch is zaisma.com's own (its Players plate); games get Join's answer, as Zaisma.friends.list says.
+    const friends = (await friendsInGameOf(env.DB, account.id, game.id)).map((friend) => ({ player_id: friend.player_id, username: friend.username, room_code: friend.room_code, server_url: friend.server_url, join_refusal: friend.join_refusal }));
     return json({ friends }, 200, cors);
   }
   if (body.serverUrl === null && body.roomCode === null) {
@@ -399,7 +410,7 @@ export default {
       const { slug, body } = await readBody(request);
       if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
       const cors = origin!;
-      const game = await playableGame(env.DB, slug);
+      const game = await playableGame(env.DB, slug, requestCountryCode(request));
       if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
 
       // Zaisma's text filter, for games that want to check what players type (Zaisma.filterText).
@@ -446,20 +457,23 @@ export default {
               block_tag_ids: await Promise.all((await blockPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
             }
           : {};
-        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        // The permanent items the account owns here, so any game server sees them on connect without calling Zaisma.
+        const ownedNames = account ? await ownedItemNames(env.DB, game.id, account.player_id) : [];
+        const owned = ownedNames.length ? { owned_item_names: ownedNames } : {};
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, ...owned, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }
 
       // Relay servers for this player's connections to other players (the relay script, packages/sdk/relay.js):
-      // only for a browser the check on Play said is real, like passes, and none past the free tier.
+      // only for a browser the check on Play said is real, like passes, and none while the game's hosting is paused.
       if (url.pathname === "/v1/relay") {
         if (await limited(env.RELAY_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
         const key = await useRoomKey(env.DB, game.id, body.roomKey);
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't connect to other players. Reload the game to try again.", 403, cors);
         if (!key.accountId && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         if (key.accountId && (await isTooYoungFor(env.DB, game, { accountId: key.accountId }))) return failure("game_not_open_to_player", ERROR_TEXT.game_not_open_to_player, 403, cors);
-        if (await pastFreeTier(env.DB, game.id)) return failure("month_limit", ERROR_TEXT.month_limit, 403, cors);
+        if ((await isHostingPaused(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
         const relay = await relayCredentials(env, env.DB, game.id);
         if (!relay) return failure("busy", "Zaisma's relay isn't available right now, so players can't connect to each other. Try again in a minute.", 503, cors);
         return json({ iceServers: relay.iceServers, expiresAt: iso(relay.expiresAtMs) }, 200, cors);
@@ -487,7 +501,7 @@ export default {
 
       if (!usesRooms(gameServerOf(game))) return failure("no_rooms", "This game doesn't use Zaisma rooms.", 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
-      if (await pastFreeTier(env.DB, game.id)) return failure("month_limit", ERROR_TEXT.month_limit, 403, cors);
+      if ((await isHostingPaused(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
       return json({ roomCode: roomCode() }, 200, cors);
     }
 
@@ -520,6 +534,23 @@ export default {
       return json(roomListForGame(found, inviteUrl), 200, origin!);
     }
 
+    // The game's items for sale, at the price this player pays (Zaisma.items.list): by their country, never their browser's language.
+    const itemsMatch = url.pathname.match(/^\/v1\/items\/([a-z0-9-]{1,40})$/);
+    if (itemsMatch && request.method === "GET") {
+      const slug = itemsMatch[1]!;
+      if (!(await gameOrigin(env, slug, origin, url.searchParams.get("tester")))) return failure("bad_origin", "Not allowed from here.", 403);
+      const countryCode = requestCountryCode(request);
+      const game = await playableGame(env.DB, slug, countryCode);
+      if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, origin!);
+      const locale = shownLocale(request.headers.get("accept-language"));
+      const items = (await itemsOf(env.DB, game.id)).flatMap((forSale) => {
+        const price = priceFor(forSale, countryCode);
+        if (!price) return [];
+        return [{ itemName: forSale.item_name, title: forSale.title, description: forSale.description, itemKind: forSale.item_kind, itemCategory: forSale.item_category, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, priceText: priceText(price.currencyCode, price.priceMinorUnits, locale) }];
+      });
+      return json({ items }, 200, origin!);
+    }
+
     const roomMatch = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/);
     if (roomMatch && request.method === "GET") {
       const [, slug, code] = roomMatch as unknown as [string, string, string];
@@ -528,7 +559,7 @@ export default {
       if (await limited(env.CONNECT_LIMIT, request)) return new Response("Too many connections. Try again in a minute.", { status: 429 });
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin, url.searchParams.get("tester")) : null;
       if (!from) return new Response("Not allowed from here", { status: 403 });
-      const game = await playableGame(env.DB, slug);
+      const game = await playableGame(env.DB, slug, requestCountryCode(request));
       if (!game || !usesRooms(gameServerOf(game))) return new Response("This game isn't available right now", { status: 404 });
 
       const headers = new Headers(request.headers);

@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  ENDED_CLOSE_CODE,
   ERROR_TEXT,
-  MONTH_LIMIT_END_MESSAGE,
+  HOSTING_PAUSED_END_MESSAGE,
   NO_ANSWER_CLOSE_CODE,
   PassError,
   REFUSED_CLOSE_CODE,
@@ -29,9 +30,9 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, isHostingPaused, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
-import { gameDatabase } from "./database.ts";
+import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
@@ -44,7 +45,8 @@ type Attachment =
   // seenAtMs: about when the player last sent a message (pings are answered without waking the room).
   // clientIdle: the idle check the player's game asked for, for game servers that leave it to the client.
   // kind: missing on players who joined before accounts got passes, all guests.
-  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle }
+  // isSpectator: watching (maximumSpectatorCount), not playing: free, and never seated for friends' Join.
+  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle; isSpectator?: true }
   | { stage: "gone" };
 
 interface Meta {
@@ -73,6 +75,8 @@ interface Saved {
   matchPlayers?: Player[];
   /** The game version that saved it: a room that switched versions (match_update_mode "now") tells onRestored. */
   versionId?: string;
+  /** Saved as the room emptied (or found empty after a restart): onRestored hears nothing was lost, however long it slept. */
+  isSavedEmpty?: boolean;
 }
 
 /** A version published "now" this room is moving to: when it switches at the latest, and whether players' games reload. */
@@ -99,14 +103,18 @@ const RECORDED_MESSAGE_TYPE_COUNT = 10;
 
 /** A player must send their pass this soon after connecting. */
 const HELLO_MS = 5000;
-/** Extra sockets allowed past maximumPlayerCount, for people still saying hello. */
+/** Extra sockets allowed past maximumPlayerCount and maximumSpectatorCount, for people still saying hello. */
 const SPARE_SOCKET_COUNT = 4;
 /** How often a running room re-checks that its game is still live, so takedowns close rooms. */
 const CHECK_MS = 60_000;
 /** How often a room with players who came through tester links checks those links are still on. */
 const TESTER_CHECK_MS = 10_000;
-/** An empty room's saved state is deleted after this. */
+/** An empty room's saved state is deleted after this, unless the room is kept (room.setKept). */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
+/** What a kept room's game server's log says when the game's storage is too full to keep another. */
+const KEEP_REFUSED_TEXT = `Zaisma: this room can't be kept, because this game's storage is full at its ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. Delete kept rooms (zaisma kept-rooms) or database rows to make room.`;
+/** What players in a kept room hear when its developer deletes it. */
+const KEPT_ROOM_DELETED_MESSAGE = "This world was deleted.";
 /** How often a room with players checks in, so rooms that stop without saying so drop off. */
 const CHECK_IN_MS = 3600 * 1000;
 /**
@@ -121,8 +129,8 @@ const SWEEP_MS = 30_000;
 const DEAD_MS = 75_000;
 /** A socket's seen time is written at most this often, so busy rooms don't rewrite it on every message. */
 const SEEN_MS = 15_000;
-/** How often a room with players checks whether its game has used the month's free tier, to start the hour its match gets to finish. */
-const FREE_TIER_CHECK_MS = 5 * 60_000;
+/** How often a room with players checks whether its game's hosting paused, to start the hour its match gets to finish. */
+const HOSTING_CHECK_MS = 5 * 60_000;
 /**
  * How often a real-time room copies its sandboxed game server's state, never while a copy is under way:
  * a fresh session after a failure carries on from the last copy, so a match loses at most this much.
@@ -135,6 +143,10 @@ const STATE_COPY_INTERVAL_MS = 5000;
  */
 const STATE_CHUNK_CHARACTER_COUNT = 512 * 1024;
 const stateChunkKey = (index: number) => `stateChunk:${index}`;
+/** Storage keys a kept room's backup reads at a time: a few state chunks of 512K characters each at most. */
+const BACKUP_PAGE_KEY_COUNT = 8;
+/** Where each player's owned items wait out hibernation: ownedItemNames:<player id>. */
+const OWNED_ITEM_NAMES_KEY_PREFIX = "ownedItemNames:";
 
 
 /**
@@ -178,10 +190,19 @@ export class Room extends DurableObject<Env> {
   private hasReportedStateSize = false;
   /** The game server loading, so players reconnecting at once share one (a sandbox opens one session). */
   private loading: Promise<GameServer | null> | null = null;
-  /** The room's sockets of players in it, by player ID, and the accounts among them; rebuilt after any socket comes in or goes. */
-  private socketIndex: { byPlayerId: Map<string, WebSocket[]>; accountPlayerIds: string[] } | null = null;
+  /**
+   * The room's sockets of players and spectators in it, by player ID, the accounts among the players, and
+   * the spectators' IDs; rebuilt after any socket comes in or goes.
+   */
+  private socketIndex: { byPlayerId: Map<string, WebSocket[]>; accountPlayerIds: string[]; spectatorIds: Set<string> } | null = null;
   private saved: unknown = undefined;
   private savedRoom: SavedRoom | undefined = undefined;
+  /**
+   * The items each player in the room owns, from the pass they joined with (Player.ownedItemNames), kept in
+   * storage under ownedItemNamesKey so players rebuilt after hibernation keep them: a socket's attachment is
+   * too small for up to 1,000 names.
+   */
+  private ownedItemNamesByPlayerId = new Map<string, string[]>();
   private lastCheckAtMs = 0;
   private lastTesterCheckAtMs = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -207,15 +228,23 @@ export class Room extends DurableObject<Env> {
   private isRowStale = false;
   /** The game server hit an error the room hasn't written to game_server_errors yet: written within a minute. */
   private hasUnrecordedError = false;
-  /** When the room last checked whether its game has used the month's free tier. */
-  private freeTierCheckedAtMs = 0;
+  /** When the room last checked whether its game's hosting paused. */
+  private hostingCheckedAtMs = 0;
+  /** Kept (room.setKept), as this room accepted it and kept_rooms has it: it sleeps with its state when everyone leaves. */
+  private isKept = false;
+  /** The room's saved state was saved as it emptied (Saved.isSavedEmpty). */
+  private isSavedEmpty = false;
+  /** About how many bytes the room's saved state takes, for kept_rooms. */
+  private savedSizeBytes = 0;
+  /** The game's live version, read with its status: an empty kept room wakes on it. */
+  private liveVersionId: string | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Games ping every 25 seconds or so; the answer doesn't wake the room, and the time is kept per socket.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "freeTierCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
       this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
       this.meta = (got.get("meta") as Meta | undefined) ?? null;
       const saved = (got.get("saved") as Saved | undefined) ?? {};
@@ -224,6 +253,8 @@ export class Room extends DurableObject<Env> {
       this.hasEnded = saved.hasEnded ?? false;
       this.usage = { ...noUsage(), ...saved.usage };
       this.savedVersionId = saved.versionId;
+      this.isSavedEmpty = saved.isSavedEmpty === true;
+      this.isKept = this.savedRoom?.isKept === true && !this.hasEnded;
       // A turn-based room saved for a version switch keeps its state in "saved", with when and who.
       if (!saved.stateChunkCount && saved.savedAtMs !== undefined) {
         this.savedAtMs = saved.savedAtMs;
@@ -239,15 +270,17 @@ export class Room extends DurableObject<Env> {
           this.savedAtMs = saved.savedAtMs;
           this.matchPlayers = saved.matchPlayers ?? [];
           this.savedStateKey = stateKeyOf(text, this.matchPlayers);
+          this.savedSizeBytes = utf8SizeBytes(text);
         } catch (error) {
           console.error("Couldn't read the room's saved state:", error);
         }
         this.stateChunkCount = saved.stateChunkCount;
       }
       this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
-      this.freeTierCheckedAtMs = (got.get("freeTierCheckedAtMs") as number | undefined) ?? 0;
+      this.hostingCheckedAtMs = (got.get("hostingCheckedAtMs") as number | undefined) ?? 0;
       this.seatedPlayerIds = got.get("seatedPlayerIds") as string[] | undefined;
       this.alarmAtMs = await ctx.storage.getAlarm();
+      for (const [key, names] of await ctx.storage.list<string[]>({ prefix: OWNED_ITEM_NAMES_KEY_PREFIX })) this.ownedItemNamesByPlayerId.set(key.slice(OWNED_ITEM_NAMES_KEY_PREFIX.length), names);
     });
   }
 
@@ -256,6 +289,8 @@ export class Room extends DurableObject<Env> {
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
     if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -269,11 +304,12 @@ export class Room extends DurableObject<Env> {
       };
       await this.ctx.storage.put("meta", this.meta);
     }
+    if (this.isKept) await this.wakeKeptOnLiveVersion();
     const server = await this.load();
     if (!server) return new Response("This game isn't available right now", { status: 404 });
 
     this.dropStaleHellos();
-    const maximumSocketCount = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + SPARE_SOCKET_COUNT;
+    const maximumSocketCount = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + (server.maximumSpectatorCount ?? 0) + SPARE_SOCKET_COUNT;
     const open = this.ctx.getWebSockets().filter((existing) => (existing.deserializeAttachment() as Attachment | null)?.stage !== "gone");
     if (open.length >= maximumSocketCount) return new Response("This room is full", { status: 409 });
 
@@ -342,9 +378,9 @@ export class Room extends DurableObject<Env> {
           // Already closed.
         }
       }
-      // The hour the match got to finish, once the game used the month's free tier, is up.
+      // The hour the match got to finish, once the game's hosting paused, is up.
       if (core && !this.hasEnded && core.endsAt !== null && Date.parse(core.endsAt) <= Date.now()) {
-        core.end(MONTH_LIMIT_END_MESSAGE);
+        core.end(HOSTING_PAUSED_END_MESSAGE);
         await this.finish();
         return;
       }
@@ -352,7 +388,7 @@ export class Room extends DurableObject<Env> {
         core.sweep();
         await this.settle(core);
         if (this.isRowStale) await this.list();
-        if (Date.now() - this.freeTierCheckedAtMs >= FREE_TIER_CHECK_MS) await this.checkFreeTier(core);
+        if (Date.now() - this.hostingCheckedAtMs >= HOSTING_CHECK_MS) await this.checkHosting(core);
       }
       if (this.hasUnrecordedError) {
         this.hasUnrecordedError = false;
@@ -361,6 +397,8 @@ export class Room extends DurableObject<Env> {
       if (this.sockets().length && Date.now() - this.checkedInAtMs >= CHECK_IN_MS) {
         if (await this.gameStillLive()) await this.list(true);
         await this.touchSeats();
+        // A kept world's size, for the game's storage, at most hourly rather than with every save.
+        if (this.isKept) await this.keepRow();
         // A long match's game server health shouldn't wait for the room to empty.
         await this.recordUsage(false);
         // Also when the room has no row to touch (everyone walked away).
@@ -370,8 +408,10 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (await this.reconnecting()) return;
-    await this.unlist();
     await this.seat();
+    // A kept room sleeps with its state and no alarm, so it costs only its storage until someone joins.
+    if (this.isKept && !this.hasEnded) return this.sleepKept();
+    await this.unlist();
     const emptiedAtMs = await this.ctx.storage.get<number>("emptiedAtMs");
     if (emptiedAtMs === undefined) {
       await this.ctx.storage.put("emptiedAtMs", Date.now());
@@ -443,7 +483,7 @@ export class Room extends DurableObject<Env> {
   private async reserved(request: Request): Promise<Response> {
     if (this.meta || this.savedRoom) return new Response("This room is taken", { status: 409 });
     const gameId = request.headers.get("x-game-id")!;
-    if (await pastFreeTier(this.env.DB, gameId)) return new Response(ERROR_TEXT.month_limit, { status: 403 });
+    if ((await isHostingPaused(this.env.DB, gameId)).isPaused) return new Response(ERROR_TEXT.hosting_paused, { status: 403 });
     const start = (await request.json()) as RoomStart;
     this.meta = {
       gameId,
@@ -501,10 +541,13 @@ export class Room extends DurableObject<Env> {
     let isQuickJoin = false;
     // The version the player's game runs (from Zaisma's SDK), or null when it didn't say.
     let helloVersionId: string | null = null;
+    // Come to watch, not to play (joinRoom({ isSpectator: true })).
+    let isSpectator = false;
     try {
-      const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown; versionId?: unknown };
+      const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown; versionId?: unknown; isSpectator?: unknown };
       if (hello.type !== "hello") return this.refuse(socket, "no_hello");
       pass = hello.pass;
+      isSpectator = hello.isSpectator === true;
       helloVersionId = typeof hello.versionId === "string" && hello.versionId ? hello.versionId : null;
       avoidsBlockedPlayers = hello.avoidBlockedPlayers === true;
       isQuickJoin = hello.isQuickJoin === true;
@@ -528,7 +571,7 @@ export class Room extends DurableObject<Env> {
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.env.DB, claims.sub) : claims.name;
       if (!name) return this.refuse(socket, "bad_pass");
-      player = { id: claims.sub, name, kind: claims.kind };
+      player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
     } catch (error) {
       if (!(error instanceof PassError)) throw error;
       return this.refuse(socket, "bad_pass");
@@ -545,17 +588,20 @@ export class Room extends DurableObject<Env> {
     await this.load();
     const core = this.room();
     if (!core) return this.refuse(socket, "game_unavailable");
+    // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
+    if (isSpectator && core.players.size === 0) return this.refuse(socket, "no_room");
     // A player always plays the version their room runs: a newcomer whose game runs another one reloads at the
     // room's first (the game domain serves it to the room's players). Players already in the room come back in
     // whatever they run, so a reconnect never bounces them out of their match; built-in game servers have no version.
     const roomVersionId = this.meta.server === SANDBOX ? this.meta.versionId : undefined;
-    if (roomVersionId && helloVersionId && helloVersionId !== roomVersionId && !core.players.has(player.id) && !core.expects(player.id)) {
+    if (roomVersionId && helloVersionId && helloVersionId !== roomVersionId && !core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id)) {
       return this.refuse(socket, "other_version", undefined, { versionId: roomVersionId });
     }
-    // Past this month's free tier, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
-    if (!core.players.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkFreeTier(core)))) return this.refuse(socket, "month_limit");
+    // Once its game's hosting pauses, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
+    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (core.endsAt !== null || (await this.checkHosting(core)))) return this.refuse(socket, "hosting_paused");
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
-    if (player.kind === "account" && core.known.size > 0) {
+    // Spectators send nothing, so nothing of theirs reaches a player to block.
+    if (player.kind === "account" && core.known.size > 0 && !isSpectator) {
       const blocks = await blocksAmong(this.env.DB, player.id, [...core.known]);
       // quickJoin prefers rooms without anyone the player blocked, and comes back here only when nothing else fits.
       if (avoidsBlockedPlayers && blocks.some((block) => block.blocker_player_id === player.id && core.players.has(block.blocked_player_id))) return this.refuse(socket, "blocked_player_here");
@@ -564,7 +610,7 @@ export class Room extends DurableObject<Env> {
       core.setFriends(player.id, await friendsAmong(this.env.DB, player.id, [...core.known]));
     }
     // The room's rules and the game's canJoin, before anyone hears about this player.
-    const admitted = await core.admit(player, made.joinData);
+    const admitted = await core.admit(player, made.joinData, { isSpectator });
     if (!admitted.isAllowed) {
       this.refuse(socket, admitted.code, admitted.message);
       // A canJoin that crashed or answered wrongly turns everyone away, so the room may never fill and empty: record it now, for its developer.
@@ -578,10 +624,11 @@ export class Room extends DurableObject<Env> {
       this.retire(other);
       other.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
     }
+    await this.keepOwnedItemNames(player);
     const nowMs = Date.now();
-    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {} } satisfies Attachment);
+    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {}, ...(isSpectator ? { isSpectator: true as const } : {}) } satisfies Attachment);
     this.socketIndex = null;
-    const joined = core.join(player, made);
+    const joined = core.join(player, { ...made, isSpectator });
     if (!joined.isAllowed) return this.refuse(socket, joined.code, joined.message);
     if (isQuickJoin && !this.isQuickJoinNoted) {
       this.isQuickJoinNoted = true;
@@ -594,22 +641,58 @@ export class Room extends DurableObject<Env> {
     await this.wake(Date.now() + SWEEP_MS);
   }
 
+  /** Keeps what a joining player owns for when the room wakes from hibernation; a pass with nothing owned clears it. */
+  private async keepOwnedItemNames(player: Player): Promise<void> {
+    const key = `${OWNED_ITEM_NAMES_KEY_PREFIX}${player.id}`;
+    if (player.ownedItemNames?.length) {
+      this.ownedItemNamesByPlayerId.set(player.id, player.ownedItemNames);
+      await this.ctx.storage.put(key, player.ownedItemNames);
+    } else if (this.ownedItemNamesByPlayerId.delete(player.id)) {
+      await this.ctx.storage.delete(key);
+    }
+  }
+
+  /** A player as the room rebuilds them from a socket's attachment, with what they own. */
+  private playerOf(attachment: { id: string; name: string; kind?: Player["kind"] }): Player {
+    const ownedItemNames = this.ownedItemNamesByPlayerId.get(attachment.id);
+    return { id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest", ...(ownedItemNames ? { ownedItemNames } : {}) };
+  }
+
   /** A player's connection closed: they left, or it was lost (the room then holds their seat a while). */
   private async left(socket: WebSocket, why: "left" | "lost"): Promise<void> {
     const attachment = this.retire(socket);
     if (attachment.stage !== "in") return;
     const core = this.sockets(attachment.id).length === 0 && (await this.load()) ? this.room() : null;
     core?.leave(attachment.id, why);
+    if (this.playerSockets().length === 0) this.dismissSpectators();
     if (this.sockets().length === 0) {
       await core?.settled();
       await this.emptied();
     } else if (core) await this.settle(core);
   }
 
-  /** Mark a socket as gone, counting the time its player spent in the room. */
+  /**
+   * A room with only spectators left has no match to watch: they're told it ended and go, so the room
+   * empties as when everyone leaves.
+   */
+  private dismissSpectators(): void {
+    const text = JSON.stringify({ type: "ended", message: "The match ended." } satisfies ServerMessage);
+    for (const socket of this.sockets()) {
+      const attachment = this.retire(socket);
+      if (attachment.stage === "in") this.core?.leave(attachment.id);
+      try {
+        socket.send(text);
+        socket.close(ENDED_CLOSE_CODE, "Match ended");
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+
+  /** Mark a socket as gone, counting the time its player spent in the room. Watching is free: a spectator's time isn't counted. */
   private retire(socket: WebSocket): Attachment {
     const attachment = socket.deserializeAttachment() as Attachment;
-    if (attachment.stage === "in") this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.joinedAtMs ?? Date.now())) / 1000);
+    if (attachment.stage === "in" && !attachment.isSpectator) this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.joinedAtMs ?? Date.now())) / 1000);
     socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
     this.socketIndex = null;
     return attachment;
@@ -621,10 +704,20 @@ export class Room extends DurableObject<Env> {
     await this.recordUsage();
     await this.logs?.write();
     if (this.core && !this.core.ticking) this.core.dirty = true;
-    // A real-time room saves once more, so one rejoined within the day wakes as it was.
-    await this.save(true);
-    await this.unlist();
+    // A real-time room saves once more, so one rejoined within the day (or a kept one, whenever) wakes as it was.
+    await this.save(true, true);
     await this.seat();
+    if (this.isKept && !this.hasEnded) {
+      // Waits for whoever joins next: listed at nobody in it, with no alarm, unless dropped players may still come back.
+      await this.sleepKept();
+      if (this.core && this.core.nextReconnectDeadlineMs() !== null) {
+        this.savedRoom = this.core.saved;
+        await this.ctx.storage.put("room", this.savedRoom);
+        await this.wakeForReconnects(this.core);
+      }
+      return;
+    }
+    await this.unlist();
     await this.ctx.storage.put("emptiedAtMs", Date.now());
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
     // Players whose connection dropped are still in the match: the room keeps them, and wakes when their time runs out.
@@ -636,17 +729,19 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Whether the game has used this month's free tier. The first time a running match finds it has, it
-   * gets MATCH_FINISH_DURATION_SEC to finish: its game server and players hear when it ends (room.endsAt).
+   * Whether the game's hosting is paused this month (hosting.ts). A running match that finds it is ends
+   * MATCH_FINISH_DURATION_SEC after the pause, so every room of the game ends together: its game server
+   * and players hear when (room.endsAt).
    */
-  private async checkFreeTier(core: RoomCore): Promise<boolean> {
+  private async checkHosting(core: RoomCore): Promise<boolean> {
     if (core.endsAt !== null) return true;
     // Kept, since a sleeping room forgets: otherwise every wake would check.
-    this.freeTierCheckedAtMs = Date.now();
-    await this.ctx.storage.put("freeTierCheckedAtMs", this.freeTierCheckedAtMs);
-    if (!(await pastFreeTier(this.env.DB, this.meta!.gameId))) return false;
+    this.hostingCheckedAtMs = Date.now();
+    await this.ctx.storage.put("hostingCheckedAtMs", this.hostingCheckedAtMs);
+    const hosting = await isHostingPaused(this.env.DB, this.meta!.gameId);
+    if (!hosting.isPaused) return false;
     if (core.players.size > 0 && !core.ended) {
-      const endsAtMs = Date.now() + MATCH_FINISH_DURATION_SEC * 1000;
+      const endsAtMs = Math.max(Date.now(), hosting.pausedAtMs! + MATCH_FINISH_DURATION_SEC * 1000);
       core.startEnding(new Date(endsAtMs).toISOString());
       // Kept with the room, so a room that sleeps and wakes keeps the same end.
       this.savedRoom = core.saved;
@@ -681,6 +776,8 @@ export class Room extends DurableObject<Env> {
     await this.recordUsage();
     await this.logs?.write();
     await this.unlist();
+    // An ended kept room is gone for good: its world goes with the day's cleanup like any room's.
+    if (this.isKept) await this.unkeepRow();
     const chunkKeys = Array.from({ length: this.stateChunkCount }, (_, index) => stateChunkKey(index));
     this.stateChunkCount = 0;
     // One write with the chunks' delete (no await between them), so an ended room never wakes with its state.
@@ -701,24 +798,27 @@ export class Room extends DurableObject<Env> {
     if (!core || !meta?.roomCode) return;
     if (this.browsing === null && !(await this.gameStillLive())) return;
     core.listingChanged = false;
+    await this.checkKept(core);
     // What the room keeps for itself, so a hidden or closed room stays that way after a restart.
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
-    const live = !this.hasEnded && !core.ended && core.playingCount > 0;
     const isListed = core.isListed && this.browsing !== "off" ? 1 : 0;
+    // A listed kept room keeps its row with nobody in it, like a server waiting for players.
+    const live = !this.hasEnded && !core.ended && (core.playingCount > 0 || (this.isKept && isListed === 1));
     const labels = JSON.stringify(core.labels);
     // The version a sandboxed game server runs, which the game domain serves the room's players.
     const versionId = meta.server === SANDBOX ? (meta.versionId ?? null) : null;
-    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.isOpen, isListed, core.friendJoinsEnabled, core.name, labels, versionId]) : "";
+    const isKept = this.isKept ? 1 : 0;
+    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.spectatorCount, core.maximumSpectatorCount, core.isOpen, isListed, core.friendJoinsEnabled, core.name, labels, versionId, isKept]) : "";
     if (as === this.listedAs && !touch) return;
     if (!live) return this.unlist();
     const nowMs = Date.now();
     await this.rowWrite(as, () =>
       this.env.DB.prepare(
         // A name a person hid stays hidden while the room lives (is_name_hidden is never overwritten here).
-        "INSERT INTO live_rooms (game_id, room_code, player_count, held_seat_count, maximum_player_count, is_listed, is_open, friend_joins_enabled, name, labels, country, continent, version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET player_count = excluded.player_count, held_seat_count = excluded.held_seat_count, maximum_player_count = excluded.maximum_player_count, is_listed = excluded.is_listed, is_open = excluded.is_open, friend_joins_enabled = excluded.friend_joins_enabled, name = excluded.name, labels = excluded.labels, version_id = excluded.version_id, updated_at_ms = excluded.updated_at_ms",
+        "INSERT INTO live_rooms (game_id, room_code, player_count, held_seat_count, maximum_player_count, spectator_count, maximum_spectator_count, is_listed, is_open, friend_joins_enabled, name, labels, country, continent, version_id, is_kept, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET player_count = excluded.player_count, held_seat_count = excluded.held_seat_count, maximum_player_count = excluded.maximum_player_count, spectator_count = excluded.spectator_count, maximum_spectator_count = excluded.maximum_spectator_count, is_listed = excluded.is_listed, is_open = excluded.is_open, friend_joins_enabled = excluded.friend_joins_enabled, name = excluded.name, labels = excluded.labels, version_id = excluded.version_id, is_kept = excluded.is_kept, updated_at_ms = excluded.updated_at_ms",
       )
-        .bind(meta.gameId, meta.roomCode, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, isListed, core.isOpen ? 1 : 0, core.friendJoinsEnabled ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, versionId, nowMs, nowMs)
+        .bind(meta.gameId, meta.roomCode, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.spectatorCount, core.maximumSpectatorCount, isListed, core.isOpen ? 1 : 0, core.friendJoinsEnabled ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, versionId, isKept, nowMs, nowMs)
         .run(),
     );
     // Checked in: the next check-in is due an hour from now.
@@ -771,6 +871,165 @@ export class Room extends DurableObject<Env> {
   private async unlist(): Promise<void> {
     if (this.listedAs === "" || !this.meta?.roomCode) return;
     await this.rowWrite("", () => this.env.DB.prepare("DELETE FROM live_rooms WHERE game_id = ? AND room_code = ?").bind(this.meta!.gameId, this.meta!.roomCode!).run());
+  }
+
+  /**
+   * The game server kept the room, or stopped keeping it (room.setKept). A keep is turned back while the
+   * game's storage is past its free 500 MB, until Hosting billing: the room stays as it was and the game
+   * server's log says why. Rooms already kept keep saving, so no world is ever lost to the limit.
+   */
+  private async checkKept(core: RoomCore): Promise<void> {
+    if (core.isKept === this.isKept || this.hasEnded) return;
+    if (!core.isKept) {
+      this.isKept = false;
+      await this.unkeepRow();
+      return;
+    }
+    if (await this.isStorageFull()) {
+      core.isKept = false;
+      this.printed([{ atMs: Date.now(), level: "warn", text: KEEP_REFUSED_TEXT }]);
+      return;
+    }
+    this.isKept = true;
+    await this.keepRow();
+  }
+
+  /** Whether the game's database and kept rooms together are at the most storage a game can have. A check that fails lets the keep through. */
+  private async isStorageFull(): Promise<boolean> {
+    try {
+      const databaseSizeBytes = (await gameDatabaseObject(this.env, this.meta!.gameId).usageThisMonth()).storageSizeBytes;
+      return (await gameStorageSizeBytes(this.env.DB, databaseSizeBytes, this.meta!.gameId)) >= MAXIMUM_GAME_STORAGE_SIZE_BYTES;
+    } catch (error) {
+      console.error("Couldn't read the game's storage:", error);
+      return false;
+    }
+  }
+
+  /** Write the kept room's row: its name, its saved size and when it was saved and last played, for the developer and the game's storage. */
+  private async keepRow(lastPlayedAtMs = Date.now()): Promise<void> {
+    const meta = this.meta;
+    if (!meta?.roomCode) return;
+    // A turn-based room's state is measured here; a real-time room's as it's saved (writeRealTimeState).
+    if (!this.stateChunkCount && !this.core?.ticking) this.savedSizeBytes = this.saved === undefined ? 0 : utf8SizeBytes(JSON.stringify(this.saved) ?? "");
+    const nowMs = Date.now();
+    await this.env.DB.prepare(
+      "INSERT INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET name = excluded.name, saved_size_bytes = excluded.saved_size_bytes, saved_at_ms = excluded.saved_at_ms, last_played_at_ms = excluded.last_played_at_ms",
+    )
+      .bind(meta.gameId, meta.roomCode, this.core?.name ?? this.savedRoom?.name ?? null, this.savedSizeBytes, this.savedAtMs ?? (this.saved !== undefined ? nowMs : null), lastPlayedAtMs, nowMs)
+      .run()
+      .catch((error) => console.error("kept_rooms write failed", error));
+  }
+
+  private async unkeepRow(): Promise<void> {
+    this.isKept = false;
+    if (!this.meta?.roomCode) return;
+    await this.env.DB.prepare("DELETE FROM kept_rooms WHERE game_id = ? AND room_code = ?")
+      .bind(this.meta.gameId, this.meta.roomCode)
+      .run()
+      .catch((error) => console.error("kept_rooms delete failed", error));
+  }
+
+  /**
+   * A kept room with nobody in it: its row says so (listed at nobody, or gone if hidden), kept_rooms has
+   * its size, and its state is marked as saved empty. It sets no alarm, so it costs only its storage.
+   */
+  private async sleepKept(): Promise<void> {
+    await this.ctx.storage.delete("emptiedAtMs");
+    if (this.core) await this.list();
+    else if (this.meta?.roomCode) {
+      // Woke with nobody back after a restart: the row still counts the players it had.
+      await this.env.DB.prepare("UPDATE live_rooms SET player_count = 0, held_seat_count = 0, updated_at_ms = ? WHERE game_id = ? AND room_code = ?")
+        .bind(Date.now(), this.meta.gameId, this.meta.roomCode)
+        .run()
+        .catch((error) => console.error("live_rooms write failed", error));
+      this.listedAs = undefined;
+    }
+    // Nobody played on from the last save, so a world waking from it lost nothing (at most a few seconds before a restart).
+    if (!this.isSavedEmpty) await this.markSavedEmpty();
+    // Found empty after a restart, its players were last there when it last saved.
+    await this.keepRow(this.core ? Date.now() : (this.savedAtMs ?? Date.now()));
+  }
+
+  /** Mark a real-time room's last save as saved empty (Saved.isSavedEmpty), without writing its state again. */
+  private async markSavedEmpty(): Promise<void> {
+    if (this.savedAtMs === undefined) return;
+    const saved = await this.ctx.storage.get<Saved>("saved");
+    if (saved?.savedAtMs === undefined) return;
+    await this.ctx.storage.put("saved", { ...saved, isSavedEmpty: true } satisfies Saved);
+    this.isSavedEmpty = true;
+  }
+
+  /**
+   * An empty kept room wakes on the game's live version, whatever version saved it: a world never ends, so
+   * it never reaches a next match. Its saved state reaches onRestored with savedVersionId, as with a
+   * version published "now", so the game brings an older world up to date in one place.
+   */
+  private async wakeKeptOnLiveVersion(): Promise<void> {
+    if (!this.meta || this.meta.server !== SANDBOX || this.hasEnded || this.core || this.sockets().length) return;
+    if (!(await this.gameStillLive()) || !this.liveVersionId || this.liveVersionId === this.meta.versionId) return;
+    this.pendingVersionUpdate = { versionId: this.liveVersionId, isReloading: false, appliesAtMs: Date.now() };
+    await this.applyVersionUpdate();
+  }
+
+  /**
+   * The developer deletes a kept room's world (DELETE /games/:slug/kept-rooms/:room_code, through the
+   * rooms Worker): players in it are sent out, and everything the room keeps goes now, not after a day.
+   */
+  /**
+   * Everything a kept room keeps, for Zaisma's nightly backup (apps/site/src/backups.ts, through
+   * GameStorageService.keptRoomBackup): one JSON line per storage key, { key, value }, read a page at a
+   * time so a big world never sits whole in memory. Putting each back with storage.put restores the room.
+   */
+  private async backingUp(request: Request): Promise<Response> {
+    if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const storage = this.ctx.storage;
+    let startAfter: string | undefined;
+    let isDone = false;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (isDone) return controller.close();
+        const page = await storage.list({ startAfter, limit: BACKUP_PAGE_KEY_COUNT });
+        let lines = "";
+        for (const [key, storedValue] of page) {
+          lines += `${JSON.stringify({ key, value: storedValue })}\n`;
+          startAfter = key;
+        }
+        isDone = page.size < BACKUP_PAGE_KEY_COUNT;
+        if (lines) controller.enqueue(encoder.encode(lines));
+      },
+    });
+    return new Response(body, { headers: { "content-type": "application/jsonl" } });
+  }
+
+  private async deleting(request: Request): Promise<Response> {
+    if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    if (this.sockets().length && (await this.load())) {
+      const core = this.room();
+      if (core && !core.ended) {
+        core.end(KEPT_ROOM_DELETED_MESSAGE);
+        await core.settled();
+      }
+    }
+    for (const socket of this.ctx.getWebSockets()) {
+      if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
+      this.retire(socket);
+      try {
+        socket.close(REFUSED_CLOSE_CODE, "Deleted");
+      } catch {
+        // Already closed.
+      }
+    }
+    await this.finish();
+    await this.unkeepRow();
+    await this.ctx.storage.deleteAll();
+    await this.ctx.storage.deleteAlarm();
+    this.alarmAtMs = null;
+    // Nothing comes back: the room stays ended while this object lives, and starts empty after.
+    this.saved = undefined;
+    this.savedRoom = undefined;
+    this.stateChunkCount = 0;
+    return new Response(null, { status: 204 });
   }
 
   /**
@@ -841,8 +1100,8 @@ export class Room extends DurableObject<Env> {
       ).bind(this.meta.gameId, date, ended ? 1 : 0, usage.roomPlayDurationSec, usage.messageCount, traffic.inboundSizeBytes, traffic.outboundMessageCount, traffic.outboundSizeBytes, cpuDurationMs, health.callCount, health.crashCount, health.stoppedCount, health.endedMatchCount),
       ...biggest.map((type) =>
         this.env.DB.prepare(
-          "INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date, message_type, direction) DO UPDATE SET message_count = message_count + excluded.message_count, size_bytes = size_bytes + excluded.size_bytes, largest_size_bytes = MAX(largest_size_bytes, excluded.largest_size_bytes)",
-        ).bind(this.meta!.gameId, date, type.messageType, type.direction, type.messageCount, type.sizeBytes, type.largestSizeBytes),
+          "INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date, message_type, direction) DO UPDATE SET message_count = message_count + excluded.message_count, size_bytes = size_bytes + excluded.size_bytes, largest_size_bytes = MAX(largest_size_bytes, excluded.largest_size_bytes), backed_up_message_count = backed_up_message_count + excluded.backed_up_message_count",
+        ).bind(this.meta!.gameId, date, type.messageType, type.direction, type.messageCount, type.sizeBytes, type.largestSizeBytes, type.backedUpMessageCount ?? 0),
       ),
       ...errors.map((error) =>
         this.env.DB.prepare(
@@ -911,16 +1170,22 @@ export class Room extends DurableObject<Env> {
     if (this.core) return this.core;
     const server = this.server;
     if (!server) return null;
-    // Players whose seat is held are still connected, but out of the match.
+    // Players whose seat is held are still connected, but out of the match; spectators are connected, but watching.
     const held = this.savedRoom?.held ?? {};
     const presence: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }> = {};
+    const spectators: Player[] = [];
     const players = this.sockets().flatMap((socket) => {
       const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
+      if (attachment.isSpectator) {
+        spectators.push(this.playerOf(attachment));
+        return [];
+      }
       if (Object.hasOwn(held, attachment.id)) return [];
       presence[attachment.id] = { seenAtMs: attachment.seenAtMs ?? attachment.joinedAtMs, clientIdle: attachment.clientIdle };
-      return [{ id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest" }];
+      return [this.playerOf(attachment)];
     });
     const transport = {
+      ...(this.meta?.roomCode ? { roomCode: this.meta.roomCode } : {}),
       send: (id: string, text: string) => this.sockets(id).forEach((socket) => socket.send(text)),
       sendBytes: (id: string, frame: Uint8Array) => this.sockets(id).forEach((socket) => socket.send(frame)),
       close: (id: string, code: number, reason: string) => {
@@ -928,8 +1193,11 @@ export class Room extends DurableObject<Env> {
           this.retire(socket);
           socket.close(code, reason);
         });
-        // The game kicked the last player: the room empties like when everyone leaves.
-        if (!this.core?.ended && this.sockets().length === 0) void this.emptied();
+        // The game kicked the last player: the room empties like when everyone leaves, spectators and all.
+        if (!this.core?.ended && this.playerSockets().length === 0) {
+          this.dismissSpectators();
+          void this.emptied();
+        }
       },
       reserve: (roomCode: string, start: RoomStart) => this.reserve(roomCode, start),
       moveTo: (roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">) => this.moveTo(roomCode, ask),
@@ -947,13 +1215,14 @@ export class Room extends DurableObject<Env> {
       const lostPlayers = this.matchPlayers.filter((player) => !players.some((connected) => connected.id === player.id));
       // A sandboxed game server starts from the saved state with its next call, which is onRestored.
       void (server as SandboxServer).restore?.(this.saved);
-      this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs, Date.now(), this.savedVersionId ?? null), lostPlayers });
+      this.core = new RoomCore(server, transport, { state: this.saved, players, spectators, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs, Date.now(), this.savedVersionId ?? null, this.isSavedEmpty), lostPlayers });
       this.core.savedAtMs = this.savedAtMs;
     } else if (!server.ticksPerSec && this.saved !== undefined) {
-      this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence });
+      this.core = new RoomCore(server, transport, { state: this.saved, players, spectators, room: this.savedRoom, presence });
     } else {
       this.core = new RoomCore(server, transport, { room: this.savedRoom });
       for (const player of players) this.core.join(player, { clientIdle: presence[player.id]?.clientIdle });
+      for (const spectator of spectators) this.core.join(spectator, { isSpectator: true });
     }
     this.core.dirty = false;
     return this.core;
@@ -1055,6 +1324,7 @@ export class Room extends DurableObject<Env> {
         secrets_changed_at_ms: number | null;
       }>();
     if (row && row.review_status === "live" && row.live_version_id && gameServerOf(row) === this.meta!.server) {
+      this.liveVersionId = row.live_version_id;
       this.accountRequirement = row.account_requirement;
       if (row.minimum_player_age_years > this.minimumPlayerAgeYears) {
         this.minimumPlayerAgeYears = row.minimum_player_age_years;
@@ -1072,6 +1342,11 @@ export class Room extends DurableObject<Env> {
       }
       return true;
     }
+    // A kept world outlives its game being unavailable (a takedown, or made private): its players go, and it sleeps kept.
+    if (this.isKept && !this.hasEnded) {
+      await this.sendAway();
+      return false;
+    }
     this.room()?.end("This game isn't available right now.");
     for (const socket of this.ctx.getWebSockets()) {
       this.retire(socket);
@@ -1079,6 +1354,25 @@ export class Room extends DurableObject<Env> {
     }
     await this.finish();
     return false;
+  }
+
+  /** A kept room whose game isn't available: everyone is told and goes, its world is saved, and it leaves room lists. */
+  private async sendAway(): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) {
+      if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
+      this.retire(socket);
+      try {
+        socket.send(errorMessage("game_unavailable"));
+        socket.close(REFUSED_CLOSE_CODE, "Game unavailable");
+      } catch {
+        // Already closed.
+      }
+    }
+    this.stopTicking();
+    if (this.core && !this.core.ticking) this.core.dirty = true;
+    await this.save(true, true);
+    await this.unlist();
+    await this.seat();
   }
 
   /** The game's secrets changed: its sandboxed game server gets them from its next call. */
@@ -1157,10 +1451,10 @@ export class Room extends DurableObject<Env> {
   }
 
   /** Save a turn-based room's state after each change, so it can sleep between moves, and a real-time room's every few seconds (or now: isForced). */
-  private async save(isForced = false): Promise<void> {
+  private async save(isForced = false, isSavedEmpty = false): Promise<void> {
     const core = this.core;
     if (core?.ended) await this.finish();
-    if (core?.ticking && !this.hasEnded) return this.saveRealTimeState(core, isForced);
+    if (core?.ticking && !this.hasEnded) return this.saveRealTimeState(core, isForced, isSavedEmpty);
     if (!core || this.hasEnded || core.ticking || !core.dirty) return;
     // A sleeping room forgets what's only in memory, so its use so far goes with its state.
     this.takeUse();
@@ -1271,7 +1565,7 @@ export class Room extends DurableObject<Env> {
    * restart brings the match back a few seconds behind: the sandboxed game server's state, or a built-in
    * one's, as JSON in chunks, with the match's players and the room, all in one put. Never two at once.
    */
-  private async saveRealTimeState(core: RoomCore, isForced = false): Promise<void> {
+  private async saveRealTimeState(core: RoomCore, isForced = false, isSavedEmpty = false): Promise<void> {
     if (this.stateSaving) {
       if (!isForced) return;
       await this.stateSaving;
@@ -1281,11 +1575,11 @@ export class Room extends DurableObject<Env> {
     core.savedAtMs ??= nowMs;
     if (this.hasEnded || core.ended || (!isForced && nowMs - core.savedAtMs < intervalMs)) return;
     core.savedAtMs = nowMs;
-    this.stateSaving = this.writeRealTimeState(core, nowMs).finally(() => (this.stateSaving = null));
+    this.stateSaving = this.writeRealTimeState(core, nowMs, isSavedEmpty).finally(() => (this.stateSaving = null));
     await this.stateSaving;
   }
 
-  private async writeRealTimeState(core: RoomCore, savedAtMs: number): Promise<void> {
+  private async writeRealTimeState(core: RoomCore, savedAtMs: number, isSavedEmpty = false): Promise<void> {
     const server = this.server as SandboxServer | null;
     let state: unknown = core.state;
     if (typeof server?.stateCopy === "function") {
@@ -1302,7 +1596,11 @@ export class Room extends DurableObject<Env> {
     }
     const matchPlayers = [...core.players.values()];
     const stateKey = stateKeyOf(text, matchPlayers);
-    if (stateKey === this.savedStateKey) return;
+    if (stateKey === this.savedStateKey) {
+      // Unchanged since the last save, which now counts as saved empty: nobody played on from it.
+      if (isSavedEmpty && !this.isSavedEmpty) await this.markSavedEmpty();
+      return;
+    }
     // Counted byte by byte only when it could be too big: UTF-8 takes at most 3 bytes a character here.
     const maximumSizeBytes = ROOM_LIMITS.maximumSavedStateSizeBytes;
     if (text.length > maximumSizeBytes || (text.length * 3 > maximumSizeBytes && utf8SizeBytes(text) > maximumSizeBytes)) {
@@ -1317,7 +1615,7 @@ export class Room extends DurableObject<Env> {
     const chunkCount = Math.max(1, Math.ceil(text.length / STATE_CHUNK_CHARACTER_COUNT));
     this.savedRoom = core.saved;
     const versionId = this.meta?.versionId;
-    const entries: Record<string, unknown> = { saved: { savedAtMs, stateChunkCount: chunkCount, matchPlayers, usage: this.usage, ...(versionId ? { versionId } : {}) } satisfies Saved, room: this.savedRoom };
+    const entries: Record<string, unknown> = { saved: { savedAtMs, stateChunkCount: chunkCount, matchPlayers, usage: this.usage, ...(versionId ? { versionId } : {}), ...(isSavedEmpty ? { isSavedEmpty } : {}) } satisfies Saved, room: this.savedRoom };
     for (let index = 0; index < chunkCount; index++) entries[stateChunkKey(index)] = text.slice(index * STATE_CHUNK_CHARACTER_COUNT, (index + 1) * STATE_CHUNK_CHARACTER_COUNT);
     const staleKeys = Array.from({ length: Math.max(0, this.stateChunkCount - chunkCount) }, (_, index) => stateChunkKey(chunkCount + index));
     // Written together (no await between the put and the delete), so a restart reads all of one save or the one before.
@@ -1325,6 +1623,9 @@ export class Room extends DurableObject<Env> {
     await Promise.all([written, staleKeys.length ? this.ctx.storage.delete(staleKeys) : null]);
     this.stateChunkCount = chunkCount;
     this.savedStateKey = stateKey;
+    this.isSavedEmpty = isSavedEmpty;
+    // Counted byte by byte only for a kept room, whose size goes towards the game's storage.
+    this.savedSizeBytes = this.isKept ? utf8SizeBytes(text) : text.length;
     this.savedVersionId = versionId;
     this.saved = state;
     this.savedAtMs = savedAtMs;
@@ -1342,10 +1643,16 @@ export class Room extends DurableObject<Env> {
     }
   }
 
-  /** Open sockets of players in the room, optionally just one player's. */
+  /** Open sockets of players and spectators in the room, optionally just one player's. */
   private sockets(playerId?: string): WebSocket[] {
     const index = this.indexed();
     return playerId === undefined ? [...index.byPlayerId.values()].flat() : [...(index.byPlayerId.get(playerId) ?? [])];
+  }
+
+  /** Open sockets of players in the room, spectators left out. */
+  private playerSockets(): WebSocket[] {
+    const index = this.indexed();
+    return [...index.byPlayerId].flatMap(([playerId, sockets]) => (index.spectatorIds.has(playerId) ? [] : sockets));
   }
 
   /**
@@ -1356,13 +1663,16 @@ export class Room extends DurableObject<Env> {
     if (this.socketIndex) return this.socketIndex;
     const byPlayerId = new Map<string, WebSocket[]>();
     const accountPlayerIds = new Set<string>();
+    const spectatorIds = new Set<string>();
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socket.deserializeAttachment() as Attachment | null;
       if (attachment?.stage !== "in") continue;
       byPlayerId.set(attachment.id, [...(byPlayerId.get(attachment.id) ?? []), socket]);
-      if (attachment.kind === "account") accountPlayerIds.add(attachment.id);
+      // Spectators aren't playing, so friends' Join never finds them here.
+      if (attachment.isSpectator) spectatorIds.add(attachment.id);
+      else if (attachment.kind === "account") accountPlayerIds.add(attachment.id);
     }
-    return (this.socketIndex = { byPlayerId, accountPlayerIds: [...accountPlayerIds].sort() });
+    return (this.socketIndex = { byPlayerId, accountPlayerIds: [...accountPlayerIds].sort(), spectatorIds });
   }
 
   private dropStaleHellos(): void {

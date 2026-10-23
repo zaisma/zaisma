@@ -136,6 +136,15 @@ const COMMANDS = {
   secrets: { about: "A game's secrets, which its game server reads as server.secrets and room.secrets: their names and when each was set, never the values", arguments: [{ name: "slug" }], flags: {} },
   "secrets set": { about: "Set a secret for a game's server, replacing one of the same name: the value piped in, or typed without showing; it's never shown again", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
   "secrets delete": { about: "Delete one of a game's secrets", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
+  items: { about: "What a game sells or grants: each item's name, kind, category and price, and the game's refund policy", arguments: [{ name: "slug" }], flags: {} },
+  "items set": {
+    about: "Make a game's items match a JSON file (or piped in) of the whole list, as list_items answers its items: each changed item is set, and each one missing from the file removed, unless players own it",
+    arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
+    flags: {},
+  },
+  "items remove": { about: "Remove an item nobody bought or was granted", arguments: [{ name: "slug" }, { name: "item_name" }], flags: {} },
+  "kept-rooms": { about: "A game's kept rooms (room.setKept), worlds that sleep with nobody in them: each one's code, name, size and when it was last played, and the game's storage", arguments: [{ name: "slug" }], flags: {} },
+  "kept-rooms delete": { about: "Delete a kept room's world for good; players in it are sent out", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
   logs: {
     about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
     arguments: [{ name: "slug" }],
@@ -237,7 +246,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"] };
+const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], items: ["set", "remove"], "kept-rooms": ["delete"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -999,11 +1008,10 @@ async function database(command, values, flags) {
     if (!answer.tables.length) console.log("No tables yet. Make one from your game server, or with: zaisma database query <slug> \"CREATE TABLE …\"");
     for (const table of answer.tables) console.log(`${table.sql};`);
     for (const index of answer.indexes) console.log(`${index.sql};`);
-    const percent = (used, free) => `${Math.floor((used / free) * 100)}%`;
+    const hosting = answer.hosting_use_this_month;
     console.log(
-      `\nThis month: ${use.read_row_count.toLocaleString("en-US")} rows read (${percent(use.read_row_count, use.free_read_row_count)} of the free ${use.free_read_row_count.toLocaleString("en-US")}), ` +
-        `${use.written_row_count.toLocaleString("en-US")} written (${percent(use.written_row_count, use.free_written_row_count)} of ${use.free_written_row_count.toLocaleString("en-US")}), ` +
-        `${(use.storage_size_bytes / 1024 / 1024).toFixed(1)} MB stored (${percent(use.storage_size_bytes, use.free_storage_size_bytes)} of ${use.free_storage_size_bytes / 1024 / 1024} MB). Resets ${use.reset_date}.`,
+      `\nThis month: ${use.read_row_count.toLocaleString("en-US")} rows read, ${use.written_row_count.toLocaleString("en-US")} written, ${sizeText(use.storage_size_bytes)} stored (a game keeps up to ${sizeText(use.maximum_storage_size_bytes)}). ` +
+        `Free hosting this month: ${hosting.free_used_pct}% used${hosting.is_paused ? ", paused" : ""}. Resets ${hosting.resets_on_date}.`,
     );
     if (answer.restores.length) {
       console.log("\nRestores (newest first; undo with zaisma database undo-restore <slug> <id>):");
@@ -1455,6 +1463,100 @@ async function secrets(command, values) {
   if (answer.next_steps.some((step) => step.tool === "update_game")) console.log(`It calls no other servers yet: list the hosts it uses this with, like zaisma allowed-hosts ${values.slug} discord.com`);
 }
 
+/** The fields of an item the file gives and set_item takes. */
+const ITEM_FILE_FIELDS = ["item_name", "title", "description", "item_kind", "item_category", "price_minor_units", "currency_code", "local_prices"];
+
+/** A price as people read it, from minor units, for the list. */
+function itemPriceText(gameItem) {
+  if (gameItem.price_minor_units === null) return "not sold";
+  const isWhole = ["jpy", "krw"].includes(gameItem.currency_code);
+  return `${(gameItem.price_minor_units / (isWhole ? 1 : 100)).toFixed(isWhole ? 0 : 2)} ${gameItem.currency_code.toUpperCase()}${gameItem.local_prices.length ? ` (+${gameItem.local_prices.length} local)` : ""}`;
+}
+
+/**
+ * A game's items (…/games/<slug>/items…), as the MCP's list_items, set_item and remove_item. items set takes
+ * the whole list from a file kept beside the game, so prices live in git: one call per changed item, and one
+ * per item gone from the file, which the API refuses for an item players own.
+ */
+async function items(command, values) {
+  const path = `/games/${values.slug}/items`;
+  if (command === "items remove") {
+    const answer = await api("DELETE", `${path}/${encodeURIComponent(values.item_name)}`);
+    if (isJson) return printJson(answer);
+    return console.log(`Removed ${values.item_name} from ${values.slug}.`);
+  }
+  if (command === "items set") {
+    const text = values.file ? await readFile(values.file, "utf8").catch(() => refuse("not_a_file", { message: `Couldn't read ${values.file}.`, field: "file", fix: "Give the path of a JSON file of the game's items, or pipe it in." })) : await readInput();
+    let wanted;
+    try {
+      wanted = JSON.parse(text);
+    } catch {
+      wanted = null;
+    }
+    const fileFix = 'Give a JSON list of whole items, like [{ "item_name": "revive", "title": "Revive", "description": "", "item_kind": "consumable", "item_category": "gameplay", "price_minor_units": 199, "currency_code": "usd", "local_prices": [] }].';
+    if (!Array.isArray(wanted) || wanted.some((gameItem) => !gameItem || typeof gameItem !== "object" || typeof gameItem.item_name !== "string")) refuse("bad_item", { message: `${values.file ?? "What was piped in"} isn't a JSON list of items.`, field: "file", fix: fileFix });
+    for (const gameItem of wanted) {
+      const unknown = Object.keys(gameItem).find((key) => !ITEM_FILE_FIELDS.includes(key) && !["card_fee_note", "created_at", "updated_at"].includes(key));
+      if (unknown) refuse("unknown_field", { message: `${gameItem.item_name} has ${unknown}, which isn't an item's field.`, field: "file", fix: `An item takes ${ITEM_FILE_FIELDS.join(", ")}.` });
+    }
+    const names = wanted.map((gameItem) => gameItem.item_name);
+    const repeated = names.find((name, i) => names.indexOf(name) !== i);
+    if (repeated) refuse("bad_item", { message: `${repeated} is in the file twice.`, field: "file", fix: "Give each item once." });
+    const current = (await api("GET", path)).items;
+    const same = (gameItem, existing) => ITEM_FILE_FIELDS.every((field) => JSON.stringify(gameItem[field] ?? null) === JSON.stringify(existing[field] ?? null));
+    const changed = wanted.filter((gameItem) => { const existing = current.find((other) => other.item_name === gameItem.item_name); return !existing || !same(gameItem, existing); });
+    const gone = current.filter((existing) => !names.includes(existing.item_name));
+    const setNames = [];
+    for (const gameItem of changed) {
+      const { item_name: itemName, ...fields } = gameItem;
+      for (const field of ITEM_FILE_FIELDS.slice(1)) if (!(field in fields)) fields[field] = field === "local_prices" ? [] : field === "description" ? "" : null;
+      for (const key of ["card_fee_note", "created_at", "updated_at"]) delete fields[key];
+      await api("PUT", `${path}/${encodeURIComponent(itemName)}`, fields);
+      setNames.push(itemName);
+      say(`Set ${itemName}.`);
+    }
+    const removedNames = [];
+    const keptNames = [];
+    for (const existing of gone) {
+      try {
+        await api("DELETE", `${path}/${encodeURIComponent(existing.item_name)}`);
+        removedNames.push(existing.item_name);
+        say(`Removed ${existing.item_name}.`);
+      } catch (error) {
+        if (!(error instanceof CommandError) || error.error.code !== "item_has_owners") throw error;
+        keptNames.push(existing.item_name);
+      }
+    }
+    const answer = await api("GET", path);
+    if (keptNames.length) {
+      refuse("item_has_owners", { message: `Players own ${keptNames.join(", ")}, so ${keptNames.length === 1 ? "it stays" : "they stay"}; everything else matches the file.`, field: "file", fix: "Keep them in the file with price_minor_units and currency_code null to stop selling them." }, EXIT_CODES.failed);
+    }
+    if (isJson) return printJson({ ...answer, set_item_names: setNames, removed_item_names: removedNames });
+    if (!setNames.length && !removedNames.length) console.log(`${values.slug}'s items already match the file.`);
+    return;
+  }
+  const answer = await api("GET", path);
+  if (isJson) return printJson(answer);
+  if (!answer.items.length) console.log(`${values.slug} sells nothing yet. Set its items with: zaisma items set ${values.slug} items.json`);
+  for (const gameItem of answer.items) console.log(`${gameItem.item_name.padEnd(24)} ${gameItem.item_kind.padEnd(11)} ${gameItem.item_category.padEnd(9)} ${itemPriceText(gameItem)}`);
+  console.log(`Refund policy: ${answer.refund_policy === "own_words" ? answer.refund_policy_text : (answer.refund_policy ?? "none yet (set_purchase_settings), needed before anything goes on sale")}`);
+}
+
+/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms and delete_kept_room. */
+async function keptRooms(command, values) {
+  if (command === "kept-rooms") {
+    const answer = await api("GET", `/games/${values.slug}/kept-rooms`);
+    if (isJson) return printJson(answer);
+    if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
+    for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
+    console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of the ${sizeText(answer.maximum_storage_size_bytes)} a game can keep (database and kept rooms).`);
+    return;
+  }
+  const answer = await api("DELETE", `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`);
+  if (isJson) return printJson(answer);
+  console.log(`Deleted kept room ${values.room_code.toUpperCase()} from ${values.slug}, and its world with it.`);
+}
+
 /** A game server's logs (GET …/games/<slug>/logs), as the MCP's get_logs; --follow asks for new lines every 2 seconds. */
 async function logs(values, flags) {
   if (flags.follow && flags.cursor) refuse("conflicting_flags", { message: "--follow prints new lines, and --cursor older ones.", field: "cursor", fix: `Use one: zaisma logs ${values.slug} --follow, or zaisma logs ${values.slug} --cursor <next_cursor>.` });
@@ -1585,7 +1687,7 @@ function readKeys(given) {
   return keys;
 }
 
-const sizeText = (sizeBytes) => (sizeBytes < 1024 ? `${sizeBytes} B` : sizeBytes < 1048576 ? `${(sizeBytes / 1024).toFixed(1)} KB` : `${(sizeBytes / 1048576).toFixed(1)} MB`);
+const sizeText = (sizeBytes) => (sizeBytes < 1024 ? `${sizeBytes} B` : sizeBytes < 1048576 ? `${(sizeBytes / 1024).toFixed(1)} KB` : sizeBytes < 1024 ** 3 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${(sizeBytes / 1024 ** 3).toFixed(1)} GB`);
 
 /** A statement's rows as a table, then what it read and wrote. Blobs show their size. */
 function printRows({ rows, read_row_count: readRowCount, written_row_count: writtenRowCount }) {
@@ -1673,6 +1775,8 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "own-servers") await ownServers(values, flags);
   else if (command === "links" || command.startsWith("links ")) await links(command, values, flags);
   else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
+  else if (command === "items" || command.startsWith("items ")) await items(command, values);
+  else if (command === "kept-rooms" || command.startsWith("kept-rooms ")) await keptRooms(command, values);
   else if (command === "logs") await logs(values, flags);
   else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);

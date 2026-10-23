@@ -28,6 +28,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   games_ever_played: { file_path: "games-played.json", reason: "Every game played, kept so it can be told when the account is deleted." },
   presences: { file_path: "games-played.json", reason: "When the account was last seen online, and in which game." },
   room_players: { file_path: "games-played.json", reason: "The rooms the account is in right now." },
+  purchases: { file_path: "games-played.json", reason: "Items bought or granted in games, with what was paid." },
   saves: { file_path: "saves/", reason: "Game saves, as files." },
   save_history: { file_path: "saves/", reason: "Earlier versions of each save, as files." },
   forum_topics: { file_path: "forum.json", reason: "Forum topics started." },
@@ -45,6 +46,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   api_keys: { file_path: "developer.json", reason: "API keys and connected AIs and apps, never their secrets." },
   webhooks: { file_path: "developer.json", reason: "Webhooks, never their signing secrets." },
   sign_in_apps: { file_path: "developer.json", reason: "Sign-in apps, never their secrets." },
+  credit_entries: { file_path: "developer.json", reason: "Hosting credit: every top-up, charge and refund." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
   owned_blobs: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
@@ -167,6 +169,11 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     games_ever_played: await rows(env, "SELECT game.slug AS game_slug, game.title, ever.first_played_at_ms FROM games_ever_played ever JOIN games game ON game.id = ever.game_id WHERE ever.account_id = ? ORDER BY ever.first_played_at_ms", id),
     last_seen: (await rows(env, "SELECT presence.seen_at_ms, game.slug AS game_slug, presence.game_seen_at_ms FROM presences presence LEFT JOIN games game ON game.id = presence.game_id WHERE presence.account_id = ?", id))[0] ?? null,
     rooms_now: await rows(env, "SELECT game.slug AS game_slug, room.room_code, room.server_url, room.joined_at_ms, room.updated_at_ms FROM room_players room JOIN games game ON game.id = room.game_id WHERE room.player_id = ?", account.player_id),
+    purchases: await rows(
+      env,
+      "SELECT game.slug AS game_slug, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.price_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
+      account.player_id,
+    ),
   });
 
   // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers ---
@@ -225,6 +232,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     ),
     webhooks: await owned("webhooks", "id, destination_kind, endpoint_url, event_kinds, game_slugs, created_at_ms, updated_at_ms"),
     sign_in_apps: await owned("sign_in_apps", "id, name, kind, redirect_urls, created_at_ms, updated_at_ms"),
+    credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, is_automatic, created_at_ms"),
   });
 
   if (missing.length) {

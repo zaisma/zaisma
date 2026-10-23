@@ -3,9 +3,11 @@ import { ROOM_PAGE_ROOM_COUNT,
   canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
+  countryName,
   createAccessGrant,
   gameAddress,
   gameBySlug,
+  isBlockedInCountry,
   isOldEnoughFor,
   isOwnServerUrl,
   isTesterLinkOn,
@@ -14,6 +16,7 @@ import { ROOM_PAGE_ROOM_COUNT,
   describePlayModes,
   readPlayModes,
   type PlayMode,
+  requestCountryCode,
   SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
   testerLinkOpened,
@@ -28,14 +31,14 @@ import { backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { glassPane, logo, tag, type IconName } from "./components/foundations.ts";
+import { glassPane, icon, logo, tag, type IconName } from "./components/foundations.ts";
 import { banner, dropdown, notice, pictureViewer, paneHead } from "./components/panes.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { GAME_BACKGROUND_SCRIPT, GAME_OPENING_SCRIPT } from "./game-background-script.ts";
 import { GAME_PAGE_STYLE } from "./game-page-style.ts";
 import { html, layout, message, openingScriptTags, pageData, raw, scriptTags, siteFooter, siteHeader, styleTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { showcase, showcaseCover } from "./home.ts";
+import { coverOf, showcase } from "./home.ts";
 import { viewerOf } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
@@ -73,6 +76,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   if (!game || (!tester && (game.review_status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.review_status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.review_status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
+  // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
+  const countryCode = requestCountryCode(request);
+  if (isBlockedInCountry(game, countryCode)) return message(env, "This game isn't available in your country", `A legal notice under your country's law (${countryName(countryCode!)}) blocks it here. It's still available everywhere else.`, 451);
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
   if (tester && !testerVersion) return linkProblem(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.");
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
@@ -87,7 +93,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
   const inRoom = ROOM_CODE.test(code) && !isClosed;
   // A friend's Join into a room on the game's own servers names the server too (?server=), passed on only when it's one of them.
-  const roomQuery = inRoom ? `?room=${code}${ownServerParameter(url.searchParams.get("server"), ownServerUrls)}` : "";
+  // Watch beside Join says watch=1, which the game reads as Zaisma.rooms.isLinkedAsSpectator.
+  const roomQuery = inRoom ? `?room=${code}${ownServerParameter(url.searchParams.get("server"), ownServerUrls)}${url.searchParams.get("watch") === "1" ? "&watch=1" : ""}` : "";
   // A tester link's game opens at the game's fixed tester address, through a grant the Play button fetches (testerEnter).
   const frameUrl = tester ? gameUrl(env, gameAddress(game.slug, "tester")) : gameUrl(env, game.slug) + roomQuery;
   const saves = Boolean(game.cloud_saves_enabled && env.SUPABASE_URL && !tester);
@@ -109,20 +116,23 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const accountNext = encodeURIComponent(`${here}${inRoom ? roomQuery : "?play"}`);
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
-  const [developer, pictures, updates, others, live, playingNow, wideBackground, phoneBackground] = await Promise.all([
+  const playedVersionId = testerVersion?.id ?? game.live_version_id;
+  const [developer, pictures, updates, others, live, playingNow, wideBackground, phoneBackground, playedVersion] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
-    showcase(env, viewer.ageFloorYears, 60),
+    showcase(env, viewer.ageFloorYears, 60, countryCode),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
     // Not on tester links: their rooms are reached by code and invite link.
     game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
     playingNowCounts(env),
     backgroundOf(env, game, "wide"),
     backgroundOf(env, game, "phone"),
+    // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
+    playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
@@ -157,7 +167,7 @@ ${tester || !canSignIn || isClosed ? "" : html`<div class="friends-here" id="fri
 ${accountRequirement !== "none" && !isClosed
     ? html`<p class="game-note" id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : ""}
-<p class="game-note" id="device-note" hidden></p>
+<p class="game-note" id="device-note" hidden>${icon("warning")}<span></span></p>
 ${tester ? banner({ text: testerNote, icon: "warning", tone: "amber" }) : ""}
 ${isClosed
     ? html`<div class="game-closed" id="closed"><p>This game isn't open to your account.</p>${cutButton("Find other games", { href: "/", isFullWidth: true })}</div>`
@@ -165,9 +175,9 @@ ${isClosed
 <div class="game-more-actions">${textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })}${textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } })}</div></div>`}
 ${gameFacts.length ? facts({ facts: gameFacts, label: "About this game" }) : ""}`;
   // The developer's pictures, the one picked large with the rest under it to pick from; the pane's heading is said to screen readers alone.
-  const picturesSection = shots.length > 1 ? glassPane({ paneSize: "full", label: "Screenshots", body: pictureViewer({ id: "game-pictures", title: game.title, pictureUrls: shots }) }) : "";
+  const picturesSection = shots.length > 1 ? glassPane({ paneWidth: "full", label: "Screenshots", body: pictureViewer({ id: "game-pictures", title: game.title, pictureUrls: shots }) }) : "";
   const aboutSection = glassPane({
-    paneSize: "full",
+    paneWidth: "full",
     label: "About",
     body: html`<h2>About</h2>
 ${game.description ? html`<p class="game-description">${game.description}</p>` : html`<p class="game-description is-empty">The developer hasn't written about this game yet.</p>`}
@@ -177,15 +187,15 @@ ${developer || pageLinks.length
   });
   // Patch notes, newest first, in a pane that keeps its height: older ones scroll inside it.
   const updatesSection = updates.results.length
-    ? glassPane({ paneSize: "full", label: "Updates", body: html`<h2>Updates</h2>${listRows({ label: "Updates", rows: updates.results.map((update) => ({ title: day(update.published_at_ms), text: update.patch_notes })) })}` })
+    ? glassPane({ paneWidth: "full", label: "Updates", body: html`<h2>Updates</h2>${listRows({ label: "Updates", rows: updates.results.map((update) => ({ title: day(update.published_at_ms), text: update.patch_notes })) })}` })
     : "";
   const moreSection = more.length
-    ? glassPane({ paneSize: "full", label: moreTitle, body: html`<h2>${moreTitle}</h2><div class="game-more">${more.map(showcaseCover)}</div>` })
+    ? glassPane({ paneWidth: "full", label: moreTitle, body: html`<h2>${moreTitle}</h2><div class="game-more">${more.map(coverOf)}</div>` })
     : "";
   // Rooms: the heading with who's playing under it, the code box in the pane's top corner, then the rooms to pick from.
   const roomsSection = rooms
     ? glassPane({
-        paneSize: "full",
+        paneWidth: "full",
         label: "Rooms",
         body: html`${paneHead({ heading: html`<h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p>`, end: codeBox(game.slug) })}<div id="rooms-list" data-table-holder>${roomsPanel(game, rooms)}</div>`,
       })
@@ -206,7 +216,7 @@ ${developer || pageLinks.length
     body: html`${siteHeader(env, { viewer })}
 <div class="game" id="game-details">
 <div class="game-window" aria-hidden="true"></div>
-<div class="game-pane">${glassPane({ paneSize: "medium", label: game.title, body: paneBody })}</div>
+<div class="game-pane">${glassPane({ paneWidth: "fit", label: game.title, body: paneBody })}</div>
 <div class="game-sections">
 ${roomsSection ? html`<section id="rooms">${roomsSection}</section>` : ""}
 ${picturesSection ? html`<section id="pictures">${picturesSection}</section>` : ""}
@@ -217,8 +227,7 @@ ${moreSection}
 </div>
 ${siteFooter()}
 <div class="game-bar smoke" id="game-bar">${glassPane({
-      paneSize: "full",
-      corners: [0, 0, 14, 14],
+      paneWidth: "full",
       label: "Game controls",
       body: html`<a class="game-bar-home" href="/" aria-label="All games">${logo("mark")}</a><p class="game-bar-title">${game.title}</p><span class="game-bar-space"></span>
 ${multiplayer ? html`<span class="game-bar-players">${cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" })}<span class="game-bar-count" id="players-count-badge" hidden>${tag("", "count")}</span></span>` : ""}
@@ -231,10 +240,10 @@ ${cutButton("More", { id: "menu", type: "button", icon: "more", isSmall: true, i
     })}</div>
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
+  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 ${hasRoomCodes
       ? html`<dialog id="room-dialog" class="game-plate" aria-label="Room">${glassPane({
-          paneSize: "small",
+          paneWidth: "fit",
           body: html`<section class="room-here" id="room-here" hidden>
 <p class="room-title">This room</p>
 <div class="room-line"><b id="room-code-text"></b>${cutButton("Copy", { id: "room-copy", type: "button", isSmall: true })}${cutButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isSmall: true, isLabelHidden: true, isPressed: false })}</div>
@@ -289,6 +298,8 @@ ${pageData("game-page-data", {
       frame_query: roomQuery,
       devices,
       controls,
+      // A build that needs threads runs only where the game's frame can be isolated (Chrome and Edge): other browsers get a note.
+      has_threads: playedVersion?.has_threads === 1,
       // Streamer mode (an account setting) hides room codes until the player shows them.
       is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
       screen_orientation: game.screen_orientation || null,
@@ -329,7 +340,7 @@ ${isClosed
 const openingOf = (background: ShownBackground) => (background.source === "zaisma" ? null : { stillUrl: background.stillUrl, tone: background.tone });
 
 /** A card over the game's top corner (Keep your progress, a game's sign-in ask): a small pane the page's scripts show and hide. */
-const gameCard = (id: string, titleId: string, body: Raw) => html`<aside class="game-card" id="${id}" aria-labelledby="${titleId}" hidden>${glassPane({ paneSize: "small", body })}</aside>`;
+const gameCard = (id: string, titleId: string, body: Raw) => html`<aside class="game-card" id="${id}" aria-labelledby="${titleId}" hidden>${glassPane({ paneWidth: "fit", body })}</aside>`;
 
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
 const DEVICE_ICONS: Record<string, IconName> = { phone: "phone", tablet: "tablet", computer: "computer" };
@@ -338,7 +349,7 @@ const PLAY_MODE_ICONS: Record<PlayMode["mode"], IconName> = { single: "person", 
 
 /** A tester link that can't open its game: what's wrong, on Zaisma's own glass. */
 function linkProblem(env: Env, title: string, text: string): Response {
-  const response = layout(env, { title, isRebuilt: true, head: styleTags(GAME_PAGE_STYLE), body: html`<div class="game-problem">${glassPane({ paneSize: "medium", body: problemState({ title, text, action: cutButton("Find other games", { href: "/" }) }) })}</div>` });
+  const response = layout(env, { title, isRebuilt: true, head: styleTags(GAME_PAGE_STYLE), body: html`<div class="game-problem">${glassPane({ paneWidth: "fit", body: problemState({ title, text, action: cutButton("Find other games", { href: "/" }) }) })}</div>` });
   return new Response(response.body, { status: 404, headers: response.headers });
 }
 
@@ -425,6 +436,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <h2>If a game breaks a rule</h2>
 <p>That version is held, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back.</p>
 <p>Copyright and defamation are different: we don't judge them ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what the notice names. If the notice is wrong, you can send a counter-notice. See <a href="/legal/dmca">Copyright and DMCA notices</a> and <a href="/legal/defamation">Defamation notices</a>.</p>
+<p>These rules follow US law. When a country's own law forbids a game that's fine here (the UK's hatred offences, say), a notice from a court, regulator or police there blocks it for players in that country only, and everyone else still plays it. Publish a version without what the notice names and we lift the block. Authorities can send notices to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>.</p>
 <p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
 <h2>Reports and takedowns</h2>
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
@@ -497,6 +509,7 @@ const PRIVACY = `
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
 <p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
+<p>Zaisma measures how games run (load time, frame rate, crashes) by browser and device type, only as totals.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your username</strong>, the one you pick. Everyone can see it.</li>
@@ -522,17 +535,20 @@ const PRIVACY = `
 <p>Some games run online play on their developer's own servers, named in the game's menu. Those servers see your connection address, as any website you visit does, and what the game sends them. They never get your email or your age.</p>
 <h2>If you make games</h2>
 <p>What you and your API keys do to your games (uploads, publishes, database and save changes, secrets and the rest) is kept in each game's history for as long as the game, with who did it and from where, so you can see it. Each change also keeps its connection address for 90 days, shown only to you, so a report of illegal material can be traced to whoever uploaded it. Keep where my account is used from turns that off, except for uploads: a version's or an image's upload keeps its address for 90 days either way. To tell you when a key is used from somewhere new, we keep a fingerprint of each network and country it's used from, never shown, until it's gone unused for 90 days.</p>
+<h2>Backups</h2>
+<p>Every night Zaisma copies what it keeps to a backup at Backblaze, in the United States, so a disaster at our servers loses nothing. Nobody can change or delete a copy for 28 days, not even us, so for up to 30 days after something is deleted here, a copy of it can still be in the backup; then it's gone. We only read the backup to bring Zaisma back after a disaster, and a restore never brings back what was deleted.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
 <li><strong>Cloudflare</strong> runs our servers, stores games, sends the email codes you ask for, and checks that a real browser opened a game's page, made an account, typed a password on a new device or asked for an email code. It sees your connection address to deliver pages and stop abuse; we keep it only where this page says. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. When you sign in, we pass it your connection address, so its limits on tries count you and not everyone at once, and it keeps that address with each sign-in. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
+<li><strong>Backblaze</strong> keeps Zaisma's nightly backup, in the United States. It only stores the copies, encrypted.</li>
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Downloading your data</h2>
 <p>Go to your account page and choose Download your data. You get one .zip with everything we keep about your account, your game saves as files, and a note saying what each file holds.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. If you made games, they're deleted too, with their files, database and players' saves. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
+<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. Their copies in our backup are gone within 30 days. If you made games, they're deleted too, with their files, database and players' saves. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;
@@ -780,6 +796,12 @@ const DEVICES = gamePage.devices;
 const coarse = matchMedia("(pointer: coarse)").matches;
 const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
 const deviceNotes = [];
+// Threads need the game's frame isolated (Document-Isolation-Policy): Chromium 137+, never on iPhone or iPad, whose Chrome is WebKit.
+// userAgentData is only in Chromium browsers, so Firefox and Safari get the note with no list to keep.
+const chromium = navigator.userAgentData?.brands?.find((b) => b.brand === "Chromium");
+const canIsolateFrame = Boolean(chromium && Number(chromium.version) >= 137 && !/iPhone|iPad/.test(navigator.userAgent));
+const needsOtherBrowser = gamePage.has_threads && !canIsolateFrame;
+if (needsOtherBrowser) deviceNotes.push("This game needs Chrome or Edge on a computer or Android.");
 if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
 // Controls and screen only come up when they don't fit this device.
 const CONTROLS = gamePage.controls;
@@ -791,9 +813,11 @@ const SCREEN = gamePage.screen_orientation;
 if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
 if (deviceNotes.length) {
   const note = document.getElementById("device-note");
-  note.textContent = deviceNotes.join(" ");
+  note.querySelector("span").textContent = deviceNotes.join(" ");
+  // The warning icon only when this browser can't start the game at all.
+  note.classList.toggle("is-warning", needsOtherBrowser);
   note.hidden = false;
-  if (DEVICES.length && !DEVICES.includes(mine) && playStart) playLabel(playStart).textContent = "Play anyway";
+  if ((needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine))) && playStart) playLabel(playStart).textContent = "Play anyway";
 }
 // The ⋯ menu is a dropdown (the components' script opens, places and closes it). A tap on the game goes to its frame, not this
 // page, so the page losing focus closes it too; and closed, the game gets the keys back.

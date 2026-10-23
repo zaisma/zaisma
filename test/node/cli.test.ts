@@ -203,7 +203,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -542,6 +542,103 @@ describe("game server reach and secrets", () => {
     expect((await zaisma(["secrets", "sky-hopper"])).stdout).toContain("API_TOKEN");
     answers["DELETE /games/sky-hopper/secrets/API_TOKEN"] = { status: 200, body: { deleted_secret_name: "API_TOKEN", next_steps: [] } };
     expect((await zaisma(["secrets", "delete", "sky-hopper", "API_TOKEN"])).stdout).toContain("Deleted API_TOKEN");
+  });
+});
+
+describe("items", () => {
+  const revive = { item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 199, currency_code: "usd", local_prices: [] };
+  const cape = { item_name: "supporter_cape", title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] };
+  const crown = { item_name: "gold_crown", title: "Gold Crown", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 499, currency_code: "usd", local_prices: [] };
+  const answered = (item: Record<string, unknown>) => ({ ...item, card_fee_note: null, created_at: "2026-10-22T09:00:00.000Z", updated_at: "2026-10-22T09:00:00.000Z" });
+  const listing = (listed: Record<string, unknown>[]) => ({ status: 200, body: { items: listed.map(answered), refund_policy: "unused_within_14_days", refund_policy_text: null, own_payment_categories: [], purchase_label: { categories: ["gameplay"], has_own_payments: false } } });
+
+  it("sets each added and changed item and removes each one gone from the file, leaving the rest alone", async () => {
+    answers["GET /games/sky-hopper/items"] = listing([revive, cape, crown]);
+    answers["PUT /games/sky-hopper/items/*"] = (call) => ({ status: 200, body: { item: answered({ item_name: call.path.split("/").pop(), ...(call.body as object) }), next_steps: [] } });
+    answers["DELETE /games/sky-hopper/items/gold_crown"] = { status: 200, body: { removed_item_name: "gold_crown", next_steps: [] } };
+    const boost = { item_name: "speed_boost", title: "Speed Boost", item_kind: "consumable", item_category: "gameplay", price_minor_units: 99, currency_code: "usd" };
+    const file = join(mkdtempSync(join(tmpdir(), "zaisma-items-")), "items.json");
+    writeFileSync(file, JSON.stringify([{ ...revive, price_minor_units: 149 }, cape, boost]));
+    const result = await zaisma(["items", "set", "sky-hopper", file, "--json"]);
+    expect(result.exitCode).toBe(0);
+    const changes = calls.filter((call) => call.method !== "GET");
+    expect(changes.map((call) => `${call.method} ${call.path}`)).toEqual(["PUT /games/sky-hopper/items/revive", "PUT /games/sky-hopper/items/speed_boost", "DELETE /games/sky-hopper/items/gold_crown"]);
+    expect(changes[0]!.body).toEqual({ title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: 149, currency_code: "usd", local_prices: [] });
+    // Fields an item leaves out are sent as nothing set, so the API gets the whole item.
+    expect(changes[1]!.body).toMatchObject({ description: "", local_prices: [] });
+    expect(json(result.stdout)).toMatchObject({ set_item_names: ["revive", "speed_boost"], removed_item_names: ["gold_crown"] });
+  });
+
+  it("keeps an item players own when it's gone from the file, and says which", async () => {
+    answers["GET /games/sky-hopper/items"] = listing([revive, crown]);
+    answers["DELETE /games/sky-hopper/items/gold_crown"] = { status: 409, body: { error: { code: "item_has_owners", message: "3 completed purchases or grants are of gold_crown.", field: "item_name", fix: "Take its price off.", retry_after_sec: null } } };
+    const result = await zaisma(["items", "set", "sky-hopper", "--json"], { input: JSON.stringify([revive]) });
+    expect(result.exitCode).toBe(1);
+    expect(json(result.stdout).error).toMatchObject({ code: "item_has_owners", field: "file" });
+    expect(json(result.stdout).error.message).toContain("gold_crown");
+  });
+
+  it("refuses a file that isn't a list of items before anything is sent, and lists and removes items", async () => {
+    expect(json((await zaisma(["items", "set", "sky-hopper", "--json"], { input: '{"revive": 199}' })).stdout).error).toMatchObject({ code: "bad_item", field: "file" });
+    expect(json((await zaisma(["items", "set", "sky-hopper", "--json"], { input: JSON.stringify([{ ...revive, price: 199 }]) })).stdout).error).toMatchObject({ code: "unknown_field" });
+    expect(calls).toEqual([]);
+    answers["GET /games/sky-hopper/items"] = listing([revive]);
+    const listed = await zaisma(["items", "sky-hopper"]);
+    expect(listed.stdout).toContain("revive");
+    expect(listed.stdout).toContain("1.99 USD");
+    answers["DELETE /games/sky-hopper/items/revive"] = { status: 200, body: { removed_item_name: "revive", next_steps: [] } };
+    expect((await zaisma(["items", "remove", "sky-hopper", "revive"])).stdout).toContain("Removed revive");
+  });
+});
+
+describe("kept rooms", () => {
+  const keptRooms = {
+    kept_rooms: [
+      { room_code: "H4RB9T", name: "Creative Build", saved_size_bytes: 12_500_000, saved_at: "2026-10-20T18:00:00.000Z", last_played_at: "2026-10-20T18:00:00.000Z", created_at: "2026-10-13T18:00:00.000Z" },
+      { room_code: "Z2W8PD", name: null, saved_size_bytes: 0, saved_at: null, last_played_at: null, created_at: "2026-10-20T17:59:00.000Z" },
+    ],
+    kept_rooms_size_bytes: 12_500_000,
+    storage_size_bytes: 12_600_000,
+    maximum_storage_size_bytes: 10 * 1024 ** 3,
+  };
+
+  it("lists a game's kept rooms with their sizes and the game's storage, or the answer as-is with --json", async () => {
+    answers["GET /games/sky-hopper/kept-rooms"] = { status: 200, body: keptRooms };
+    const result = await zaisma(["kept-rooms", "sky-hopper"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "GET", path: "/games/sky-hopper/kept-rooms", body: null }]);
+    expect(result.stdout).toContain("H4RB9T");
+    expect(result.stdout).toContain("Creative Build");
+    expect(result.stdout).toContain("11.9 MB");
+    expect(result.stdout).toContain("Z2W8PD");
+    expect(result.stdout).toContain("played never");
+    expect(result.stdout).toContain("Storage: 12.0 MB of the 10.0 GB a game can keep");
+    expect(json((await zaisma(["kept-rooms", "sky-hopper", "--json"])).stdout)).toEqual(keptRooms);
+  });
+
+  it("says how a game keeps a room when it has none", async () => {
+    answers["GET /games/sky-hopper/kept-rooms"] = { status: 200, body: { ...keptRooms, kept_rooms: [], kept_rooms_size_bytes: 0, storage_size_bytes: 0 } };
+    expect((await zaisma(["kept-rooms", "sky-hopper"])).stdout).toContain("room.setKept(true)");
+  });
+
+  it("deletes one by its code, and passes on the API's refusal", async () => {
+    answers["DELETE /games/sky-hopper/kept-rooms/K7Q2MX"] = { status: 200, body: { is_deleted: true, next_steps: [] } };
+    const result = await zaisma(["kept-rooms", "delete", "sky-hopper", "K7Q2MX"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "DELETE", path: "/games/sky-hopper/kept-rooms/K7Q2MX", body: null }]);
+    expect(result.stdout).toContain("Deleted kept room K7Q2MX from sky-hopper");
+    expect(json((await zaisma(["kept-rooms", "delete", "sky-hopper", "K7Q2MX", "--json"])).stdout)).toEqual({ is_deleted: true, next_steps: [] });
+    const noRoom = { error: { code: "no_kept_room", message: "sky-hopper has no kept room H4RB9T.", field: "room_code", fix: "list_kept_rooms gives this game's kept rooms.", retry_after_sec: null } };
+    answers["DELETE /games/sky-hopper/kept-rooms/H4RB9T"] = { status: 404, body: noRoom };
+    const refused = await zaisma(["kept-rooms", "delete", "sky-hopper", "H4RB9T", "--json"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(json(refused.stdout).error).toMatchObject({ code: "no_kept_room", field: "room_code" });
+  });
+
+  it("is in help", async () => {
+    const help = await zaisma(["help"]);
+    expect(help.stdout).toContain("kept-rooms");
+    expect(help.stdout).toContain("kept-rooms delete");
   });
 });
 
