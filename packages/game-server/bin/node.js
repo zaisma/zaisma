@@ -623,6 +623,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       pace(code, room);
     });
 
+    // A frame over the size limit (or a broken one) is an error on this one socket: it closes and the close handler below takes it out, the runner keeps going.
+    ws.on("error", () => ws.terminate());
+
     // Closed on purpose (1000, or 1001 as a page goes away), or lost: then the room holds the seat a while.
     ws.on("close", (closeCode) => {
       clearTimeout(helloTimer);
