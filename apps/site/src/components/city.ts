@@ -70,6 +70,9 @@ ${options.after ?? ""}</div>`;
  * - A tropical haze over everything, thick at the sea and thinning with height, warm toward the sun by day and dark blue at night.
  * - It starts once the page has painted, so the still and the pane never wait for it, and it's built in small steps between frames
  *   while the driver compiles its programs in the background, so nothing holds the page up.
+ * - Out of sight for a while (scrolled away, or the page hidden for a minute), it gives its drawing context back and leaves a snapshot
+ *   of its moment; a context the browser takes shows the still at once, never a blank canvas. Either way it's made again in sight and
+ *   carries on from the same moment. Three taken within a minute leave the still for good.
  * - Taps work by touch as clicks do: a touch that didn't move is a tap; a drag scrolls the page.
  * - Night follows the theme the page shows where the canvas is (its color-scheme).
  *
@@ -80,7 +83,8 @@ ${options.after ?? ""}</div>`;
  *   drawing context, so a context that's lost and made again draws the same city at the same moment.
  * - The drawing: programs, buffers, textures and targets, made from the world and dropped with their context.
  * - The run: one frame callback that does what the city's phase says (data-city-phase on the canvas): waiting, building, warming
- *   (hidden while its programs and pipelines get ready), shown, or still.
+ *   (hidden while its programs and pipelines get ready), shown; released (its context given back while out of sight) or lost (taken
+ *   by the browser), both made again once it's in sight; frozen (failed once shown) or still.
  */
 export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function () {
   var canvas = document.querySelector("canvas.city");
@@ -1073,7 +1077,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     eye[1] += up; target[1] += up;
   }
 
-  var clock = 40, camTime = tool.startSec || 0, isShown = false, shownAt = 0;
+  // Whether the live city is showing now, whether it ever has, and when it first did (the camera sets off from then).
+  var clock = 40, camTime = tool.startSec || 0, isShown = false, hasShown = false, shownAt = 0;
   var ripples = [], rippleData = new Float32Array(48);
   // The camera of the frame last drawn: where it is and how it looks, for the taps and the trails to use. Made once, written each frame.
   var seen = { isSet: false, viewProj: new Array(16), eye: [0, 0, 0], fwd: [0, 0, 0], right: [0, 0, 0], up: [0, 0, 0], tan: [0, 0], shift: [0, 0] };
@@ -1417,7 +1422,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   // The canvas and its targets at the top tier's size, measured only when the stage's size changes.
   function resize() {
-    if (!gpu) return;
+    if (!gpu || gl.isContextLost()) return;
     var w = canvas.clientWidth, h = canvas.clientHeight;
     if (targets && w === cssWidth && h === cssHeight) return;
     cssWidth = w; cssHeight = h;
@@ -1502,10 +1507,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 
   /* The governor, once it's shown: down a tier after a second of frames over the GPU budget (two seconds without the timer), or of
      missing their interval even when the timer says they fit (the glass's blur over the city is in no GPU time it can read); back up
-     after four seconds (six without the timer) with half the budget free. It pays no mind to the first two seconds, the ease between
-     day and night, or the second after typing, a focus or the pane's steps changing (one thing at a time is new then). */
+     after four seconds (six without the timer) with half the budget free; too slow at the lowest tier, it stops on a snapshot of its
+     moment. It pays no mind to the first two seconds after it shows, the ease between day and night, or the second after typing, a
+     focus or the pane's steps changing (one thing at a time is new then). */
   var INTERVAL_CAPACITY = 256, intervals = new Float64Array(INTERVAL_CAPACITY), intervalsAtMs = new Float64Array(INTERVAL_CAPACITY), intervalCount = 0, intervalNext = 0;
-  var slowSinceMs = 0, fastSinceMs = 0, quietUntilMs = 0;
+  var slowSinceMs = 0, fastSinceMs = 0, quietUntilMs = 0, governFromMs = 0;
   function resetIntervals() { intervalCount = 0; intervalNext = 0; }
   // The share of the frames of the last windowMs that missed their interval, or -1 with too few to say.
   function missedPct(now, windowMs) {
@@ -1517,13 +1523,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     intervals[intervalNext] = intervalMs; intervalsAtMs[intervalNext] = now; intervalNext = (intervalNext + 1) % INTERVAL_CAPACITY; intervalCount = Math.min(INTERVAL_CAPACITY, intervalCount + 1);
     // Twenty seconds on fewer samples, and the 4-sample set is let go.
     if (targets.multisampled[4] && TIERS[tierIndex].sampleCount < 4 && now - fewerSamplesSinceMs > 20000) { freeMultisample(targets.multisampled[4]); delete targets.multisampled[4]; }
-    if (tool.isStill || now - shownAt < 2000 || (night > 0.02 && night < 0.98) || now < quietUntilMs || now - tierSinceMs < 1000) { slowSinceMs = 0; fastSinceMs = 0; return; }
+    if (tool.isStill || now < governFromMs || (night > 0.02 && night < 0.98) || now < quietUntilMs || now - tierSinceMs < 1000) { slowSinceMs = 0; fastSinceMs = 0; return; }
     var isTimed = Boolean(gpu.timer), gpuMs = isTimed ? gpuTimeP95(now) : 0, budgetMs = frameBudgetMs(), missed = missedPct(now, 1000);
     var isSlow = missed >= 25 || gpuMs > budgetMs, isFast = missed === 0 && (!isTimed || (gpuMs > 0 && gpuMs < budgetMs / 2));
     if (isSlow) {
       fastSinceMs = 0;
       if (!slowSinceMs) slowSinceMs = now;
-      if (now - slowSinceMs >= (isTimed ? 1000 : 2000)) { if (tierIndex === LOWEST_TIER) giveUp(); else tierTo(tierIndex + 1, now); }
+      if (now - slowSinceMs >= (isTimed ? 1000 : 2000)) { if (tierIndex === LOWEST_TIER) stopOnSnapshot(); else tierTo(tierIndex + 1, now); }
     } else if (isFast) {
       slowSinceMs = 0;
       if (!fastSinceMs) fastSinceMs = now;
@@ -1682,18 +1688,113 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     canvas.setAttribute("data-city-phase", name);
   }
   setPhase("waiting");
-  // Every callback goes through guarded: anything that fails in it sends the city back to its still, never to a broken canvas.
+  // A drawing context it has and may draw with: not given back, not taken, not stopped.
+  function hasContext() { return Boolean(gl) && !gl.isContextLost() && (phase === "building" || phase === "warming" || phase === "shown"); }
+  /* Every callback goes through guarded. A context the browser has taken is noticed first, before anything draws with it (the event
+     saying so can come a frame later, and a program asked about on a lost context reads as one that failed). Anything that fails
+     sends the city to its still before it has shown, or stops it where it is after. */
   function guarded(work) {
     return function (value) {
-      if (phase === "still") return;
-      try { work(value); } catch (error) { console.warn("The city stopped: " + (error && error.message)); giveUp(); }
+      if (phase === "still" || phase === "frozen") return;
+      if (gl && gl.isContextLost()) lose();
+      try { work(value); } catch (error) {
+        if (gl && gl.isContextLost()) { lose(); return; }
+        console.warn("The city stopped: " + (error && error.message));
+        if (isShown) freezeAndGiveUp(); else giveUp();
+      }
     };
   }
-  // Too slow even at the lowest tier, or failed: back to the still, for good.
+  /* The context's life. Out of sight for RELEASE_OUT_OF_VIEW_MS (scrolled away, as on Screens), or RELEASE_HIDDEN_MS while the page is
+     hidden (long, so someone fetching an email code comes back to a live city), the context is given back to the browser; a city that
+     had shown leaves a snapshot of its moment behind, the world waits at that moment, and back in sight it's made again and comes back
+     over the snapshot. A context the browser takes shows the still at once, never a blank canvas, and comes back the same way, on a
+     fresh canvas when no restore comes within RESTORE_WAIT_MS; LOSS_LIMIT losses within LOSS_WINDOW_MS leave the still for good. */
+  var RELEASE_OUT_OF_VIEW_MS = 5000, RELEASE_HIDDEN_MS = 60000, RESTORE_WAIT_MS = 2000, LOSS_LIMIT = 3, LOSS_WINDOW_MS = 60000;
+  var loseExtension = null, lossTimesMs = [], lossCount = 0, remakeCount = 0, releaseTimer = 0, freshTimer = 0, liveTimer = 0, snapshot = null;
+  var CONTEXT_OPTIONS = { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "default", failIfMajorPerformanceCaveat: !window.zaismaCityTool };
+  function isSeen() { return !document.hidden && isInView; }
+  function stopTimers() { clearTimeout(releaseTimer); clearTimeout(freshTimer); clearTimeout(liveTimer); releaseTimer = 0; freshTimer = 0; liveTimer = 0; }
+  // The canvas out of sight at once (a lost context's canvas is blank), with whatever is behind it (the still, or a snapshot) back.
+  function hideCanvas() { stage.classList.remove("is-live"); canvas.classList.remove("is-warming", "is-back"); canvas.classList.add("is-away"); }
+  // The canvas's picture as it is now, at scale, into a plain canvas behind it. Taken in the task that drew it, while it's still there.
+  function takeSnapshot(scale) {
+    if (!snapshot) { snapshot = document.createElement("canvas"); snapshot.className = "city-snapshot"; }
+    if (snapshot.nextSibling !== canvas) stage.insertBefore(snapshot, canvas);
+    snapshot.width = Math.max(1, Math.round(canvas.width * scale)); snapshot.height = Math.max(1, Math.round(canvas.height * scale));
+    var context = snapshot.getContext("2d", { alpha: false });
+    if (!context) return;
+    context.drawImage(canvas, 0, 0, snapshot.width, snapshot.height);
+    stage.classList.add("has-snapshot");
+  }
+  function freeSnapshot() { stage.classList.remove("has-snapshot"); if (snapshot) { snapshot.width = 1; snapshot.height = 1; } }
+  // Once the city's fade in is over, nothing behind it is composited any more.
+  function markLiveAfter(delayMs) { clearTimeout(liveTimer); liveTimer = setTimeout(guarded(function () { if (phase === "shown") { stage.classList.add("is-live"); freeSnapshot(); } }), delayMs); }
+  // The moment as it is, drawn at once, with nothing moved.
+  function drawNow() { aimCamera(camTime, 0); uploadRing(gpu.movers, movers); uploadRing(gpu.trails, trails); drawFrame(); }
+  // Before it has shown, failed or too slow even at the lowest tier: back to the still, for good, and the context given back.
   function giveUp() {
     if (phase === "still") return;
-    setPhase("still"); isRunning = false; freeBuildLock();
-    canvas.classList.remove("on", "is-warming"); showStill();
+    var isLive = Boolean(gl) && !gl.isContextLost();
+    setPhase("still"); isRunning = false; isShown = false; freeBuildLock(); stopTimers();
+    hideCanvas(); stage.classList.remove("has-snapshot"); canvas.classList.remove("on"); showStill();
+    if (isLive && loseExtension) loseExtension.loseContext();
+  }
+  // Failed once shown: it stops where it is, its last frame left on the canvas (nothing more is drawn, so nothing can fail again).
+  function freezeAndGiveUp() {
+    if (phase === "still" || phase === "frozen") return;
+    setPhase("frozen"); isRunning = false; isShown = false; freeBuildLock(); stopTimers();
+  }
+  // Too slow even at the lowest tier once shown: it stops on a snapshot of its moment, and the context is given back.
+  function stopOnSnapshot() {
+    drawNow(); takeSnapshot(1);
+    setPhase("still"); isRunning = false; isShown = false; freeBuildLock(); stopTimers(); hideCanvas();
+    if (loseExtension) loseExtension.loseContext();
+  }
+  // Out of sight long enough: the context given back, a shown city's moment kept as a snapshot first.
+  function release() {
+    if (!hasContext() || isSeen() || !loseExtension) return;
+    if (isShown) { drawNow(); takeSnapshot(0.5); }
+    setPhase("released"); isRunning = false; isShown = false; stopTimers(); hideCanvas();
+    loseExtension.loseContext();
+  }
+  // Taken by the browser (a GPU reset, memory pressure, too many contexts on the page): out of sight at once, and made again once in
+  // sight, unless it's been taken too often lately.
+  function lose() {
+    if (phase === "released" || phase === "lost" || phase === "still" || phase === "waiting") return;
+    if (phase === "frozen") { giveUp(); return; }
+    setPhase("lost"); isRunning = false; isShown = false; stopTimers(); hideCanvas();
+    var lostAtMs = performance.now();
+    lossCount++; lossTimesMs.push(lostAtMs);
+    while (lossTimesMs[0] < lostAtMs - LOSS_WINDOW_MS) lossTimesMs.shift();
+    if (lossTimesMs.length >= LOSS_LIMIT) { giveUp(); return; }
+    wake();
+  }
+  // Back in sight: the context asked back (given back) or waited for (taken), and a fresh canvas if it hasn't come within the wait.
+  function comeBack() {
+    if (freshTimer) return;
+    if (phase === "released") { try { loseExtension.restoreContext(); } catch (error) {} }
+    freshTimer = setTimeout(guarded(function () { freshTimer = 0; if ((phase === "released" || phase === "lost") && isSeen()) freshCanvas(); }), RESTORE_WAIT_MS);
+  }
+  // A fresh canvas in the old one's place, with its classes, so it stays out of sight until it's ready.
+  function freshCanvas() {
+    var fresh = canvas.cloneNode(false);
+    canvas.parentNode.replaceChild(fresh, canvas);
+    canvas = fresh; gl = null; gpu = null; targets = null;
+    remake();
+  }
+  /* The context back, restored or new: everything the GPU holds is made again from the world, which waited at its moment. A city that
+     had shown warms quickly, keeping its tier, and comes back over its snapshot; one that hadn't warms as at first. */
+  function remake() {
+    clearTimeout(freshTimer); freshTimer = 0;
+    if (phase !== "released" && phase !== "lost") return;
+    gl = canvas.getContext("webgl2", CONTEXT_OPTIONS);
+    if (!gl || gl.isContextLost()) { giveUp(); return; }
+    loseExtension = gl.getExtension("WEBGL_lose_context");
+    remakeCount++;
+    makeGpu();
+    beginWarm(hasShown);
+    setPhase(isWorldBuilt ? "warming" : "building");
+    wake();
   }
   var nextTick = guarded(tick);
   function requestTick() { if (!isTickPending) { isTickPending = true; requestAnimationFrame(nextTick); } }
@@ -1708,8 +1809,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   /* While hidden and getting ready: programs finished as the driver readies them; the world into the GPU, on a tick of its own, as soon
      as it's built and the shadow map's program is ready; the warm draws, one on a tick, then one more on each tick that followed one on
      time (up to WARM_DRAWS_PER_TICK_MAX), so a driver that makes pipelines quickly is done in a few ticks and one that makes them slowly
-     never holds more than one in a tick; then the fence. True once frames can be drawn, hidden (at the faintest opacity) until the
-     city has settled. */
+     never holds more than one in a tick; then the fence. True once frames can be drawn, hidden (at the faintest opacity, or out of
+     sight over its snapshot when it's made again) until the city has settled. */
   var WARM_DRAWS_PER_TICK_MAX = 3, warmDrawsPerTick = 0;
   function warmUp(now) {
     var tickIntervalMs = lastTickMs ? now - lastTickMs : 0;
@@ -1724,21 +1825,27 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     if (drawn || !isLinked || !gpu.isFilled) return false;
     if (gpu.warmFence) {
       if (gl.getSyncParameter(gpu.warmFence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
-      gl.deleteSync(gpu.warmFence); gpu.warmFence = null; readVsync(); lastDrawMs = 0; markReady("fenced");
-      canvas.classList.add("is-warming");
+      gl.deleteSync(gpu.warmFence); gpu.warmFence = null; lastDrawMs = 0; markReady("fenced");
+      if (!hasShown) { readVsync(); canvas.classList.remove("is-away"); canvas.classList.add("is-warming"); }
     }
     return true;
   }
   /* The hidden frames: the loop's two heaviest moments for a few frames each (the costliest pipelines and caches are ready before it
      shows, and the timer has the worst case to settle a tier on), then the moment it shows from. It shows once SMOOTH_FRAME_COUNT
-     frames in a row kept pace and its tier is settled, or gives up for the still when even the lowest tier can't keep pace, or after
-     WARM_LIMIT_MS hidden (never under the tool). Without the timer, the median of the last frames' intervals settles the tier: two
-     tiers down when it's twice the frame interval, one otherwise. */
-  var HEAVY_MOMENTS_SEC = [25, 36], HEAVY_FRAME_COUNT = 4, SMOOTH_FRAME_COUNT = 8, WARM_LIMIT_MS = 4000;
-  var warmFrameCount = 0, momentFrameCount = 0, smoothCount = 0, warmElapsedMs = 0, framesSinceHeavy = 0, isTierSettled = false;
+     frames in a row kept pace and its tier is settled (QUICK_SMOOTH_FRAME_COUNT of its own moment, its tier kept, when it's made
+     again), or gives up for the still when even the lowest tier can't keep pace, or after WARM_LIMIT_MS hidden (never under the
+     tool). Without the timer, the median of the last frames' intervals settles the tier: two tiers down when it's twice the frame
+     interval, one otherwise. */
+  var HEAVY_MOMENTS_SEC = [25, 36], HEAVY_FRAME_COUNT = 4, SMOOTH_FRAME_COUNT = 8, QUICK_SMOOTH_FRAME_COUNT = 3, WARM_LIMIT_MS = 4000;
+  var isQuickWarm = false, warmFrameCount = 0, momentFrameCount = 0, smoothCount = 0, warmElapsedMs = 0, framesSinceHeavy = 0, isTierSettled = false;
   var warmIntervals = new Float64Array(SMOOTH_FRAME_COUNT), sortedIntervals = new Float64Array(SMOOTH_FRAME_COUNT), warmIntervalCount = 0;
-  // The heavy moment a hidden frame shows, or -1 for the moment it will show from (a still for the tool draws only its own).
-  function heavyMomentIndex() { var heavy = Math.floor(warmFrameCount / HEAVY_FRAME_COUNT); return heavy < HEAVY_MOMENTS_SEC.length && !tool.isStill ? heavy : -1; }
+  function beginWarm(isQuick) {
+    isQuickWarm = isQuick; isTierSettled = isQuick;
+    warmFrameCount = 0; momentFrameCount = 0; smoothCount = 0; warmElapsedMs = 0; framesSinceHeavy = 0; warmIntervalCount = 0; warmDrawsPerTick = 0;
+    heavyTimesMs = [[], []]; heavyGpuCount = 0; gpuTimeCount = 0; gpuTimeNext = 0;
+  }
+  // The heavy moment a hidden frame shows, or -1 for the moment it will show from (a still for the tool, and a quick warm, draw only their own).
+  function heavyMomentIndex() { var heavy = Math.floor(warmFrameCount / HEAVY_FRAME_COUNT); return heavy < HEAVY_MOMENTS_SEC.length && !tool.isStill && !isQuickWarm ? heavy : -1; }
   // The heavier moment's GPU time: the median of its frames (one frame can be slow while the GPU wakes up), the larger of the two.
   function heavyGpuMs() {
     var worst = 0;
@@ -1775,7 +1882,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
     if (!window.zaismaCityTool && warmElapsedMs > WARM_LIMIT_MS) { giveUp(); return; }
     // A still for the tool shows as soon as it has drawn its moment: it's never timed, and may be bigger than any screen.
-    if (momentFrameCount >= 2 && (tool.isStill || smoothCount >= SMOOTH_FRAME_COUNT && (isTierSettled || !gpu.timer))) show(now);
+    var smoothNeeded = isQuickWarm ? QUICK_SMOOTH_FRAME_COUNT : SMOOTH_FRAME_COUNT;
+    if (momentFrameCount >= 2 && (tool.isStill || smoothCount >= smoothNeeded && (isTierSettled || !gpu.timer))) show(now);
   }
   function pixelCountAt(index) { var ratio = pixelRatioFor(index); return Math.min(width, Math.floor(cssWidth * ratio)) * Math.min(height, Math.floor(cssHeight * ratio)); }
   function settleTier(now) {
@@ -1786,11 +1894,15 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     }
     if (best !== tierIndex) { tierTo(best, now); smoothCount = 0; }
   }
+  /* It shows: the first time sharpening in out of the placeholder, made again fading in quickly over its snapshot (at the same moment,
+     so it barely changes), a still for the tool at once. Once the fade is over, what's behind it is no longer composited. */
   function show(now) {
-    isShown = true; shownAt = now; setPhase("shown");
-    // A still for the tool shows at once, with no fade.
+    var isBack = hasShown;
+    isShown = true; setPhase("shown"); governFromMs = now + 2000;
+    if (!hasShown) { hasShown = true; shownAt = now; }
     if (tool.isStill) canvas.style.transition = "none";
-    canvas.classList.remove("is-warming"); canvas.classList.add("on");
+    canvas.classList.remove("is-warming", "is-away"); canvas.classList.add(isBack ? "is-back" : "on");
+    markLiveAfter(tool.isStill ? 0 : isBack ? 400 : 1700);
     slowSinceMs = 0; fastSinceMs = 0; resetIntervals();
   }
   function tick(now) {
@@ -1814,17 +1926,30 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     drawnFrameCount++;
     if (!isShown) settleWarm(now, intervalMs, heavySec >= 0);
   }
-  // It runs only while it can be seen: the page showing, and the canvas in view (the gallery's example can scroll away).
+  /* It runs only while it can be seen: the page showing, and the city in view (the gallery's example and Screens' frames can scroll
+     away). Out of sight, the context is given back after a while; back in sight, it's made again. */
   function wake() {
-    var should = (phase === "building" || phase === "warming" || phase === "shown") && !document.hidden && isInView;
+    var isSeenNow = isSeen();
     if (gpu && gpu.timer && document.hidden) dropTimings();
+    clearTimeout(releaseTimer); releaseTimer = 0;
+    if (!isSeenNow && hasContext() && loseExtension && !tool.isStill) releaseTimer = setTimeout(guarded(release), document.hidden ? RELEASE_HIDDEN_MS : RELEASE_OUT_OF_VIEW_MS);
+    if (isSeenNow && (phase === "released" || phase === "lost")) comeBack();
+    var should = (phase === "building" || phase === "warming" || phase === "shown") && isSeenNow;
     if (should === isRunning) return;
     isRunning = should; lastTickMs = 0; lastDrawMs = performance.now();
     if (isRunning) requestTick();
   }
   document.addEventListener("visibilitychange", guarded(wake));
-  if (window.IntersectionObserver) new IntersectionObserver(guarded(function (entries) { isInView = entries[entries.length - 1].isIntersecting; wake(); })).observe(canvas);
+  // The stage, not the canvas, is watched and listened to, so a fresh canvas needs nothing bound again. A context's events don't bubble,
+  // so they're caught on their way down.
+  if (window.IntersectionObserver) new IntersectionObserver(guarded(function (entries) { isInView = entries[entries.length - 1].isIntersecting; wake(); })).observe(stage);
   if (window.ResizeObserver) new ResizeObserver(guarded(resize)).observe(stage); else window.addEventListener("resize", guarded(resize));
+  stage.addEventListener("webglcontextlost", function (event) {
+    if (event.target !== canvas) return;
+    event.preventDefault();
+    if (phase !== "still") lose();
+  }, true);
+  stage.addEventListener("webglcontextrestored", guarded(function (event) { if (event.target === canvas) remake(); }), true);
   // What the governor pays no mind to for a second: typing, a focus moving, and the pane's steps swapping in.
   function quiet() { quietUntilMs = performance.now() + 1000; }
   ["input", "focusin", "keydown"].forEach(function (name) { document.addEventListener(name, quiet, true); });
@@ -1842,36 +1967,38 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   // A mouse plays as it's pressed. A touch plays when it lifts without having moved, so a finger that drags scrolls the page instead.
   var touchStart = null;
-  canvas.addEventListener("pointerdown", guarded(function (event) {
+  stage.addEventListener("pointerdown", guarded(function (event) {
     if (event.pointerType === "mouse") play(event.clientX, event.clientY);
     else touchStart = { x: event.clientX, y: event.clientY, atMs: performance.now() };
   }));
-  canvas.addEventListener("pointerup", guarded(function (event) {
+  stage.addEventListener("pointerup", guarded(function (event) {
     var start = touchStart; touchStart = null;
     if (!start || event.pointerType === "mouse") return;
     if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 10 && performance.now() - start.atMs < 600) play(event.clientX, event.clientY);
   }));
-  canvas.addEventListener("pointercancel", function () { touchStart = null; });
+  stage.addEventListener("pointercancel", function () { touchStart = null; });
   if (window.zaismaCityTool) tool.report = function () {
     return { phase: phase, phaseTimesMs: phaseTimesMs, tierIndex: tierIndex, canvasPx: [canvas.width, canvas.height], vsyncMs: Math.round(vsyncMs * 10) / 10,
       isTimed: Boolean(gpu && gpu.timer), heavyGpuMs: Math.round(heavyGpuMs() * 10) / 10, gpuP95Ms: gpu && gpu.timer ? gpuTimeP95(performance.now()) : null,
-      drawnFrameCount: drawnFrameCount, readyTimesMs: readyTimesMs, cityRowCount: city.count, cityChecksum: cityChecksum() };
+      drawnFrameCount: drawnFrameCount, readyTimesMs: readyTimesMs, cameraSec: Math.round(camTime * 1000) / 1000, lossCount: lossCount, remakeCount: remakeCount, cityRowCount: city.count, cityChecksum: cityChecksum() };
   };
 
   // At once, not after the page's load (the bot check's frame alone can hold that back a second): once the page has painted its
   // placeholder, so building the city never delays the pane. The context, then the programs handed to the driver, then the world built
-  // in slices while they compile.
+  // in slices while they compile (it goes on through a lost context: it needs none).
   function start() {
-    gl = canvas.getContext("webgl2", { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "default", failIfMajorPerformanceCaveat: !window.zaismaCityTool });
+    gl = canvas.getContext("webgl2", CONTEXT_OPTIONS);
     if (!gl) { giveUp(); return; }
+    loseExtension = gl.getExtension("WEBGL_lose_context");
     setPhase("building");
     try { var frame = window.frameElement; if (frame && frame.offsetWidth) shownScale = Math.min(1, frame.getBoundingClientRect().width / frame.offsetWidth); } catch (error) {}
     topTier = tool.isStill ? 0 : small || coarse ? PHONE_TOP_TIER : 0;
     if (!tool.isStill && navigator.deviceMemory && navigator.deviceMemory <= 2) topTier = Math.min(LOWEST_TIER, topTier + 2);
     tierIndex = topTier;
     makeGpu();
+    beginWarm(false);
     wake();
-    whenFree(buildWorld, function () { isWorldBuilt = true; holdFraming(); showFlyerShare(); setPhase("warming"); });
+    whenFree(buildWorld, function () { isWorldBuilt = true; holdFraming(); showFlyerShare(); if (phase === "building") setPhase("warming"); });
   }
   requestAnimationFrame(function () { later(start); });
 })();
@@ -2017,6 +2144,14 @@ const CITY_STYLES = `
 /* While it settles, hidden, it draws at the faintest opacity rather than none, so the browser composites it, and the glass over it,
    as it will once it shows. */
 .city-stage .city.is-warming { opacity: 0.01; transition: none; }
+/* Its context given back while out of sight, or taken by the browser: out of sight at once (its canvas is blank), over the still or a
+   snapshot of its moment (a plain canvas CITY_SCRIPT puts behind it). Made again, it fades back in quickly over that snapshot. */
+.city-stage .city.is-back { transform: none; transition: opacity .35s ease; }
+.city-stage .city.is-away { opacity: 0; transition: none; }
+.city-stage .city-snapshot { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+.city-stage.has-snapshot .city-snapshot { display: block; }
+/* Once the live city has faded in, nothing behind it is composited. */
+.city-stage.is-live .city-still, .city-stage.is-live .city-snapshot { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .city-stage .city-still, .city-stage .city { transition: none; } }
 /* Day for light, night for dark: only the one showing is ever loaded. */
 .city-stage .city-still.is-night { display: none; }
