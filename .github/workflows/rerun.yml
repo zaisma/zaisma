@@ -4,7 +4,7 @@
 # Two ways to start it:
 # - Push a branch named rerun/<anything> whose newest commit message has a line "Rerun: <test files>", or
 #   "Rerun: shard <n>/4" for one shard of GitHub's check exactly as check.yml deals it out. An empty commit on top of
-#   the fix's branch is enough (git commit --allow-empty -m "Rerun: test/rooms/room-load.test.ts"). A line
+#   the fix's branch is enough (git commit --allow-empty -m "Rerun: test/load/room-load.test.ts"). A line
 #   "Rerun count: <n>" changes the number of runs from 50.
 # - From the Actions tab or gh workflow run rerun.yml --ref <branch> -f test_files="..." (once this file is on main).
 #
