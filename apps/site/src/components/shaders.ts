@@ -1338,115 +1338,149 @@ export const STAND_IN_BACKGROUNDS: StandInBackground[] = [
 ];
 
 /** For this round only: candidates for Zaisma's own background, shown on the gallery with ?backdrop=<name> to choose between. */
-export const ZAISMA_SHARDS_SHADER = `
+export const ZAISMA_GLASS_SHADER = `
+float bar(vec2 p, vec2 c, float an, float L, float W, float k, out vec2 nrm) {
+  vec2 u = vec2(cos(an), sin(an)), v = vec2(-u.y, u.x), q = p - c;
+  float a = dot(q, u), b = dot(q, v), side = abs(b) - W, end = (abs(a + k * b) - L) * 0.7071;
+  nrm = side > end ? v * sign(b) : (u + k * v) * 0.7071 * sign(a + k * b);
+  return max(side, end);
+}
 void mainImage(out vec4 o, in vec2 f) {
   vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
   vec2 P = vec2(uv.x * ar, uv.y); float px = 1.5 / iResolution.y;
-  vec2 Ld = vec2(-0.6, 0.8);
-  float gleam = exp(-pow(dot(P, vec2(0.6, 0.4)) - (fract(t * 0.02) * 3.4 - 1.0), 2.0) * 5.0);
-  vec2 off = vec2(0.0); float body = 0.0, hi = 0.0, lo = 0.0, fres = 0.0, line = 0.0;
-  for (int k = 0; k < 6; k++) {
-    float fk = float(k); vec2 hk = fract(vec2(fk * 0.618 + 0.31, fk * 0.4142 + 0.77));
-    float z = fract(fk * 0.63 + 0.25);                                  // depth: 0 far, 1 near
-    vec2 u = normalize(vec2(0.47 + 0.24 * (hk.x - 0.5), 0.88)), v = vec2(-u.y, u.x);
-    vec2 c = vec2(ar * fract(fk * 0.382 + 0.1) + (0.06 + 0.1 * z) * sin(t * (0.012 + 0.02 * z) + fk * 2.1), 0.5 + 0.5 * (hk.y - 0.5));
-    float w = 0.05 + 0.1 * hk.x * (0.4 + 0.6 * z), len = 0.42 + 0.35 * hk.y, sk = 1.2 * (hk.y - 0.5);
-    vec2 q = P - c; float a = dot(q, u), b = dot(q, v);
-    float ea = (abs(a + b * sk) - len) * 0.8, eb = abs(b) - w, sd = max(ea, eb);
-    float cov = smoothstep(px, -px, sd);
-    vec2 nn = eb > ea ? v * sign(b) : u * sign(a + b * sk);
-    float bev = cov * (1.0 - smoothstep(0.0, 0.016 + 0.006 * z, -sd));
-    off += cov * v * 0.035 * (hk.x - 0.4) - nn * bev * 0.03;            // the face shifts what's behind; the rim bends it hard
-    float side = dot(nn, Ld);
-    hi += bev * max(side, 0.0);
-    lo += bev * max(-side, 0.0);
-    line += cov * (1.0 - smoothstep(0.0, px * 1.6, -sd)) * (0.35 + 0.65 * max(side, 0.0));   // the polished edge itself
-    fres += cov * clamp(0.5 + b / w * 0.5, 0.0, 1.0);                    // each face brighter toward its lit side
-    body += cov;
+  float tall = 1.0 - min(ar, 1.0);                                      // phones: keep the bars in the upper half
+  // Two bars, the near one higher (its shadow falls further and softer) and a little out of focus.
+  vec2 c0 = vec2(ar * 0.74 + 0.015 * sin(t * 0.13), 0.68 + 0.08 * tall), c1 = vec2(ar * (0.56 - 0.31 * tall), 0.33 + 0.3 * tall + 0.012 * cos(t * 0.11));
+  float a0 = 0.32 + 0.02 * sin(t * 0.09), a1 = 0.32 + 0.02 * sin(t * 0.08 + 2.0);
+  float sz = 1.0 - 0.8 * tall, sw = 1.0 - 0.3 * tall;                    // shorter on a phone, so their cut ends show
+  vec4 b0 = vec4(0.5 * sz, 0.075 * sw, 1.0, 0.14), b1 = vec4(0.46 * sz, 0.085 * sw, -1.0, 0.07);   // half length, half width, cut direction, height
+  float bw = 0.034; vec2 off = vec2(0.0), nn; float cover = 0.0, cham = 0.0, body = 0.0, across = 1.0; vec3 N = vec3(0.0, 0.0, 1.0);
+  for (int k = 0; k < 2; k++) {
+    vec2 c = k == 0 ? c0 : c1; float an = k == 0 ? a0 : a1; vec4 b = k == 0 ? b0 : b1;
+    float soft = k == 0 ? px + 0.003 : px;
+    float sd = bar(P, c, an, b.x, b.y, b.z, nn);
+    float cov = smoothstep(soft, -soft, sd), s = clamp(-sd / bw, 0.0, 1.0);
+    float lean = (1.0 - smoothstep(0.7, 1.0, s)) * cov;                  // a flat 45-degree chamfer, soft where it meets the top
+    off += -nn * lean * 0.06 + nn * cov * 0.005;
+    if (lean > cham) { cham = lean; across = s; N = normalize(vec3(nn * lean, 1.0)); }
+    body += cov * (1.0 + 0.6 * lean);
+    cover = max(cover, cov);
   }
-  hi = min(hi, 1.0) * (0.65 + 0.7 * gleam); line = min(line, 1.0) * (0.6 + 0.6 * gleam);
-  // The field behind, read where the shards bend the light to: three soft pools of the theme's hints under a light from the top left.
-  vec2 Q = P + off;
-  vec2 qa = Q - vec2(ar * 0.25 + 0.1 * sin(t * 0.03), 0.72), qb = Q - vec2(ar * 0.78, 0.3 + 0.1 * cos(t * 0.025)), qc = Q - vec2(ar * 0.55, 1.05);
-  float wa = exp(-dot(qa, qa) * 3.0), wb = exp(-dot(qb, qb) * 3.0), wc = exp(-dot(qc, qc) * 4.0);
-  float top = clamp(1.0 - 0.35 * length(P - vec2(0.0, 1.0)) / max(ar, 1.0), 0.0, 1.0);
-  // Light theme: pearl, pale blue, teal and violet through clear glass; white lit rims, cool grey far ones.
-  vec3 light = vec3(0.915, 0.934, 0.962) + top * 0.035;
-  light = mix(light, vec3(0.8, 0.86, 0.95), wa * 0.55);
-  light = mix(light, vec3(0.82, 0.92, 0.91), wb * 0.5);
-  light = mix(light, vec3(0.87, 0.85, 0.96), wc * 0.5);
-  light = mix(light, vec3(1.0), min(body, 2.0) * 0.07 + min(fres, 1.0) * 0.12);
-  light = mix(light, vec3(1.0), min(hi, 1.0) * 0.9);
-  light = mix(light, vec3(0.7, 0.75, 0.84), min(lo, 1.0) * 0.45);
-  light = mix(light, vec3(1.0), line);
-  // Dark theme: night blue, teal and violet through smoked glass; moonlit rims.
-  vec3 dark = vec3(0.034, 0.043, 0.064) + top * vec3(0.012, 0.016, 0.024);
-  dark = mix(dark, vec3(0.11, 0.17, 0.28), wa * 0.6);
-  dark = mix(dark, vec3(0.055, 0.17, 0.19), wb * 0.55);
-  dark = mix(dark, vec3(0.14, 0.12, 0.25), wc * 0.5);
-  dark += vec3(0.022, 0.03, 0.048) * min(body, 2.0) + vec3(0.03, 0.04, 0.06) * min(fres, 1.0);
-  dark = mix(dark, vec3(0.5, 0.58, 0.72), min(hi, 1.0) * 0.62);
-  dark = mix(dark, vec3(0.01, 0.012, 0.02), min(lo, 1.0) * 0.6);
-  dark = mix(dark, vec3(0.72, 0.8, 0.94), line * 0.75);
-  o = vec4(mix(light, dark, iDark), 1.0);
+  // The sun: from the top left, swinging, so shadows lean away toward the bottom right.
+  float sa = -0.75 + 0.3 * sin(t * 0.2); vec2 Lsh = vec2(cos(sa), sin(sa));
+  vec2 Q = P + off;                                                     // the surface point seen here, through any glass
+  float shade = 0.0, inside = 0.0; vec3 caus = vec3(0.0);
+  for (int k = 0; k < 2; k++) {
+    vec2 c = k == 0 ? c0 : c1; float an = k == 0 ? a0 : a1; vec4 b = k == 0 ? b0 : b1;
+    float pen = 0.006 + 0.1 * b.w;
+    float sd = bar(Q - Lsh * b.w, c, an, b.x, b.y, b.z, nn);
+    inside = max(inside, smoothstep(pen, -pen, sd));
+    shade += exp(-pow((sd + bw * 0.5) / (bw * 0.5 + pen), 2.0));             // the chamfers throw their light elsewhere...
+    vec3 dc = sd + bw * 1.3 + vec3(-0.003, 0.0, 0.003) * (1.0 + 6.0 * b.w);  // ...into a bright line just inside, split a little
+    caus += exp(-dc * dc / pow(0.008 + 0.35 * pen, 2.0)) * (0.65 + 0.35 * sin(dot(Q, nn.yx) * 8.0 - t * 0.5 + float(k) * 2.0));
+  }
+  shade = min(shade, 1.0); caus = min(caus, vec3(1.2));
+  // A soft box overhead, gliding, mirrored in the glass (more on the chamfers: Fresnel).
+  vec3 R = vec3(2.0 * N.z * N.xy, 2.0 * N.z * N.z - 1.0);
+  vec2 hit = P + R.xy * 0.9 - vec2(ar * (0.66 + 0.3 * sin(t * 0.15)), 0.56 + 0.1 * cos(t * 0.11));
+  float box = smoothstep(0.38, 0.06, length(hit * vec2(0.55, 1.0)));
+  float fres = 0.06 + 0.5 * (1.0 - N.z);
+  float facing = dot(normalize(N.xy + 0.0001), -Lsh) * cham;          // a chamfer turned to the sun, or away from it
+  float lit = max(facing, 0.0), away = max(-facing, 0.0);
+  float streak = lit * exp(-pow((across - 0.3) / 0.22, 2.0));          // the sun's soft streak along a lit chamfer
+  float pool = exp(-dot(Q - vec2(-0.2, 1.25), Q - vec2(-0.2, 1.25)) * 0.22);
+  // Light theme: a pearl surface under a soft sun; shadows tinted pale teal, caustics white with a faint spectrum.
+  vec3 lg = mix(vec3(0.86, 0.885, 0.925), vec3(0.975, 0.978, 0.988), pool);
+  lg *= mix(vec3(1.0), vec3(0.88, 0.935, 0.96), inside) * (1.0 - 0.2 * shade * inside);
+  lg += vec3(1.0, 0.97, 0.93) * caus * 0.2;
+  vec3 light = lg * mix(vec3(1.0), vec3(0.94, 0.97, 0.985), min(body, 1.5));
+  light *= mix(vec3(1.0), vec3(0.8, 0.85, 0.91), away * 0.8);
+  light = mix(light, vec3(1.0), clamp(fres * box * 4.0 + lit * 0.3 + streak * 0.6, 0.0, 0.94) * cover);
+  // Dark theme: a graphite surface under moonlight; shadows deep night blue, caustics cool.
+  vec3 dg = mix(vec3(0.035, 0.042, 0.058), vec3(0.15, 0.17, 0.215), pool);
+  dg *= mix(vec3(1.0), vec3(0.8, 0.88, 1.0), inside) * (1.0 - 0.55 * shade * inside);
+  dg += vec3(0.6, 0.72, 0.95) * mix(vec3(dot(caus, vec3(0.333))), caus, 0.35) * 0.32;
+  vec3 dark = dg * mix(vec3(1.0), vec3(0.85, 0.92, 1.0), min(body, 1.5));
+  dark *= 1.0 - away * 0.5;
+  dark += vec3(0.1, 0.13, 0.19) * cham * (0.3 + 0.7 * lit) * cover;    // light carried along inside the glass to its chamfers
+  dark += vec3(0.62, 0.68, 0.8) * clamp(fres * box * 3.0 + lit * 0.12 + streak * 0.6, 0.0, 0.85) * cover;
+  vec3 col = mix(light, dark, iDark) + (h2(f) - 0.5) / 255.0;        // a still dither against banding
+  o = vec4(col, 1.0);
 }
 `;
 
-export const ZAISMA_METAL_SHADER = `
-float cutLine(vec2 P, vec2 c, float an, inout float id, inout float best, inout vec2 bn, float bit) {
-  vec2 n = vec2(-sin(an), cos(an)); float d = dot(P - c, n);
-  id += step(0.0, d) * bit;
-  if (abs(d) < best) { best = abs(d); bn = n * sign(d); }
-  return d;
-}
+export const ZAISMA_CRYSTAL_SHADER = `
 void mainImage(out vec4 o, in vec2 f) {
   vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
   vec2 P = vec2(uv.x * ar, uv.y); float px = 1.5 / iResolution.y;
-  float id = 0.0, best = 9.0; vec2 bn = vec2(0.0, 1.0);
-  cutLine(P, vec2(ar * 0.55, 0.5), 0.86, id, best, bn, 1.0);
-  cutLine(P, vec2(ar * 0.3, 0.18), 0.38, id, best, bn, 2.0);
-  cutLine(P, vec2(ar * 0.78, 0.8), 0.38, id, best, bn, 4.0);
-  cutLine(P, vec2(ar * 0.12, 0.72), -0.52, id, best, bn, 8.0);
-  cutLine(P, vec2(ar * 0.92, 0.3), 1.3, id, best, bn, 16.0);
-  // The light: from the top left, swinging slowly; each plane leans its own way.
-  float a = 2.3 + 0.45 * sin(t * 0.04);
-  vec3 L = normalize(vec3(cos(a), sin(a), 1.3));
-  vec2 hp = h22(vec2(id, id * 0.37 + 1.0)), tilt = (hp - 0.5) * 0.32;
-  float face = dot(normalize(vec3(tilt, 1.0)), L);
-  // The bevel: a band along the nearest cut leaning out 45 degrees; across the cut the neighbour leans back.
-  float bw = 0.012, inB = 1.0 - smoothstep(bw - px, bw + px, best);
-  float sb = dot(normalize(vec3(bn, 1.0)), L);
-  float bevel = mix(dot(normalize(vec3(-bn, 1.0)), L) * 0.5 + sb * 0.5, sb, smoothstep(0.0, px, best));
-  float edge = clamp((bevel - face) * 2.4, -1.0, 1.0) * inB;
-  // Satin: brushed along the long cut, a soft sheen sliding along each plane at its own lean, a studio light from the top left.
-  vec2 u = vec2(cos(0.86), sin(0.86)), w = vec2(u.y, -u.x);
-  float sheen = exp(-pow(dot(P, w) * 0.9 + tilt.x * 1.6 - (fract(t * 0.014) * 3.2 - 1.6), 2.0) * 3.5);
-  float grain = noise(vec2(dot(P, u) * iResolution.y * 0.01, dot(P, w) * iResolution.y * 0.22)) - 0.5;
-  float studio = exp(-dot(P - vec2(-0.1, 1.15), P - vec2(-0.1, 1.15)) * 0.35);
-  float lit = min(max(edge, 0.0) * (0.7 + 0.8 * sheen), 1.0), shadow = max(-edge, 0.0);
-  // Each plane mirrors a hint: mostly pale blue (night blue on dark), sometimes teal or violet.
-  float hue = h1(id * 1.37 + 0.2);
-  vec3 hint = hue < 0.5 ? vec3(0.725, 0.796, 0.902) : (hue < 0.75 ? vec3(0.753, 0.863, 0.859) : vec3(0.824, 0.796, 0.918));
-  vec3 hintD = hue < 0.5 ? vec3(0.11, 0.173, 0.286) : (hue < 0.75 ? vec3(0.055, 0.18, 0.204) : vec3(0.141, 0.118, 0.247));
-  // Light theme: satin pearl planes, white lit bevels, cool grey turned-away ones.
-  vec3 light = mix(vec3(0.86, 0.875, 0.905), vec3(0.975, 0.98, 0.99), studio);
-  light = mix(light, hint, 0.12 + 0.1 * hp.y);
-  light *= 1.0 + (face - 0.8) * 0.5 + grain * 0.012;
-  light += vec3(1.0, 0.99, 0.97) * sheen * 0.06;
-  light = mix(light, vec3(1.0), lit);
-  light = mix(light, vec3(0.64, 0.68, 0.77), shadow * 0.55);
-  // Dark theme: graphite planes under moonlight, silver-blue lit bevels, near-black turned-away ones.
-  vec3 dark = mix(vec3(0.04, 0.045, 0.058), vec3(0.14, 0.155, 0.19), studio);
-  dark = mix(dark, hintD, 0.14 + 0.12 * hp.y);
-  dark *= 0.95 + (face - 0.8) * 2.0 + grain * 0.05;
-  dark += vec3(0.5, 0.6, 0.85) * sheen * 0.06;
-  dark = mix(dark, vec3(0.56, 0.62, 0.75), lit * 0.85);
-  dark = mix(dark, vec3(0.008, 0.01, 0.014), shadow * 0.75);
-  o = vec4(mix(light, dark, iDark), 1.0);
+  // Facets: nearest and second-nearest sites of a sheet drifting slowly; the crease is the line halfway between them.
+  float sc = 1.55 * inversesqrt(min(ar, 1.0)); vec2 p = P * sc + vec2(0.012, 0.005) * t, g = floor(p), fr = fract(p);
+  float d1 = 8.0, d2 = 8.0; vec2 r1 = vec2(0.0), r2 = vec2(1.0), c1 = vec2(0.0), c2 = vec2(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 c = vec2(float(i), float(j)), h = h22(g + c);
+    vec2 r = c + 0.18 + 0.64 * h - fr; float d = dot(r, r);
+    if (d < d1) { d2 = d1; r2 = r1; c2 = c1; d1 = d; r1 = r; c1 = g + c; } else if (d < d2) { d2 = d; r2 = r; c2 = g + c; }
+  }
+  vec2 n = normalize(r2 - r1); float edge = dot(0.5 * (r1 + r2), n) / sc;
+  // Each facet leans; right at the crease the two leans meet over a couple of pixels.
+  vec2 s1 = (h22(c1 * 1.7 + 3.1) - 0.5) * 0.9, s2 = (h22(c2 * 1.7 + 3.1) - 0.5) * 0.9;
+  vec2 slope = mix(0.5 * (s1 + s2), s1, smoothstep(0.0, 1.5 * px, edge));
+  vec3 N = normalize(vec3(-slope, 1.0));
+  // Refraction: the field is seen shifted against the lean, blue a little further than red.
+  vec2 off = -slope * 0.2;
+  vec2 qR = P + off * 0.9, qG = P + off, qB = P + off * 1.12;
+  // Bars of window light on the Z's diagonal, a wide one and a narrow one in each 0.9 of height, sliding slowly (each colour at its own shift).
+  vec2 wd = vec2(0.66, -0.75);
+  vec3 wx = fract((vec3(dot(qR, wd), dot(qG, wd), dot(qB, wd)) - t * 0.03) / 0.9) * 0.9;
+  vec3 win = smoothstep(0.0, 0.02, wx) * smoothstep(0.24, 0.21, wx) + 0.6 * smoothstep(0.31, 0.325, wx) * smoothstep(0.39, 0.375, wx);
+  // The nodes: small orange diamonds wandering, their glow read through the crystal.
+  vec3 orange = vec3(0.969, 0.576, 0.102);
+  vec3 glow = vec3(0.0); float core = 0.0;
+  for (int k = 0; k < 4; k++) {
+    float fk = float(k); vec2 hk = fract(vec2(fk * 0.618 + 0.23, fk * 0.382 + 0.61)); float sp = 0.04 + 0.04 * hk.x;
+    vec2 c = vec2(ar * (0.5 + 0.42 * sin(t * sp + 6.2831 * hk.y)), 0.5 + 0.38 * cos(t * sp * 0.83 + 6.2831 * hk.x));
+    float dg = length(qG - c);
+    glow += exp(-vec3(length(qR - c), dg, length(qB - c)) * 34.0) + 0.18 * exp(-dg * 9.0);
+    vec2 q = qG - c; core = max(core, smoothstep(0.011 + px, 0.011 - px, abs(q.x) + abs(q.y)));
+  }
+  vec2 qa = qG - vec2(ar * 0.15, 0.9), qb = qG - vec2(ar * 0.9, 0.15);
+  float wa = exp(-dot(qa, qa) * 2.0), wb = exp(-dot(qb, qb) * 2.0);
+  // The studio light: a large soft box above the top left, swinging; facets leaning toward it mirror it, more at a slant (Fresnel).
+  float a = 2.3 + 0.8 * sin(t * 0.12);
+  vec3 Ls = normalize(vec3(cos(a) * 0.5, sin(a) * 0.5, 0.87));
+  vec3 R = vec3(2.0 * N.z * N.xy, 2.0 * N.z * N.z - 1.0);
+  float box = smoothstep(0.86, 0.995, dot(R, Ls));
+  float fres = 0.05 + 0.7 * (1.0 - N.z);
+  float sky = clamp(dot(N.xy, normalize(Ls.xy)) * 2.5, -1.0, 1.0);      // facets turned toward the light catch more of the room
+  float crease = smoothstep(4.0 * px, 0.0, edge);                       // a soft shadowed line where two facets meet
+  // ...and a glint gliding along the creases that face the light, a few pixels wide.
+  float glint = exp(-edge / (2.5 * px)) * pow(abs(dot(n, normalize(Ls.xy))), 6.0) * exp(-pow(dot(P, vec2(0.8, 0.6)) - (fract(t * 0.05) * (ar + 2.3) - 0.9), 2.0) * 10.0);
+  // Light theme: pearl field, the window light white, faintly cool crystal.
+  vec3 lf = vec3(0.9, 0.915, 0.945);
+  lf = mix(lf, vec3(0.82, 0.86, 0.94), wa * 0.5);
+  lf = mix(lf, vec3(0.86, 0.84, 0.94), wb * 0.45);
+  lf = mix(lf, vec3(1.0, 0.995, 0.985), min(win, vec3(1.0)) * 0.9);
+  lf = mix(lf, orange, min(glow * 0.6, vec3(0.9)));
+  lf = mix(lf, vec3(1.0, 0.76, 0.42), core);
+  vec3 light = lf * (0.95 + 0.08 * sky) * mix(vec3(1.0), vec3(0.92, 0.95, 0.99), length(slope));
+  light = mix(light, vec3(1.0), clamp(fres * box * 2.2 + glint * 0.8, 0.0, 0.85));
+  // Dark theme: graphite and night-blue field, moonlit window bars, the nodes glowing through smoky crystal.
+  vec3 df = vec3(0.03, 0.037, 0.054);
+  df = mix(df, vec3(0.08, 0.12, 0.22), wa * 0.6);
+  df = mix(df, vec3(0.11, 0.09, 0.2), wb * 0.55);
+  df += vec3(0.1, 0.125, 0.175) * min(win, vec3(1.0));
+  df += orange * glow;
+  df = mix(df, vec3(1.0, 0.8, 0.5), core);
+  vec3 dark = df * (0.92 + 0.12 * sky) * mix(vec3(1.0), vec3(0.8, 0.88, 1.0), length(slope));
+  dark += vec3(0.34, 0.4, 0.54) * clamp(fres * box * 1.8, 0.0, 0.6);
+  dark *= 1.0 - 0.12 * crease;
+  dark += vec3(0.5, 0.58, 0.75) * glint * 0.6;
+  vec3 col = mix(light, dark, iDark) + (h2(f) - 0.5) / 255.0;        // a still dither against banding
+  o = vec4(col, 1.0);
 }
 `;
 
-export const ZAISMA_CANDIDATE_SHADERS: Record<string, string> = { shards: ZAISMA_SHARDS_SHADER, metal: ZAISMA_METAL_SHADER };
+export const ZAISMA_CANDIDATE_SHADERS: Record<string, string> = { glass: ZAISMA_GLASS_SHADER, crystal: ZAISMA_CRYSTAL_SHADER };
 
 /** The glass pass runners wrap round every shader: kept in core, so the game domain's runner and the shader check compile the same thing. */
 export { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "@zaisma/core";
