@@ -607,8 +607,8 @@ export interface LayoutOptions {
 export function layout(env: Env, options: LayoutOptions): Response {
   const sheet = options.isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
-  const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#EEF2F7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#0D1015" : "#EEF2F7"}">`;
+  const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const page = html`<!doctype html>
 <html lang="en" data-theme-choice="${colorTheme}">
 <head>

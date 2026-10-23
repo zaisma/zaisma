@@ -1,7 +1,8 @@
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { ICONS, MARK, WORDMARK, icon, type IconName } from "./icons.ts";
-import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DRIFT_SHADER, STARWARD_SHADER } from "./shaders.ts";
+import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
+import { pageScript, type PageScript } from "../page-scripts.ts";
 
 /*
  * The foundations of Zaisma's look: the tokens every component takes its colors from (tokens.ts), the glass and its
@@ -289,8 +290,8 @@ export function pageSettingsAttributes(settings: PageSettings): Raw {
 }
 
 /** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */
-const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; cards: [string, string][] }) =>
-  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader, isGlassAdaptive: Boolean(options.shader) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
+const lightFrame = (options: { standInSlug?: string; theme?: "light" | "dark"; cards: [string, string][] }) =>
+  html`<div class="backdrop-frame is-tall"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, standInSlug: options.standInSlug, isGlassAdaptive: Boolean(options.standInSlug) })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
 
@@ -346,7 +347,7 @@ component({
     },
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
-    { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ shader: NEON_DRIFT_SHADER, cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
+    { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ standInSlug: "neon-drift", cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
     {
       label: "Thin to thick",
       isWide: true,
@@ -364,30 +365,61 @@ export interface BackdropOptions {
   isScene?: boolean;
   /** Fills its own box (position: relative) instead of the window: for a backdrop shown inside something, like the gallery's examples. */
   isFramed?: boolean;
+  /**
+   * A stand-in game's background (STAND_IN_BACKGROUNDS), by its slug, instead of a fragmentShader: too long to write into a page, it
+   * comes from STAND_IN_BACKGROUNDS_SCRIPT, a cached file the page loads as well.
+   */
+  standInSlug?: string;
 }
 
 /** What's behind the glass on a page: the first thing in the page's body or stage, under everything else. */
 export function backdrop(options: BackdropOptions = {}): Raw {
-  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
+  if (options.standInSlug && !STAND_IN_BACKGROUNDS.some((background) => background.slug === options.standInSlug)) throw new Error(`No stand-in background is called ${options.standInSlug}`);
+  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
+
+/**
+ * The stand-in games' backgrounds for a page that shows them (backdrop's standInSlug): each one's shader written onto its canvas, which
+ * the backdrop then draws. It may run before or after the backdrop script, which leaves a stand-in canvas alone until it has its shader.
+ */
+export const STAND_IN_BACKGROUNDS_SCRIPT: PageScript = pageScript("stand-in-backgrounds", `/* stand-in backgrounds */(function () {
+  var SHADERS = ${JSON.stringify(Object.fromEntries(STAND_IN_BACKGROUNDS.map((background) => [background.slug, background.shader])))};
+  document.querySelectorAll("canvas[data-backdrop-stand-in]:not([data-backdrop-shader])").forEach(function (canvas) {
+    var slug = canvas.getAttribute("data-backdrop-stand-in");
+    if (!Object.prototype.hasOwnProperty.call(SHADERS, slug)) return;
+    canvas.setAttribute("data-backdrop-shader", SHADERS[slug]);
+    if (window.zaismaBackdrop) window.zaismaBackdrop.add(canvas);
+  });
+})();
+`);
 
 const backdropFrame = (layer: Raw, title = "Glass", note = "Always over something.") =>
   html`<div class="backdrop-frame">${layer}<div class="glass" data-glass data-glass-corners="pane"><strong>${title}</strong><span>${note}</span></div></div>`;
+
+export interface GameBackgroundFrameOptions {
+  /** The stand-in world it shows (STAND_IN_BACKGROUNDS in shaders.ts). */
+  standInSlug: string;
+  /** The game's name, on the glass over it. */
+  title: string;
+  /** A few words under the name: its kind of game. */
+  note: string;
+}
+
+/** A game's world in a frame, a piece of glass over it naming the game: the gallery's examples and the background guide's. */
+export function gameBackgroundFrame(options: GameBackgroundFrameOptions): Raw {
+  return backdropFrame(backdrop({ isFramed: true, standInSlug: options.standInSlug, isGlassAdaptive: true }), options.title, options.note);
+}
 
 component({
   name: "Backdrop",
   slug: "backdrop",
   group: "foundations",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, glass facets with orange nodes wandering over them, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
 .backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; background: ${BACKDROP_STILL}; }
 .backdrop.is-framed { position: absolute; }
-/* A shader that lost its drawing context (the browser keeps only so many) hides until it's drawn again, never showing the browser's broken
-   canvas; what holds it shows the same still meanwhile, so glass is never over nothing. */
-.backdrop.is-lost { visibility: hidden; }
-:has(> .backdrop.is-lost) { background: ${BACKDROP_STILL}; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -404,7 +436,7 @@ component({
 `,
   render: backdrop,
   examples: [
-    { label: "Zaisma's own: behind every page, pearl on light and graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "Zaisma's own: behind every page, warm gray on light and warm graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
@@ -425,11 +457,21 @@ component({
     { label: "Simple: a dusk sky whose horizon breathes", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: DUSK_SHADER, isGlassAdaptive: true }), "Dusk", "Four lines.") },
     { label: "Simple, with noise: clouds drifting", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true }), "Clouds", "fbm, from the helpers.") },
     { label: "The dusk sky's whole source", markup: html`<pre class="shader-code" data-fades-sideways>${DUSK_SHADER.trim()}</pre>`, isWide: true },
-    { label: "Complex: a city at night in the rain", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: NEON_DRIFT_SHADER, isGlassAdaptive: true }), "Neon Drift", "Skyline, neon windows, rain.") },
-    { label: "Complex: an aurora over snowy peaks", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: FROSTLINE_SHADER, isGlassAdaptive: true }), "Frostline", "Aurora, stars, falling snow.") },
-    { label: "Complex: a nebula and a ringed planet", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: STARWARD_SHADER, isGlassAdaptive: true }), "Starward", "Nebula, twinkling stars, a planet.") },
-    { label: "Complex: embers rising from a volcano", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: EMBERFALL_SHADER, isGlassAdaptive: true }), "Emberfall", "Lava, a lit ridge, embers.") },
+    { label: "Complex: a whole city in the rain, as a game's own (Game background has more)", markup: backdropFrame(backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true }), "Neon Drift", "Skyway, neon city, rain.") },
   ],
+});
+
+component({
+  name: "Game background",
+  slug: "game-background",
+  group: "foundations",
+  summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
+  styles: "",
+  render: gameBackgroundFrame,
+  examples: STAND_IN_BACKGROUNDS.map((background) => ({
+    label: `${background.genre}: ${background.summary}`,
+    markup: gameBackgroundFrame({ standInSlug: background.slug, title: background.title, note: background.genre }),
+  })),
 });
 
 component({

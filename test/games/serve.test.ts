@@ -660,8 +660,14 @@ describe("resolveGame", () => {
 describe("a game's background", () => {
   const SOURCE = "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(fragCoord / iResolution.xy, 0.5, 1.0); }";
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM game_access_passes; DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
+
+  /** A picture of the game's: a shader texture unless kind says otherwise. */
+  async function addImage(gameId: string, id: string, kind = "shader_texture", reviewStatus = "approved") {
+    await env.DB.prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, 'image/png', 64, 64, 4, ?, 0)").bind(id, gameId, kind, reviewStatus).run();
+    await env.GAMES.put(`images/${gameId}/${id}`, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  }
 
   /** A live game showing an approved shader on wide screens. */
   async function gameWithShader(slug: string, status = "live") {
@@ -680,7 +686,8 @@ describe("a game's background", () => {
     expect(runner.status).toBe(200);
     expect(runner.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
     const page = await runner.text();
-    expect(page).toContain("_zaisma/background.glsl?screen=wide&shader=shader_sky");
+    expect(page).toContain("_zaisma/background.json?screen=wide&shader=shader_sky");
+    expect(page).toContain('getContext("webgl2"');
     expect(page).not.toContain("relay.js");
     expect(page).not.toContain("picture.js");
     const source = await SELF.fetch(`${G}/sky/_zaisma/background.glsl?screen=wide`);
@@ -689,6 +696,41 @@ describe("a game's background", () => {
     const still = await SELF.fetch(`${G}/sky/_zaisma/background-still.png?screen=wide`);
     expect(still.headers.get("content-type")).toBe("image/png");
     await still.arrayBuffer();
+  });
+
+  it("serves the shader's manifest: the one sent, or a single pass made from its source for one sent before buffers", async () => {
+    const id = await gameWithShader("sky");
+    const single = await SELF.fetch(`${G}/sky/_zaisma/background.json?screen=wide`);
+    expect(single.headers.get("content-type")).toContain("application/json");
+    expect(single.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(await single.json()).toEqual({ image: { source: SOURCE, channels: [] }, buffers: [] });
+    const manifest = { image: { source: SOURCE, channels: [{ channel_index: 0, input_kind: "buffer", buffer_name: "a", image_id: null, filter: "linear", wrap: "clamp" }] }, buffers: [{ buffer_name: "a", source: SOURCE, channels: [] }] };
+    await env.GAMES.put(`shaders/${id}/shader_sky.json`, JSON.stringify(manifest));
+    expect(await (await SELF.fetch(`${G}/sky/_zaisma/background.json?screen=wide`)).json()).toEqual(manifest);
+  });
+
+  it("serves only the game's own approved shader textures, cached, and only while players can see the game", async () => {
+    const id = await gameWithShader("sky");
+    await addImage(id, "image_noise");
+    const texture = await SELF.fetch(`${G}/sky/_zaisma/background-texture?image=image_noise`);
+    expect(texture.status).toBe(200);
+    expect(texture.headers.get("content-type")).toBe("image/png");
+    expect(texture.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(texture.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
+    expect(new Uint8Array(await texture.arrayBuffer())).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    // Waiting for a person, another kind of picture, another game's, or none at all: nothing.
+    await addImage(id, "image_waiting", "shader_texture", "pending");
+    await addImage(id, "image_cover", "cover");
+    const otherId = await gameWithShader("other");
+    await addImage(otherId, "image_theirs");
+    for (const imageId of ["image_waiting", "image_cover", "image_theirs", "image_missing", ""]) {
+      const refused = await SELF.fetch(`${G}/sky/_zaisma/background-texture?image=${imageId}`);
+      expect(refused.status).toBe(404);
+      await refused.arrayBuffer();
+    }
+    // The game hidden from players: its textures go with it.
+    await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE id = ?").bind(id).run();
+    expect((await SELF.fetch(`${G}/sky/_zaisma/background-texture?image=image_noise`)).status).toBe(404);
   });
 
   it("follows wide on phones, and has nothing for a screen with no shader or a game players can't see", async () => {
@@ -713,6 +755,8 @@ describe("a game's background", () => {
     expect(page).toContain('"isPreview":true');
     expect(page).toContain('"site":"https://zaisma.test"');
     expect(page).toContain("event.origin !== config.site");
+    expect(page).toContain("message.manifest");
+    expect(page).toContain("message.qualityLevel");
     expect(preview.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
   });
 });

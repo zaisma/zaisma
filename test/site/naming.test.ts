@@ -64,6 +64,10 @@ describe("the naming check itself", () => {
       }),
     ).toEqual([]);
     expect(inputs({ confirm: { type: "boolean" }, undo: { type: "boolean" } })).toEqual([]);
+    // A place in a list from 0, and a step on a fixed scale with its values listed.
+    expect(answers({ channel_index: { type: "integer", minimum: 0 }, quality_level: { type: "integer", enum: [0, 1, 2] } })).toEqual([]);
+    expect(answers({ quality_level: { type: "integer" } }).join()).toContain("a number ends in");
+    expect(answers({ channel_index: { type: "number" } }).join()).toContain("a number ends in");
     // Plurals without an s, and a list sent in a format.
     expect(answers({ people: { type: "array", items: { type: "string" } }, media: { type: "array", items: { type: "string" } } })).toEqual([]);
     expect(inputs({ images_base64: { type: "array", items: { type: "string" } } })).toEqual([]);

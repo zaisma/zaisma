@@ -114,7 +114,8 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "PATCH /games/:slug": () => ({ body: { description: "Hop higher." } }),
   "POST /games/:slug/images": () => ({ query: { kind: "cover" }, bytes: png(1280, 720) }),
   "DELETE /games/:slug/images/:image_id": () => ({}),
-  "POST /games/:slug/shaders": () => ({ query: { screen: "wide" }, bytes: text("void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }") }),
+  "POST /games/:slug/shaders": () => ({ body: { screen: "wide", image: { source: "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }" } } }),
+  "POST /games/:slug/shader-checks": () => ({ body: { screen: "wide", image: { source: "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }" } } }),
   "DELETE /games/:slug/shaders/:shader_id": () => ({}),
   "PUT /games/:slug/backgrounds/:screen": (world) => ({ body: { source: "shader", shader_id: world.values.shader_id } }),
   "POST /check": (world) => ({ body: { files: [{ path: "index.html", size_bytes: 15, content_text: "<!doctype html>" }], slug: world.values.slug } }),
@@ -221,6 +222,7 @@ const UNLOGGED_CHANGES: Record<string, string> = {
   "PUT /files/:sha256/parts/:part_number": "A piece of an upload: the version is the event.",
   "POST /files/:sha256/parts/done": "A piece of an upload: the version is the event.",
   "POST /webhooks/:webhook_id/test": "Changes nothing.",
+  "POST /games/:slug/shader-checks": "Changes nothing of the game's: it draws the shader and keeps only a sheet picture for a day.",
 };
 /** Reads that are logged: what a player saved, and the whole database. */
 const LOGGED_READS = ["GET /games/:slug/export/download", "GET /games/:slug/database/export", "GET /games/:slug/saves/:player_id", "GET /games/:slug/saves/:player_id/copies/:save_copy_id"];
@@ -314,9 +316,9 @@ async function makeWorld(): Promise<World> {
   await env.DB.prepare("UPDATE versions SET scan_status = 'approved', preview_link_key = ? WHERE id = ?").bind(`preview${n}`, versionId).run();
   const image = await addImage(env.DB, { id: newId("image"), game_id: game.id, kind: "cover", content_type: "image/png", width_px: 1280, height_px: 720, size_bytes: 64 });
   await env.GAMES.put(imageKey(image), png(1280, 720));
-  const shader = await addShader(env.DB, { id: newId("shader"), game_id: game.id, screen: "wide", size_bytes: 80 });
+  const shader = await addShader(env.DB, { id: newId("shader"), game_id: game.id, screen: "wide", size_bytes: 80, buffer_count: 0, texture_count: 0 });
   await env.GAMES.put(shaderKey(game.id, shader.id), "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }");
-  await settleShader(env.DB, shader, null, 20, 0);
+  await settleShader(env.DB, shader, null, [{ quality_level: 0, check_frame_ms: 20, maximum_check_frame_ms: 75 }], 0);
   const tester = await addTesterLink(env.DB, game.id, "Playtesters");
   expect(await env.GAME_SECRETS!.set(game.id, "API_TOKEN", `secret ${n}`, nowMs)).toHaveProperty("secret");
   // A room its game server kept.
@@ -699,7 +701,8 @@ describe("every call", () => {
     expect((await eventCount()) - eventCountBefore, isLogged(apiRoute) ? `${routeName} changed something and wrote no security event: log it with logCallerEvent, or add it to UNLOGGED_CHANGES with why.` : `${routeName} wrote a security event it shouldn't`).toBe(isLogged(apiRoute) ? 1 : 0);
     // A call that reaches or names something of the developer's refused someone.
     if (ownsSomething(apiRoute) || Object.values(allInputs(apiRoute)).some((input) => input.kind === "names")) expect(refusals.length, routeName).toBeGreaterThan(0);
-  });
+    // A shader check draws the shader in the test's headless Chromium when it goes through, seconds on a CI runner.
+  }, 60_000);
 });
 
 /** The developer's values for the parts that own something (their game, webhook, sign-in app, private topic), over an example's own. */

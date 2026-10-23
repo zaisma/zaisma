@@ -68,12 +68,22 @@ interface GameAlertJson {
 }
 interface ImageJson {
   id: string;
-  kind: "cover" | "square" | "screenshot" | "share" | "background" | "phone_background";
+  kind: "cover" | "square" | "screenshot" | "share" | "background" | "phone_background" | "shader_texture";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
   listing_reason: ReviewReasonJson | null;
+  size_bytes: number;
   image_url: string;
   created_at: string;
+}
+/** One of a shader pass's channels (apps/site/src/schemas.ts, SHADER_CHANNEL). */
+interface ShaderChannelJson {
+  channel_index: number;
+  input_kind: "buffer" | "texture";
+  buffer_name: "a" | "b" | "c" | "d" | null;
+  image_id: string | null;
+  filter: "linear" | "nearest";
+  wrap: "clamp" | "repeat";
 }
 /** A background shader, and what each screen shows (apps/site/src/schemas.ts, SHADER and BACKGROUND). */
 interface ShaderJson {
@@ -81,11 +91,16 @@ interface ShaderJson {
   screen: "wide" | "phone";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
-  check_frame_ms: number | null;
+  quality_checks: { quality_level: number; check_frame_ms: number; maximum_check_frame_ms: number }[];
+  has_quality_levels: boolean;
   flash_count: number | null;
   still_url: string | null;
   frame_urls: string[];
-  source_url: string;
+  image: { source_url: string; channels: ShaderChannelJson[] };
+  buffers: { buffer_name: "a" | "b" | "c" | "d"; source_url: string; channels: ShaderChannelJson[] }[];
+  buffer_count: number;
+  texture_count: number;
+  texture_image_ids: string[];
   created_at: string;
 }
 interface BackgroundJson {
@@ -285,7 +300,8 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const screen = field("screen") === "phone" ? "phone" : "wide";
       const bytes = new Uint8Array(await file.arrayBuffer());
       // A shader is text; anything else is sent as a picture, and the API says what it isn't.
-      if (/\.(glsl|frag|txt)$/i.test(file.name) || file.type.startsWith("text/")) await call("POST", `/games/${slug}/shaders?screen=${screen}`, bytes);
+      // A one-pass shader file is its image pass.
+      if (/\.(glsl|frag|txt)$/i.test(file.name) || file.type.startsWith("text/")) await call("POST", `/games/${slug}/shaders`, { screen, image: { source: new TextDecoder().decode(bytes) } });
       else await call("POST", `/games/${slug}/images?kind=${screen === "phone" ? "phone_background" : "background"}`, bytes);
       return back("details", "background-sent", "#background");
     }
@@ -1046,8 +1062,9 @@ ${mode("online", "Online multiplayer", "Each on their own device. Leave the most
 </fieldset>`;
 }
 
-const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot", share: "Share picture", background: "Background", phone_background: "Phone background" };
-const BACKGROUND_KINDS: ImageJson["kind"][] = ["background", "phone_background"];
+const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot", share: "Share picture", background: "Background", phone_background: "Phone background", shader_texture: "Shader texture" };
+/** Pictures the Background section shows, not Cover and screenshots: backgrounds, and the textures shaders read. */
+const BACKGROUND_KINDS: ImageJson["kind"][] = ["background", "phone_background", "shader_texture"];
 
 /**
  * Why Zaisma held, rejected or took something down: the reason in plain words, the content rule it's
@@ -1130,10 +1147,13 @@ const SCREEN_NAMES = { wide: "Wide screens", phone: "Phones" } as const;
 
 /**
  * The game's background behind Zaisma's glass, for each screen: what shows now, the pictures and shaders it can show with what their
- * check found, and a live preview behind a sample pane of glass. A shader previews in a frame on the game's own site, never here,
- * whether it was sent or is a file not sent yet.
+ * check found (each quality level's time), and a live preview behind a sample pane of glass, at the device's quality level or one
+ * picked. A shader previews in a frame on the game's own site, never here, whether it was sent or is a file or folder not sent yet. A
+ * shader folder (image.glsl, buffer-a.glsl to buffer-d.glsl, channels.json and its textures) is checked before sending and sent as a
+ * developer's tools send it: its textures first, as shader_texture pictures, then the shader (BACKGROUND_PREVIEW_SCRIPT).
  */
 function backgroundPanel(slug: string, game: GameJson, images: ImageJson[], backgrounds: BackgroundJson[], shaders: ShaderJson[], gameAddress: string): Raw {
+  const textures = images.filter((image) => image.kind === "shader_texture");
   const screenPanel = (background: BackgroundJson) => {
     const screen = background.screen;
     const kind = screen === "wide" ? "background" : "phone_background";
@@ -1153,8 +1173,11 @@ ${image.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug
       }),
       ...screenShaders.map((shader) => {
         const isShown = background.source === "shader" && background.shader_id === shader.id;
-        return html`<figure><button class="bg-thumb" type="button" data-preview-source="${shader.source_url}" aria-label="Preview this shader live">${shader.still_url ? html`<img class="bevel-s" src="${shader.still_url}" alt="" loading="lazy">` : html`<span class="bevel-s"></span>`}</button>
-<figcaption><span>Shader${status(shader.review_status, isShown)}${shader.check_frame_ms !== null ? html` <span class="muted">${shader.check_frame_ms} ms a frame</span>` : ""}</span><span class="row">${shader.review_status === "approved" && !isShown ? choose("shader", { shader_id: shader.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/shaders/${shader.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
+        // Everything the preview needs to draw it as sent: each pass's source and channels, and where its textures are.
+        const preview = { image: shader.image, buffers: shader.buffers, texture_urls: Object.fromEntries(shader.texture_image_ids.map((id) => [id, textures.find((texture) => texture.id === id)?.image_url ?? ""])) };
+        return html`<figure><button class="bg-thumb" type="button" data-preview-shader="${JSON.stringify(preview)}" aria-label="Preview this shader live">${shader.still_url ? html`<img class="bevel-s" src="${shader.still_url}" alt="" loading="lazy">` : html`<span class="bevel-s"></span>`}</button>
+<figcaption><span>Shader${status(shader.review_status, isShown)}${shaderMakeup(shader)}</span><span class="row">${shader.review_status === "approved" && !isShown ? choose("shader", { shader_id: shader.id }, "Use this") : ""}<form method="post" action="/dashboard/${slug}/shaders/${shader.id}/remove"><button class="link" type="submit">Remove</button></form></span></figcaption>
+${shader.quality_checks.length ? html`<p class="bg-timings muted">${qualityTimings(shader.quality_checks)}</p>` : ""}
 ${shader.frame_urls.length ? html`<p class="bg-frames">${shader.frame_urls.map((frameUrl, frameIndex) => html`<a href="${frameUrl}" target="_blank" rel="noopener"><img src="${frameUrl}" alt="Frame ${frameIndex + 1} of the check" loading="lazy"></a>`)}</p>` : ""}
 ${shader.review_reason ? html`<div class="note rejected-image">${reasonPanel(slug, shader.review_reason)}</div>` : ""}</figure>`;
       }),
@@ -1165,6 +1188,13 @@ ${shader.review_reason ? html`<div class="note rejected-image">${reasonPanel(slu
 ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>` : ""}
 <form class="stack" method="post" action="/dashboard/${slug}/backgrounds" enctype="multipart/form-data"><input type="hidden" name="screen" value="${screen}">
 <div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
+<div class="drop bg-folder" data-slug="${slug}" data-screen="${screen}">
+<p><strong>A shader with buffers or textures?</strong> Drop its folder here, or <label class="pick">choose it<input type="file" webkitdirectory multiple hidden aria-label="${SCREEN_NAMES[screen]} background: a shader folder" data-folder-input></label>.</p>
+<p class="bg-folder-summary" data-folder-summary hidden></p>
+<div class="row" data-folder-actions hidden><button class="btn ghost" type="button" data-folder-check>Check before sending</button><button class="btn" type="button" data-folder-send>Send this shader</button></div>
+<div class="bg-check" data-folder-result hidden></div>
+<p class="hint" role="status" aria-live="polite" data-folder-status>It previews here as soon as it's picked. Check before sending draws it as the check does, under Zaisma's glass, without sending it.</p>
+</div>
 </div>`;
   };
   const glassTintColor = shownColor(game.glass_tint_color);
@@ -1175,11 +1205,33 @@ ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>
 <div class="glass bg-sample" data-glass data-glass-corners="pane">${EDGE}<strong>${game.title}</strong><span>Zaisma's glass over your background</span></div>
 <p class="bg-note" role="status" hidden></p>
 </div>
-<p class="hint">Pick a picture or shader below, or choose a file, to see it here before anyone else does. A shader runs on your game's own site.</p>
+<div class="bg-levels"><span class="muted">Quality level</span><div class="seg" role="group" aria-label="Quality level the preview draws at">${QUALITY_CHOICES.map((choice) => html`<button type="button" data-quality-level="${choice.qualityLevel}" aria-pressed="${choice.qualityLevel === ""}" title="${choice.hint}">${choice.label}</button>`)}</div></div>
+<p class="hint">Pick a picture or shader below, or choose a file or folder, to see it here before anyone else does. A shader runs on your game's own site, at the level this device would pick unless you pick one: it reads it as <code>iQuality</code>.</p>
 ${backgrounds.map(screenPanel)}
+${textures.length ? html`<div class="bg-textures"><h3>Shader textures</h3><div class="thumbs">${textures.map(
+    (texture) => html`<figure><img class="bevel-s" src="${texture.image_url}" alt="" loading="lazy"><figcaption><span>${sizeText(texture.size_bytes)}${texture.review_status === "pending" ? html` <span class="pill pending">Being checked</span>` : ""}</span><form method="post" action="/dashboard/${slug}/images/${texture.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
+  )}</div><p class="hint">Pictures your shaders read through their channels: a game keeps up to 16, and one a kept shader reads stays until that shader goes.</p></div>` : ""}
 <form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${glassTintColor ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${glassTintColor ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
-<p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is a <code>.glsl</code> file with Shadertoy's <code>mainImage</code>, reading <code>iResolution</code> and <code>iTime</code>, up to 16 KB: it's drawn and checked before it can show, and players' browsers draw it at about half resolution, 30 frames a second. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
+<p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is Shadertoy's <code>mainImage</code> in WebGL2's GLSL, up to 64 KB a pass: one <code>.glsl</code> file, or a folder with <code>image.glsl</code>, <code>buffer-a.glsl</code> to <code>buffer-d.glsl</code> for its buffers, its textures (PNG, JPEG or WebP), and <code>channels.json</code> for what each pass reads, like <code>{"image": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}, {"channel_index": 1, "input_kind": "texture", "texture_file": "noise.png"}], "buffer-a": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}]}</code>. It's drawn and checked before it can show, at each quality level it reads; players' browsers draw it at fewer pixels, sharpened as it's scaled up, at most 30 frames a second. <a href="/developers/backgrounds">What reads well under the glass</a>. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
 </div>${scriptTags(BACKGROUND_PREVIEW_SCRIPT)}`;
+}
+
+/** The quality levels the preview can draw at: the device's own, or one a shader reads as iQuality. */
+const QUALITY_CHOICES = [
+  { qualityLevel: "", label: "This device's", hint: "The level this device starts at: 2 on a computer, 1 on a tablet, 0 on a phone" },
+  { qualityLevel: "0", label: "0", hint: "Phones and slow devices" },
+  { qualityLevel: "1", label: "1", hint: "Tablets" },
+  { qualityLevel: "2", label: "2", hint: "Computers" },
+];
+
+/** Each quality level's time in the check, against its most: "Level 0: 12 of 75 ms a frame". */
+const qualityTimings = (qualityChecks: ShaderJson["quality_checks"]) =>
+  qualityChecks.map((qualityCheck) => `Level ${qualityCheck.quality_level}: ${qualityCheck.check_frame_ms} of ${qualityCheck.maximum_check_frame_ms} ms a frame`).join(" · ");
+
+/** A shader's buffers and textures, when it has any. */
+function shaderMakeup(shader: ShaderJson): Raw | string {
+  const parts = [shader.buffer_count ? `${shader.buffer_count} ${shader.buffer_count === 1 ? "buffer" : "buffers"}` : "", shader.texture_count ? `${shader.texture_count} ${shader.texture_count === 1 ? "texture" : "textures"}` : ""].filter(Boolean);
+  return parts.length ? html` <span class="muted">${parts.join(", ")}</span>` : "";
 }
 
 interface Reports {
@@ -1457,6 +1509,15 @@ const GAME_STYLES = `
 .bg-screen[data-screen="phone"] figcaption{flex-wrap:wrap}
 .bg-frames{display:grid;grid-template-columns:repeat(6,1fr);gap:3px;margin:4px 0 0}
 .bg-frames img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.bg-levels{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 8px;font-size:14px}
+.bg-timings{margin:4px 0 0;font-size:13px}
+.bg-folder{margin-top:10px}
+.bg-folder .row{margin-top:10px}
+.bg-folder-summary{font-size:14px;overflow-wrap:anywhere}
+.bg-check{display:grid;gap:6px;margin-top:12px;font-size:14px}
+.bg-check p{margin:0}
+.bg-check img{width:100%;display:block}
+.bg-textures h3{margin:18px 0 4px;font-size:15px}
 .bg-tint{margin-top:16px;align-items:center}
 .bg-tint input[type=color]{width:40px;height:30px;padding:0;border:0;background:none;vertical-align:middle;margin-left:6px}
 .game-dash{display:grid;grid-template-columns:190px minmax(0,1fr);gap:32px;align-items:start}
@@ -1529,32 +1590,117 @@ const DASHBOARD_STYLE = pageStyle("dashboard", () => STYLES + GAME_STYLES);
 // The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.
 /**
  * The Background section's live preview (backgroundPanel), built as the home and game page build theirs: a shader runs in a frame on the
- * game's own site (apps/games/src/background.ts), posted its source by this page; the backdrop script (BACKDROP_SCRIPT) tells the frame
- * where the real pane of glass is, and picks the pane's glass from a still. Pictures show over the frame. It starts with what wide screens
- * show now, or Zaisma's own.
+ * game's own site (apps/games/src/background.ts), posted by this page with its passes and its textures' bytes; the backdrop script
+ * (BACKDROP_SCRIPT) tells the frame where the real pane of glass is, and picks the pane's glass from a still. Pictures show over the frame.
+ * It starts with what wide screens show now, or Zaisma's own, at the device's quality level until one is picked.
+ *
+ * A shader folder (image.glsl, buffer-a.glsl to buffer-d.glsl, channels.json, its textures) previews as soon as it's picked, with each
+ * texture_file in channels.json standing for that file. Checking or sending it first sends the textures it reads as shader_texture
+ * pictures (a picture the game already has is used again) and waits for them to pass, then checks the shader (shader-checks) or sends
+ * it (shaders), as a developer's tools do.
  */
 const BACKGROUND_PREVIEW_SCRIPT = pageScript(
   "background-preview",
   `(()=>{const panel=document.querySelector(".bg-panel");if(!panel)return;
 const frame=panel.querySelector(".bg-preview iframe"),picture=panel.querySelector(".bg-picture"),note=panel.querySelector(".bg-note");
-const origin=new URL(frame.src).origin,ZAISMA=${JSON.stringify(`uniform float iDark;\n${SHADER_HELPERS}${ZAISMA_SHADER}`)};let ready=false,waiting=null,isChosen=false;
+const origin=new URL(frame.src).origin,ZAISMA=${JSON.stringify(`uniform float iDark;\n${SHADER_HELPERS}${ZAISMA_SHADER}`)};let ready=false,waiting=null,isChosen=false,qualityLevel=null;
 const say=text=>{note.textContent=text||"";note.hidden=!text};
+const post=message=>frame.contentWindow.postMessage(message,origin);
 // The glass over it is measured from a still: the picture, or the frame the shader hands back (the backdrop script reads data-backdrop-still).
 const measureFrom=url=>{if(url)frame.setAttribute("data-backdrop-still",url)};
-const run=source=>{isChosen=true;picture.hidden=true;say("");if(!ready){waiting=source;return}frame.contentWindow.postMessage({source},origin)};
+// What the frame draws: { source } for one pass, or { manifest, textures } for a whole shader.
+const run=message=>{isChosen=true;picture.hidden=true;say("");if(!ready){waiting=message;return}post(message)};
 const show=url=>{isChosen=true;waiting=null;picture.src=url;picture.hidden=false;measureFrom(url);say("")};
 addEventListener("message",event=>{if(event.source!==frame.contentWindow||!event.data||!event.data.zaismaBackground)return;
-// Ready: what was chosen while it loaded, or Zaisma's own when nothing was.
-if(event.data.isReady){ready=true;if(waiting)run(waiting);else if(!isChosen){run(ZAISMA);isChosen=false}waiting=null}
+// Ready: the level picked, then what was chosen while it loaded, or Zaisma's own when nothing was.
+if(event.data.isReady){ready=true;post({qualityLevel});if(waiting)post(waiting);else if(!isChosen)post({source:ZAISMA});waiting=null}
 if(typeof event.data.stillDataUrl==="string"&&event.data.stillDataUrl.startsWith("data:image/")&&picture.hidden)measureFrom(event.data.stillDataUrl);
 if(event.data.compileError)say("It doesn't compile: "+event.data.compileError);
-if(event.data.error==="no_webgl")say("This browser can't run shaders here; players see its still frame instead.")});
-panel.addEventListener("click",event=>{const button=event.target.closest("[data-preview-source],[data-preview-picture]");if(!button)return;
+if(event.data.error==="no_webgl")say("This browser can't run shaders here (it has no WebGL2); players see its still frame instead.")});
+panel.querySelectorAll("[data-quality-level]").forEach(button=>button.addEventListener("click",()=>{qualityLevel=button.dataset.qualityLevel===""?null:Number(button.dataset.qualityLevel);
+panel.querySelectorAll("[data-quality-level]").forEach(other=>other.setAttribute("aria-pressed",String(other===button)));if(ready)post({qualityLevel})}));
+const fetched=async(url,kind)=>{const response=await fetch(url,{credentials:"same-origin"});if(!response.ok)throw new Error("couldn't load");return kind==="text"?response.text():response.arrayBuffer()};
+// A sent shader, drawn as it was sent: each pass's source and its textures' bytes.
+const runSent=async preview=>{const manifest={image:{source:await fetched(preview.image.source_url,"text"),channels:preview.image.channels},
+buffers:await Promise.all(preview.buffers.map(async buffer=>({buffer_name:buffer.buffer_name,source:await fetched(buffer.source_url,"text"),channels:buffer.channels})))};
+const textures=await Promise.all(Object.entries(preview.texture_urls).filter(entry=>entry[1]).map(async entry=>({imageId:entry[0],bytes:await fetched(entry[1],"bytes")})));
+run({manifest,textures})};
+panel.addEventListener("click",event=>{const button=event.target.closest("[data-preview-shader],[data-preview-picture]");if(!button)return;
 if(button.dataset.previewPicture)show(button.dataset.previewPicture);
-else fetch(button.dataset.previewSource,{credentials:"same-origin"}).then(response=>response.ok?response.text():Promise.reject()).then(run,()=>say("That shader couldn't be loaded."))});
+else runSent(JSON.parse(button.dataset.previewShader)).catch(()=>say("That shader couldn't be loaded."))});
 panel.querySelectorAll("[data-preview-file]").forEach(input=>input.addEventListener("change",()=>{const file=input.files[0];if(!file)return;const reader=new FileReader();
-if(/\\.(glsl|frag|txt)$/i.test(file.name)||file.type.startsWith("text/")){reader.onload=()=>run(String(reader.result));reader.readAsText(file)}else{reader.onload=()=>show(String(reader.result));reader.readAsDataURL(file)}}));
-const shown=panel.querySelector('.bg-screen[data-screen="wide"] .pill.live');if(shown){const button=shown.closest("figure").querySelector("[data-preview-source],[data-preview-picture]");if(button)button.click()}})();`,
+if(/\\.(glsl|frag|txt)$/i.test(file.name)||file.type.startsWith("text/")){reader.onload=()=>run({source:String(reader.result)});reader.readAsText(file)}else{reader.onload=()=>show(String(reader.result));reader.readAsDataURL(file)}}));
+
+// Shader folders.
+const JUNK=new Set([".DS_Store","Thumbs.db","desktop.ini","__MACOSX"]),TEXTURE=/\\.(png|jpe?g|webp)$/i,BUFFERS=["buffer-a","buffer-b","buffer-c","buffer-d"];
+const fromEntry=(entry,path,out)=>new Promise((done,fail)=>{if(JUNK.has(entry.name))return done();if(entry.isFile)return entry.file(file=>{out.push({file,path:path+entry.name});done()},fail);
+const reader=entry.createReader(),all=[];const more=()=>reader.readEntries(async entries=>{if(!entries.length){for(const each of all)await fromEntry(each,path+entry.name+"/",out);return done()}all.push(...entries);more()},fail);more()});
+// The files by their path in the folder, without the folder's own name.
+const folderFiles=items=>{let files=items.filter(item=>!item.path.split("/").some(part=>JUNK.has(part)||part.startsWith(".")));
+const tops=new Set(files.map(item=>item.path.split("/")[0]));if(tops.size===1&&files.every(item=>item.path.includes("/"))){const top=[...tops][0].length+1;files=files.map(item=>({file:item.file,path:item.path.slice(top)}))}return files};
+async function readFolder(items){const files=folderFiles(items),byPath={};files.forEach(item=>{byPath[item.path.toLowerCase()]=item});
+const image=byPath["image.glsl"];if(!image)throw new Error("The folder has no image.glsl: the image pass, which draws the background (Shadertoy's Image tab).");
+const bufferNames=BUFFERS.filter(name=>byPath[name+".glsl"]),textures=files.filter(item=>TEXTURE.test(item.path)),used=new Set();let wiring={};
+if(byPath["channels.json"]){try{wiring=JSON.parse(await byPath["channels.json"].file.text())}catch(error){throw new Error("channels.json isn't JSON: "+error.message)}
+if(!wiring||typeof wiring!=="object"||Array.isArray(wiring))throw new Error("channels.json is an object: image and buffer-a to buffer-d, each a list of that pass's channels.")}
+Object.keys(wiring).forEach(key=>{if(key!=="image"&&!bufferNames.includes(key))throw new Error("channels.json names "+key+", which isn't image or one of the folder's buffers ("+(bufferNames.join(", ")||"it has none")+").")});
+// A texture channel names its file (texture_file); it reads that picture once it's sent.
+const channelsOf=name=>(Array.isArray(wiring[name])?wiring[name]:[]).map(channel=>{if(!channel||typeof channel!=="object")throw new Error("channels.json's "+name+" has something that isn't a channel.");
+const copy=Object.assign({},channel);delete copy.texture_file;if(copy.input_kind!=="texture")return copy;
+const path=String(channel.texture_file||""),found=textures.find(item=>item.path.toLowerCase()===path.toLowerCase());
+if(!found)throw new Error("channels.json's "+name+" reads the texture "+JSON.stringify(path)+(textures.length?", which isn't in the folder (it has "+textures.map(item=>item.path).join(", ")+").":", but the folder has no PNG, JPEG or WebP pictures."));
+used.add(found);copy.image_id="file:"+found.path;return copy});
+const manifest={image:{source:await image.file.text(),channels:channelsOf("image")},buffers:[]};
+for(const name of bufferNames)manifest.buffers.push({buffer_name:name.slice(-1),source:await byPath[name+".glsl"].file.text(),channels:channelsOf(name)});
+return {manifest,textures:textures.filter(item=>used.has(item)),imageIds:null}}
+const api=async(method,path,body,isRaw)=>{const response=await fetch("/api/dev"+path,{method,headers:isRaw?{}:{"content-type":"application/json"},body:isRaw?body:body&&JSON.stringify(body)});
+const answer=await response.json().catch(()=>({}));if(!response.ok)throw new Error(answer.error?answer.error.message+" "+answer.error.fix:"Zaisma didn't answer ("+response.status+").");return answer};
+const hashOf=async bytes=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+// The folder's textures as the game's pictures: one it has already is used again, so sending a folder twice doesn't fill its 16.
+async function textureIds(box,folder,tell){if(folder.imageIds)return folder.imageIds;const slug=box.dataset.slug,ids={};
+const kept=(await api("GET","/games/"+slug)).images.filter(image=>image.kind==="shader_texture"&&image.review_status!=="rejected");
+for(const texture of folder.textures){const bytes=await texture.file.arrayBuffer(),hash=await hashOf(bytes);let id=null;
+for(const image of kept.filter(each=>each.size_bytes===bytes.byteLength)){try{if(await hashOf(await fetched(image.image_url,"bytes"))===hash){id=image.id;break}}catch(error){}}
+if(!id){tell("Sending "+texture.path+"…");id=(await api("POST","/games/"+slug+"/images?kind=shader_texture",bytes,true)).image.id}ids[texture.path]=id}
+// Image matching passes them at once; one it couldn't check waits for a person.
+for(let tryIndex=0;Object.keys(ids).length;tryIndex++){const images=(await api("GET","/games/"+slug)).images,states=Object.values(ids).map(id=>images.find(image=>image.id===id));
+const refused=states.find(image=>!image||image.review_status==="rejected");if(refused)throw new Error("A texture wasn't approved"+(refused&&refused.review_reason?": "+refused.review_reason.message:"."));
+if(states.every(image=>image.review_status==="approved"))break;
+if(tryIndex>=20)throw new Error("A texture is waiting for a person to look at it, usually within a day. Send the folder again once it's approved.");
+tell("Waiting for the textures to pass…");await new Promise(done=>setTimeout(done,3000))}
+folder.imageIds=ids;return ids}
+const withIds=(manifest,ids)=>JSON.parse(JSON.stringify(manifest),(key,value)=>key==="image_id"&&typeof value==="string"&&value.startsWith("file:")?ids[value.slice(5)]:value);
+// What the check found, in words, with its sheet.
+function showCheck(box,check,remaining){const result=box.querySelector("[data-folder-result]");result.replaceChildren();result.hidden=false;
+const line=(text,className)=>{const paragraph=document.createElement("p");paragraph.textContent=text;if(className)paragraph.className=className;result.append(paragraph);return paragraph};
+if(check.compile_error)line("It doesn't compile: "+check.compile_error,"hint bad");else{
+line(check.quality_checks.map(level=>"Level "+level.quality_level+": "+level.check_frame_ms+" of "+level.maximum_check_frame_ms+" ms a frame"+(level.check_frame_ms>level.maximum_check_frame_ms?", too slow":"")).join(" · ")||"It was too slow to time.");
+if(check.flash_count)line(check.flash_count>3?"It flashes "+check.flash_count+" times in a second; more than 3 is refused.":"It flashes at most "+check.flash_count+(check.flash_count===1?" time":" times")+" in a second; more than 3 is refused.");else if(check.flash_count===0)line("It doesn't flash.");
+if(check.is_glass_smoked!==null)line("Zaisma would put "+(check.is_glass_smoked?"smoked":"light")+" glass over it, its tint at "+Math.round(check.glass_tint_pct)+"%.");
+check.notes.forEach(each=>{const paragraph=line(each.message+" ");const fix=document.createElement("span");fix.className="muted";fix.textContent=each.fix;paragraph.append(fix)});
+if(!check.notes.length)line("No notes: nothing to fix before sending.");
+if(check.sheet_url){const link=document.createElement("a");link.href=check.sheet_url;link.target="_blank";link.rel="noopener";const sheet=document.createElement("img");sheet.src=check.sheet_url;
+sheet.alt="The check's sheet: wide and phone under Zaisma's glass, small, what changes between two frames, and each level's time";link.append(sheet);result.append(link)}}
+line(remaining+" checks before sending left today.","hint")}
+panel.querySelectorAll(".bg-folder").forEach(box=>{const status=box.querySelector("[data-folder-status]"),summary=box.querySelector("[data-folder-summary]"),actions=box.querySelector("[data-folder-actions]");
+let folder=null,isBusy=false;const tell=(text,isBad)=>{status.textContent=text;status.classList.toggle("bad",Boolean(isBad))};
+async function pick(items){try{folder=await readFolder(items)}catch(error){folder=null;summary.hidden=true;actions.hidden=true;tell(error.message,true);return}
+const passes=["image.glsl"].concat(folder.manifest.buffers.map(buffer=>"buffer-"+buffer.buffer_name+".glsl"));
+summary.textContent=passes.join(", ")+(folder.textures.length?", reading "+folder.textures.map(item=>item.path).join(", "):"")+".";summary.hidden=false;actions.hidden=false;
+box.querySelector("[data-folder-result]").hidden=true;tell("Previewing it above. Check before sending draws it as the check does, under Zaisma's glass, without sending it.");
+run({manifest:folder.manifest,textures:await Promise.all(folder.textures.map(async item=>({imageId:"file:"+item.path,bytes:await item.file.arrayBuffer()})))})}
+async function act(isSending){if(!folder||isBusy)return;isBusy=true;actions.querySelectorAll("button").forEach(button=>{button.disabled=true});
+try{const ids=await textureIds(box,folder,tell),body=Object.assign({screen:box.dataset.screen},withIds(folder.manifest,ids));
+if(isSending){tell("Sending the shader…");await api("POST","/games/"+box.dataset.slug+"/shaders",body);location.href=location.pathname+"?done=background-sent#background";return}
+tell("Drawing it as the check does; this takes up to a minute or two…");const answer=await api("POST","/games/"+box.dataset.slug+"/shader-checks",body);
+showCheck(box,answer.shader_check,answer.remaining_shader_check_count);tell("Checked. It isn't sent yet.")}catch(error){tell(error.message,true)}
+finally{isBusy=false;actions.querySelectorAll("button").forEach(button=>{button.disabled=false})}}
+box.querySelector("[data-folder-input]").addEventListener("change",event=>pick([...event.target.files].map(file=>({file,path:file.webkitRelativePath||file.name}))));
+box.querySelector("[data-folder-check]").addEventListener("click",()=>act(false));box.querySelector("[data-folder-send]").addEventListener("click",()=>act(true));
+box.addEventListener("dragover",event=>{event.preventDefault();box.classList.add("over")});box.addEventListener("dragleave",()=>box.classList.remove("over"));
+box.addEventListener("drop",async event=>{event.preventDefault();box.classList.remove("over");const out=[];
+try{for(const item of [...event.dataTransfer.items]){const entry=item.webkitGetAsEntry&&item.webkitGetAsEntry();if(entry)await fromEntry(entry,"",out)}}catch(error){tell("Couldn't read that folder. Use choose it instead.",true);return}pick(out)})});
+const shown=panel.querySelector('.bg-screen[data-screen="wide"] .pill.live');if(shown){const button=shown.closest("figure").querySelector("[data-preview-shader],[data-preview-picture]");if(button)button.click()}})();`,
 );
 
 const QR_PNG_SCRIPT = pageScript("qr-png", `const button = document.getElementById("qr-png");

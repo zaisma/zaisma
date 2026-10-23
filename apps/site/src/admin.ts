@@ -43,6 +43,7 @@ import {
   pendingImages,
   SHADER_LIMITS,
   settleShader,
+  readQualityChecks,
   shaderById,
   shaderFrameKey,
   shaderStillKey,
@@ -311,7 +312,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const shader = await shaderById(env.DB, match[1]!);
     if (!shader) return new Response("Not found", { status: 404 });
     const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
-    await settleShader(env.DB, shader, rejectedReason, shader.check_frame_ms, shader.flash_count);
+    await settleShader(env.DB, shader, rejectedReason, shader.quality_checks === null ? null : readQualityChecks(shader.quality_checks), shader.flash_count);
     await audit(env.DB, shader.game_id, rejectedReason ? "shader-rejected" : "shader-approved", reason || `${shader.screen} ${shader.id}`, actor, rejectedReason);
     return redirect("/admin");
   }
@@ -592,7 +593,7 @@ ${shaders.length
 <div class="shots">${shaders.map(
           (shader) => html`<div><a href="/admin/shaders/${shader.id}/still.png"><img src="/admin/shaders/${shader.id}/still.png" alt="${shader.screen} shader" loading="lazy"></a>
 <p>${Array.from({ length: SHADER_LIMITS.sampledFrameCount }, (_, frameIndex) => html`<a href="/admin/shaders/${shader.id}/frame-${frameIndex}.png">frame ${frameIndex + 1}</a> `)}</p>
-<p>${shader.screen} shader ${pill(shader.review_status)} <span class="muted">${shader.check_frame_ms} ms a frame</span> · <a href="/admin/games/${shader.game_id}">${shader.title}</a></p>
+<p>${shader.screen} shader ${pill(shader.review_status)} <span class="muted">${readQualityChecks(shader.quality_checks).map((qualityCheck) => `${qualityCheck.check_frame_ms} ms`).join(", ")} a frame</span> · <a href="/admin/games/${shader.game_id}">${shader.title}</a></p>
 <div class="row"><form method="post" action="/admin/shaders/${shader.id}/approve"><button class="btn" type="submit">Approve</button></form>
 <details><summary class="btn ghost">Reject…</summary><form class="stack" method="post" action="/admin/shaders/${shader.id}/reject">${decisionFields({})}<button class="btn ghost" type="submit">Reject</button></form></details></div></div>`,
         )}</div>`

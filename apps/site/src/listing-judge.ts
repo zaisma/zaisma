@@ -96,6 +96,8 @@ const KIND_NAMES: Record<ImageKind, string> = {
   screenshot: "screenshot",
   background: "background (the game's world behind the page, with no title or text)",
   phone_background: "background (the game's world behind the page, with no title or text)",
+  // Never sent: a shader texture has no listing check of its own (listing-check.ts).
+  shader_texture: "texture a background shader reads",
 };
 /** Whether a picture is a background, for either screen. */
 const isBackground = (kind: ImageKind) => kind === "background" || kind === "phone_background";

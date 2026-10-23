@@ -2,7 +2,6 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, colorPicker, glassPane, icon, loader, sheetMarkup, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
-import { CLOUDS_SHADER, EMBERFALL_SHADER, STARWARD_SHADER } from "./shaders.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 
 /*
@@ -414,8 +413,8 @@ component({
  * A game's world for glass buttons to sit on: a shader background with no words in it (never a cover, whose art has its title), and the glass
  * fixed to what it is, light over a bright world and smoked over a dark one, as the world's measured glass would be.
  */
-const world = (fragmentShader: string, glassKind: "light" | "smoked", body: Raw) =>
-  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, fragmentShader })}${body}</div>`;
+const world = (standInSlug: string, glassKind: "light" | "smoked", body: Raw) =>
+  html`<div ${glassKind === "light" ? raw('data-theme-choice="light"') : raw('class="smoke"')} style="position:relative;overflow:hidden;display:grid;gap:var(--gap-control-stack);width:min(380px,100%);padding:var(--pad-pane)">${backdrop({ isFramed: true, standInSlug })}${body}</div>`;
 const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
 /** A glass button's tints, for a color picker (inputs.ts's Color picker, the gallery's tint palette). */
 export const TINT_CHOICES: (ColorChoice & { colorValue: GlassTint })[] = [
@@ -545,10 +544,10 @@ component({
     { label: "Every tint: pick one", markup: tintPalette() },
     { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-stack);${COLUMN}">${waysIn()}</div>` },
     // Over a game's world the glass follows the world, not the theme: light glass on a bright one, smoked on a dark one.
-    { label: "Over a bright game world", markup: world(CLOUDS_SHADER, "light", waysIn()) },
-    { label: "Over a dark game world", markup: world(STARWARD_SHADER, "smoked", waysIn()) },
+    { label: "Over a bright game world", markup: world("kestrel", "light", waysIn()) },
+    { label: "Over a dark game world", markup: world("starward", "smoked", waysIn()) },
     // On a world with no pane under it (the home's More games, under the game in focus), with one of Zaisma's icons.
-    { label: "An action floating on a world", markup: world(EMBERFALL_SHADER, "smoked", html`<div style="display:flex;justify-content:center">${glassButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
+    { label: "An action floating on a world", markup: world("emberfall", "smoked", html`<div style="display:flex;justify-content:center">${glassButton("More games", { icon: "chevron-down", type: "button" })}</div>`) },
   ],
 });
 

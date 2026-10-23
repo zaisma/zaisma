@@ -8,7 +8,7 @@ import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screensPane, screensPicker } 
 import { CHECKED_PAGES } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { EDGE, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
+import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { loadMore } from "./components/navigation.ts";
@@ -68,7 +68,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${group === "layout" ? scriptTags(SCREENS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */

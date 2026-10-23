@@ -8,7 +8,8 @@ import { pageScript } from "./page-scripts.ts";
  * Backgrounds: the page opens on Zaisma's own, the page's backdrop canvas (components/backdrop-script.ts). Pointing at or focusing a
  * cover fades that game's picture or shader in as a layer over it (zaismaBackdrop.add), at most every 0.6 s, to the latest game, so a
  * quick sweep across a row never flashes; it stays until another cover is pointed at. Covers that slide under a still pointer (a row or
- * the page scrolling) don't count. The glass is measured from the new layer's still by the backdrop script, so it follows the background.
+ * the page scrolling) don't count. The last three games' shaders stay loaded, paused and out of sight, so pointing back at one shows it at
+ * once. The glass is measured from the new layer's still by the backdrop script, so it follows the background.
  * The data it reads comes in the page's home-data block.
  */
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
@@ -44,6 +45,9 @@ const root = document.documentElement;
 let focusSlug = "";
 const defaultBackdrop = document.querySelector("canvas.backdrop[data-backdrop]");
 let worldSlug = "", worldKey = "", layers = [], swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
+// The last few games' shader frames, kept out of sight and paused once another background shows, so pointing back at one shows it at
+// once instead of loading and building its shader again. The oldest goes past KEPT_FRAME_COUNT.
+const KEPT_FRAME_COUNT = 3, keptFrames = new Map();
 root.classList.add("eases-settings");
 function backgroundOf(game) {
   const own = game.background;
@@ -66,11 +70,21 @@ function layerFor(background) {
   }
   return layer;
 }
+// A frame told to pause or carry on; it hears only Zaisma's own pages (apps/games/src/background.ts).
+function tellFrame(layer, message) { try { layer.contentWindow.postMessage(message, new URL(layer.src).origin); } catch {} }
+// A layer that's gone from sight: a shader's frame is paused and kept for a return, anything else removed.
+function putAway(layer) {
+  if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer);
+  layer.classList.remove("is-shown");
+  if (layer.tagName !== "IFRAME" || !layer.dataset.worldKey) { layer.remove(); return; }
+  tellFrame(layer, { isPaused: true });
+  keptFrames.delete(layer.dataset.worldKey); keptFrames.set(layer.dataset.worldKey, layer);
+  while (keptFrames.size > KEPT_FRAME_COUNT) { const [oldestKey, oldest] = keptFrames.entries().next().value; keptFrames.delete(oldestKey); oldest.remove(); }
+}
 function dropLayers(keep) {
   layers = layers.filter((layer) => {
     if (layer === keep) return true;
-    if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer);
-    layer.remove();
+    putAway(layer);
     return false;
   });
 }
@@ -89,12 +103,17 @@ function showWorld(slug, isInstant) {
     if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
     layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
     const leaving = layers.slice();
-    setTimeout(() => { if (worldKey !== key) return; leaving.forEach((layer) => { if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer); layer.remove(); }); layers = layers.filter((layer) => !leaving.includes(layer)); }, fadeMs + 80);
+    setTimeout(() => { if (worldKey !== key) return; leaving.forEach(putAway); layers = layers.filter((layer) => !leaving.includes(layer)); }, fadeMs + 80);
     return;
   }
-  const layer = layerFor(background);
+  // A game shown a moment ago is still here, paused: it carries on at once. Anything else is made and loads.
+  const kept = keptFrames.get(key), layer = kept || layerFor(background);
   layer.style.transitionDuration = fadeMs + "ms";
-  document.body.append(layer);
+  if (kept) { keptFrames.delete(key); tellFrame(layer, { isPaused: false }); }
+  else { layer.dataset.worldKey = key; document.body.append(layer); }
+  layers = layers.filter((each) => each !== layer);
+  // Moving a frame in the page would load it again, so one kept below what's showing is shown at once under it, and what's over it fades out.
+  const over = kept ? layers.filter((each) => !(each.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING) && each.classList.contains("is-shown")) : [];
   layers.push(layer);
   if (window.zaismaBackdrop) window.zaismaBackdrop.add(layer);
   let isShown = false;
@@ -102,6 +121,7 @@ function showWorld(slug, isInstant) {
     if (isShown || worldKey !== key) return;
     isShown = true;
     void layer.offsetWidth;
+    if (over.length) { layer.style.transitionDuration = "0ms"; over.forEach((each) => { each.style.transitionDuration = fadeMs + "ms"; each.classList.remove("is-shown"); }); }
     layer.classList.add("is-shown");
     // The old layers stay whole underneath until this one has fully faded in, so nothing shows through halfway.
     setTimeout(() => {
@@ -111,7 +131,8 @@ function showWorld(slug, isInstant) {
       if (defaultBackdrop) { defaultBackdrop.setAttribute("data-backdrop-paused", ""); defaultBackdrop.classList.add("is-shown"); }
     }, fadeMs + 80);
   };
-  if (background.source === "image") {
+  if (kept) reveal();
+  else if (background.source === "image") {
     if (layer.complete && layer.naturalWidth) reveal(); else { layer.addEventListener("load", reveal); layer.addEventListener("error", () => { worldKey = ""; layer.remove(); layers = layers.filter((each) => each !== layer); if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer); }); }
   } else {
     // A shader's frame says when it's drawing; if it never does (no WebGL, an error) its still carries the glass and the frame shows the still.

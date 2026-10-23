@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { VISIBILITIES } from "../../packages/core/src/developers.ts";
+import { BACKGROUND_SCREENS, VISIBILITIES } from "../../packages/core/src/developers.ts";
+import { findChrome } from "../../packages/cli/chrome.mjs";
+import { SHADER_LIMITS } from "../../packages/cli/shader-check.mjs";
+import { png } from "../site/png-stub.ts";
 import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { FORUM_CATEGORIES, TOPIC_KINDS } from "../../packages/core/src/forum.ts";
 import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/index.ts";
@@ -136,6 +139,8 @@ describe("closed flags", () => {
     expect(choicesOf("forum message", "--kind")).toEqual(TOPIC_KINDS.filter((kind) => kind !== "talk"));
     expect(choicesOf("forum post", "--category")).toEqual(FORUM_CATEGORIES);
     expect(choicesOf("forum message", "--category")).toEqual(FORUM_CATEGORIES);
+    expect(choicesOf("shader", "--screen")).toEqual([...BACKGROUND_SCREENS]);
+    expect(choicesOf("check", "--screen")).toEqual([...BACKGROUND_SCREENS]);
   });
 
   it("names the new command and flag for renamed ones", async () => {
@@ -203,7 +208,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "shader", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -850,4 +855,149 @@ describe("check and automatic fixes", () => {
     expect(refused.stderr).toContain("Zaisma refuses the upload until these are fixed:");
     expect(calls.filter((call) => !call.path.startsWith("/outside/"))).toEqual([]);
   });
+});
+
+/** A shader's texture: a small PNG of a pattern. */
+const noise = Buffer.from(await png(16, 16, (x, y) => [(x * 37 + y * 11) & 255, (x * 5 + y * 53) & 255, 128]));
+
+describe("shader folders", () => {
+  const IMAGE_PASS = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  fragColor = vec4(mix(vec3(0.1, 0.12, 0.25), vec3(0.4, 0.5, 0.8), uv.y) + texture(iChannel0, uv).rgb * 0.6 + texture(iChannel1, uv * 2.0).rgb * 0.05, 1.0);\n}\n";
+  const BUFFER_PASS = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / iResolution.xy;\n  vec2 spot = vec2(0.5 + 0.3 * sin(iTime * 0.5), 0.5);\n  fragColor = texture(iChannel0, uv) * 0.97 + vec4(vec3(smoothstep(0.05, 0.0, distance(uv, spot))), 1.0) * 0.3;\n}\n";
+  const channels = {
+    image: [
+      { channel_index: 0, input_kind: "buffer", buffer_name: "a" },
+      { channel_index: 1, input_kind: "texture", texture_file: "noise.png" },
+    ],
+    "buffer-a": [{ channel_index: 0, input_kind: "buffer", buffer_name: "a", filter: "nearest" }],
+  };
+  /** A shader's folder: the image pass, buffer a and a texture, wired by channels.json, with any files changed or added (null leaves one out). */
+  const shaderFolder = (changes: Record<string, string | Buffer | null> = {}) => {
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-shader-"));
+    const files = { "image.glsl": IMAGE_PASS, "buffer-a.glsl": BUFFER_PASS, "channels.json": JSON.stringify(channels), "noise.png": noise, ...changes };
+    for (const [name, content] of Object.entries(files)) if (content !== null) writeFileSync(join(folder, name), content);
+    return folder;
+  };
+  /** What the API would take for the folder above, with the texture's image. */
+  const sentShader = (imageId: string) => ({
+    screen: "wide",
+    image: {
+      source: IMAGE_PASS,
+      channels: [
+        { channel_index: 0, input_kind: "buffer", buffer_name: "a", image_id: null, filter: "linear", wrap: "clamp" },
+        { channel_index: 1, input_kind: "texture", buffer_name: null, image_id: imageId, filter: "linear", wrap: "repeat" },
+      ],
+    },
+    buffers: [{ buffer_name: "a", source: BUFFER_PASS, channels: [{ channel_index: 0, input_kind: "buffer", buffer_name: "a", image_id: null, filter: "nearest", wrap: "clamp" }] }],
+  });
+  const textureImage = (id: string, reviewStatus = "approved") => ({ id, kind: "shader_texture", review_status: reviewStatus, review_reason: null, listing_reason: null, width_px: 16, height_px: 16, size_bytes: noise.length, image_url: `${API}/img/${id}`, created_at: "2026-10-23T09:00:00Z" });
+  const shaderAnswer = { shader: { id: "shader_8f3k2m9q1x7c4v6b", screen: "wide", review_status: "pending" }, review_message: "It's drawn and checked in a minute or two.", next_steps: [] };
+
+  it("refuses a folder it doesn't read exactly before anything is sent, each with its code and a fix", async () => {
+    const refusal = async (folder: string, command = ["shader", folder, "--game", "sky-hopper", "--screen", "wide"]) => json((await zaisma([...command, "--json"])).stdout).error;
+    expect(await refusal(shaderFolder({ "image.glsl": null }))).toMatchObject({ code: "no_image_pass", field: "folder" });
+    expect(await refusal(shaderFolder({ "notes.txt": "ideas" }))).toMatchObject({ code: "unknown_shader_file", field: "notes.txt", fix: expect.stringContaining("image.glsl, buffer-a.glsl") });
+    expect(await refusal(shaderFolder({ "sky.jpg": noise }))).toMatchObject({ code: "unknown_shader_file", field: "sky.jpg", message: "No channel in channels.json reads sky.jpg." });
+    expect(await refusal(shaderFolder({ "channels.json": "{ image: [] }" }))).toMatchObject({ code: "bad_channels_file", field: "channels.json" });
+    expect(await refusal(shaderFolder({ "channels.json": JSON.stringify({ ...channels, imagee: [] }) }))).toMatchObject({ code: "unknown_field", field: "channels.json: imagee" });
+    expect(await refusal(shaderFolder({ "channels.json": JSON.stringify({ ...channels, "buffer-b": [] }) }))).toMatchObject({ code: "bad_channels_file", field: "channels.json: buffer-b", message: expect.stringContaining("no buffer-b.glsl") });
+    const imageIdChannel = { image: [{ channel_index: 1, input_kind: "texture", image_id: "image_8f3k2m9q1x7c4v6b" }] };
+    expect(await refusal(shaderFolder({ "channels.json": JSON.stringify(imageIdChannel), "noise.png": null }))).toMatchObject({ code: "unknown_field", field: "channels.json: image[0].image_id", fix: expect.stringContaining("texture_file") });
+    expect(await refusal(shaderFolder({ "channels.json": JSON.stringify({ image: [{ channel_index: 0, input_kind: "buffer", buffer_name: "c" }] }), "noise.png": null }))).toMatchObject({ code: "bad_shader_channel", field: "channels.json: image[0].buffer_name" });
+    expect(await refusal(shaderFolder({ "channels.json": JSON.stringify({ image: [{ channel_index: 4, input_kind: "buffer", buffer_name: "a" }] }), "noise.png": null }))).toMatchObject({ code: "bad_shader_channel", field: "channels.json: image[0].channel_index" });
+    expect(await refusal(shaderFolder({ "noise.png": Buffer.from("not a picture") }))).toMatchObject({ code: "not_an_image", field: "noise.png" });
+    expect(await refusal(shaderFolder({ "buffer-a.glsl": "x".repeat(SHADER_LIMITS.maximumPassSizeBytes + 1) }))).toMatchObject({ code: "shader_too_big", field: "buffer-a.glsl" });
+    // The command line is closed too: the screen is a choice, and a game's folder takes neither --screen nor --draw-on-zaisma.
+    expect(await refusal(shaderFolder(), ["shader", shaderFolder(), "--game", "sky-hopper"])).toMatchObject({ code: "missing_field", field: "--screen" });
+    expect(await refusal(shaderFolder(), ["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "tall"])).toMatchObject({ code: "bad_screen", field: "--screen" });
+    expect(await refusal(shaderFolder(), ["check", mkdtempSync(join(tmpdir(), "zaisma-game-")), "--screen", "phone"])).toMatchObject({ code: "unknown_field", field: "--screen" });
+    expect(await refusal(shaderFolder(), ["check", shaderFolder(), "--draw-on-zaisma"])).toMatchObject({ code: "missing_field", field: "--game" });
+    expect(calls).toEqual([]);
+  });
+
+  it("shader sends the texture, then the shader with the texture's image, and prints the answers as they are", async () => {
+    answers["GET /games/sky-hopper"] = { status: 200, body: { game, images: [] } };
+    const added = { image: textureImage("image_n0153texture1"), review_message: "It's ready.", next_steps: [] };
+    answers["POST /games/sky-hopper/images"] = { status: 201, body: added };
+    answers["POST /games/sky-hopper/shaders"] = { status: 201, body: shaderAnswer };
+    const result = await zaisma(["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "wide", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(["GET /games/sky-hopper", "POST /games/sky-hopper/images?kind=shader_texture", "POST /games/sky-hopper/shaders"]);
+    expect(calls[1]!.body).toBe(noise.length);
+    expect(calls[2]!.body).toEqual(sentShader("image_n0153texture1"));
+    expect(json(result.stdout)).toEqual({ texture_images: [{ texture_file: "noise.png", image_id: "image_n0153texture1", added_image: added }], added_shader: shaderAnswer });
+    expect(result.stderr).toContain("Sending noise.png");
+  });
+
+  it("shader uses a texture the game has already, byte for byte, and waits for one a person approves", async () => {
+    answers["GET /games/sky-hopper"] = { status: 200, body: { game, images: [textureImage("image_other0texture"), textureImage("image_same0texture")] } };
+    answers["GET /img/image_other0texture"] = { status: 200, body: new Uint8Array(Buffer.alloc(noise.length, 7)) };
+    answers["GET /img/image_same0texture"] = { status: 200, body: new Uint8Array(noise) };
+    answers["POST /games/sky-hopper/shaders"] = { status: 201, body: shaderAnswer };
+    const reused = await zaisma(["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "wide"]);
+    expect(reused.exitCode).toBe(0);
+    expect(calls.some((call) => call.path.startsWith("/games/sky-hopper/images"))).toBe(false);
+    expect(calls.find((call) => call.path === "/games/sky-hopper/shaders")!.body).toEqual(sentShader("image_same0texture"));
+    expect(reused.stdout).toContain("Sent shader_8f3k2m9q1x7c4v6b for wide: pending.");
+
+    calls = [];
+    // Not there to use again, then sent and waiting for a person, then approved.
+    let checkCount = 0;
+    answers["GET /games/sky-hopper"] = () => {
+      checkCount++;
+      return { status: 200, body: { game, images: checkCount === 1 ? [] : [textureImage("image_waiting0texture", checkCount === 2 ? "pending" : "approved")] } };
+    };
+    answers["POST /games/sky-hopper/images"] = { status: 201, body: { image: textureImage("image_waiting0texture", "pending"), review_message: "A person looks.", next_steps: [] } };
+    const waited = await zaisma(["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "wide", "--json"]);
+    expect(waited.exitCode).toBe(0);
+    expect(calls.find((call) => call.path === "/games/sky-hopper/shaders")!.body).toEqual(sentShader("image_waiting0texture"));
+
+    answers["GET /games/sky-hopper"] = { status: 200, body: { game, images: [textureImage("image_waiting0texture", "pending")] } };
+    const stillWaiting = await zaisma(["shader", shaderFolder(), "--game", "sky-hopper", "--screen", "wide", "--json"]);
+    expect(stillWaiting.exitCode).toBe(1);
+    expect(json(stillWaiting.stdout).error).toMatchObject({ code: "shader_texture_not_approved", field: "noise.png" });
+  });
+
+  it("check draws a shader's folder on Zaisma with --draw-on-zaisma, saves the sheet beside it and ends with 6 when it wouldn't pass", async () => {
+    answers["GET /games/sky-hopper"] = { status: 200, body: { game, images: [textureImage("image_same0texture")] } };
+    answers["GET /img/image_same0texture"] = { status: 200, body: new Uint8Array(noise) };
+    answers["GET /shader-checks/sheet.png"] = { status: 200, body: new Uint8Array(Buffer.from("the sheet")) };
+    const shaderCheck = { compile_error: null, quality_checks: [{ quality_level: 0, check_frame_ms: 21.4, maximum_check_frame_ms: 75 }], flash_count: 0, is_glass_smoked: true, glass_tint_pct: 74, notes: [{ code: "forces_thick_glass", message: "Words over it need smoked glass tinted 74%.", fix: "Keep its contrast gentler." }], sheet_url: `${API}/shader-checks/sheet.png`, sheet_expires_at: "2026-10-24T09:00:00Z" };
+    answers["POST /games/sky-hopper/shader-checks"] = { status: 200, body: { shader_check: shaderCheck, remaining_shader_check_count: 99, next_steps: [] } };
+    const folder = shaderFolder();
+    const result = await zaisma(["check", folder, "--game", "sky-hopper", "--screen", "wide", "--draw-on-zaisma", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls.find((call) => call.path === "/games/sky-hopper/shader-checks")!.body).toEqual(sentShader("image_same0texture"));
+    const sheetFile = `${folder}-wide-check.png`;
+    expect(json(result.stdout)).toEqual({ renderer_kind: "zaisma", shader_check: shaderCheck, remaining_shader_check_count: 99, sheet_file: expect.stringMatching(/-wide-check\.png$/), texture_images: [{ texture_file: "noise.png", image_id: "image_same0texture", added_image: null }] });
+    expect(readFileSync(sheetFile, "utf8")).toBe("the sheet");
+
+    const slow = { ...shaderCheck, quality_checks: [{ quality_level: 0, check_frame_ms: 120, maximum_check_frame_ms: 75 }], notes: [] };
+    answers["POST /games/sky-hopper/shader-checks"] = { status: 200, body: { shader_check: slow, remaining_shader_check_count: 98, next_steps: [] } };
+    const tooSlow = await zaisma(["check", folder, "--game", "sky-hopper", "--draw-on-zaisma"]);
+    expect(tooSlow.exitCode).toBe(6);
+    expect(tooSlow.stdout).toContain("A frame: 120 ms in the check; the most is 75. Too slow [shader_too_slow]");
+    expect(tooSlow.stdout).toContain("Drawn for wide on Zaisma (98 checks left today).");
+    expect(tooSlow.stdout).toContain("Fix what's above, then check again.");
+  });
+
+  const chromePath = findChrome([join(ROOT, ".wrangler/chrome"), join(ROOT, "chrome")]);
+  it.skipIf(!chromePath || typeof WebSocket !== "function")(
+    "check draws a shader's folder in a local Chrome with the check's own page: buffers, textures, timings, glass and the sheet",
+    async () => {
+      const folder = shaderFolder();
+      const result = await zaisma(["check", folder, "--screen", "phone", "--json"], { key: "", environment: { CHROME_PATH: chromePath! } });
+      expect(result.exitCode).toBe(0);
+      const answer = json(result.stdout);
+      expect(answer).toMatchObject({ renderer_kind: "local_chrome", remaining_shader_check_count: null, texture_images: [], shader_check: { compile_error: null, sheet_url: null, flash_count: 0 } });
+      expect(answer.shader_check.quality_checks).toEqual([{ quality_level: 0, check_frame_ms: expect.any(Number), maximum_check_frame_ms: 75 }]);
+      expect(typeof answer.shader_check.is_glass_smoked).toBe("boolean");
+      expect(readFileSync(`${folder}-phone-check.png`).subarray(1, 4).toString()).toBe("PNG");
+
+      const broken = await zaisma(["check", shaderFolder({ "buffer-a.glsl": BUFFER_PASS.replace("0.97", "fade") }), "--json"], { key: "", environment: { CHROME_PATH: chromePath! } });
+      expect(broken.exitCode).toBe(6);
+      expect(json(broken.stdout).shader_check.compile_error).toMatch(/^It didn't compile: buffer a: .*fade/);
+      expect(calls).toEqual([]);
+    },
+    120_000,
+  );
 });

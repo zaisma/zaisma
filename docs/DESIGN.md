@@ -55,7 +55,7 @@ Defined once in `apps/site/src/components/foundations.ts` (`TOKEN_STYLES`). Ligh
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `--page` | `#EEF2F7` | `#0D1015` | Under the backdrop, before it draws |
+| `--page` | `#E7E4DF` | `#121110` | Under the backdrop, before it draws |
 | `--ink` | `#14171C` | `#F7F9FC` | Words |
 | `--ink-2` | `#3D444E` | 86% white | Second words, tabs at rest |
 | `--muted` | `#59606A` | 70% white | Notes, the footer |
@@ -65,7 +65,7 @@ Defined once in `apps/site/src/components/foundations.ts` (`TOKEN_STYLES`). Ligh
 | `--field` | 62% white | 8% white | A field's face |
 | `--warning` | `#7D5C00` | `#F2C94C` | A warning, a field marked wrong (`--marked`), Held: amber, never the runner's orange |
 | `--press-rim` | 50% ink | 45% white | The edge of something you press, at rest (a check's box, a toggle's slot): 3:1 or more |
-| `--backdrop-*` | pale blue, teal, violet | night blue, teal, violet | Zaisma's own backdrop |
+| `--backdrop-*` | warm grays | warm graphites | Zaisma's own backdrop: its still, and the colors a page's own scene is drawn in |
 
 The same in both:
 
@@ -228,9 +228,11 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Color**: Every color comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.
 - **Type**: Every word outside a control's own inside is set in one of these, picked by what the words are. Jost for display, the system's own face for reading; fields are 16px or more, so phones don't zoom in.
 - **Glass**: Zaisma's interface is glass over the game or the page's backdrop, never over a plain color. It's as thin as the words allow: light with dark words, or smoked with light words.
-- **Backdrop** (`backdrop(options?: BackdropOptions)`, `foundations.ts`): Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, glass facets with orange nodes wandering over them, or their own shader or 3D scene.
-  - `options`: `fragmentShader?: string`, `isGlassAdaptive?: boolean`, `isScene?: boolean`, `isFramed?: boolean`
+- **Backdrop** (`backdrop(options?: BackdropOptions)`, `foundations.ts`): Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.
+  - `options`: `fragmentShader?: string`, `isGlassAdaptive?: boolean`, `isScene?: boolean`, `isFramed?: boolean`, `standInSlug?: string`
 - **Shader background**: A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and bends the light under the glass for any shader: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge.
+- **Game background** (`gameBackgroundFrame(options: GameBackgroundFrameOptions)`, `foundations.ts`): A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.
+  - `options`: `standInSlug: string`, `title: string`, `note: string`
 - **Icons** (`icon(name: IconName)`, `icons.ts`): Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.
 - **Logo** (`logo(kind: "wordmark" | "mark")`, `foundations.ts`): Zaisma's logo, always a link home: the wordmark at the top of a page, the mark alone in the footer. Drawn in the words' color, never restyled.
 - **Loader** (`loader()`, `foundations.ts`): The Z building itself: what a button shows once it's pressed and waiting, a form sent or a page opening. Only ever after you press something.
@@ -410,6 +412,6 @@ How the larger ones behave:
 
 ## Backgrounds
 
-Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): slow soft light in the theme's colors, or a still gradient where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).
+Glass is always over something. Zaisma's own pages have its backdrop (`backdrop`, `foundations.ts`): satin in warm gray or graphite whose folds sway slowly, or a still gradient in the same colors where it can't draw. A game's page and its place on the home show the game's own background instead, set by its developer: a picture, a shader or Zaisma's own, for wide screens and phones (the game backgrounds building block).
 
 **Scenes.** A live 3D scene is the page only where its job is a first impression. The city (`cityStage()` and `CITY_SCRIPT`, `components/city.ts`) is the sign-in's scene: signing in, making an account and every step between are one glass pane in front of it (on the right on a wide screen, full width at the bottom on a phone). Moving between those steps never loads a new page: `CITY_PANE_SCRIPT` swaps the next step into the pane in place, so the scene runs on unbroken; only leaving sign-in loads a page. It runs on phones too, at a lower resolution, draws at most about 3.2 million pixels on any screen, and steps down further on a slow device. It shows at once as a placeholder, its first frame tiny and blurred inside the page itself, and nothing half-made shows over it: the live city starts as soon as the page has painted, and once it runs smoothly it sharpens in out of the placeholder from that same frame before the camera sets off. Its still, a full render of the same city by day and by night (`brand/sign-in/`), stands in for reduced motion, no WebGL and a device that can't keep the city smooth even at its lowest step; it's loaded only then, and takes the placeholder's place once it has wholly loaded.

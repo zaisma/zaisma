@@ -1,19 +1,24 @@
+import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE, SHADER_VERTEX_SOURCE } from "@zaisma/core";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER } from "./shaders.ts";
 
 /**
  * Backdrops: every [data-backdrop] on a page. On a canvas, "shader" draws a shader background (shaders.ts: a mainImage function, the page's own in
  * data-backdrop-shader, or Zaisma's), "scene" leaves the drawing to the page: each frame the canvas gets a backdrop-frame event whose detail is
  * { timeS, colors: { base, a, b, c, isDark }, widthPx, heightPx }, and the page draws its 3D scene into the canvas then. A game's own background
- * (backgrounds.ts) is "frame", an iframe of its shader runner on the game's site, which is told where the glass over it is ({ panes }), or
- * "picture", an img; either measures its glass (data-adapts-glass) from the still in data-backdrop-still (or the picture), never the frame.
- * Either way this keeps the canvas sized to its box, follows the theme (a shader's iDark eases from one to the other), runs at most 30
- * frames a second, stops while the page is hidden or the canvas is out of view, and under reduced motion draws one still frame. A shader
- * is drawn small (about half the screen's pixels, less on a phone) and gets fewer pixels, then a still frame, on a device that can't keep
- * up. Without WebGL a shader backdrop keeps its CSS gradient in the theme's colors.
+ * (backgrounds.ts) is "frame", an iframe of its shader runner on the game's site, which is told where the glass over it is and whether the
+ * page is idle ({ panes, isIdle }), or "picture", an img; either measures its glass (data-adapts-glass) from the still in data-backdrop-still
+ * (or the picture), never the frame. Either way this keeps the canvas sized to its box, follows the theme (a shader's iDark eases from one to
+ * the other), runs at most 30 frames a second, rests on a still after a minute with no input on the page (a game's frame drops to 15 a
+ * second), stops while the page is hidden or the canvas is out of view, and under reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD
+ * and the glass pass round its mainImage, with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
+ * a phone), then sharpened as it's scaled up to its canvas (SHADER_UPSCALE_SOURCE); it gets fewer pixels, then a still frame, on a device that
+ * can't keep up. Without WebGL2 a shader backdrop keeps its CSS gradient in the theme's colors.
  */
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
-  var VERTEX = "attribute vec2 corner; void main() { gl_Position = vec4(corner, 0.0, 1.0); }";
+  var HEAD = ${JSON.stringify(SHADER_HEAD)}, VERTEX = ${JSON.stringify(SHADER_VERTEX_SOURCE)}, UPSCALE = ${JSON.stringify(SHADER_UPSCALE_SOURCE)};
+  var DRAW_SHARE = ${SHADER_LIMITS.runtimeDrawShareNumber}, UPSCALE_NUMBER = ${SHADER_LIMITS.runtimeUpscaleNumber}, IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000};
+  var FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeMaximumFps)}, IDLE_FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeIdleFramesPerSec)};
   var still = window.matchMedia("(prefers-reduced-motion: reduce)");
   var layers = [], lastMs = 0, running = false, isWaking = false;
   // Until the first frame, which runs before the page's first paint, a layer set up draws in that frame rather than at once, so its shader
@@ -59,9 +64,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var short = Math.min(width, height);
     return window.zaismaCorners(el, "pane").map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
-  // Each layer's panes, in its canvas's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
+  // Each layer's panes, in its shader's pixels from its bottom left (a frame's in CSS pixels), smallest first (a pane over a tray bends the light under it).
   function placeGlass(layer) {
-    var box = layer.canvas.getBoundingClientRect(), host = layer.canvas.parentElement, scale = layer.isOuter ? 1 : layer.canvas.width / Math.max(1, box.width), found = [];
+    var box = layer.canvas.getBoundingClientRect(), host = layer.canvas.parentElement, scale = layer.isOuter ? 1 : (layer.drawnWidth || layer.canvas.width) / Math.max(1, box.width), found = [];
     candidates.forEach(function (el) {
       if (el.glassHost !== host) return;
       var r = el.getBoundingClientRect();
@@ -126,8 +131,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     for (var p = 0; p < pixels.length; p += step) colors.push([pixels[p], pixels[p + 1], pixels[p + 2]]);
     return colors;
   }
-  function adaptGlass(gl, layer) {
-    var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, pixels = new Uint8Array(w * h * 4);
+  function adaptGlass(gl, layer, w, h) {
+    var pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     showGlass(layer, sample(pixels));
   }
@@ -141,7 +146,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.isGlassAdapted = true;
     try { showGlass(layer, sample(context.getImageData(0, 0, board.width, board.height).data)); } catch (error) { /* a still from a site that doesn't allow reading it */ }
   }
-  // A game's frame is told where the glass over it is, in its own CSS pixels from its bottom left (apps/games/src/background.ts).
+  // A game's frame is told where the glass over it is, in its own CSS pixels from its bottom left, and whether the page is idle, since it
+  // never sees the page's input (apps/games/src/background.ts).
   function tellFrame(layer) {
     var glass = layer.glass, frameWindow = layer.canvas.contentWindow; if (!glass || !frameWindow) return;
     var panes = [];
@@ -149,57 +155,135 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var cutWord = glass.cuts[i * 4 + 3], isSmoked = cutWord >= 4096;
       panes.push({ rect: Array.prototype.slice.call(glass.rects, i * 4, i * 4 + 4), cuts: [glass.cuts[i * 4], glass.cuts[i * 4 + 1], glass.cuts[i * 4 + 2], isSmoked ? cutWord - 4096 : cutWord], isSmoked: isSmoked });
     }
-    try { frameWindow.postMessage({ panes: panes }, new URL(layer.canvas.src).origin); } catch (error) { /* a frame without its page yet */ }
+    try { frameWindow.postMessage({ panes: panes, isIdle: isIdle }, new URL(layer.canvas.src).origin); } catch (error) { /* a frame without its page yet */ }
   }
-  function shaderDrawer(canvas) {
-    var gl = canvas.getContext("webgl", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
+  /*
+   * Idle: after a minute with no input on the page (touched, below), a game's frame is told so and draws 15 frames a second instead of 30,
+   * and the first input brings 30 back at once. A timer marks it, since the loop may be resting then.
+   */
+  var isIdle = false, idleTimer = 0;
+  function goIdle() { isIdle = true; tellFramesIdle(); }
+  function tellFramesIdle() { layers.forEach(function (layer) { if (layer.kind === "frame") tellFrame(layer); }); }
+  /*
+   * Every shader on the page draws in one WebGL2 context, off screen, and each frame is copied into its own canvas. A browser keeps only
+   * about 16 contexts at once (across the site's tabs and frames) and takes the oldest away past that, which a page of many backdrops (the
+   * gallery) would reach, taking the page's own backdrop and its 3D scene with it. One context never does; a shader out of view just isn't
+   * drawn, and if the context is lost anyway every canvas keeps its last frame until it's back. A shader draws into one shared picture at
+   * fewer pixels (in its bottom left), and the upscale draws that onto the board at its canvas's size.
+   */
+  var shared = null;
+  function sharedContext() {
+    if (shared) return shared.isLost ? null : shared;
+    var board = document.createElement("canvas"); board.width = 2; board.height = 2;
+    var gl = board.getContext("webgl2", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
     if (!gl) return null;
-    // Where the browser can, the driver builds the program on threads of its own (KHR_parallel_shader_compile), and it's only asked whether
-    // the program built when the first frame is drawn, which still comes before the page's first paint: the page carries on meanwhile.
-    gl.getExtension("KHR_parallel_shader_compile");
-    function compile(kind, source) { var shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader); return shader; }
-    var precision = "#ifdef GL_FRAGMENT_PRECISION_HIGH\\nprecision highp float;\\n#else\\nprecision mediump float;\\n#endif\\n";
-    var head = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA);
-    function start(withPass) {
-      var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, head + (withPass ? GLASS_LIGHT : "\\nuniform vec2 zaismaViewOffset;\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy + zaismaViewOffset); gl_FragColor = vec4(color.rgb, 1.0); }"));
-      var made = gl.createProgram(); gl.attachShader(made, vertex); gl.attachShader(made, fragment); gl.linkProgram(made);
-      return { program: made, shaders: [vertex, fragment] };
+    // Shaders compile in the background where the browser can (KHR_parallel_shader_compile): a backdrop draws once its program is ready.
+    shared = { board: board, gl: gl, programs: {}, isLost: false, parallel: gl.getExtension("KHR_parallel_shader_compile") };
+    function prepare() {
+      gl.bindVertexArray(gl.createVertexArray());
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      shared.vertex = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(shared.vertex, VERTEX); gl.compileShader(shared.vertex);
+      shared.upscale = { status: "compiling", names: ["zaismaDrawn", "zaismaDrawnSize", "zaismaCanvasSize"] }; startBuild(shared.upscale, UPSCALE);
+      shared.drawn = { texture: gl.createTexture(), framebuffer: gl.createFramebuffer(), widthPx: 0, heightPx: 0 };
     }
-    // Whether it built; what went wrong is read only then, so asking never waits on a compile that worked.
-    function isBuilt(made) {
-      if (gl.getProgramParameter(made.program, gl.LINK_STATUS)) return true;
-      made.shaders.forEach(function (shader) { if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) console.warn("Backdrop shader:", gl.getShaderInfoLog(shader)); });
-      return false;
+    prepare();
+    board.addEventListener("webglcontextlost", function (event) { event.preventDefault(); shared.isLost = true; });
+    board.addEventListener("webglcontextrestored", function () { shared.programs = {}; shared.isLost = false; prepare(); layers.forEach(function (layer) { layer.isDrawn = false; }); wake(); });
+    return shared;
+  }
+  // A program set compiling and linking; settle() reads how it went once it's done, without waiting on it where the browser can.
+  function startBuild(built, fragmentSource) {
+    var gl = shared.gl, fragment = gl.createShader(gl.FRAGMENT_SHADER), program = gl.createProgram();
+    gl.shaderSource(fragment, fragmentSource); gl.compileShader(fragment);
+    gl.attachShader(program, shared.vertex); gl.attachShader(program, fragment); gl.bindAttribLocation(program, 0, "corner"); gl.linkProgram(program);
+    built.pending = { program: program, fragment: fragment };
+  }
+  function settle(built) {
+    if (built.status !== "compiling") return built.status === "ready";
+    var gl = shared.gl, pending = built.pending;
+    if (shared.parallel && !gl.getProgramParameter(pending.program, shared.parallel.COMPLETION_STATUS_KHR)) return false;
+    if (gl.getProgramParameter(pending.program, gl.LINK_STATUS)) {
+      built.program = pending.program; built.status = "ready"; built.at = {};
+      built.names.forEach(function (name) { built.at[name] = gl.getUniformLocation(pending.program, name); });
+    } else {
+      console.warn("Backdrop shader:", gl.getShaderInfoLog(pending.fragment) || gl.getProgramInfoLog(pending.program));
+      gl.deleteProgram(pending.program);
+      built.status = "failed";
+      // The glass pass didn't build here: the shader alone instead.
+      if (built.plainSource) { var plainSource = built.plainSource; built.plainSource = null; built.status = "compiling"; built.hasPass = false; startBuild(built, plainSource); }
     }
-    // Every shader gets the glass pass round its mainImage; a device that can't build it gets the shader alone.
-    var building = start(true), program = null, hasPass = true, at = {};
-    function finish() {
-      if (isBuilt(building)) program = building.program;
-      else { hasPass = false; var plain = start(false); if (!isBuilt(plain)) return false; program = plain.program; }
-      gl.useProgram(program);
-      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-      var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
-      ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaPixel", "zaismaViewOffset"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
-      return true;
+    gl.deleteShader(pending.fragment);
+    if (built.status !== "compiling") built.pending = null;
+    return built.status === "ready";
+  }
+  // A shader's program in the shared context, built once per source: the glass pass round its mainImage, or the shader alone on a device that can't build it.
+  function programFor(context, source) {
+    if (context.programs[source]) return context.programs[source];
+    var body = HEAD + "uniform float iDark;\\n" + HELPERS + source + "\\n";
+    var built = { status: "compiling", hasPass: true, names: ["iResolution", "iTime", "iDark", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaViewOffset"],
+      plainSource: body + "uniform vec2 zaismaViewOffset;\\nout vec4 zaismaFragColor;\\nvoid main() { vec4 color = vec4(0.0); mainImage(color, gl_FragCoord.xy + zaismaViewOffset); zaismaFragColor = vec4(color.rgb, 1.0); }" };
+    startBuild(built, body + GLASS_LIGHT);
+    context.programs[source] = built;
+    return built;
+  }
+  // The shared picture shaders draw into, grown to the largest a canvas needs.
+  function drawnTarget(context, widthPx, heightPx) {
+    var gl = context.gl, drawn = context.drawn;
+    if (drawn.widthPx < widthPx || drawn.heightPx < heightPx) {
+      drawn.widthPx = Math.max(drawn.widthPx, widthPx); drawn.heightPx = Math.max(drawn.heightPx, heightPx);
+      gl.bindTexture(gl.TEXTURE_2D, drawn.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, drawn.widthPx, drawn.heightPx, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, drawn.framebuffer); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, drawn.texture, 0);
     }
-    // Draws a frame; false when the shader couldn't be built, and the CSS gradient under it stays.
+    return drawn;
+  }
+  // Draws the layer's frame and answers whether it did: not while its program is still compiling.
+  function shaderDrawer(canvas) {
+    var source = canvas.getAttribute("data-backdrop-shader") || ZAISMA, context = sharedContext(), picture = null;
+    if (!context) return null;
+    programFor(context, source);
     return function (timeS, colors, layer) {
-      if (!program && !finish()) return false;
-      gl.viewport(0, 0, canvas.width, canvas.height);
+      var context = sharedContext(), built = context && programFor(context, source);
+      if (!built || !settle(built) || !settle(context.upscale)) {
+        // Neither the shader with the glass pass nor alone built here: the layer is lost, and the CSS gradient under it stays.
+        if (built && (built.status === "failed" || context.upscale.status === "failed")) layer.isLost = true;
+        return false;
+      }
+      // The canvas's own picture is taken only now: taken before its first frame, it would show black over the gradient under it.
+      picture = picture || canvas.getContext("2d", { alpha: false });
+      if (!picture) return false;
+      var gl = context.gl, board = context.board, width = canvas.width, height = canvas.height, drawnWidth = layer.drawnWidth, drawnHeight = layer.drawnHeight, at = built.at;
+      // The board grows to the largest canvas; each draws in its bottom left and is copied from there.
+      if (board.width < width || board.height < height) { board.width = Math.max(board.width, width); board.height = Math.max(board.height, height); }
+      var drawn = drawnTarget(context, drawnWidth, drawnHeight);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, drawn.framebuffer); gl.useProgram(built.program); gl.viewport(0, 0, drawnWidth, drawnHeight);
       // A framed backdrop is a window onto a scene 1.8 times its size, centered on it: a shader sizes everything to its screen, so in a
       // small box its finest details (snowflakes, stars, rain) would shrink to a pixel and shimmer. Most of the picture still shows.
       var isWindow = canvas.classList.contains("is-framed"), sceneShare = isWindow ? 1.8 : 1;
-      var sceneWidth = canvas.width * sceneShare, sceneHeight = canvas.height * sceneShare;
+      var sceneWidth = drawnWidth * sceneShare, sceneHeight = drawnHeight * sceneShare;
       gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
-      gl.uniform2f(at.zaismaViewOffset, (sceneWidth - canvas.width) / 2, (sceneHeight - canvas.height) / 2);
-      if (!hasPass) { gl.drawArrays(gl.TRIANGLES, 0, 3); return; }
-      var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
-      gl.uniform4fv(at.zaismaPanes, glass.rects);
-      var isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0; gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
+      gl.uniform2f(at.zaismaViewOffset, (sceneWidth - drawnWidth) / 2, (sceneHeight - drawnHeight) / 2);
+      var isFirstWithGlass = false;
+      if (built.hasPass) {
+        var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
+        gl.uniform4fv(at.iGlassPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1i(at.iGlassPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
+        isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0;
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      // Read straight after the frame is drawn, while it's still in the buffer.
-      if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer); }
+      // Sharpened as it's scaled up to the canvas's size, onto the board.
+      var upscale = context.upscale;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(upscale.program); gl.viewport(0, 0, width, height);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, drawn.texture);
+      gl.uniform1i(upscale.at.zaismaDrawn, 0); gl.uniform2f(upscale.at.zaismaDrawnSize, drawnWidth, drawnHeight); gl.uniform2f(upscale.at.zaismaCanvasSize, width, height);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      // Read straight after the frame is drawn, while it's still in the buffer, then copied out before the next canvas draws over it.
+      if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer, width, height); }
+      picture.drawImage(board, 0, board.height - height, width, height, 0, 0, width, height);
+      canvas.classList.add("is-drawn");
+      return true;
     };
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
@@ -218,7 +302,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
    * on that still, costing nothing; the next touch eases it back. It then runs as far behind the wall clock as it rested, kept for the tab,
    * so the next page goes on from the same picture.
    */
-  var IDLE_AFTER_MS = 60000, EASE_MS = 1000, LAG_KEY = "zaisma:backdrop-lag-s", lastInputMs = performance.now(), clockRate = 1, clockMs = performance.now(), isAsleep = false;
+  var EASE_MS = 1000, LAG_KEY = "zaisma:backdrop-lag-s", lastInputMs = performance.now(), clockRate = 1, clockMs = performance.now(), isAsleep = false;
   var clockS = Date.now() / 1000; try { clockS -= Number(sessionStorage.getItem(LAG_KEY)) || 0; } catch (error) { /* storage blocked */ }
   function tickClock(nowMs) {
     var stepMs = Math.max(0, nowMs - clockMs); clockMs = nowMs;
@@ -228,20 +312,24 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   function touched() {
     lastInputMs = performance.now();
+    clearTimeout(idleTimer); idleTimer = setTimeout(goIdle, IDLE_AFTER_MS);
+    if (isIdle) { isIdle = false; tellFramesIdle(); }
     if (!isAsleep) return;
     isAsleep = false; clockMs = lastInputMs;
     layers.forEach(function (layer) { layer.isDrawn = false; });
     wake();
   }
   ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"].forEach(function (type) { window.addEventListener(type, touched, { passive: true, capture: true }); });
+  idleTimer = setTimeout(goIdle, IDLE_AFTER_MS);
   window.addEventListener("pagehide", function () { try { sessionStorage.setItem(LAG_KEY, String(Date.now() / 1000 - clockS)); } catch (error) { /* storage blocked */ } });
   function draw(layer, nowMs) {
     if (layer.isOuter) return;
     var timeS = still.matches ? 20 : clockS % 3600;
     layer.colors = shownColors(layer, nowMs);
-    if (layer.drawShader) { if (layer.drawShader(timeS, layer.colors, layer) === false) { layer.isLost = true; layer.canvas.classList.remove("is-drawn"); return; } }
+    var isDrawnNow = true;
+    if (layer.drawShader) { isDrawnNow = layer.drawShader(timeS, layer.colors, layer); if (layer.isLost) { layer.canvas.classList.remove("is-drawn"); return; } }
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colors: layer.colors, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
-    layer.isDrawn = !layer.from;
+    layer.isDrawn = isDrawnNow && !layer.from;
   }
   // Whether a layer still has frames to draw: a shader or scene moving in view, or one that hasn't drawn its still yet.
   function isMoving(layer) {
@@ -252,15 +340,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     running = false;
     // A hidden page draws nothing; showing it again wakes the loop.
     if (document.hidden) return;
-    // At most 30 frames a second, but at once when the glass over it has moved (a scroll), so what's under a pane never trails it.
-    if (nowMs - lastMs < 33 && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
+    // At most 30 frames a second (15 when idle), but at once when the glass over it has moved (a scroll), so what's under a pane never trails it.
+    var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
+    if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
     // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
-    var gapMs = isWaking ? 33 : nowMs - lastMs; lastMs = nowMs; isWaking = false; isFirstPaintDue = false;
+    var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isFirstPaintDue = false;
     tickClock(nowMs);
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
     layers.forEach(function (layer) {
-      if (!layer.isInView || layer.isLost || layer.canvas.hasAttribute("data-backdrop-paused")) return;
+      if (!layer.isInView || layer.canvas.hasAttribute("data-backdrop-paused")) return;
       if (layer.isOuter) {
         if (!isMoved && layer.glass && layer.isTold) return;
         placeGlass(layer); layer.isTold = true;
@@ -273,7 +362,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       if ((layer.isHeld || still.matches || isAsleep) && layer.isDrawn) return;
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
-        layer.slowS = gapMs > 50 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
+        layer.slowS = gapMs > gapGoalMs * 1.5 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
         if (layer.slowS > 1.5) { layer.slowS = 0; if (layer.scale > 0.26) { layer.scale *= 0.75; layer.size(); } else layer.isHeld = true; }
       }
       draw(layer, nowMs);
@@ -313,53 +402,34 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.isInView) markPlaceStale(); }).observe(el);
     markPlaceStale();
   }
-  /*
-   * A browser keeps only so many drawing contexts at once (about 16, across every tab of the site and every frame in them), and takes the
-   * oldest away past that. So a shader gives its context back once it has been out of view for a while and takes it again as it comes
-   * back; and one taken away anyway hides (.is-lost) instead of showing the browser's broken canvas, and is drawn on a fresh canvas when
-   * it's next in view.
-   */
-  var RELEASE_AFTER_MS = 3000;
-  function keepContext(layer) {
-    var canvas = layer.canvas, gl = canvas.getContext("webgl"), loser = gl && gl.getExtension("WEBGL_lose_context"), releaseTimer = 0;
-    canvas.addEventListener("webglcontextlost", function (event) { event.preventDefault(); layer.isLost = true; canvas.classList.add("is-lost"); });
-    canvas.addEventListener("webglcontextrestored", function () {
-      layer.drawShader = shaderDrawer(canvas); layer.isLost = false; layer.isReleased = false; layer.glass = null; layer.isDrawn = false;
-      if (!layer.drawShader) return;
-      canvas.classList.remove("is-lost"); draw(layer, performance.now());
-    });
-    layer.onView = function () {
-      clearTimeout(releaseTimer);
-      if (!layer.isInView) { if (loser && !layer.isLost) releaseTimer = setTimeout(function () { if (!layer.isInView && !layer.isLost) { layer.isReleased = true; loser.loseContext(); } }, RELEASE_AFTER_MS); return; }
-      if (!layer.isLost) return;
-      if (layer.isReleased && loser) { loser.restoreContext(); return; }
-      // Taken away by the browser: a fresh canvas in its place, set up as this one was.
-      var fresh = canvas.cloneNode(false); fresh.classList.remove("is-lost", "is-drawn");
-      window.zaismaBackdrop.remove(canvas); canvas.replaceWith(fresh); setUp(fresh);
-    };
-  }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
+    // A stand-in game's background waits for its shader (STAND_IN_BACKGROUNDS_SCRIPT writes it on, then adds the canvas).
+    if (canvas.hasAttribute("data-backdrop-stand-in") && !canvas.hasAttribute("data-backdrop-shader")) return;
     var outerKind = canvas.getAttribute("data-backdrop");
     if (outerKind === "frame" || outerKind === "picture") return setUpOuter(canvas, outerKind);
     var isScene = canvas.getAttribute("data-backdrop") === "scene", isPhone = window.matchMedia("(max-width: 760px)").matches, sharpness = Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1.5);
-    // A shader filling the window is soft, so it's drawn at about half the screen's pixels (less on a phone). One framed in a small box
-    // (the gallery's examples) gets the screen's sharpness: at half, its finest details (snowflakes, stars) would be a pixel or two
-    // and shimmer as they move. A scene gets the screen's sharpness, up to 2x.
+    // A shader filling the window is soft, so its canvas is about half the screen's pixels (less on a phone), and the shader draws at
+    // DRAW_SHARE of that a side and is sharpened up to it. One framed in a small box (the gallery's examples) gets the screen's sharpness:
+    // at half, its finest details (snowflakes, stars) would be a pixel or two and shimmer as they move. A scene gets the screen's
+    // sharpness, up to 2x, and draws itself at its canvas's size.
     var isFramed = canvas.classList.contains("is-framed");
     var layer = { canvas: canvas, isInView: true, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
-    if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
+    if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
     layer.size = function () {
       var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
+      if (!isScene) {
+        layer.drawnWidth = Math.max(2, Math.round(canvas.clientWidth * layer.scale * DRAW_SHARE)); layer.drawnHeight = Math.max(2, Math.round(canvas.clientHeight * layer.scale * DRAW_SHARE));
+        width = Math.round(layer.drawnWidth * UPSCALE_NUMBER); height = Math.round(layer.drawnHeight * UPSCALE_NUMBER);
+      }
       if (width === canvas.width && height === canvas.height) return;
       canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
       if (canvas.backdropLayer && !isFirstPaintDue) draw(layer, performance.now());
     };
     layer.size();
     window.zaismaWatch.size(canvas, layer.size);
-    if (!isScene) keepContext(layer);
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.onView) layer.onView(); if (layer.isInView) wake(); }).observe(canvas);
     // A page pausing a layer and letting it go again (the home, as a game's background covers Zaisma's) wakes the loop.
     new MutationObserver(wake).observe(canvas, { attributes: true, attributeFilter: ["data-backdrop-paused"] });

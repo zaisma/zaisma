@@ -290,6 +290,7 @@ export const IMAGE = object({
     share: "the picture shared links show instead of the cover",
     background: "a background for wide screens: the game's world behind Zaisma's glass, with no title on it",
     phone_background: "a background composed for a tall phone screen",
+    shader_texture: "a picture a background shader reads through a channel; image matching approves it at once",
   }),
   review_status: choice({ pending: "only you see it until the listing check (about a minute) or a person approves it", approved: "shown to players", rejected: "not shown" }),
   review_reason: nullable(reviewReason("Why it wasn't approved; null otherwise.")),
@@ -301,18 +302,59 @@ export const IMAGE = object({
   created_at: isoTime(),
 });
 
+/** One of a shader pass's channels, as add_shader takes it with every default filled in. */
+export const SHADER_CHANNEL = object({
+  channel_index: describe({ type: "integer", minimum: 0, maximum: 3 }, "0 to 3: the pass reads it as iChannel0 to iChannel3."),
+  input_kind: choice({ buffer: "one of the shader's buffers (buffer_name): its picture from this frame if it's drawn before this pass, else its last frame (its own last frame for itself)", texture: "one of the game's shader textures (image_id)" }),
+  buffer_name: nullable(choice(["a", "b", "c", "d"], "With input_kind buffer; null otherwise.")),
+  image_id: nullable(idOf("image", "With input_kind texture: an approved image of kind shader_texture; null otherwise.")),
+  filter: choice({ linear: "smooth (a texture's with mipmaps)", nearest: "each texel as it is, as for data" }),
+  wrap: choice({ clamp: "the edge texel goes on past the edge (a buffer's default)", repeat: "the picture tiles (a texture's default)" }),
+});
+
+/** What the check measured at one quality level. */
+export const SHADER_QUALITY_CHECK = object({
+  quality_level: describe({ type: "integer", enum: [0, 1, 2] }, "The iQuality it was drawn at: 0 for phones and slow devices, 1, 2 for desktops. A shader that never reads iQuality is timed once, at 0."),
+  check_frame_ms: number("The check's median time to draw one 640 by 360 frame at this level, every pass, in milliseconds on a software renderer (far slower than any GPU), scaled to the renderer's speed."),
+  maximum_check_frame_ms: number("The most check_frame_ms may be at this level: 75 at 0, 150 at 1, 300 at 2."),
+});
+
 export const SHADER = object({
   id: idOf("shader"),
   screen: choice({ wide: "for desktops and tablets", phone: "composed for a tall phone screen" }),
-  review_status: choice({ pending: "waiting for its check (about a minute), or for a person when the check asks for one", approved: "passed: set_background can show it", rejected: "didn't pass; review_reason says why" }),
-  review_reason: nullable(reviewReason("Why it didn't pass: it didn't compile, took too long a frame, flashes, or has words or a logo in it; null otherwise.")),
-  check_frame_ms: nullable(number("The check's median time to draw one 640 by 360 frame, in milliseconds on a software renderer (far slower than any GPU), scaled to the renderer's speed; null until the check ran.")),
-  flash_count: nullable(countOf("The most times it flashed in any one second of the check; over 3 is refused. null until the check ran.")),
-  still_url: nullable(url("Its still frame at 2 seconds, full size (1920 by 1080, or 1080 by 1920 for phone): shown under reduced motion and wherever it can't run. null until the check saved it.")),
+  review_status: choice({ pending: "waiting for its check (a minute or two), or for a person when the check asks for one", approved: "passed: set_background can show it", rejected: "didn't pass; review_reason says why" }),
+  review_reason: nullable(reviewReason("Why it didn't pass: a pass didn't compile, a frame took too long at a quality level, it flashes, or it has words or a logo in it; null otherwise.")),
+  quality_checks: list(SHADER_QUALITY_CHECK, "What the check measured at each quality level it timed: all three when has_quality_levels, else level 0; [] until the check ran."),
+  has_quality_levels: yes("Whether its source reads iQuality, so the check times it at levels 0, 1 and 2, and players' devices pick a level."),
+  flash_count: nullable(countOf("The most times it flashed in any one second of the check, at any level; over 3 is refused. null until the check ran.")),
+  still_url: nullable(url("Its still frame at 2 seconds (1920 by 1080, or 960 by 540 with buffers; turned round for phone), drawn at quality 2 for wide and 0 for phone: shown under reduced motion and wherever it can't run. null until the check saved it.")),
   frame_urls: list(url(), "Frames the check drew over its first 30 seconds, for the developer to look at; [] until the check saved them."),
-  source_url: url("The shader's source as sent, for a live preview: only the developer, signed in, opens it until it's approved."),
-  size_bytes: countOf(),
+  image: object({ source_url: url("The image pass's source as sent, for a live preview: only the developer, signed in, opens it until it's approved."), channels: list(SHADER_CHANNEL, "What the image pass's channels read; [] for none.") }, "The image pass, which draws the background each frame after the buffers."),
+  buffers: list(object({ buffer_name: choice(["a", "b", "c", "d"]), source_url: url("The buffer's source as sent, opened like image's."), channels: list(SHADER_CHANNEL) }), "Its buffers, a to d, each drawn to a picture kept between frames; [] for none."),
+  buffer_count: countOf("How many buffers it has, up to 4."),
+  texture_count: countOf("How many shader textures its channels read, up to 4."),
+  texture_image_ids: list(idOf("image"), "The shader textures its channels read, each once."),
+  size_bytes: countOf("Its passes' sources together."),
   created_at: isoTime(),
+});
+
+/** A note a check before sending answers with: worth fixing, never a reason a shader is refused. */
+export const SHADER_CHECK_NOTE = object({
+  code: choice({ shimmers_when_small: "fine detail that flickers from frame to frame when it's drawn small, as on phones", forces_thick_glass: "contrast that makes Zaisma's glass tint 70% or more to keep words over it readable, hiding most of it" }),
+  message: text("What the check saw."),
+  fix: text("What to change."),
+});
+
+/** What check_shader answers: what the shader check would measure, with notes and a picture of it under Zaisma's glass. */
+export const SHADER_CHECK = object({
+  compile_error: nullable(text("The compiler's first error, a buffer's starting with its name, with line numbers the pass's own; null when every pass compiled.")),
+  quality_checks: list(SHADER_QUALITY_CHECK, "Each quality level timed, as add_shader's check would; a level after one far too slow isn't drawn. [] when it didn't compile."),
+  flash_count: nullable(countOf("The most times it flashed in any one second; add_shader's check refuses over 3. null when it didn't compile.")),
+  is_glass_smoked: nullable(yes("Whether Zaisma would put smoked glass over it (light words) rather than light glass (dark words), from its still; null when it wasn't drawn.")),
+  glass_tint_pct: nullable(number("How strongly that glass is tinted to keep words readable, from 30 to 95; 70 or more is forces_thick_glass. null when it wasn't drawn.")),
+  notes: list(SHADER_CHECK_NOTE, "Worth fixing, but never a reason it's refused; [] when there's nothing."),
+  sheet_url: nullable(url("A picture of it: wide and phone under Zaisma's glass, small, what changes between two frames (speckle there is shimmer) and its pixels close up, with each level's time. Anyone with the link can open it until sheet_expires_at. null when it wasn't drawn or image matching couldn't clear it.")),
+  sheet_expires_at: nullable(isoTime("When sheet_url stops working: a day after the check.")),
 });
 
 export const BACKGROUND = object({

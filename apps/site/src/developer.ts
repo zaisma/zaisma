@@ -3,6 +3,7 @@ import {
   IMAGE_LIMITS,
   IMAGE_KINDS,
   isBackgroundShape,
+  SHADER_LIMITS,
   dropChosenBackground,
   shadersForGame,
   isSquare,
@@ -47,6 +48,8 @@ import {
   type Finding,
   type ReviewCodeName,
   imagesForGame,
+  MANY_IMAGE_KINDS,
+  settleImage,
   newId,
   personOwner,
   readPlayModes,
@@ -179,7 +182,8 @@ import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
 import { itemsRoute, playerItemsRoute, purchaseSettingsRoute, purchasesRoute } from "./items-api.ts";
-import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shaderJson } from "./backgrounds-api.ts";
+import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shadersAnswer, shadersReadingTexture } from "./backgrounds-api.ts";
+import { serveShaderCheckSheet } from "./shader-check.ts";
 import { exportDownload, exportSummary } from "./game-export.ts";
 import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
@@ -203,9 +207,10 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
  *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
- *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot or background picture (the image bytes as the body)
+ *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot, background picture or shader texture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
- *   POST   /api/dev/games/:slug/shaders?screen=   send a background shader (the GLSL text as the body; see backgrounds-api.ts)
+ *   POST   /api/dev/games/:slug/shaders        send a background shader: { screen, image, buffers } (see backgrounds-api.ts)
+ *   POST   /api/dev/games/:slug/shader-checks  check a shader before sending it: the same body, answering its sheet and notes
  *   DELETE /api/dev/games/:slug/shaders/:id    remove one
  *   PUT    /api/dev/games/:slug/backgrounds/:screen   choose what wide or phone shows: { "source", "image_id", "shader_id" }
  *   POST   /api/dev/check                      check a game's files before uploading: what Zaisma would refuse and what won't work (see check-api.ts)
@@ -268,6 +273,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  * publishing_not_open for accounts Zaisma hasn't added (isPublishing, set on /admin/publishing).
  *
  * Images are served from /img/:id once approved, and shaders' sources, stills and frames from /shaders/:id/…; owners can see their own before that.
+ * A shader check's sheet is at /shader-checks/<name>.png for a day, for anyone with its link.
  */
 
 export interface Caller {
@@ -328,6 +334,7 @@ export const INTERNAL_ERROR = () =>
 export async function handleDeveloper(request: Request, env: Env, path: string, ctx?: ExecutionContext): Promise<Response | null> {
   if (path.startsWith("/img/")) return serveImage(request, env, path.slice(5));
   if (path.startsWith("/shaders/")) return serveShaderFile(request, env, path.slice(9), (gameOwnerId) => isOwnerSignedIn(request, env, gameOwnerId));
+  if (path.startsWith("/shader-checks/")) return serveShaderCheckSheet(request, env, path.slice("/shader-checks/".length));
   if (path !== "/api/dev" && !path.startsWith("/api/dev/")) return null;
   try {
     const caller = await authenticate(request, env, "api", ctx ? (promise) => ctx.waitUntil(promise) : undefined);
@@ -549,6 +556,10 @@ const MAXIMUM_SAVE_BODY_SIZE_BYTES = SAVE_LIMIT_BYTES * 2 + 64 * 1024;
 /** The check takes a game's HTML, JavaScript and CSS as text, and only the path and size of every other file. */
 const MAXIMUM_CHECK_BODY_SIZE_BYTES = 8 * 1024 * 1024;
 const atGame = { slug: "game" } as const;
+/** A shader as add_shader and check_shader send it (backgrounds-api.ts). */
+const SHADER_INPUTS = ["screen", "image", "buffers"];
+/** Five passes of up to 64 KB each, with room for JSON's escapes. */
+const MAXIMUM_SHADER_BODY_SIZE_BYTES = (1 + SHADER_LIMITS.maximumBufferCount) * SHADER_LIMITS.maximumPassSizeBytes * 2 + 64 * 1024;
 /** Everything an export reads besides the game itself: read keys have all of it (game-export.ts). */
 const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "read"), needs("database_access", "read"), needs("save_access", "read")];
 
@@ -567,7 +578,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("screen"), body: "bytes" }),
+  call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
+  // The same shader, drawn and measured before it's sent: it changes nothing of the game's, but takes from the developer's day of checks.
+  call({ method: "POST", path: "/games/:slug/shader-checks", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
   call({ method: "DELETE", path: "/games/:slug/shaders/:shader_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", shader_id: "in_game" } }),
   call({ method: "PUT", path: "/games/:slug/backgrounds/:screen", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", screen: "plain" }, body: { inputs: plainInputs("source", "image_id", "shader_id") } }),
   // Which of these files still need sending: it only answers hashes, so the list is plain.
@@ -956,7 +969,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund"), caller, checked)));
   if (apiRoute.path === "/games/:slug/players/:player_id/items") return answer(...(await playerItemsRoute(env, game!, pathValues.player_id!)));
-  if (apiRoute.path.startsWith("/games/:slug/shaders") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/shader") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
     const answered = await savesRoute(request, env, game!, pathValues.player_id, apiRoute.path.includes("/copies"), pathValues.save_copy_id, apiRoute.path.endsWith("/restore"), checked);
@@ -986,7 +999,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       playing_now_player_count: Math.max(playingNow.get(game.id) ?? 0, rooms?.playing.playerCount ?? 0),
       images: images.map((image) => imageJson(env, image)),
       backgrounds,
-      shaders: shaders.map((shader) => shaderJson(env, shader)),
+      shaders: await shadersAnswer(env, shaders),
       versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null)),
       testers: testers.map((link) => testerJson(env, link)),
     });
@@ -1068,20 +1081,29 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const kind = checked.query.get("kind") as ImageKind;
     if (!IMAGE_KINDS.includes(kind)) {
       throw new ApiError("bad_kind", {
-        message: `kind ${JSON.stringify(kind)} isn't cover, square, screenshot, share, background or phone_background.`,
+        message: `kind ${JSON.stringify(kind)} isn't cover, square, screenshot, share, background, phone_background or shader_texture.`,
         field: "kind",
-        fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones), screenshot, share (the picture shared links show instead of the cover, 1200 by 630 shows best), background (the game's world behind the page on wide screens, no title on it) or phone_background (the same, composed for a tall phone screen) (?kind= in the API).",
+        fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones), screenshot, share (the picture shared links show instead of the cover, 1200 by 630 shows best), background (the game's world behind the page on wide screens, no title on it), phone_background (the same, composed for a tall phone screen) or shader_texture (a picture a background shader reads through a channel) (?kind= in the API).",
       });
     }
-    const tooBig = () => new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
+    // A shader's texture is a picture of its own size: up to 8 MB and 4096 px a side, as small as it likes (noise is often 256 px).
+    const isTexture = kind === "shader_texture";
+    const maximumSizeBytes = isTexture ? SHADER_LIMITS.maximumTextureSizeBytes : IMAGE_LIMITS.maximumSizeBytes;
+    const tooBig = () =>
+      isTexture
+        ? new ApiError("shader_texture_too_big", { message: `The texture is over ${maximumSizeBytes / 1048576} MB.`, field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels; a shader samples it with mipmaps) and send it again." })
+        : new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
     const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
-    if (declaredSizeBytes > IMAGE_LIMITS.maximumSizeBytes) throw tooBig();
+    if (declaredSizeBytes > maximumSizeBytes) throw tooBig();
     const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > IMAGE_LIMITS.maximumSizeBytes) throw tooBig();
+    if (bytes.byteLength > maximumSizeBytes) throw tooBig();
     const sniffed = sniffImage(bytes);
     if (!sniffed) throw new ApiError("not_an_image", { message: "That isn't a PNG, JPEG or WebP image.", field: "image_base64", fix: "Send a PNG, JPEG or WebP file (the image itself as the body in the API); SVG and other types aren't taken." });
     const { widthPx, heightPx } = sniffed;
-    if (Math.min(widthPx, heightPx) < IMAGE_LIMITS.minimumSidePx || Math.max(widthPx, heightPx) > IMAGE_LIMITS.maximumSidePx) {
+    if (isTexture && Math.max(widthPx, heightPx) > SHADER_LIMITS.maximumTextureSidePx) {
+      throw new ApiError("shader_texture_too_big", { message: `The texture is ${widthPx} by ${heightPx} px.`, field: "image_base64", fix: `Make it at most ${SHADER_LIMITS.maximumTextureSidePx} px on each side, like 1024 by 1024.` });
+    }
+    if (!isTexture && (Math.min(widthPx, heightPx) < IMAGE_LIMITS.minimumSidePx || Math.max(widthPx, heightPx) > IMAGE_LIMITS.maximumSidePx)) {
       throw new ApiError("bad_image_dimensions", {
         message: `The image is ${widthPx} by ${heightPx} px.`,
         field: "image_base64",
@@ -1117,7 +1139,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if (kind === "screenshot" && existing.filter((image) => image.kind === "screenshot" && image.review_status !== "rejected").length >= IMAGE_LIMITS.maximumScreenshotCount) {
       throw new ApiError("too_many_screenshots", { message: `The game has ${IMAGE_LIMITS.maximumScreenshotCount} screenshots, the most it can have.`, fix: "Remove one with remove_image (its image_id from get_game) first." });
     }
-    if (kind !== "screenshot" && waitingImages.length) {
+    if (isTexture && existing.filter((image) => image.kind === "shader_texture" && image.review_status !== "rejected").length >= SHADER_LIMITS.maximumGameTextureCount) {
+      throw new ApiError("too_many_shader_textures", { message: `The game has ${SHADER_LIMITS.maximumGameTextureCount} shader textures, the most it can keep.`, fix: "Remove one no shader reads with remove_image (its image_id from get_game) first." });
+    }
+    if (!MANY_IMAGE_KINDS.includes(kind) && waitingImages.length) {
       // Only the newest cover of each kind waits for review.
       for (const old of waitingImages) {
         await env.GAMES.delete([imageKey(old), ...imageCopyKeys(old)]);
@@ -1132,6 +1157,22 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if (tone) { await setBackgroundTone(env.DB, "game_images", id, tone); image = { ...image, ...tone }; }
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
     await logCallerEvent(env, caller, "image_added", { gameId: game.id, subjectName: kind });
+    if (isTexture) {
+      // Image matching is a texture's whole check: what a shader draws with it is checked in the shader's frames. When matching
+      // couldn't answer, it waits for a person, as any picture does.
+      if (matched.isConnected) {
+        await settleImage(env.DB, image, null, "check");
+        image = { ...image, review_status: "approved" };
+      }
+      return answer(
+        {
+          image: imageJson(env, image),
+          review_message: image.review_status === "approved" ? "It's ready: a shader's channel reads it by its image_id (input_kind texture)." : "Image matching couldn't check it just now, so a person looks, usually within a day; get_game shows when it's approved.",
+          next_steps: (image.review_status === "approved" ? [] : [{ tool: "get_game", arguments: { slug: game.slug }, after_sec: 3600, reason: "A person approves it: get_game shows its review_status." }]) satisfies NextStep[],
+        },
+        201,
+      );
+    }
     await queueListingCheck(env, game.id);
     return answer(
       {
@@ -1149,13 +1190,21 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     checkIdKind("image", imageId, "image_id", imageFix);
     const image = await imageById(env.DB, imageId);
     if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${imageId}.`, field: "image_id", fix: imageFix });
+    const readers = image.kind === "shader_texture" ? await shadersReadingTexture(env, game.id, image.id) : [];
+    if (readers.length) {
+      throw new ApiError("shader_texture_in_use", {
+        message: `${readers.length === 1 ? "A shader" : `${readers.length} shaders`} the game keeps ${readers.length === 1 ? "reads" : "read"} this texture (${readers.map((reader) => reader.id).join(", ")}).`,
+        field: "image_id",
+        fix: "Remove those shaders with remove_shader first, or send them again without it.",
+      });
+    }
     await env.GAMES.delete([imageKey(image), ...imageCopyKeys(image)]);
     await dropChosenBackground(env.DB, game.id, { imageId: image.id });
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
     await logCallerEvent(env, caller, "image_removed", { gameId: game.id, subjectName: image.kind });
     // A cover is judged beside the screenshots, so removing one checks the rest again.
-    await queueListingCheck(env, game.id);
+    if (image.kind !== "shader_texture") await queueListingCheck(env, game.id);
     return answer({ removed_image_id: image.id, next_steps: [] satisfies NextStep[] });
   }
 

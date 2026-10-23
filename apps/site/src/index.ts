@@ -29,6 +29,7 @@ import { handleBackupMessage, startBackupRun, type BackupPart } from "./backups.
 import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { checkShaderFromQueue, queueShaderChecks } from "./shader-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
+import { BACKGROUND_GUIDE_PATH, backgroundGuidePage, backgroundSourceResponse } from "./background-guide.ts";
 // Every component of the look (components/), defined before the first request, and the gallery that shows them.
 import "./components/index.ts";
 import { designPage } from "./design-page.ts";
@@ -150,6 +151,13 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (preview && method !== "POST") return previewPage(env, preview[1]!);
 
   if (path === "/developers/covers" && method === "GET") return coverGuidePage(env, await viewerOf(request, env));
+  if (path === BACKGROUND_GUIDE_PATH && method === "GET") return backgroundGuidePage(env, await viewerOf(request, env));
+  // A stand-in world's source, as plain text to start from.
+  const backgroundSource = path.match(/^\/developers\/backgrounds\/([a-z0-9-]+)\.glsl$/);
+  if (backgroundSource && method === "GET") {
+    const source = backgroundSourceResponse(backgroundSource[1]!);
+    if (source) return source;
+  }
   // The developer front door: the dashboard until the developer page is built.
   if (path === "/developers" && method === "GET") return Response.redirect(new URL("/dashboard", request.url).toString(), 302);
   if ((path === "/design" || path.startsWith("/design/")) && method === "GET") {
