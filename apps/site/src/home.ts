@@ -7,7 +7,7 @@ import { textButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
-import { banner, gameCover } from "./components/panes.ts";
+import { banner, gameCover, type GameCoverOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
@@ -103,10 +103,11 @@ const MINIMUM_SHELF_GAME_COUNT = 2;
  * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
  * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
  */
-export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[], viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
+export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[] | Promise<GameOnShelf[]>, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
   const dateDaysAgo = (dayCount: number) => new Date(nowMs - dayCount * DAY_MS).toISOString().slice(0, 10);
-  // Counted players by network, for listed games Zaisma hasn't kept off the shelves.
-  const [{ results: networks }, { results: held }] = await Promise.all([
+  // Counted players by network, for listed games Zaisma hasn't kept off the shelves. The games may still be on their way (the home
+  // starts every read at once): the counts don't need them, only the picking after.
+  const [{ results: networks }, { results: held }, listedGames] = await Promise.all([
     env.DB
       .prepare(
         `SELECT games.slug, play_networks.date, play_networks.autonomous_system_number, play_networks.player_count
@@ -116,6 +117,7 @@ export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first
       .bind(dateDaysAgo(16), viewerAgeFloorYears)
       .all<{ slug: string; date: string; autonomous_system_number: number; player_count: number }>(),
     env.DB.prepare("SELECT slug FROM games WHERE is_off_shelves = 1").all<{ slug: string }>(),
+    games,
   ]);
   // Each game's days, as the shelves count them (plays.ts: no cloud networks, no one network carrying it).
   const byDay = new Map<string, Map<string, { autonomous_system_number: number; player_count: number }[]>>();
@@ -129,7 +131,7 @@ export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first
     return { slug, weekPlayerCount: sum(dateDaysAgo(6)), recentPlayerCount: sum(dateDaysAgo(2)), earlierPlayerCount: sum(dateDaysAgo(16), dateDaysAgo(2)) };
   });
   const off = new Set(held.map((heldGame) => heldGame.slug));
-  const bySlug = new Map(games.map((game) => [game.slug, game]));
+  const bySlug = new Map(listedGames.map((game) => [game.slug, game]));
   const pick = (slugs: string[]) => {
     const list = slugs.map((slug) => bySlug.get(slug)).filter((game): game is GameOnShelf => Boolean(game)).slice(0, MAXIMUM_SHELF_GAME_COUNT);
     return list.length >= MINIMUM_SHELF_GAME_COUNT ? list : [];
@@ -144,7 +146,7 @@ export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first
       .map((counts) => counts.slug),
   );
   const fresh = pick(
-    games
+    listedGames
       .filter((game) => game.first_published_at_ms && game.first_published_at_ms >= nowMs - 60 * DAY_MS && !off.has(game.slug))
       .sort((first, second) => second.first_published_at_ms! - first.first_published_at_ms!)
       .map((game) => game.slug),
@@ -178,11 +180,19 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
+const coverOf = (game: ShowGame, loading: Pick<GameCoverOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
+  gameCover({ title: game.title, imageUrl: game.cover ?? null, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) }, ...loading });
 
-/** One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. */
-function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]): LayoutItem {
-  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game) })) }) };
+/** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
+const FIRST_VIEW_COVER_COUNT = 4;
+
+/**
+ * One of the home's shelves: its heading (a link to Browse with this sort), its arrows and its covers. The first shelf's first covers load
+ * with the page, the very first before anything else, since one of them is the largest thing in the first view; the rest wait until they near the screen.
+ */
+function homeShelf(id: string, title: string, sortName: string, list: ShowGame[], isFirstShelf: boolean): LayoutItem {
+  const loadingOf = (coverIndex: number) => (isFirstShelf && coverIndex < FIRST_VIEW_COVER_COUNT ? { isEager: true, hasHighPriority: coverIndex === 0 } : {});
+  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, loadingOf(coverIndex)) })) }) };
 }
 
 /** What of each game the home's script needs: Continue playing's covers and the background behind the cover pointed at. */
@@ -191,11 +201,23 @@ const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "published_at_ms", "playi
 export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.
   const viewer = await viewerOf(request, env);
+  const account = viewer.account;
   // Back to progress they saved with neither a passkey nor an email: asked once to protect the account.
-  const isProtectionOffered = viewer.account ? await isProtectionOfferDue(env, viewer.account, viewer.email) : false;
-  if (isProtectionOffered) await markProtectionOffered(env, viewer.account!.id);
-  const games = await showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
-  const [{ popular, trending, fresh }, backgrounds, news] = await Promise.all([shelves(env, games, viewer.ageFloorYears), backgroundsOfGames(env, games), currentAnnouncement(env)]);
+  const protectionOffer = async (signedInAccount: Account): Promise<boolean> => {
+    const isDue = await isProtectionOfferDue(env, signedInAccount, viewer.email);
+    if (isDue) await markProtectionOffered(env, signedInAccount.id);
+    return isDue;
+  };
+  // Every read the page needs starts at once, one wave to the database: the shelves and the backgrounds take the games only to pick
+  // from and to match their rows, once their own reads are back.
+  const gamesRead = showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
+  const [isProtectionOffered, games, { popular, trending, fresh }, backgrounds, news] = await Promise.all([
+    account ? protectionOffer(account) : false,
+    gamesRead,
+    shelves(env, gamesRead, viewer.ageFloorYears),
+    backgroundsOfGames(env, gamesRead),
+    currentAnnouncement(env),
+  ]);
   for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
   // Zaisma's news, until it ends or this device closes it (the script shows it unless it's been closed).
@@ -223,9 +245,9 @@ export async function home(env: Env, request: Request): Promise<Response> {
             ...newsBanner,
             ...guestBanner,
             { kind: "block", id: "home-continue", isHidden: true, markup: continuePlaying },
-            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular)] : []),
-            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending)] : []),
-            ...(fresh.length ? [homeShelf("new", "New", "new", fresh)] : []),
+            ...(popular.length ? [homeShelf("popular", "Popular", "popular", popular, true)] : []),
+            ...(trending.length ? [homeShelf("trending", "Trending", "trending", trending, !popular.length)] : []),
+            ...(fresh.length ? [homeShelf("new", "New", "new", fresh, !popular.length && !trending.length)] : []),
             { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: textButton("All games", { href: "/games" }) }] }) },
           ],
         })}`,

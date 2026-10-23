@@ -27,6 +27,7 @@ import { JOIN_OFF_STYLES, joinAndWatch } from "./friends-now.ts";
 import { tile } from "./home.ts";
 import { accountPicture, html, layout, message, metalButton, raw, scriptTags, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
+import { pageStyle } from "./page-styles.ts";
 import { checkProfile } from "./profile-check.ts";
 
 /**
@@ -174,9 +175,8 @@ ${view.mutual_friends.length
     ? html`<h2 class="rule-h">Friends you both have</h2><ul class="faces">${view.mutual_friends.map((friend) => html`<li>${profileLink(friend.username, html`${accountPicture(friend.username, "sm")}<span>${friend.username}</span>`)}</li>`)}</ul>`
     : ""}
 </div>
-<style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
 ${scriptTags(PROFILE_SCRIPT)}`;
-  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
+  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, steelStyles: [PROFILE_STYLE], isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: editState ? 400 : 200, headers: response.headers });
 }
 
@@ -284,6 +284,9 @@ const PROFILE_STYLES = `.profile{max-width:1100px;margin:0 auto}
 .faces a{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none}
 .faces a:hover span{text-decoration:underline;text-underline-offset:3px}
 @media (max-width:640px){.who{flex-direction:column;gap:16px;padding:22px}.more{position:absolute;top:16px;right:16px}}`;
+
+/** The profile's styles as a cached file, until its page is rebuilt, so each visit doesn't send them again. Same rules, same order as the page carried. */
+const PROFILE_STYLE = pageStyle("profile", () => `${PROFILE_STYLES}.playing-now .join-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}${JOIN_OFF_STYLES}`);
 
 // Links out say where they go first, unless the site is trusted in this browser (the forum keeps the list).
 const PROFILE_SCRIPT = pageScript("profile", `(()=>{const TRUST="zaisma-trusted-sites",trusted=()=>{try{return JSON.parse(localStorage.getItem(TRUST)||"[]")}catch{return[]}};

@@ -20,6 +20,7 @@ import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { accountPicture, esc, html, layout, raw, scriptTags, securityHeaders, shownAddress, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
+import { pageStyle } from "./page-styles.ts";
 import { profilePath } from "./profiles.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
 import { uploadDraftMedia } from "./forum-posts.ts";
@@ -349,7 +350,8 @@ function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: n
   const category = ctx.url.searchParams.get("category");
   const page = layout(ctx.env, {
     title: `${title} · Zaisma forum`,
-    body: html`<style>${raw(FORUM_STYLES)}</style>${body}${scriptTags(FORUM_SCRIPT, POSTS_SCRIPT)}`,
+    body: html`${body}${scriptTags(FORUM_SCRIPT, POSTS_SCRIPT)}`,
+    steelStyles: [FORUM_STYLE],
     isPrivate: true,
     nav: "forum",
     viewer: { account: ctx.account },
@@ -1309,6 +1311,9 @@ label.check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:
   .event{padding-left:8px}
 }
 `;
+
+/** The forum's styles as a cached file, until its pages are rebuilt, so moving between them doesn't send them again. */
+const FORUM_STYLE = pageStyle("forum", () => FORUM_STYLES);
 
 // Posts: images to add (choose, drop, paste), Copy and Wrap on code, links out that say where they go (unless the site is trusted in this
 // browser), and @ suggestions while writing.
