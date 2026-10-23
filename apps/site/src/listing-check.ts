@@ -2,7 +2,7 @@ import {
   addReviewUsage,
   aiUsage,
   audit,
-  cardImageKey,
+  imageCopyKeys,
   gameById,
   imageKey,
   imagesForGame,
@@ -103,7 +103,7 @@ export async function runListingCheck(env: Env, gameId: string, judge: ListingJu
       else await setListingReason(env, image.id, listingReason);
     }
   }
-  if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), cardImageKey(old)]));
+  if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), ...imageCopyKeys(old)]));
 
   // Words: new words on a shown game are applied once nothing about them needs a person.
   if (waiting && outcomes.isWordsClear) {
@@ -196,7 +196,7 @@ export async function clearFakeRewardItems(env: Env, game: Game): Promise<void> 
   const images = await imagesForGame(env.DB, game.id);
   for (const image of images.filter((candidate) => candidate.review_status !== "rejected" && isFakeReward(candidate.listing_reason))) {
     const replaced = await settleImage(env.DB, image, null, "person");
-    if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), cardImageKey(old)]));
+    if (replaced.length) await env.GAMES.delete(replaced.flatMap((old) => [imageKey(old), ...imageCopyKeys(old)]));
   }
   if (isFakeReward(game.title_listing_reason)) await env.DB.prepare("UPDATE games SET title_listing_reason = NULL, cleared_title = title WHERE id = ?").bind(game.id).run();
 }

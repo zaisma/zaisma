@@ -1,3 +1,4 @@
+import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
@@ -84,16 +85,32 @@ export interface GameCoverOptions {
   facts: GlanceFacts;
   /** The game in the pane beside the list: its orange line stays drawn. */
   isCurrent?: boolean;
+  /** Its art loads with the page, not once it nears the screen: for the covers a page opens with in view, like the home's first. */
+  isEager?: boolean;
+  /** Its art is fetched before the page's other pictures: for the one cover likely the largest thing in the first view. */
+  hasHighPriority?: boolean;
 }
 
 /**
  * A game's cover: the studio's art alone, bare. Until it has loaded, and where there's none, Zaisma's mark sits in the well in its place.
  * The orange line draws in under it on point and runs out to the right on leave.
  */
+/**
+ * A picture Zaisma serves (/img/<id>) at the sizes it keeps of it, for the browser to pick the one it shows (srcset): up to a cover's
+ * width at three times its pixels. Any other address (a stand-in cover, a picture elsewhere) is shown as it is.
+ */
+function coverSizes(imageUrl: string): Raw {
+  if (!/^\/img\/[A-Za-z0-9_-]+$/.test(imageUrl)) return raw("");
+  const widths = SIZED_IMAGE_WIDTHS_PX.filter((widthPx) => widthPx <= COVER_LARGEST_PX);
+  return html` srcset="${widths.map((widthPx) => `${imageUrl}/w${widthPx}.webp ${widthPx}w`).join(", ")}" sizes="(max-width: 760px) 200px, 260px"`;
+}
+/** The largest width a cover's picture is offered at: a 260px cover at three times its pixels, rounded up to a kept size. */
+const COVER_LARGEST_PX = 960;
+
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}" alt="" loading="lazy" decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
