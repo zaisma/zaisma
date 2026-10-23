@@ -249,24 +249,16 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " vLight = uLightViewProj * vec4(w + nn * 0.12, 1.0);\n" +
     " gl_Position = uViewProj * vec4(w, 1.0); }";
   // What each row is made of (its material's kind, in the row's material slot), so one program draws the whole city.
-  var KIND_PLAIN = 0, KIND_GLASS = 1, KIND_OFFICE = 2, KIND_PLASTER = 3, KIND_PAVEMENT = 4, KIND_LAWN = 5, KIND_FOLIAGE = 6, KIND_LIGHT = 7, KIND_STREET = 8, KIND_SHORE = 9;
-  // The city's light: a warm afternoon sun with crisp shadows, sky light from above and bounce from below, streets darker at the bottom
-  // of their canyons. Walls have the facade of their kind (glass curtain walls, stone with ribbon windows, plaster with punched windows),
-  // drawn as exactly averaged patterns so they never shimmer far away, reflecting the sky above the eye line and the city below it. At
-  // night the sun is a faint moon, windows light up in patchy blocks of tenants, and the streets glow in a grid of lamps.
+  var KIND_PLAIN = 0, KIND_PAVEMENT = 4, KIND_STREET = 8, KIND_SHORE = 9;
+  // The city's light on its pale boxes: a warm afternoon sun with crisp shadows, sky light from above and bounce from below, streets
+  // darker at the bottom of their canyons, and a crisp line along every edge. At night the sun is a faint moon and the streets glow in a grid of lamps.
   var BOX_FS = "#version 300 es\nprecision highp float; precision highp sampler2DShadow;\n" +
     "in vec3 vNor; in vec4 vCol; in vec3 vWorld; in vec4 vLight; flat in vec4 vMaterial; in vec3 vLocal; flat in vec3 vSize; flat in vec3 vFace;\n" +
-    "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight; uniform vec3 uHorizon; uniform vec3 uZenith;\n" +
+    "uniform sampler2DShadow uShadow; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit; uniform float uOpaque; uniform float uEdge; uniform float uNight;\n" +
     "out vec4 outColor;\n" + FOG_GLSL +
     "float shadowAt(){ vec3 p = vLight.xyz / vLight.w * 0.5 + 0.5; if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;\n" +
     " return texture(uShadow, vec3(p.xy, p.z - 0.0004)); }\n" +
-    "float hash12(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }\n" +
-    "float pulseSum(float x, float d){ return floor(x) * d + min(fract(x), d); }\n" +
-    "float pulse(float x, float d, float w){ w = max(w, 1e-4); return (pulseSum(x + 0.5 * w, d) - pulseSum(x - 0.5 * w, d)) / w; }\n" +
-    "vec3 seenIn(vec3 r){ vec3 city = mix(vec3(0.56, 0.62, 0.7), vec3(0.06, 0.07, 0.11), uNight);\n" +
-    " if (r.y < 0.0) return mix(city, city * 0.7, clamp(-r.y * 4.0, 0.0, 1.0));\n" +
-    " return mix(city, mix(uHorizon, uZenith, 1.0 - exp(-r.y * 3.0)), smoothstep(-0.02, 0.08, r.y)); }\n" +
-    "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb; int kind = int(vMaterial.x + 0.5); float seed = vMaterial.y;\n" +
+    "void main(){ vec3 n = normalize(vNor); vec3 base = vCol.rgb; int kind = int(vMaterial.x + 0.5);\n" +
     " vec3 toEye = uCam - vWorld; vec3 v = normalize(toEye); vec3 col; vec3 emit = vec3(0.0);\n" +
     " if (uLit > 0.5) {\n" +
     "  float sh = shadowAt(); float diff = max(dot(n, uSun), 0.0) * sh;\n" +
@@ -277,37 +269,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     "  vec3 ambient = mix(bounce, skyLight, n.y * 0.5 + 0.5) * canyon;\n" +
     "  vec3 lit = base * (ambient + sunLight * diff);\n" +
     "  col = lit;\n" +
-    "  if (isWall && kind >= 1 && kind <= 3) {\n" +
-    "   vec2 wall = vec2(abs(vFace.x) > 0.5 ? (vLocal.z + 0.5) * vSize.z : (vLocal.x + 0.5) * vSize.x, vLocal.y * vSize.y);\n" +
-    "   vec2 u = wall / vec2(kind == 1 ? 0.62 : (kind == 2 ? 1.1 : 0.95), vMaterial.z); vec2 w = fwidth(u);\n" +
-    "   float detail = 1.0 - smoothstep(0.35, 0.9, max(w.x, w.y));\n" +
-    "   float pane = kind == 1 ? pulse(u.x + 0.06, 0.88, w.x) * pulse(u.y + 0.1, 0.8, w.y)\n" +
-    "     : (kind == 2 ? pulse(u.y - 0.32, 0.48, w.y) * mix(1.0, pulse(u.x - 0.05, 0.86, w.x), step(0.5, seed))\n" +
-    "     : pulse(u.x - 0.28, 0.44, w.x) * pulse(u.y - 0.3, 0.48, w.y));\n" +
-    "   pane *= smoothstep(0.6, 1.0, u.y);\n" +
-    "   vec2 cell = floor(u); float cellHash = hash12(cell + seed * 113.0 + vFace.xz * 7.0);\n" +
-    "   vec3 tilted = normalize(n + (vec3(n.z, 0.0, -n.x) * (cellHash - 0.5) * 0.07 + vec3(0.0, fract(cellHash * 7.1) - 0.5, 0.0) * 0.05) * detail);\n" +
-    "   vec3 r = reflect(-v, tilted); float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(tilted, v), 0.0), 5.0);\n" +
-    "   float glint = pow(max(dot(r, uSun), 0.0), mix(60.0, 600.0, detail)) * mix(1.2, 9.0, detail) * sh * (1.0 - uNight);\n" +
-    "   vec3 tint = kind == 1 ? base * 0.36 : vec3(0.15, 0.18, 0.21);\n" +
-    "   vec3 glass = tint * (ambient * 0.7 + sunLight * diff * 0.2) + seenIn(r) * mix(0.45, 0.95, fresnel) * (kind == 1 ? 1.0 : 0.75) + sunLight * glint;\n" +
-    "   vec3 frame = kind == 1 ? mix(vec3(0.86, 0.87, 0.88), vec3(0.3, 0.32, 0.35), step(0.6, seed)) * (ambient + sunLight * diff) : lit;\n" +
-    "   col = mix(frame, glass, pane);\n" +
-    "   if (uNight > 0.01) {\n" +
-    "    float block = hash12(floor(u / vec2(3.0, 2.0)) + seed * 71.0 + vFace.xz * 3.0);\n" +
-    "    float on = step(block, vMaterial.w) * mix(0.7, step(0.3, cellHash) * (0.45 + 0.55 * fract(cellHash * 3.7)), detail);\n" +
-    "    vec3 tone = kind == 3 ? vec3(1.0, 0.82, 0.58) : (cellHash > 0.8 ? vec3(1.0, 0.88, 0.7) : vec3(0.7, 0.8, 0.95));\n" +
-    "    emit += (tone * on * 0.8 + vec3(0.05, 0.065, 0.1)) * pane * uNight;\n" +
-    "    emit += vec3(1.0, 0.86, 0.66) * (1.0 - smoothstep(0.3, 1.4, wall.y)) * uNight * 0.35; } }\n" +
-    "  else if (!isWall && vFace.y > 0.5 && kind >= 1 && kind <= 3) {\n" +
-    "   vec3 q = vLocal + 0.5; float edge = min(min(q.x, 1.0 - q.x) * vSize.x, min(q.z, 1.0 - q.z) * vSize.z); float fw = fwidth(edge);\n" +
-    "   float rim = 1.0 - smoothstep(0.22, 0.22 + fw * 1.5, edge); float inner = smoothstep(0.22, 0.22 + fw, edge) * (1.0 - smoothstep(0.5, 0.5 + fw * 2.0, edge));\n" +
-    "   vec3 roof = mix(mix(vec3(0.6, 0.6, 0.6), base, 0.3), vec3(0.86, 0.87, 0.88), step(0.82, seed)) * (1.0 - 0.18 * inner);\n" +
-    "   col = mix(roof, base * 1.05, rim) * (ambient + sunLight * diff); }\n" +
-    "  else if (kind == 6) { float wrap = clamp((dot(n, uSun) + 0.45) / 1.45, 0.0, 1.0) * mix(0.55, 1.0, sh); col = base * (ambient * 0.85 + sunLight * wrap * 0.9); }\n" +
-    "  else if (kind == 5) { col = lit * (0.88 + 0.24 * hash12(floor(vWorld.xz * 0.7))); }\n" +
-    "  else if (kind == 7) { emit += vec3(1.0, 0.88, 0.7) * uNight * 0.55; }\n" +
-    "  else if (kind == 9) { col *= mix(0.62, 1.0, smoothstep(-1.3, -0.7, vWorld.y)); }\n" +
     "  if ((kind == 8 || kind == 4) && uNight > 0.01) {\n" +
     "   vec2 street = abs(fract(vWorld.xz / 14.0 + 0.5) - 0.5) * 14.0; vec2 fw = fwidth(vWorld.xz);\n" +
     "   vec2 glow = exp(-street * street / (1.1 + fw * fw)) * (0.8 + 0.2 * cos(vWorld.zx * 0.8976));\n" +
@@ -318,7 +279,8 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " vec3 q = vec3(vLocal.x + 0.5, vLocal.y, vLocal.z + 0.5); vec3 toEdge = min(q, 1.0 - q) * vSize;\n" +
     " float e = abs(vFace.x) > 0.5 ? min(toEdge.y, toEdge.z) : (abs(vFace.y) > 0.5 ? min(toEdge.x, toEdge.z) : min(toEdge.x, toEdge.y));\n" +
     " float px = fwidth(e); float line = 1.0 - smoothstep(px * 0.5, px * 1.6, e);\n" +
-    " if (uLit < 0.5) col += vec3(1.0, 0.86, 0.6) * line * 0.5 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
+    " if (uLit > 0.5 && kind < 8) col *= 1.0 - line * 0.12 * (1.0 - smoothstep(220.0, 620.0, length(toEye)));\n" +
+    " else col += vec3(1.0, 0.86, 0.6) * line * 0.5 * uEdge + vec3(0.06, 0.035, 0.0);\n" +
     // The orange shapes keep more of their color through the haze, so they still read from afar, and lights shine through it.
     " float fog = hazeAt(uCam, vWorld) * mix(0.7, 1.0, uLit);\n" +
     " col = mix(col, hazeColor(uCam, vWorld, uSun, uNight), fog) + emit * (1.0 - 0.55 * fog);\n" +
@@ -361,50 +323,38 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     " float star = step(0.985, hs) * (1.0 - smoothstep(0.05, 0.32, length(fract(sc) - 0.5 - (vec2(hash1(hs * 9.1), hash1(hs * 3.7)) - 0.5) * 0.4))) * pow(fract(hs * 91.7), 3.0) * smoothstep(0.25, 0.5, d.y);\n" +
     " c += vec3(0.85, 0.9, 1.0) * star * uNight * max(cover, 0.0) * 1.6;\n" +
     " o = vec4(c, max(cover, 0.0)); }";
-  // The sea: an endless surface of moving waves, sapphire offshore, lagoon turquoise over the shallows by the coast and clear over the
-  // sand right by it, reflecting the sky, with a path of glitter toward the sun, a line of surf on the beaches, and rings of foam where it's tapped.
-  var WATER_VS = "#version 300 es\nlayout(location=0) in vec2 aXZ; layout(location=1) in float aSeed; uniform mat4 uViewProj; uniform mat4 uLightViewProj; uniform float uY; out vec3 vWorld; out float vAcross; out float vBeach; out vec4 vLight;\n" +
-    "void main(){ vec2 p = aXZ; float a = atan(p.y, p.x);\n" +
-    " vec3 beaches[3] = vec3[3](vec3(0.61, 0.5, 0.0), vec3(2.85, 0.32, 0.0), vec3(-1.85, 0.28, 0.0)); vBeach = 0.0;\n" +
-    " for (int i = 0; i < 3; i++) { float turn = abs(mod(a - beaches[i].x + 9.4248, 6.2832) - 3.1416); vBeach = max(vBeach, 1.0 - smoothstep(beaches[i].y * 0.6, beaches[i].y, turn)); }\n" +
-    " vAcross = length(p) - (300.0 + 26.0 * sin(3.0 * a + 0.7) + 18.0 * sin(5.0 * a + 2.1) + 9.0 * sin(9.0 * a + 4.0));\n" +
-    " vWorld = vec3(p.x, uY, p.y); vLight = uLightViewProj * vec4(vWorld, 1.0); gl_Position = uViewProj * vec4(vWorld, 1.0); }";
-  var WATER_FS = "#version 300 es\nprecision highp float; precision highp sampler2DShadow; in vec3 vWorld; in float vAcross; in float vBeach; in vec4 vLight;\n" +
-    "uniform sampler2DShadow uShadow; uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform float uTime; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight; out vec4 o;\n" + FOG_GLSL + NOISE_GLSL +
-    "vec2 waveSlope(vec2 p, float footprint){ vec2 g = vec2(0.0);\n" +
-    " vec4 waves[6] = vec4[6](vec4(0.8, 0.6, 0.07, 0.9), vec4(-0.38, 0.92, 0.12, 0.55), vec4(0.95, -0.31, 0.21, 0.36), vec4(-0.7, -0.71, 0.34, 0.24), vec4(0.2, 0.98, 0.55, 0.15), vec4(0.99, 0.12, 0.85, 0.1));\n" +
-    " for (int i = 0; i < 6; i++) { vec4 wv = waves[i]; float k = wv.z; float fade = 1.0 - smoothstep(0.35, 1.2, k * footprint);\n" +
-    "  g += wv.xy * k * wv.w * cos(dot(wv.xy, p) * k + uTime * sqrt(9.8 * k) * 0.55) * fade; }\n" +
-    " return g; }\n" +
-    "void main(){ float d = distance(vWorld, uCam); vec3 v = normalize(uCam - vWorld); float footprint = length(fwidth(vWorld.xz));\n" +
-    " float shallow = 1.0 - smoothstep(10.0, mix(55.0, 95.0, vBeach), vAcross), clear = (1.0 - smoothstep(17.0, mix(20.0, 40.0, vBeach), vAcross)) * mix(0.35, 1.0, vBeach);\n" +
-    " vec2 slope = waveSlope(vWorld.xz, footprint) * 0.26 * mix(1.0, 0.45, shallow) * mix(1.0, 0.5, smoothstep(600.0, 2600.0, d));\n" +
-    " vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));\n" +
-    // A tap sends out rings that bend the surface and leave thin foam, sized (w) by how far away it is, so it shows from anywhere.
-    " float foam = 0.0;\n" +
-    " for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z; vec2 off = (vWorld.xz - rp.xy) / rp.w; float dd = length(off);\n" +
-    "   if (dd > 30.0) continue; float ring = dd - age * 5.0, ring2 = dd - max(0.0, age - 0.4) * 3.6, w1 = 0.6 + age * 0.35;\n" +
-    "   float bend = sin(ring * 3.0) * exp(-ring * ring / (w1 * w1 * 3.0)) * exp(-age * 0.9);\n" +
-    "   n = normalize(n + vec3(off.x, 0.0, off.y) / max(dd, 0.01) * bend * 0.5);\n" +
-    "   foam += exp(-ring * ring / (w1 * w1)) * exp(-age * 1.2) * 0.8 + 0.5 * exp(-ring2 * ring2 / (w1 * w1 * 0.6)) * exp(-age * 1.5) * step(0.4, age) + 0.7 * exp(-dd * dd / (1.2 + age * 5.0)) * exp(-age * 3.5); } }\n" +
-    " float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
-    " vec3 r = reflect(-v, n); r.y = abs(r.y);\n" +
-    " vec3 sky = mix(uHorizon, uZenith, 1.0 - exp(-r.y * 3.2)) + uHorizon * 0.16 * exp(-r.y * 16.0) * (1.0 - 0.6 * uNight);\n" +
-    " vec3 deep = mix(vec3(0.015, 0.16, 0.3), vec3(0.008, 0.025, 0.05), uNight), lagoon = mix(vec3(0.04, 0.42, 0.5), vec3(0.015, 0.06, 0.08), uNight), sand = mix(vec3(0.36, 0.62, 0.58), vec3(0.03, 0.08, 0.09), uNight);\n" +
-    " float shade = vLight.w > 0.0 ? texture(uShadow, vec3(vLight.xyz / vLight.w * 0.5 + 0.5)) : 1.0;\n" +
-    " vec3 body = mix(mix(deep, lagoon, shallow), sand, clear) * mix(0.75, 1.0, shade) * (0.7 + 0.3 * max(uSun.y, 0.0));\n" +
-    " vec3 c = mix(body, sky, clamp(fresnel * (1.0 - 0.5 * clear), 0.0, 1.0));\n" +
-    // The glitter: sharp up close, broad and soft far away, so the path of sunlight breaks up on the waves but never fizzes.
-    " float rough = mix(0.035, 0.22, smoothstep(30.0, 2500.0, d)), power = 2.0 / (rough * rough);\n" +
-    " float glitter = min(pow(max(dot(n, normalize(uSun + v)), 0.0), power) * power * 0.018 * (0.3 + fresnel), 1.4) * shade;\n" +
-    " c += mix(vec3(1.0, 0.95, 0.85), vec3(0.55, 0.65, 0.9) * 0.25, uNight) * glitter;\n" +
-    // Surf where the sea meets the beaches: a thin, broken line of foam that comes and goes.
-    " float surf = (1.0 - smoothstep(0.0, 4.0, abs(vAcross - mix(17.8, 26.5, vBeach) - 1.2 * vBeach * sin(uTime * 0.7 + vWorld.x * 0.05)))) * smoothstep(0.35, 0.7, noise2(vWorld.xz * 0.25 + uTime * 0.15));\n" +
-    " foam = clamp(foam * 0.6 + surf * mix(0.25, 0.6, vBeach) * (1.0 - smoothstep(0.6, 1.4, footprint)), 0.0, 0.85);\n" +
-    " c = mix(c, mix(vec3(0.95, 0.98, 1.0), vec3(0.35, 0.42, 0.55), uNight), foam);\n" +
+  // The sea: an endless faceted surface, low-poly like the city, slowly rising and falling, aqua in the shallows by the coast, with rings of foam where it's tapped.
+  var WATER_VS = "#version 300 es\nlayout(location=0) in vec2 aXZ; layout(location=1) in float aSeed; uniform mat4 uViewProj; uniform float uY; uniform float uTime; out vec3 vWorld; out float vShallow;\n" +
+    "void main(){ vec2 p = aXZ; float r = length(p); float t = uTime; float a = atan(p.y, p.x);\n" +
+    " float coast = 300.0 + 26.0 * sin(3.0 * a + 0.7) + 18.0 * sin(5.0 * a + 2.1) + 9.0 * sin(9.0 * a + 4.0);\n" +
+    " float shore = mix(0.3, 1.0, smoothstep(coast - 5.0, coast + 30.0, r)); vShallow = 1.0 - smoothstep(coast, coast + 70.0, r);\n" +
+    " float amp = 0.12 + smoothstep(310.0, 440.0, r) * r * 0.0016;\n" +
+    // Every point of the sea bobs on its own, so each triangle tilts and catches the light differently.
+    " float y = amp * (0.75 * sin(t * (0.2 + aSeed * 0.2) + aSeed * 6.2832) + 0.3 * sin(p.x * 0.008 + p.y * 0.006 + t * 0.18));\n" +
+    " vWorld = vec3(p.x, uY + y * shore, p.y); gl_Position = uViewProj * vec4(vWorld, 1.0); }";
+  var WATER_FS = "#version 300 es\nprecision highp float; in vec3 vWorld; in float vShallow;\n" +
+    "uniform vec3 uCam; uniform vec3 uSun; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec4 uRipples[12]; uniform int uRippleCount; uniform float uNight; out vec4 o;\n" + FOG_GLSL +
+    "void main(){ vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld))); if (n.y < 0.0) n = -n;\n" +
+    " float d = distance(vWorld, uCam); vec3 v = normalize(uCam - vWorld); vec3 r = reflect(-v, n);\n" +
+    " float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);\n" +
+    " vec3 skyRef = mix(uHorizon, uZenith, pow(clamp(r.y, 0.0, 1.0), 0.45));\n" +
+    " float shallow = vShallow;\n" +
+    " vec3 deep = mix(mix(vec3(0.16, 0.53, 0.88), vec3(0.16, 0.84, 0.82), shallow), mix(vec3(0.025, 0.05, 0.1), vec3(0.058, 0.21, 0.245), shallow), uNight); float facet = 0.82 + 0.3 * max(dot(n, uSun), 0.0);\n" +
+    " vec3 c = mix(deep * facet, skyRef * (0.94 + 0.08 * facet), clamp(fres * 0.9 + 0.22, 0.0, 0.85) * (1.0 - mix(0.4, 0.68, uNight) * shallow));\n" +
+    // A soft path of sunlight on the water toward the sun, broken up by the facets, never blinding.
+    " vec2 toward = normalize(vWorld.xz - uCam.xz); float along = max(dot(toward, normalize(uSun.xz)), 0.0);\n" +
+    " float glare = pow(along, 26.0) * smoothstep(150.0, 900.0, d) * (1.0 - smoothstep(2600.0, 6000.0, d));\n" +
+    " float sparkle = 0.55 + 0.9 * pow(max(dot(n, normalize(uSun + v)), 0.0), 60.0);\n" +
+    " c += mix(vec3(1.0, 0.97, 0.9), vec3(0.7, 0.8, 1.0), uNight) * min(glare * sparkle * mix(0.42, 0.34, uNight), 0.4);\n" +
+    // A tap sends out two rings of foam and a burst of white in the middle, sized (w) by how far away it is, so it shows from anywhere.
+    " for (int i = 0; i < 12; i++) { if (i >= uRippleCount) break; vec4 rp = uRipples[i]; if (rp.w > 0.5) { float age = rp.z, dd = distance(vWorld.xz, rp.xy) / rp.w;\n" +
+    "   float w1 = 0.6 + age * 0.35, k1 = dd - age * 5.0, k2 = dd - max(0.0, age - 0.4) * 3.6;\n" +
+    "   float foam = exp(-k1 * k1 / (w1 * w1)) * exp(-age * 1.1) + 0.6 * exp(-k2 * k2 / (w1 * w1 * 0.6)) * exp(-age * 1.4) * step(0.4, age)\n" +
+    "     + 0.8 * exp(-dd * dd / (1.2 + age * 5.0)) * exp(-age * 3.5);\n" +
+    "   c = mix(c, mix(vec3(1.08, 1.12, 1.14), vec3(0.5, 0.6, 0.75), uNight) * (0.88 + 0.16 * facet), clamp(foam * 0.6, 0.0, 0.6)); } }\n" +
     // The haze, and far out the sea meets the sky's horizon, so there's no edge to the world.
     " c = mix(c, hazeColor(uCam, vWorld, uSun, uNight), hazeAt(uCam, vWorld));\n" +
-    " c = mix(c, uHorizon * (1.0 + 0.16 * (1.0 - 0.6 * uNight)), smoothstep(2600.0, 7000.0, d));\n" +
+    " c = mix(c, uHorizon, smoothstep(2600.0, 7000.0, d));\n" +
     " o = vec4(c, 0.0); }";
   // Bright parts of the picture, for the bloom.
   var BRIGHT_FS = "#version 300 es\nprecision highp float; in vec2 vUv; uniform sampler2D uTex; uniform float uThreshold; out vec4 o;\n" +
@@ -476,29 +426,21 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   var CORE = 20, LAND = 54, C = 14, BLOCK = 10, HALF = CORE * C / 2;
   var STREET_Y = 0, PAVE_H = 0.25, WATER_Y = -1.2;
   var city = group(18000);
-  // A steady number from 0 to 1 for a place, so details vary from building to building without drawing on the seeded random.
+  function white() { var v = 0.93 + rand() * 0.07; return [v, v + 0.003, v + 0.009]; }
+  // A steady number from 0 to 1 for a place, so details can vary from building to building without drawing on the seeded random.
   function hashAt(x, z, salt) { var h = Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453; return h - Math.floor(h); }
-  // One unit is about three metres: floors and window bays are sized to it, so the city reads kilometres across. Each neighbourhood
-  // shares a family of tones (glass tints, stones, warm whites), so the city reads as districts, not confetti.
-  var PALETTE_GLASS = [[0.34, 0.6, 0.66], [0.38, 0.5, 0.68], [0.52, 0.58, 0.62]];
-  var PALETTE_OFFICE = [[0.88, 0.85, 0.78], [0.8, 0.8, 0.78], [0.92, 0.92, 0.93], [0.62, 0.63, 0.65]];
-  var PALETTE_PLASTER = [[0.96, 0.94, 0.9], [0.94, 0.9, 0.83], [0.91, 0.89, 0.85]];
-  var FLOOR_HEIGHT = [0, 1.3, 1.2, 1.0];
-  function toneFor(palette, x, z, salt) { var tone = palette[Math.floor(hashAt(Math.floor(x / 56), Math.floor(z / 56), salt) * palette.length)], jitter = 0.96 + hashAt(x, z, salt + 1) * 0.08; return [tone[0] * jitter, tone[1] * jitter, tone[2] * jitter]; }
   function coastAt(x, z) { var a = Math.atan2(z, x); return 300 + 26 * Math.sin(3 * a + 0.7) + 18 * Math.sin(5 * a + 2.1) + 9 * Math.sin(9 * a + 4); }
   var downtown = [], allBuildings = [];
   function building(x, z, w, d, h, roofy) {
-    var pick = rand(), kind = h > 38 ? (pick < 0.7 ? KIND_GLASS : KIND_OFFICE) : h > 14 ? (pick < 0.5 ? KIND_OFFICE : KIND_PLASTER) : (pick < 0.15 ? KIND_OFFICE : KIND_PLASTER);
-    var col = toneFor(kind === KIND_GLASS ? PALETTE_GLASS : kind === KIND_OFFICE ? PALETTE_OFFICE : PALETTE_PLASTER, x, z, kind * 3);
-    var seed = hashAt(x, z, 5), litShare = (kind === KIND_PLASTER ? 0.32 : kind === KIND_GLASS ? 0.26 : 0.36) * (0.6 + 0.8 * hashAt(x, z, 9));
-    put(city, x, PAVE_H, z, w, h, d, col[0], col[1], col[2], 1, kind, seed, FLOOR_HEIGHT[kind], litShare);
+    var col = white();
+    put(city, x, PAVE_H, z, w, h, d, col[0], col[1], col[2], 1);
     var top = PAVE_H + h;
-    if (h > 40 && roofy < 0.5) { // a setback crown on some of the tallest
+    if (h > 40 && roofy < 0.5) { // a stepped crown on some of the tallest
       var w2 = w * 0.7, d2 = d * 0.7, h2 = h * 0.14;
-      put(city, x, top, z, w2, h2, d2, col[0], col[1], col[2], 1, kind, seed, FLOOR_HEIGHT[kind], litShare);
+      put(city, x, top, z, w2, h2, d2, col[0], col[1], col[2], 1);
       top += h2;
-    } else if (roofy < 0.06) { // a plant room on a roof
-      put(city, x + (rand() - 0.5) * w * 0.4, top, z + (rand() - 0.5) * d * 0.4, 1.6 + rand(), 0.9 + rand() * 0.8, 1.6 + rand(), 0.7, 0.71, 0.72, 1);
+    } else if (roofy < 0.06) { // the odd box on a roof
+      put(city, x + (rand() - 0.5) * w * 0.4, top, z + (rand() - 0.5) * d * 0.4, 1.6 + rand(), 0.9 + rand() * 0.8, 1.6 + rand(), 0.88, 0.89, 0.9, 1);
     }
     var record = { x: x, z: z, w: w, d: d, top: top };
     allBuildings.push(record);
@@ -513,14 +455,13 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       var cx = (gx - LAND / 2 + 0.5) * C, cz = (gz - LAND / 2 + 0.5) * C;
       var dist = Math.hypot(cx, cz);
       if (dist > coastAt(cx, cz)) continue;
-      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, 0.74, 0.74, 0.73, 1, KIND_PAVEMENT); // the block's pavement, on the land the shore mesh lays
+      put(city, cx, STREET_Y, cz, BLOCK + 0.8, PAVE_H, BLOCK + 0.8, 0.93, 0.935, 0.945, 1, KIND_PAVEMENT); // the block's pavement, on the land the shore mesh lays
       var inCore = Math.max(Math.abs(cx), Math.abs(cz)) < HALF;
-      if (dist > 45 && rand() < 0.05) { // a park: a lawn with trees, each a trunk under a crown turned against its neighbour's
-        put(city, cx, PAVE_H, cz, BLOCK - 1.5, 0.16, BLOCK - 1.5, 0.36, 0.5, 0.3, 1, KIND_LAWN);
+      if (dist > 45 && rand() < 0.05) { // a park: a lawn of light stone with a few blocky trees
+        put(city, cx, PAVE_H, cz, BLOCK - 1.5, 0.16, BLOCK - 1.5, 0.9, 0.915, 0.92, 1);
         for (var tree = 0; tree < 8; tree++) {
-          var ts = 1.2 + rand() * 1.1, tx = cx + (rand() - 0.5) * 6.5, tz = cz + (rand() - 0.5) * 6.5, th = ts * (1 + rand() * 0.6), green = 0.85 + hashAt(tx, tz, 3) * 0.3;
-          put(city, tx, PAVE_H + 0.16, tz, 0.3, th * 0.45, 0.3, 0.36, 0.3, 0.24, 1, KIND_PLAIN);
-          put(city, tx, PAVE_H + 0.16 + th * 0.35, tz, ts * 1.2, th * 0.75, ts * 1.2, 0.24 * green, 0.38 * green, 0.2 * green, 1, KIND_FOLIAGE, 0, 0, 0, hashAt(tx, tz, 4) * 6.28);
+          var ts = 1.2 + rand() * 1.1;
+          put(city, cx + (rand() - 0.5) * 6.5, PAVE_H + 0.16, cz + (rand() - 0.5) * 6.5, ts, ts * (1 + rand() * 0.6), ts, 0.86, 0.88, 0.89, 1);
         }
         continue;
       }
@@ -569,7 +510,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       if (!clear || bays.some(function (o) { return Math.abs(o.top - y) < 8 && Math.hypot(o.x - wx, o.z - wz) < 12; })) continue;
       var across = nx ? [0.6, 6.4] : [6.4, 0.6], frame = nx ? [0.3, 7.4] : [7.4, 0.3];
       put(city, wx, y - 0.5, wz, frame[0], 5.9, frame[1], 0.95, 0.955, 0.965, 1);                       // the frame round the mouth
-      put(city, wx + nx * 0.1, y, wz + nz * 0.1, across[0], 4.5, across[1], 0.62, 0.7, 0.78, 1, KIND_LIGHT); // the mouth, lit at night
+      put(city, wx + nx * 0.1, y, wz + nz * 0.1, across[0], 4.5, across[1], 0.33, 0.39, 0.5, 1);        // the dark mouth
       var deck = nx ? [5.4, 7.6] : [7.6, 5.4];
       put(city, wx + nx * 2.7, y - 0.6, wz + nz * 2.7, deck[0], 0.6, deck[1], 0.97, 0.975, 0.98, 1);    // the platform
       var lip = nx ? [2.2, 7.8] : [7.8, 2.2];
@@ -579,12 +520,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       made++;
     }
   }
-  /* The land and its shore, as one mesh round the coast: streets out to a road along the coast, a pale promenade, then a beach that
-     shelves under the sea where the coast faces the first frame and two other bays, and a quay that drops straight in elsewhere. */
+  /* The land and its edge, as one mesh round the coast: the streets out to a road along the coast, then one pale ledge with a bevelled
+     lip that drops straight into the sea. */
   var SHORE_SEGMENTS = 360, SHORE_STRIDE = 14, SHORE_COUNT = SHORE_SEGMENTS * 15, shoreVertices = new Float32Array(SHORE_COUNT * SHORE_STRIDE);
-  var BEACHES = [[0.61, 0.5], [2.85, 0.32], [-1.85, 0.28]]; // [azimuth, half width] in radians; WATER_VS repeats them for the surf
-  var STREET_TONE = [0.4, 0.41, 0.43], PROMENADE_TONE = [0.84, 0.82, 0.78], SAND_TONE = [0.93, 0.87, 0.74], QUAY_TONE = [0.66, 0.65, 0.63];
-  function beachAt(a) { var weight = 0; for (var i = 0; i < BEACHES.length; i++) { var turn = Math.abs(((a - BEACHES[i][0]) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI); weight = Math.max(weight, smooth(BEACHES[i][1], BEACHES[i][1] * 0.6, turn)); } return weight; }
+  var STREET_TONE = [0.85, 0.865, 0.885], LEDGE_TONE = [0.9, 0.91, 0.925];
   function buildShore() {
     var at = 0;
     function vertex(x, y, z, nx, ny, nz, tone, kind) {
@@ -593,7 +532,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       shoreVertices[o + 6] = tone[0]; shoreVertices[o + 7] = tone[1]; shoreVertices[o + 8] = tone[2]; shoreVertices[o + 9] = 1; shoreVertices[o + 10] = kind; shoreVertices[o + 11] = 0; shoreVertices[o + 12] = 0; shoreVertices[o + 13] = 0;
     }
     // Rings of a segment's edge: [distance past the coast, height] for the road's end, the promenade, and the foot of the beach or quay.
-    function rings(a) { var beach = beachAt(a); return [[11, 0], [17, 0.02], [lerp(18.5, 46, beach), lerp(-4, -3.6, beach)]]; }
+    function rings() { return [[11, 0], [12.4, -0.7], [12.6, -4]]; }
     for (var i = 0; i < SHORE_SEGMENTS; i++) {
       var a0 = i / SHORE_SEGMENTS * Math.PI * 2, a1 = (i + 1) / SHORE_SEGMENTS * Math.PI * 2;
       var c0 = coastAt(Math.cos(a0), Math.sin(a0)), c1 = coastAt(Math.cos(a1), Math.sin(a1)), r0 = rings(a0), r1 = rings(a1);
@@ -602,13 +541,12 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
       // The land in the middle: a fan of streets.
       vertex(0, 0, 0, 0, 1, 0, STREET_TONE, KIND_STREET); vertex(p1[0][0], 0, p1[0][2], 0, 1, 0, STREET_TONE, KIND_STREET); vertex(p0[0][0], 0, p0[0][2], 0, 1, 0, STREET_TONE, KIND_STREET);
       // The promenade, then the beach or the quay, each a quad (two triangles, wound to face up and out).
-      var bands = [[0, 1, PROMENADE_TONE, PROMENADE_TONE], [1, 2, null, null]];
+      // The bevelled lip, then the ledge's face.
+      var bands = [[0, 1], [1, 2]];
       for (var b = 0; b < bands.length; b++) {
-        var inner = bands[b][0], outer = bands[b][1], beach0 = beachAt(a0), beach1 = beachAt(a1);
-        var tone0 = bands[b][2] || [lerp(QUAY_TONE[0], SAND_TONE[0], beach0), lerp(QUAY_TONE[1], SAND_TONE[1], beach0), lerp(QUAY_TONE[2], SAND_TONE[2], beach0)];
-        var tone1 = bands[b][3] || [lerp(QUAY_TONE[0], SAND_TONE[0], beach1), lerp(QUAY_TONE[1], SAND_TONE[1], beach1), lerp(QUAY_TONE[2], SAND_TONE[2], beach1)];
+        var inner = bands[b][0], outer = bands[b][1], tone0 = LEDGE_TONE, tone1 = LEDGE_TONE;
         var rise = p0[inner][1] - p0[outer][1], run = r0[outer][0] - r0[inner][0], length = Math.hypot(rise, run), ny = run / length, out = rise / length;
-        var n0 = [Math.cos(a0) * out, ny, Math.sin(a0) * out], n1 = [Math.cos(a1) * out, ny, Math.sin(a1) * out], kind = b === 0 ? KIND_STREET : KIND_SHORE;
+        var n0 = [Math.cos(a0) * out, ny, Math.sin(a0) * out], n1 = [Math.cos(a1) * out, ny, Math.sin(a1) * out], kind = KIND_SHORE;
         vertex(p0[inner][0], p0[inner][1], p0[inner][2], n0[0], n0[1], n0[2], tone0, kind); vertex(p1[inner][0], p1[inner][1], p1[inner][2], n1[0], n1[1], n1[2], tone1, kind); vertex(p1[outer][0], p1[outer][1], p1[outer][2], n1[0], n1[1], n1[2], tone1, kind);
         vertex(p0[inner][0], p0[inner][1], p0[inner][2], n0[0], n0[1], n0[2], tone0, kind); vertex(p1[outer][0], p1[outer][1], p1[outer][2], n1[0], n1[1], n1[2], tone1, kind); vertex(p0[outer][0], p0[outer][1], p0[outer][2], n0[0], n0[1], n0[2], tone0, kind);
       }
@@ -1404,10 +1342,10 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gpu = { programs: [], parallel: gl.getExtension("KHR_parallel_shader_compile"), warmed: [], warmedCount: 0, warmFence: null, isFilled: false,
       maxSampleCount: gl.getParameter(gl.MAX_SAMPLES), timer: window.__city ? null : gl.getExtension("EXT_disjoint_timer_query_webgl2"), timings: [] };
     var vs = gl.VERTEX_SHADER, fs = gl.FRAGMENT_SHADER, full = compileShader(vs, FULL_VS);
-    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight", "uHorizon", "uZenith"], { uShadow: SHADOW_UNIT });
+    gpu.box = program(compileShader(vs, BOX_VS), compileShader(fs, BOX_FS), ["uViewProj", "uLightViewProj", "uShadow", "uSun", "uCam", "uFog", "uFogDensity", "uFogFalloff", "uLit", "uOpaque", "uEdge", "uNight"], { uShadow: SHADOW_UNIT });
     gpu.depth = program(compileShader(vs, DEPTH_VS), compileShader(fs, DEPTH_FS), ["uLightViewProj"]);
     gpu.sky = program(full, compileShader(fs, SKY_FS), ["uFwd", "uRight", "uUp", "uTan", "uShift", "uHorizon", "uZenith", "uSun", "uNight", "uTime"]);
-    gpu.water = program(compileShader(vs, WATER_VS), compileShader(fs, WATER_FS), ["uViewProj", "uLightViewProj", "uShadow", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff"], { uShadow: SHADOW_UNIT });
+    gpu.water = program(compileShader(vs, WATER_VS), compileShader(fs, WATER_FS), ["uViewProj", "uY", "uCam", "uSun", "uHorizon", "uZenith", "uTime", "uRipples", "uRippleCount", "uNight", "uFog", "uFogDensity", "uFogFalloff"]);
     gpu.copy = program(full, compileShader(fs, COPY_FS), ["uTex"], { uTex: 0 });
     gpu.bright = program(full, compileShader(fs, BRIGHT_FS), ["uTex", "uThreshold"], { uTex: 0 });
     gpu.blur = program(full, compileShader(fs, BLUR_FS), ["uTex", "uStep"], { uTex: 0 });
@@ -1723,7 +1661,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
     gl.useProgram(gpu.water.program); u = gpu.water.at;
-    gl.uniformMatrix4fv(u.uViewProj, false, vp); gl.uniformMatrix4fv(u.uLightViewProj, false, lightViewProj); gl.uniform1f(u.uY, WATER_Y);
+    gl.uniformMatrix4fv(u.uViewProj, false, vp); gl.uniform1f(u.uY, WATER_Y);
     gl.uniform3fv(u.uCam, eye); gl.uniform3fv(u.uSun, SUN);
     gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH); gl.uniform1f(u.uTime, clock % 3600); gl.uniform4fv(u.uRipples, rippleData); gl.uniform1i(u.uRippleCount, ripples.length); gl.uniform1f(u.uNight, night);
     gl.uniform3fv(u.uFog, FOG); gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF);
@@ -1733,7 +1671,6 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
     gl.uniformMatrix4fv(u.uLightViewProj, false, lightViewProj);
     gl.uniform3fv(u.uSun, SUN); gl.uniform3fv(u.uCam, eye); gl.uniform3fv(u.uFog, FOG);
     gl.uniform1f(u.uFogDensity, fogDensity); gl.uniform1f(u.uFogFalloff, FOG_FALLOFF); gl.uniform1f(u.uNight, night);
-    gl.uniform3fv(u.uHorizon, FOG); gl.uniform3fv(u.uZenith, ZENITH);
     gl.uniform1f(u.uLit, 1); gl.uniform1f(u.uOpaque, 1); gl.uniform1f(u.uEdge, 1);
     gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
     gl.bindVertexArray(gpu.cityVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, city.count);
@@ -2251,12 +2188,12 @@ const CITY_STYLES = `
 .city-stage .city-still { position: absolute; inset: -50%; display: block; background: var(--still-tiny) center / auto 50% no-repeat;
   transform: translate(var(--still-x, calc(min(460px, 100vw - 2 * var(--pad-pane)) / -2)), var(--still-y, 0px));
   filter: blur(18px) saturate(1.1); transition: filter 0.9s ease; }
-.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRlwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggbgEAABAJAJ0BKkgAHAA+tU6iTKckIyIpuqkg4BaJYwDFC22l0kStoxjtA9ISler3+4ZF/bZjm0OC8z9prttmVSSONbWUYtUrYx+gpEyk0JMefqXmAAD+9QU5mTGBW9ZAIVoZrjuN+Pdvfqpdeg/D2QYWzb/R5uAW4A169YPWHYMiA6WQAUy923psSzCrZBM7ks9o04gD7aZCJXuMllbSL6mvOFqhF2405v5dABO/CQO1FKZyrqOkqjCIzB1jeOsFBJwHlhopSrbCKkh0bH/P6NASJyqVft/e6GmQDRuzByVyQWDU6FuMoOLy0pdybZKC/K+JrqIIeyHeJyZNOx0pucxzu/JzoSjIXU2/JDCwtQzNmHjwX4nn/SRNAskhAg7Rme94oh2PWeX2DhfsPbbn/DJ3nF0ewwWX7uDWwRonkaNyXNH8Fs3MgVflkP2Ehs588Dj4/IPb3zu+QXN8M13hH7ZpYl2CFLuCGNctkTTqsAAAAA==); --still-full: url(/sign-in/city-day.webp); }
-.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRnwCAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjgAAANAFAJ0BKkgAHAA+tViiTqklIqIjSqkgFolnAM6xq6gL5NNp4kwLBLgi2LyQQj9gHHamO6XRNAAA/vItW7sC1BRHLkP84QcbJrtT6D/H9GuCLY6w3SADNhV0rIc3ZSdHiD3uDp5DlMUpShQ6CHA35/gQ3K0NBFLSqCvg1kLZLOzg/aVh+fqveshQItKwAAA=); --still-full: url(/sign-in/city-night.webp); }
+.city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRnwDAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggjgEAALAJAJ0BKkgAHAA+tVSeSyclIqGpuqyQ4BaJZAC4Y8LH0SHBu5Zz5gtjbmtthFqCaGzrAKNbidcyG4yNjTL0vZVo3gSaiBE+k5Cgfd5Nx6s7qE44TQdgAP7yA0m8Z6j1rV7Voal/7rQ63Nw5bt9zFDpGtqxIB2q9OM812VZEZSLpc+GEqXmpJiEEwbBhPGPK/MYRxz9nvaycRlFiGGOrt9/plWlp4ghyYA1WHg9t3fbQnTRZ19JaXKq7OfkuqfeTosFCKTaw4FkjD8TYeLy8WG+MFryFjNaauCl9t5/EoUmvH57vg7+HOZ7ILdx2ij7Neu0yHAQKdLX2dM+Dkvt7K6uucTAECkzyj24G9IkRrGhE2yg82dgTk+TE+zUM5ugSwcwCww/qzK0racI/iTXBZQStUHYMo6xIDv41yuF9zU5yHbelsKfLSM6y2hgCda+jj6I/Hnu1c6nRvNqSEBaKdcO3s98PJuagv+gb8GgVG5ya69fYDl9my04x86NaoE0VbRODrrDcJPWXDHCxgAAA); --still-full: url(/sign-in/city-day.webp); }
+.city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRt4CAABXRUJQVlA4WAoAAAAgAAAARwAAGwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgg8AAAANAGAJ0BKkgAHAA+tUieSickIqGzOAgA4BaJZwDMldwLgq+kmdfwFJ8fLdsHldyVmVugrQR2w5zSUkJgaNbYUAD++b5KrKZ/9uftlAnraKObhTiMRwh4hgQAU1Ky5L6UzKbx9ANMexSGOSQxvDaOZtwkTe/NzCxaUy5BN8ZecRviphjbeAXG6rsBtzR5lFq2QnBm0Go2SSf8vsHyTu9VpUiseCOGIhDN2LPODOQVXFkV3cAovyjCFpyLN+kXcnwioOVXsAATCtwS1yMrsvj+KwtbyTqMy36Hsq8iKM7dwCKufCwnt0sGF+mHg12mJgSAAA==); --still-full: url(/sign-in/city-night.webp); }
 @media (max-width: 760px) {
   .city-stage .city-still { transform: translate(var(--still-x, 0px), var(--still-y, -18vh)); }
-  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRgwDAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggHgEAALAHAJ0BKiQAJAA+tVSiTickIqInOAkg4BaJQBYkBHX/zwbVah99PjzIaq8jBp8Twk1WGtUkePHRzEGdDqBePWmK0o5E2sgA/d05YrcprU6s71Zty9rMTmT+tM+GrtJLNhhPxX5VV4nQAfknXrNjqigYWPlpL1pR68dcWOF13lbZUL+nj4BXAApBLXOcn2FMMeI51t+YMohePq7gpoOe0yfoujlUT+NVq6xWImxo862BtssMGTGgquP+Eih/fYPnTOec9qN6HHJ0ZDry263KvWqGYBDtmpwrFHFdEDBNxYtuSZZ6TeAOTp4+Iao4VaV7sCloB6IFSHgD0Y+8+4akBwFX2fmz1mdyx6uhlFw4vA1cg524GHxI6VsEsaMkAAA=); --still-full: url(/sign-in/city-day-phone.webp); }
-  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRmACAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggcgAAAPAEAJ0BKiQAJAA+tVCgTCckoyInK2jgFolnAMq0EyyOehw6ZpUv/QsmbCJmlhWjKAD+8i2DUz1dk7+56sR5REb9lF9S7AnT3+TDHfCzTxPfpgT+VQfjbIWKkoGAuM5dTe8SUALR7MCihz+xZaVFEgAAAA==); --still-full: url(/sign-in/city-night-phone.webp); }
+  .city-stage .city-still.is-day { --still-tiny: url(data:image/webp;base64,UklGRhoDAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggLAEAADAHAJ0BKiQAJAA+tU6gTacjoqInOAto4BaJYgCpJ+jCwBSqfz/54ADaHMd7RyWBQVXZ8hZW00gbH2KreQ5YgUEk8AD+WSgs8JHPa8HaGXW7/7lVyFhGThQHB90KBTDpqnehydY2p9R68yPhRG2PBycZXrtTceI8TEVfCNVxXBQ5RH4o3TPw0snx4JPxZRYYEVSGNn7TcgOGD+I8TKl3Azp2Zn5SNC60eCOMFo+uFsMQ8Flpu9b4oYIHAj9eSNtpLkVTw2+6L9uqnTcZYAAX6+A09uSxFo8OSCwIcXdTwjfmNtIV2K4KtW6QwsFMOYZqSjLqCt8mk1suD2mJVQpYCCh+Gq1qaPSICvWMmdMn1N5apwINxBmG3jMCSAQnawWdn6taFDskrz/FACOAAA==); --still-full: url(/sign-in/city-day-phone.webp); }
+  .city-stage .city-still.is-night { --still-tiny: url(data:image/webp;base64,UklGRpwCAABXRUJQVlA4WAoAAAAgAAAAIwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggrgAAALAFAJ0BKiQAJAA+tU6fSyckIqGuOAmY4BaJZwDHbDOz2ZjU4M+WS8muOipUVGxF16uy4mYpQAD+9JFprXzVX9+q6DAZewYsInmvV7Ul9mCQbIbiXc+O6ujwBRzxMtFjB1O/18V0Hi+HUxac8cJQgQ0IShZeKkwT1qjYuhiyeD8dZN3ycyBUbor+4CJyRbXUQSjJroH89zHlABgIARtYo2Jrhqk1bp2DEAxcswQAAA==); --still-full: url(/sign-in/city-night-phone.webp); }
 }
 .city-stage.is-still .city-still { background-image: var(--still-full); filter: none; }
 .city-stage .city { opacity: 0; transform: scale(1.035); transition: opacity 1.1s ease, transform 1.6s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
