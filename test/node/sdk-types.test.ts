@@ -1075,6 +1075,18 @@ describe("v1 room messages in the SDK", () => {
     expect(room.sendBytes(new Uint8Array([1]))).toBe(false);
   });
 
+  it("connects once when a move comes while it waits to reconnect", async () => {
+    const sdk = loadSdk();
+    const { socket } = await joinedRoom(sdk);
+    drop(socket);
+    say(socket, { type: "move", roomCode: "M2X7Q3" });
+    const socketCount = sdk.sockets.length;
+    // The reconnect it was waiting for (500 ms) finds the moved socket and stays away.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(sdk.sockets.length).toBe(socketCount);
+    expect(sdk.sockets.at(-1)!.url).toContain("M2X7Q3");
+  });
+
   it("throws too_big before sending over 16 KB, and latest_only needs a latestKey", async () => {
     const sdk = loadSdk();
     const { room, socket } = await joinedRoom(sdk);

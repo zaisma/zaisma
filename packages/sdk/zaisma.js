@@ -660,9 +660,11 @@
         room._setConnectionStatus("closed");
         return;
       }
+      // The closed socket goes now, so a move while this waits connects once, not twice.
+      room._ws = null;
       room._setConnectionStatus("reconnecting");
       var waitMs = Math.min(8000, 500 * Math.pow(2, room._tries++));
-      setTimeout(function () { if (!room._done) room._connect(); }, waitMs);
+      setTimeout(function () { if (!room._done && !room._ws) room._connect(); }, waitMs);
     };
   };
 
