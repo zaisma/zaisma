@@ -163,8 +163,8 @@ declare namespace Zaisma {
    * under-18 account. It stops contact details in any disguise, moving to another app or meeting up,
    * personal details, slurs and sexual content, and answers with the words to show the sender. Swearing
    * is flagged (hasSwearing) but allowed: blocking it is your game's call. Use it to show the sender why
-   * at once; Zaisma checks again when the message is delivered, so it can't be skipped. Checks up to 500
-   * characters.
+   * at once; Zaisma checks again when the message is delivered, so it can't be skipped. Checks the whole
+   * text, up to 2000 characters; a longer one is refused (too_long), never cut.
    *
    * @example
    * const check = await Zaisma.filterText(typedMessage);
@@ -1300,15 +1300,15 @@ declare namespace Zaisma {
     /**
      * Why not, null when it's allowed: "contact_details" (a link, handle, email, phone number or contact
      * app in any disguise, or moving to another app or meeting up), "personal_details" (where someone
-     * lives, their school, their full name, photos), "slur", "sexual", or "unchecked" (Zaisma couldn't
-     * check it: try again in a moment).
+     * lives, their school, their full name, photos), "slur", "sexual", "unchecked" (Zaisma couldn't
+     * check it: try again in a moment) or "too_long" (over 2000 characters).
      */
-    reason: "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | null;
+    reason: "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | "too_long" | null;
     /** The words to show the sender when it's stopped (never about age or the other player); null when it's allowed. */
     message: string | null;
     /** Whether it swears. Zaisma allows swearing; block it yourself if your game doesn't. */
     hasSwearing: boolean;
-    /** The text tidied up: hidden characters and extra spaces gone. */
+    /** The text tidied up: hidden characters and extra spaces gone, line breaks kept (empty when it's too_long). */
     text: string;
   }
 

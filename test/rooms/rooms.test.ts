@@ -1293,6 +1293,12 @@ describe("room browsing", () => {
     expect(await check("where are you [ai sexual]")).toMatchObject({ isAllowed: false, reason: "sexual", message: "That can't be sent here." });
     expect(await check("where are you")).toMatchObject({ isAllowed: true, reason: null });
     expect(await check("where are you [ai down]")).toMatchObject({ isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment." });
+    // Line breaks stay in the text to send, and never join the words on either side for the check.
+    expect(await check("good game\n\n\n\nsee you")).toMatchObject({ isAllowed: true, text: "good game\n\nsee you" });
+    expect(await check("add me on\nsnap")).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    // The whole message is checked, up to 2000 characters; a longer one is refused, never cut.
+    expect(await check(`${"what a match ".repeat(150)}call me 555 123 4567`)).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    expect(await check("a".repeat(2001))).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, text: "" });
   });
 
   it("checks chat for developers' own servers by their players' passes", async () => {
@@ -1301,8 +1307,10 @@ describe("room browsing", () => {
     const passFor = async (account: { id: string }, slug = "own-chat", gameId = id) => (await (await post("/v1/pass", slug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>()).pass;
     const adult = await createAccount(e.DB, { id: "chat-check-adult", username: "chat_check_adult", ageBand: "18+", socialMode: "open_and_social" });
     const teen = await createAccount(e.DB, { id: "chat-check-teen", username: "chat_check_teen", ageBand: "16-17", socialMode: "open_and_social" });
+    const otherAdult = await createAccount(e.DB, { id: "chat-check-adult2", username: "chat_check_adult2", ageBand: "18+", socialMode: "open_and_social" });
+    const otherTeen = await createAccount(e.DB, { id: "chat-check-teen2", username: "chat_check_teen2", ageBand: "16-17", socialMode: "open_and_social" });
     const chatCheck = (body: Record<string, unknown>) => SELF.fetch(`${R}/v1/chat/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gameSlug: "own-chat", recentTexts: [], ...body }) });
-    const [adultPass, teenPass] = [await passFor(adult), await passFor(teen)];
+    const [adultPass, teenPass, otherAdultPass, otherTeenPass] = [await passFor(adult), await passFor(teen), await passFor(otherAdult), await passFor(otherTeen)];
 
     // A pass for another game is refused, saying which one.
     const otherGame = await chatCheck({ senderPass: adultPass, receiverPasses: [await passFor(teen, "elsewhere-chat", "gelsewherechat")], text: "gg" });
@@ -1312,15 +1320,23 @@ describe("room browsing", () => {
     expect((await (await chatCheck({ senderPass: adultPass, receiverPasses: "everyone", text: "gg" })).json<any>()).error).toMatchObject({ code: "bad_request", field: "receiverPasses" });
 
     // Good passes get the filter's answer, with no CORS: it's server to server.
-    const answer = await chatCheck({ senderPass: teenPass, receiverPasses: [adultPass], text: "add me on snap" });
+    const answer = await chatCheck({ senderPass: otherTeenPass, receiverPasses: [teenPass], text: "add me on snap" });
     expect(answer.headers.get("access-control-allow-origin")).toBeNull();
     expect(await answer.json()).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
-    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [teenPass], text: "nice jump" })).json()).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false });
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false });
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass], text: "a".repeat(2001) })).json()).toMatchObject({ isAllowed: false, reason: "too_long" });
+
+    // canChat's rule, applied by Zaisma too: an adult and a teen who aren't friends never chat, whatever the
+    // text, and one receiver who may not stops the whole message without saying which.
+    const notAllowed = { isAllowed: false, reason: "not_allowed_to_chat", message: "Chat isn't open for this message.", hasSwearing: false };
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass, teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
 
     // An account whose chat is paused chats with nobody in its next pass, so own servers stop it too.
     await e.DB.prepare("UPDATE accounts SET chat_stopped_reason = 'paused_for_repeats', chat_stopped_until_ms = ? WHERE id = ?").bind(Date.now() + 60_000, adult.id).run();
     const paused = await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { game: "own-chat", issuer: e.ISSUER });
     expect(paused.who_can_chat).toBe("nobody");
+    expect(await (await chatCheck({ senderPass: await passFor(adult), receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual(notAllowed);
     await e.DB.prepare("UPDATE accounts SET chat_stopped_until_ms = ? WHERE id = ?").bind(Date.now() - 1, adult.id).run();
     expect((await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { game: "own-chat", issuer: e.ISSUER })).who_can_chat).toBe("anyone");
   });

@@ -297,10 +297,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   // Events from a Zaisma webhook whose endpoint_url is this server's /v1/webhooks: signed the Standard
-  // Webhooks way, checked with its signing secret, then handed to onWebhook. An account_deleted event
-  // first erases the player from the local database when the event's game says
-  // deleted_account_erase_enabled, the same switch Zaisma follows for its own databases. Answers 204 when
-  // that and onWebhook finished, so Zaisma counts it delivered; anything else is tried again later.
+  // Webhooks way, checked with its signing secret, then handed to onWebhook. An event about another game
+  // (one webhook can take several) is skipped with 204, before anything else, so it never erases this
+  // game's rows. An account_deleted event about this game first erases the player from the local
+  // database when its account_deletion says deleted_account_erase_enabled, the same switch Zaisma follows
+  // for its own databases. Answers 204 when that and onWebhook finished, so Zaisma counts it delivered;
+  // anything else is tried again later.
   function answerWebhook(request, response) {
     const reply = (httpStatus, message) => {
       response.writeHead(httpStatus, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
@@ -308,34 +310,38 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     };
     if (request.method !== "POST") return reply(405, "Webhooks are POSTed.");
     if (!webhookSigningSecret) return reply(503, "Set ZAISMA_WEBHOOK_SIGNING_SECRET to the webhook's signing_secret to take its events.");
-    let text = "";
+    const chunks = [];
+    let sizeBytes = 0;
     let isTooBig = false;
-    request.setEncoding("utf8");
     request.on("data", (chunk) => {
       if (isTooBig) return;
-      text += chunk;
-      if (text.length > WEBHOOK_LIMITS.maximumEventSizeBytes) isTooBig = true;
+      sizeBytes += chunk.length;
+      if (sizeBytes > WEBHOOK_LIMITS.maximumEventSizeBytes) isTooBig = true;
+      else chunks.push(chunk);
     });
     request.on("end", async () => {
       try {
         if (isTooBig) return reply(413, "The event is too big.");
+        const text = Buffer.concat(chunks).toString("utf8");
         const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
         const checked = await verifyWebhook(webhookSigningSecret, { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") }, text);
-        if ("failure" in checked) return reply(401, checked.failure);
+        if ("error" in checked) return reply(401, `${checked.error.message} ${checked.error.fix}`);
         const event = checked.event;
+        if (event.game && event.game.slug !== game) return reply(204, "");
         const isAccountDeleted = event.kind === "account_deleted";
-        if (isAccountDeleted && event.game?.deleted_account_erase_enabled === true) {
+        const deletion = event.account_deletion;
+        if (isAccountDeleted && event.game?.slug === game && deletion?.deleted_account_erase_enabled === true) {
           try {
-            await database.erasePlayer(event.player_id);
+            await database.erasePlayer(deletion.player_id);
           } catch (error) {
-            console.error(`Couldn't erase ${event.player_id} from the game database (${event.id}):`, error);
+            console.error(`Couldn't erase ${deletion.player_id} from the game database (${event.id}):`, error);
             return reply(500, "Erasing the player failed; Zaisma tries the event again later.");
           }
         }
         if (typeof definition.onWebhook !== "function") return isAccountDeleted ? reply(204, "") : reply(404, "This game server has no onWebhook.");
         const outcome = await runWebhook(definition, event, { database, secrets });
-        if ("failure" in outcome) {
-          console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.failure);
+        if ("error" in outcome) {
+          console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.error.message);
           return reply(500, "onWebhook failed; Zaisma tries the event again later.");
         }
         reply(204, "");

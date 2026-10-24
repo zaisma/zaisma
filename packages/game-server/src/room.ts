@@ -411,8 +411,9 @@ export interface GameServer<S = any> {
    * An event from one of the developer's webhooks: a webhook whose destination is this game's game
    * server (create_webhook with destination_kind "game_server"), or, on your own server, one whose
    * endpoint_url is this server's /v1/webhooks. event is what any webhook is sent: event.kind, and
-   * event.game, event.version and event.bug_report as the developer API answers them (event.player_id
-   * for account_deleted, whose rows Zaisma already erased unless the game turned that off). Turn it into a
+   * event.game, event.version and event.bug_report as the developer API answers them
+   * (event.account_deletion for account_deleted: Zaisma erases the player's rows itself unless the game
+   * turned that off). Turn it into a
    * Discord post or a GitHub issue with fetch() and the tokens in server.secrets. There's no room, no
    * player and no state. Finishing without an error counts as delivered; throwing (or taking over 10
    * seconds) tries it again later, up to 6 times, so make it safe to repeat: event.id is the same on

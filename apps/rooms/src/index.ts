@@ -1,5 +1,5 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server";
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import { signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
@@ -353,10 +353,15 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   }
   // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else.
   if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender.sub}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
+  // One verdict for the message, never which receiver.
+  if (receivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver))) {
+    return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false });
+  }
 
   const answer = await filterChatMessage(env, {
     gameId: game.id,
-    text: tidyText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount),
+    text: body.text,
     senderPlayerId: sender.sub,
     receiverPlayerIds: receivers.map((receiver) => receiver.sub),
     recentTexts: recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)),
@@ -418,6 +423,9 @@ export default {
       // Zaisma checks again on its side as each message is delivered (chat-filter.ts).
       if (url.pathname === "/v1/filter") {
         if (await limited(env.FILTER_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+        if (String(body.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) {
+          return json({ isAllowed: false, reason: "too_long", message: CHAT_BLOCK_MESSAGES.too_long, hasSwearing: false, text: "" }, 200, cors);
+        }
         const text = tidyText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
         const rules = checkChatText(text);
         let reason = rules.reason as keyof typeof CHAT_BLOCK_MESSAGES | null;
@@ -425,7 +433,7 @@ export default {
           const checked = env.CHAT_CHECK ? await env.CHAT_CHECK.checkUnclear({ text, recentTexts: [], isAdultToMinor: false }).catch(() => ({ verdict: "unchecked" as const })) : { verdict: "unchecked" as const };
           reason = checked.verdict === "blocked" ? checked.reason : checked.verdict === "unchecked" ? "unchecked" : null;
         }
-        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, text }, 200, cors);
+        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, text: tidyChatText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount) }, 200, cors);
       }
 
       if (url.pathname === "/v1/pass") {
