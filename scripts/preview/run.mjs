@@ -858,9 +858,6 @@ async function seed() {
     }
     stepDone(`game: ${g.title}`);
   }
-  // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
-  runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);
-  stepDone("Browse's other games");
   // Backgrounds: Shard Dodge's wide one is a picture of its world, its phone one the stand-in Neon Drift's shader, drawn by
   // the real shader check (Browser Rendering's local Chrome), and its glass is tinted. Arena sent a shader that strobes, which
   // the check refuses for flashing.
@@ -1084,6 +1081,10 @@ async function seed() {
   await finishEngineSamples();
   await finishStartedInChrome();
   stepDone("runs in Chrome still going");
+  // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
+  // Last, since they count toward its developer's 50 games.
+  runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);
+  stepDone("Browse's other games");
 }
 
 /**
