@@ -104,7 +104,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var roomPx = parseFloat(getComputedStyle(sw).getPropertyValue("--tab-room")) || LEAST_ROOM_PX;
       sw.style.setProperty("--tab-room", Math.max(LEAST_ROOM_PX, roomPx - overflowPx / (2 * shown.length)).toFixed(2) + "px");
     }
-    // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
+    // While a slide from the last page waits or plays, nothing moves the slab: a settle then (the fonts, a picture in the header loading)
+    // would set the slab again under the slide, and a phone's browser can restart the slide from there, jumping it back.
     var isWaitingToSlide = false;
     // The gallery's fixed states: a tab marked is-pointed has the ghost under it, one marked is-focused the focus line round it.
     function fixedStates() {
@@ -130,14 +131,24 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var slide = function () {
           var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
           var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
-          slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: parseFloat(getComputedStyle(slab).transitionDuration) * 1000 || 550, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
+          return slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: parseFloat(getComputedStyle(slab).transitionDuration) * 1000 || 550, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
         };
         // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
         slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
         isWaitingToSlide = true;
-        // It starts on the first frame the page draws, not before: a slow phone draws the new page late, and a slide started earlier would
-        // show up already halfway there.
-        var start = function () { requestAnimationFrame(function () { isWaitingToSlide = false; settle(); slide(); }); };
+        // It starts once the page shows, not before (a slow phone draws the new page late, and a slide started earlier would show up already
+        // halfway there), and once the page's crossfade from the last one (its view transition) is over, so the slab moves on the page
+        // itself and not inside the crossfade's picture of it. Once it lands, the slab settles where its tab is by then.
+        var start = function () {
+          requestAnimationFrame(function () {
+            var fades = document.getAnimations ? document.getAnimations().filter(function (each) { return each.effect && /^::view-transition/.test(each.effect.pseudoElement || ""); }) : [];
+            Promise.all(fades.map(function (each) { return each.finished.catch(function () {}); })).then(function () {
+              isWaitingToSlide = false; settle(); isWaitingToSlide = true;
+              var land = function () { isWaitingToSlide = false; settle(); };
+              slide().finished.then(land, land);
+            });
+          });
+        };
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
       }
     }
