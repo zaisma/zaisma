@@ -172,7 +172,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     rooms_now: await rows(env, "SELECT game.slug AS game_slug, room.room_code, room.server_url, room.joined_at_ms, room.updated_at_ms FROM room_players room JOIN games game ON game.id = room.game_id WHERE room.player_id = ?", account.player_id),
     purchases: await rows(
       env,
-      "SELECT game.slug AS game_slug, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.price_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
+      "SELECT COALESCE(game.slug, purchase.deleted_game_slug) AS game_slug, COALESCE(game.title, purchase.deleted_game_title) AS game_title, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.paid_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
       account.player_id,
     ),
   });

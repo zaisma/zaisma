@@ -188,6 +188,16 @@ async function probe(url, requestInit, findProblems, { isRetriedOnProblem = true
   return last;
 }
 
+/** How many keys a JWKS answer lists, 0 when it isn't one. */
+export function publishedKeyCount(body) {
+  try {
+    const { keys } = JSON.parse(body);
+    return Array.isArray(keys) ? keys.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** findProblems(response, body) answers a list. A pass note is `<name> <status>` (just `<name>` for a security check). */
 export async function checkUrl(name, url, requestInit, findProblems, { isSecurity = false, passNote = "", ...retryOptions } = {}) {
   const result = await probe(url, requestInit, findProblems, retryOptions);

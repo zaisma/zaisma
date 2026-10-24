@@ -187,7 +187,7 @@ export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
   "accounts.color_theme", "accounts.chat_stopped_reason", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
-  "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.devices", "games.controls",
+  "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
   "performance_days.browser_name", "performance_days.os_name", "performance_days.graphics_family", "game_hosting_months.paused_reason",
@@ -196,8 +196,9 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
   "game_images.average_color", "game_shaders.average_color", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
   "domains.hostname", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "backup_runs.failure_message",
-  // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item.
-  "game_items.local_prices", "purchases.item_name",
+  // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
+  // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.
+  "game_items.local_prices", "purchases.item_name", "purchases.deleted_game_slug", "purchases.deleted_game_title",
   // Arrays of counts Zaisma's code adds up (player-performance.ts).
   "performance_days.loading_counts", "performance_days.frame_rate_seconds", "performance_days.memory_counts",
 ];

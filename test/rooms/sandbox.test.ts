@@ -1,8 +1,10 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
+import { loadSigningKey } from "@zaisma/game-server/internal";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
+import { signTestReceipt } from "../helpers.ts";
 
 // Developers' own game servers, run in a sandbox (apps/rooms/src/sandbox.ts).
 
@@ -158,6 +160,30 @@ describe("sandboxed game servers", () => {
     const guest = await join("wardrobe", "WRDRBE");
     expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] } });
     await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+  });
+
+  it("checks a purchase's receipt for its own game with room.verifyReceipt, and says why not for any other", async () => {
+    await addSandboxGame(
+      "ticket-booth",
+      `export default {
+  maximumPlayerCount: 4,
+  setup: () => ({}),
+  async onMessage(state, player, message, room) {
+    const answer = await room.verifyReceipt(message).then((claims) => ({ purchaseId: claims.purchase_id, purchaseStatus: claims.purchase_status, itemName: claims.item_name }), (error) => ({ errorName: error.name, errorCode: error.code }));
+    room.send(player.id, answer);
+    return state;
+  },
+};`,
+    );
+    const receiptKey = await loadSigningKey(e.RECEIPT_SIGNING_KEY!);
+    const player = await join("ticket-booth", "TKTBTH");
+    player.say(await signTestReceipt(receiptKey, "ticket-booth", e.ISSUER));
+    expect(await player.next()).toEqual({ type: "message", data: { purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z", purchaseStatus: "completed", itemName: "gold_crown" } });
+    player.say(await signTestReceipt(receiptKey, "other-booth", e.ISSUER));
+    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_game" } });
+    // A pass is refused as one, though receipt checks here hold only the receipt keys.
+    player.say((await newPass("ticket-booth")).pass);
+    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_kind" } });
   });
 
   it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {

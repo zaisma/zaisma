@@ -1,4 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
+import { signReceipt } from "../packages/core/src/receipts.ts";
+import type { ReceiptClaims, SigningKey } from "../packages/game-server/src/internal.ts";
 
 /** Build a zip in memory from { path: contents }. */
 export function makeZip(files: Record<string, string | Uint8Array>): Uint8Array {
@@ -31,4 +33,27 @@ export function minifiedBundle(characterCount: number, seedNumber = 1): string {
     builtCharacterCount += part.length;
   }
   return parts.join("");
+}
+
+/** A receipt for a game, signed with the key given and issued by `<issuer>/receipts`, as the rooms Worker signs them. Claims override the default completed sale. */
+export function signTestReceipt(signing: SigningKey, game: string, issuer: string, claims: Partial<ReceiptClaims> = {}): Promise<string> {
+  return signReceipt(signing, {
+    sub: "player_8f3k2m9q1x7c4v6b0n5z",
+    aud: game,
+    iss: `${issuer}/receipts`,
+    jti: "purchase_8f3k2m9q1x7c4v6b0n5z",
+    receipt_version_number: 1,
+    purchase_id: "purchase_8f3k2m9q1x7c4v6b0n5z",
+    purchased_at: "2026-10-23T18:00:00.000Z",
+    purchase_status: "completed",
+    item_name: "gold_crown",
+    item_kind: "permanent",
+    item_count: 1,
+    purchase_source: "sale",
+    paid_minor_units: 499,
+    currency_code: "usd",
+    game_account_id: null,
+    iat: Math.floor(Date.now() / 1000),
+    ...claims,
+  });
 }

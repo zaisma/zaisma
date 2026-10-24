@@ -1,4 +1,4 @@
-import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, GENRES, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAN_LIMITS, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
@@ -137,6 +137,7 @@ export const GAME = object({
   review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
   country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open the game, on a notice from a court, regulator or police there under a law US law doesn't share; everyone else still can. [] for none."),
   devices: list(choice(DEVICES)),
+  genres: list(choice(GENRES)),
   controls: list(choice(CONTROLS)),
   screen_orientation: nullable(choice(SCREENS, "null: not set.")),
   play_modes: nullable(list(PLAY_MODE, "How it's played; null: not set.")),
@@ -970,12 +971,16 @@ export const PURCHASE = object({
   ),
   player_id: idOf("player"),
   game_account_id: nullable(text("The game's own ID for the player's account in its own system, as the game gave it.")),
-  price_minor_units: nullable(describe({ type: "integer", minimum: 0 }, "What was paid, in the currency's smallest unit; null for a grant.")),
+  paid_minor_units: nullable(describe({ type: "integer", minimum: 0 }, "What the whole purchase paid, in the currency's smallest unit; null for a grant. The item's own price is its price_minor_units.")),
   currency_code: nullable(text("The currency paid in; null for a grant.")),
   refunded_minor_units: countOf("How much was given back, in the same currency's smallest unit; 0 for a grant."),
   purchased_at: nullable(isoTime("When it was bought or granted; null while paying, or when it failed.")),
   refunded_at: nullable(isoTime()),
-  receipt: nullable(text("The signed receipt (a JWT like a player pass): any server checks it with verifyReceipt from @zaisma/game-server. null while paying, or when it failed.")),
+  receipt: nullable(
+    text(
+      "The signed receipt (a JWT, typ receipt+jwt, signed again on each read): a game server checks it with room.verifyReceipt or server.verifyReceipt, any other server with verifyReceipt from @zaisma/game-server and the keys at https://rooms.zaisma.com/.well-known/receipt-jwks.json. It says the purchase's status, so deliver once per purchase_id and only when it's completed. null while paying, or when it failed.",
+    ),
+  ),
 });
 
 /** A game's secret as the API shows it: never its value. */

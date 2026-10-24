@@ -119,8 +119,8 @@ describe("the MCP protocol", () => {
 
 describe("publishing a game through the MCP", () => {
   it("makes, uploads, previews, publishes and rolls back", async () => {
-    const { game } = await tool("create_game", { title: "Tiny Jump", description: "Jump.", devices: ["phone"] });
-    expect(game).toMatchObject({ slug: "tiny-jump", visibility: "draft", devices: ["phone"] });
+    const { game } = await tool("create_game", { title: "Tiny Jump", description: "Jump.", devices: ["phone"], genres: ["platformer"] });
+    expect(game).toMatchObject({ slug: "tiny-jump", visibility: "draft", devices: ["phone"], genres: ["platformer"] });
 
     const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", content_text: "<!doctype html><p>v1</p>" }, { path: "pic.png", content_base64: btoa("not really a png") }], patch_notes: "First." });
     expect(first.sent_file_count).toBe(2);

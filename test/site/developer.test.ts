@@ -143,6 +143,7 @@ describe("games", () => {
     expect(res.status).toBe(201);
     const { game } = (await res.json()) as { game: Record<string, unknown> };
     expect(game).toMatchObject({ slug: "sky-hopper", title: "Sky Hopper", visibility: "draft", review_status: "pending", devices: ["phone", "computer"], controls: ["touch"], screen_orientation: "portrait" });
+    expect(game.genres).toEqual([]);
 
     const row = (await gameBySlug(env.DB, "sky-hopper"))!;
     expect(row.owner_id).toBe((await personOwner(env.DB, "dev-1")).id);
@@ -227,6 +228,21 @@ describe("games", () => {
     expect((await res.json<{ game: Record<string, unknown> }>()).game.account_requirement).toBe("whole_game");
     await api("/games", { body: { title: "Online Only", account_requirement: "multiplayer" } });
     expect((await gameBySlug(env.DB, "online-only"))!.account_requirement).toBe("multiplayer");
+  });
+
+  it("takes up to 3 of Zaisma's genres, kept in its own order", async () => {
+    // An account of its own, since the API's per-minute limit is per account.
+    await createAccount(env.DB, { id: "dev-genres", username: "Genre_Setter", ageBand: "18+" });
+    await letPublish(env.DB, "dev-genres");
+    const key = (await createApiKey(env.DB, "dev-genres", "laptop")).token;
+    const api = (path: string, init: { method?: string; body?: unknown } = {}) => apiAs(path, { ...init, key });
+    const made = (await (await api("/games", { body: { title: "Genre Hop", genres: ["puzzle", "platformer"] } })).json()) as { game: Record<string, unknown> };
+    expect(made.game.genres).toEqual(["platformer", "puzzle"]);
+    for (const genres of [["rpg"], ["multiplayer"], ["action", "action"], ["action", "puzzle", "racing", "horror"], "action"]) {
+      expect(await refusal(await api("/games/genre-hop", { method: "PATCH", body: { genres } }))).toMatchObject({ code: "bad_genres", field: "genres", fix: expect.stringContaining("role_playing") });
+    }
+    const cleared = (await (await api("/games/genre-hop", { method: "PATCH", body: { genres: [] } })).json()) as { game: Record<string, unknown> };
+    expect(cleared.game.genres).toEqual([]);
   });
 
   it("keeps a game from younger accounts: 13, 16 or 18 and up, accounts only above 13", async () => {

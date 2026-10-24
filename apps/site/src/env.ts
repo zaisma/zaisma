@@ -42,7 +42,7 @@ export interface Env {
   GAME_STORAGE?: Service<GameStorageService>;
   /** Every game's live rooms, in the rooms Worker, told when a version goes live with match_update_mode "now" (match-updates.ts). */
   GAME_ROOMS?: Service<GameRoomsService>;
-  /** Signs purchases' receipts with the pass key, in the rooms Worker (items-api.ts). */
+  /** Signs purchases' receipts with the receipt key (RECEIPT_SIGNING_KEY), as issuer <ISSUER>/receipts, in the rooms Worker (items-api.ts). */
   RECEIPTS?: Service<ReceiptSigningService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;

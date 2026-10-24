@@ -65,15 +65,18 @@ export function dropdown(options: DropdownOptions): Raw {
 }
 
 /** The same facts as the glance list, short, under a cover: when you played, an update or friends on the left, players now on the right. */
-function coverFacts(facts: GlanceFacts): Raw {
+function coverFacts(facts: GlanceFacts, title?: string): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
-  const left =
-    facts.playedAtMs !== undefined
+  const left = facts.deviceNote
+    ? html`<span class="device-note">${facts.deviceNote}</span>`
+    : facts.playedAtMs !== undefined
       ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`${tag("Updated", "new")}` : ""}`
       : friends.length
         ? html`<span class="friends">${pictureRow(friends.map((friend) => friend.username), "xs")}<span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
         : "";
+  // With its title shown, the title leads the row and anything else it has to say goes on a line of its own under it.
+  if (title !== undefined) return html`<div class="cover-meta has-title"><span class="cover-name">${title}</span>${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}${left ? html`<span class="cover-more">${left}</span>` : ""}</div>`;
   return html`<div class="cover-meta">${left}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
@@ -89,6 +92,8 @@ export interface GameCoverOptions {
   isEager?: boolean;
   /** Its art is fetched before the page's other pictures: for the one cover likely the largest thing in the first view. */
   hasHighPriority?: boolean;
+  /** Its title in words under it, at the start of the row with players now: for a grid people search through, like Browse. */
+  isTitleShown?: boolean;
 }
 
 /**
@@ -110,7 +115,7 @@ const COVER_LARGEST_PX = 960;
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art cut-carved" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? (options.isTitleShown ? "" : html`<span class="cover-title" aria-hidden="true">${options.title}</span>`) : html`<span class="cover-picture" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts, options.isTitleShown ? options.title : undefined)}</div>`;
 }
 
 /**
@@ -245,12 +250,14 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* Covers are the studios' art alone: no rim, no glass, nothing drawn on them. They're cut by the edge rule like every control, so a
-   cover near a pane's corner takes the pane's cut and one in the middle of it is square: never a rectangle against a cut corner.
+/* A cover is a carved well cut into the glass, with the studio's art set inside it: no glass and nothing drawn on the art itself. The
+   well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
+   middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape); text-decoration: none;
-  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); }
+  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
+.cover-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover.is-placeholder .cover-art img { display: none; }
 /* A game with no cover has its title under the mark, so it's never a blank in a list. */
@@ -273,9 +280,15 @@ const COVER_STYLES = `
 .cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); min-height: 24px; margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
-.cover-meta .when, .cover-meta .count { white-space: nowrap; }
+.cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
+/* What's under a cover is words, so it keeps the pane's words margin (--pad-words) in from the art's edges. With a title it belongs to the
+   cover above it: just under the orange line, with more room after it before the next row. */
+.cover-meta { padding-inline: var(--pad-words); }
+.cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
+.cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
+.cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }
 `;
 
@@ -422,7 +435,7 @@ component({
   name: "Game cover",
   slug: "game-cover",
   group: "panes",
-  summary: "A game in a list: the studio's art, bare, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
+  summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
   styles: COVER_STYLES,
   render: gameCover,
   examples: [
@@ -431,7 +444,9 @@ component({
     { label: "Players now", markup: html`<div class="cover-sample">${standInCovers(["hollow-tide"])}</div>` },
     { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
+    { label: "Made for another device", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { deviceNote: "Needs a keyboard" } })}</div>` },
     { label: "No cover yet", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38 } })}</div>` },
+    { label: "With its title, for another device", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38, deviceNote: "Needs a keyboard" }, isTitleShown: true })}</div>` },
     {
       label: "Five friends playing",
       markup: html`<div class="cover-sample">${gameCover({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480, friends: [{ username: "Sofia" }, { username: "Liam" }, { username: "Emma" }, { username: "Noah" }, { username: "Charlotte" }] } })}</div>`,
