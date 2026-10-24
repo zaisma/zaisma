@@ -447,7 +447,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
-    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); settle(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
+    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
     window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
     // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
@@ -456,32 +456,36 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // On a long page a pixel of the thumb is dozens of the page's, so a finger held still, which always trembles a little, would shake the
     // page: by touch, the thumb follows only once the finger has truly moved, from where it was then.
     var TOUCH_SLOP_PX = 6;
-    // By touch, iOS places a finger through the page's scroll as its own side last had it, a few frames behind a scroll set here: read right
-    // after one, a finger held still seems to have moved by what the page just scrolled, and at dozens of the page's pixels to one of the
-    // thumb's the page would shake and run away. So by touch, after any scroll a finger is read again only once SETTLE_FRAMES have drawn.
-    var SETTLE_FRAMES = 4;
-    function settle() {
-      if (!drag || !drag.isTouch) return;
-      var mine = drag, frames = 0; mine.settledAt = Infinity; mine.settling = (mine.settling || 0) + 1;
-      var turn = mine.settling;
-      (function wait() { if (drag !== mine || mine.settling !== turn) return; if (++frames < SETTLE_FRAMES) requestAnimationFrame(wait); else mine.settledAt = performance.now(); })();
+    // By touch, iOS places a finger through the page's scroll as its own side last had it, a few frames behind a scroll set here: read as
+    // given, a finger held still seems to have moved by what the page just scrolled, and at dozens of the page's pixels to one of the
+    // thumb's the page would shake and run away. So the finger's place on the page is taken back out through whichever of the last
+    // SCROLLS_KEPT scrolls set here puts it nearest where it last was: a finger moves a few pixels a frame, the page dozens.
+    var SCROLLS_KEPT = 8;
+    function spotOf(event) {
+      var spotPx = along(event);
+      if (!drag.isTouch || !isPage) return spotPx;
+      var onPagePx = spotPx + window.scrollY, best = spotPx, gap = Infinity;
+      drag.scrolls.forEach(function (scroll) { var spot = onPagePx - scroll, away = Math.abs(spot - drag.last); if (away < gap) { gap = away; best = spot; } });
+      return best;
     }
     function start(event, jump) {
       event.preventDefault();
+      var before = at();
       if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
-      drag = { y: along(event), from: at(), isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse", settledAt: -Infinity }; bar.classList.add("dragging");
+      drag = { y: along(event), last: along(event), from: at(), scrolls: [before, at()], isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse" }; bar.classList.add("dragging");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     line.addEventListener("pointerdown", function (event) { start(event, true); });
     bar.addEventListener("pointermove", function (event) {
       if (!drag) return;
-      var spotPx = along(event);
-      if (drag.isTouch && event.timeStamp < drag.settledAt) return;
+      var spotPx = spotOf(event);
+      drag.last = spotPx;
       if (!drag.isMoving) { if (Math.abs(spotPx - drag.y) < TOUCH_SLOP_PX) return; drag.isMoving = true; drag.y = spotPx; drag.from = at(); }
       var goal = Math.max(0, Math.min(size.max, drag.from + (spotPx - drag.y) * size.max / Math.max(1, size.track - size.thumb)));
       if (Math.abs(goal - at()) < 1) return;
-      to(goal); settle();
+      to(goal);
+      drag.scrolls.push(at()); if (drag.scrolls.length > SCROLLS_KEPT) drag.scrolls.shift();
     });
     function end() { drag = null; bar.classList.remove("dragging"); if (isLayoutDue) { isLayoutDue = false; layout(); } }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.

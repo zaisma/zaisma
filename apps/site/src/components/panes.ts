@@ -498,12 +498,12 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
 }
 
 /** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively.
- *  A browser that can't keep a closing dialog in the top layer (CSS \`overlay\`: WebKit) stops drawing it the moment it closes, so its
- *  exit never shows: there, every close (Esc, a dialog-method button, a press beside it, a script's close()) waits while it leaves. */
+ *  A closed dialog leaves the top layer, and unless the browser keeps it there through the exit (CSS \`overlay\`, which iOS can claim
+ *  without doing), it's drawn inside whatever holds it, far from where it was, or not at all. So every close (Esc, a dialog-method
+ *  button, a press beside it, a script's close()) keeps it open while it leaves, in every browser, and only then closes it. */
 export const SHEET_SCRIPT = `/* sheets */(function () {
   var close = HTMLDialogElement.prototype.close;
-  var isHeldOpen = !CSS.supports("overlay", "auto");
-  function isLeaving(sheet) { return isHeldOpen && sheet.open && sheet.matches(".sheet:not(.in-place)") && !matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  function isLeaving(sheet) { return sheet.open && sheet.matches(".sheet:not(.in-place)"); }
   function leave(sheet, closeArguments) {
     if (sheet.classList.contains("is-leaving")) return;
     sheet.classList.add("is-leaving");
@@ -512,17 +512,15 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
     sheet.addEventListener("transitionend", end);
   }
-  if (isHeldOpen) {
-    HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
-    document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
-    document.addEventListener("submit", function (event) {
-      var method = (event.submitter && event.submitter.getAttribute("formmethod")) || event.target.getAttribute("method");
-      var sheet = event.target.closest("dialog");
-      if (!method || method.toLowerCase() !== "dialog" || !sheet || !isLeaving(sheet)) return;
-      event.preventDefault();
-      leave(sheet, event.submitter && event.submitter.hasAttribute("value") ? [event.submitter.value] : []);
-    });
-  }
+  HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
+  document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
+  document.addEventListener("submit", function (event) {
+    var method = (event.submitter && event.submitter.getAttribute("formmethod")) || event.target.getAttribute("method");
+    var sheet = event.target.closest("dialog");
+    if (!method || method.toLowerCase() !== "dialog" || !sheet || !isLeaving(sheet)) return;
+    event.preventDefault();
+    leave(sheet, event.submitter && event.submitter.hasAttribute("value") ? [event.submitter.value] : []);
+  });
   document.addEventListener("click", function (event) {
     var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
     var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
@@ -583,10 +581,10 @@ ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
   .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
+  .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not([open]) { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -598,7 +596,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (where a closed dialog leaves the screen at once, as in WebKit, it waits open while it leaves). Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
