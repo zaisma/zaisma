@@ -66,7 +66,10 @@
   "Zaisma.items": {
     "kind": "values",
     "values": [
+      "buy",
       "list",
+      "off",
+      "on",
       "owned",
       "owns"
     ]
@@ -166,6 +169,10 @@
     "value": 3000
   },
   "wait in openLink": {
+    "kind": "constant",
+    "value": 3000
+  },
+  "wait in buyItem": {
     "kind": "constant",
     "value": 3000
   },
