@@ -916,8 +916,8 @@ describe("mistakes in a sandboxed game server's code", () => {
   });
 
   /** The game's recorded errors, once there are this many. */
-  async function errorsOf(gameId: string, count: number): Promise<string[]> {
-    for (let tries = 0; tries < 100; tries++) {
+  async function errorsOf(gameId: string, count: number, maximumTries = 100): Promise<string[]> {
+    for (let tries = 0; tries < maximumTries; tries++) {
       const { results } = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = ? ORDER BY first_at_ms, rowid").bind(gameId).all<{ message: string }>();
       if (results.length >= count) return results.map((row) => row.message);
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -997,8 +997,8 @@ describe("mistakes in a sandboxed game server's code", () => {
   },
 };`,
     );
-    const a = await join("viewonly", "VIEWAA");
-    expect(await a.nextState()).toEqual({ type: "state", full: { thrown: ["room_call_unavailable", "room.broadcast"], roomCode: "VIEWAA" } });
+    const a = await join("viewonly", "STATEA");
+    expect(await a.nextState()).toEqual({ type: "state", full: { thrown: ["room_call_unavailable", "room.broadcast"], roomCode: "STATEA" } });
     a.ws.close(1000);
   });
 
@@ -1053,9 +1053,9 @@ describe("mistakes in a sandboxed game server's code", () => {
     );
     const a = await join("flood", "ABCDEF");
     a.say("go");
-    const errors = await errorsOf("gflood", 1);
-    const { results: everyRow } = await e.DB.prepare("SELECT game_id, kind, message FROM game_server_errors").all();
-    expect(JSON.stringify(everyRow) + errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
+    // The room runs the first 1000 calls before it logs the rest, which takes a while.
+    const errors = await errorsOf("gflood", 1, 400);
+    expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
     a.ws.close(1000);
   });
 });
