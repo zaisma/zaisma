@@ -240,7 +240,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
     // What the account owns here rides in its pass, as on Zaisma rooms (player.ownedItemNames).
     const owned = claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {};
-    return name ? { player: { id: claims.sub, name, kind: claims.kind, ...owned }, claims } : null;
+    // A kind added after v1 plays as a guest here, as in Zaisma rooms.
+    return name ? { player: { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...owned }, claims } : null;
   }
 
   // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },
@@ -310,21 +311,35 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     };
     if (request.method !== "POST") return reply(405, "Webhooks are POSTed.");
     if (!webhookSigningSecret) return reply(503, "Set ZAISMA_WEBHOOK_SIGNING_SECRET to the webhook's signing_secret to take its events.");
+    const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
+    const headers = { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") };
+    // A POST with no headers, or an old timestamp, is turned away before its body is read.
+    const refuse = (httpStatus, error) => {
+      response.once("finish", () => request.destroy());
+      reply(httpStatus, `${error.message} ${error.fix}`);
+    };
     const chunks = [];
     let sizeBytes = 0;
-    let isTooBig = false;
+    let isAnswered = false;
+    verifyWebhook(webhookSigningSecret, headers, "").then((early) => {
+      if ("error" in early && early.error.code !== "bad_signature" && !isAnswered && !response.headersSent) {
+        isAnswered = true;
+        return refuse(401, early.error);
+      }
+    });
     request.on("data", (chunk) => {
-      if (isTooBig) return;
+      if (isAnswered) return;
       sizeBytes += chunk.length;
-      if (sizeBytes > WEBHOOK_LIMITS.maximumEventSizeBytes) isTooBig = true;
-      else chunks.push(chunk);
+      if (sizeBytes <= WEBHOOK_LIMITS.maximumEventSizeBytes) return void chunks.push(chunk);
+      isAnswered = true;
+      refuse(413, { message: `The event is over ${WEBHOOK_LIMITS.maximumEventSizeBytes} bytes, more than any event Zaisma sends.`, fix: "Only take POSTs Zaisma's webhooks send." });
     });
     request.on("end", async () => {
       try {
-        if (isTooBig) return reply(413, "The event is too big.");
+        if (isAnswered) return;
         const text = Buffer.concat(chunks).toString("utf8");
-        const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
-        const checked = await verifyWebhook(webhookSigningSecret, { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") }, text);
+        const checked = await verifyWebhook(webhookSigningSecret, headers, text);
+        if (isAnswered) return;
         if ("error" in checked) return reply(401, `${checked.error.message} ${checked.error.fix}`);
         const event = checked.event;
         if (event.game && event.game.slug !== game) return reply(204, "");

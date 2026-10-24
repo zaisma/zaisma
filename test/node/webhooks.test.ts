@@ -59,6 +59,12 @@ describe("Node runner webhooks", () => {
       expect((await post(EVENT, { timestampSec: Math.floor(Date.now() / 1000) - 600 })).text).toContain("webhook-timestamp");
       // Signed, but not the event whose id it was signed with.
       expect((await post({ ...EVENT, id: "webhook_event_other" })).httpStatus).toBe(401);
+      // No headers, or a body over the limit, is turned away before the rest is read.
+      const at = `http://localhost:${(own.wss.address() as { port: number }).port}/v1/webhooks`;
+      const bare = await fetch(at, { method: "POST", body: JSON.stringify(EVENT) });
+      expect([bare.status, await bare.text()]).toEqual([401, expect.stringContaining("webhook-id")]);
+      const huge = await fetch(at, { method: "POST", headers: { "webhook-id": EVENT.id, "webhook-timestamp": String(Math.floor(Date.now() / 1000)), "webhook-signature": "v1,AAAA" }, body: "x".repeat(17 * 1024 * 1024) }).catch(() => null);
+      if (huge) expect(huge.status).toBe(413);
       expect(handledCount).toBe(0);
       // Several signatures while a secret is replaced: any one that matches will do.
       const timestampSec = Math.floor(Date.now() / 1000);

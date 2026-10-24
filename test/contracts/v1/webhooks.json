@@ -64,7 +64,8 @@
       "missing_headers",
       "no_webhook_handler",
       "not_an_event",
-      "old_timestamp"
+      "old_timestamp",
+      "too_large"
     ]
   },
   "WEBHOOK_LIMITS": {

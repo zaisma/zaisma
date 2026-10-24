@@ -43,6 +43,7 @@ describe("webhooks v1", () => {
     };
     const refusals: [WebhookErrorCode, Parameters<typeof verifyWebhook>][] = [
       ["missing_headers", [SECRET, { ...HEADERS, webhookSignature: null }, BODY, SENT_AT_MS]],
+      ["too_large", [SECRET, HEADERS, BODY + " ".repeat(16 * 1024 * 1024), SENT_AT_MS]],
       ["old_timestamp", [SECRET, HEADERS, BODY, SENT_AT_MS + 301_000]],
       ["bad_signing_secret", [SECRET.replace("Mf", "M%"), HEADERS, BODY, SENT_AT_MS]],
       ["bad_signature", [SECRET, HEADERS, BODY.replace("sky-hopper", "cave-crew"), SENT_AT_MS]],

@@ -193,6 +193,19 @@ describe("Node runner", () => {
     own.close();
   });
 
+  it("seats a pass of a kind added after v1 as a guest, as Zaisma rooms do", async () => {
+    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const later = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await later.open;
+    later.say({ type: "hello", pass: await signPass(signing, { sub: "player_later", name: "Swift Fox 42", aud: "arena", iss: ISS, pass_version_number: 1, kind: "studio", iat: now, exp: now + 60 }) });
+    expect((await later.next()).me).toEqual({ id: "player_later", name: "Swift Fox 42", kind: "guest" });
+    later.ws.close();
+    own.close();
+  });
+
   it("gives the game server what an account owns from its pass, as Zaisma rooms do, and never players' games", async () => {
     const profiles = async (playerId: string) => ({ id: playerId, name: "Gold_Owl" });
     const wardrobe = defineGameServer({ maximumPlayerCount: 4, setup: () => ({}), onJoin: (_state: unknown, player: { id: string; ownedItemNames?: string[] }, room: { send(playerId: string, data: unknown): void }) => room.send(player.id, { owned: player.ownedItemNames ?? null }) });

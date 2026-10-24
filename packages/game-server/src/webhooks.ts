@@ -71,7 +71,7 @@ export interface WebhookEvent {
 export const WEBHOOK_LIMITS = {
   /** How long onWebhook may take, awaiting the database and outside calls included, before the try fails and waits for the next. */
   answerTimeoutSec: 10,
-  /** The most of a webhook's POST the Node runner reads, in bytes: well above any event Zaisma sends. */
+  /** The most of a webhook's POST verifyWebhook and the Node runner take, in bytes: well above any event Zaisma sends. */
   maximumEventSizeBytes: 16 * 1024 * 1024,
   /** How far a POST's webhook-timestamp may be from the server's clock, so an old one can't be sent again. */
   timestampToleranceDurationSec: 300,
@@ -85,6 +85,7 @@ export interface WebhookHandler {
 /**
  * Why a webhook POST wasn't trusted (verifyWebhook), or why onWebhook didn't take an event (runWebhook):
  * - missing_headers: no webhook-id, webhook-timestamp or webhook-signature header.
+ * - too_large: the body is over WEBHOOK_LIMITS.maximumEventSizeBytes.
  * - old_timestamp: webhook-timestamp isn't within WEBHOOK_LIMITS.timestampToleranceDurationSec of this server's clock.
  * - bad_signing_secret: the signing secret isn't a whsec_ secret.
  * - bad_signature: no webhook-signature matches the signing secret.
@@ -93,7 +94,7 @@ export interface WebhookHandler {
  * - game_server_error: onWebhook threw (message holds the error), or took longer than WEBHOOK_LIMITS.answerTimeoutSec.
  * New codes can be added.
  */
-export type WebhookErrorCode = "missing_headers" | "old_timestamp" | "bad_signing_secret" | "bad_signature" | "not_an_event" | "no_webhook_handler" | "game_server_error";
+export type WebhookErrorCode = "missing_headers" | "too_large" | "old_timestamp" | "bad_signing_secret" | "bad_signature" | "not_an_event" | "no_webhook_handler" | "game_server_error";
 
 /** A webhook error, shaped like the developer API's: a code, what happened and what to do. */
 export interface WebhookError {
@@ -145,6 +146,9 @@ const bytesOfBase64 = (text: string) => Uint8Array.from(atob(text), (character) 
 export async function verifyWebhook(signingSecret: string, headers: WebhookHeaders, body: string, nowMs = Date.now()): Promise<{ event: WebhookEvent } | { error: WebhookError }> {
   const { webhookId, webhookTimestamp, webhookSignature } = headers;
   if (!webhookId || !webhookTimestamp || !webhookSignature) return webhookError("missing_headers", "It has no webhook-id, webhook-timestamp or webhook-signature header.", "Only take POSTs Zaisma's webhooks send, with their headers as they came.");
+  if (new TextEncoder().encode(body).length > WEBHOOK_LIMITS.maximumEventSizeBytes) {
+    return webhookError("too_large", `Its body is over ${WEBHOOK_LIMITS.maximumEventSizeBytes} bytes, more than any event Zaisma sends.`, "Only take POSTs Zaisma's webhooks send.");
+  }
   const timestampSec = Number(webhookTimestamp);
   if (!Number.isInteger(timestampSec) || Math.abs(nowMs / 1000 - timestampSec) > WEBHOOK_LIMITS.timestampToleranceDurationSec) {
     return webhookError("old_timestamp", `Its webhook-timestamp isn't within ${WEBHOOK_LIMITS.timestampToleranceDurationSec} seconds of this server's clock.`, "Check this server's clock; an old event sent again is refused on purpose.");
