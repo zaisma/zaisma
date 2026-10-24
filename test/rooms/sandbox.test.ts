@@ -167,7 +167,7 @@ describe("sandboxed game servers", () => {
   maximumPlayerCount: 4,
   setup: () => ({}),
   onPurchase(state, player, room, purchase) { room.send(player.id, { bought: purchase.id, itemName: purchase.itemName, itemCount: purchase.itemCount, purchaseStatus: purchase.purchaseStatus, hasReceipt: typeof purchase.receipt === "string" }); },
-  onMessage(state, player, message, room) { room.send(player.id, "pong"); },
+  onMessage(state, player, room, message) { room.send(player.id, "pong"); },
 };`;
     await addSandboxGame("delivered-here", PURCHASE_TAKER);
     await addSandboxGame("delivered-to-game", PURCHASE_TAKER);
@@ -228,7 +228,7 @@ describe("sandboxed game servers", () => {
     if (state.isBroken) throw new Error("the shop is down");
   },
   onRefund(state, player, room, purchase) { room.send(player.id, { kind: "refund", id: purchase.id, purchaseStatus: purchase.purchaseStatus, hasRefundedAt: typeof purchase.refundedAt === "string" }); },
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "break") state.isBroken = true;
     if (message === "mend") state.isBroken = false;
     room.send(player.id, message === "ping" ? "pong" : "ok");
