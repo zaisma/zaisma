@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -295,6 +295,12 @@ describe("Node runner", () => {
     await first.own.close();
     const tickCountAtStop = first.own.rooms.get("RSTRTN").core.state.tickCount;
     expect(tickCountAtStop).toBeGreaterThan(0);
+    // The time lost is the clock's between the save and the room's return, so the clock (only) stands 3 seconds after the save:
+    // a restart on a busy machine takes as long as it takes, and the room still says exactly what was lost.
+    const { savedAtMs } = localRoomStates(file).read("RSTRTN");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(savedAtMs + 3000);
+    onTestFinished(() => void vi.useRealTimers());
 
     const second = await start();
     const back = connect(ORIGIN, "/v1/rooms/arena/RSTRTN", second.at);
@@ -304,7 +310,7 @@ describe("Node runner", () => {
     back.say({ type: "message", data: "how" });
     const how = (await until(back, "message")).data;
     expect(how.tickCount).toBeGreaterThanOrEqual(tickCountAtStop);
-    expect(how.restored).toMatchObject({ lostDurationSec: 0, awayReasons: ["lost"] });
+    expect(how.restored).toMatchObject({ lostDurationSec: 3, savedAt: new Date(savedAtMs).toISOString(), awayReasons: ["lost"] });
     back.ws.close();
     await second.own.close();
   });
