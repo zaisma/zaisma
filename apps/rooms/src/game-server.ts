@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server/internal";
 import { HOSTING_PAUSED_TEXT, HOSTING_PRICES, isHostingPaused, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
 import { errorLine, linesOf, sandboxOpener, type Session } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";

@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { ReceiptError, verifyReceipt, type ReceiptClaims, type ReceiptErrorCode } from "@zaisma/game-server";
+import { ReceiptError, verifyReceipt, type ReceiptClaims, type ReceiptErrorCode } from "@zaisma/game-server/internal";
 import { signReceipt, type ReceiptClaimsInput } from "@zaisma/core";
 import type { Env } from "./index.ts";
 import { receiptPublicKeys, receiptSigningKey } from "./signing.ts";

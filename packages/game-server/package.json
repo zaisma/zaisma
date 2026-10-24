@@ -1,14 +1,21 @@
 {
   "name": "@zaisma/game-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Write a Zaisma game server once; run it in Zaisma rooms or on your own Node server.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./node": "./bin/node.js",
     "./internal": "./src/internal.ts"
   },
   "dependencies": {
     "ws": "8.21.3"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

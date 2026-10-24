@@ -27,10 +27,11 @@ export const ACCESS_LOGIN_PREFIX = "https://zaisma.cloudflareaccess.com/cdn-cgi/
 export const ACCESS_RESOURCE_METADATA_PREFIX = `${SITE_URL}/.well-known/cloudflare-access-protected-resource/`;
 export const TRANSPORT_SECURITY_MINIMUM_MAX_AGE_SEC = 31_536_000;
 export const ALLOWED_SITE_SCRIPT_SOURCES = ["'self'", "https://challenges.cloudflare.com"];
-export const CLI_REGISTRY_URL = "https://registry.npmjs.org/@zaisma%2fcli";
+export const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 export const PUBLISH_CLI_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-cli.yml";
-export const CLI_PUBLISH_WAIT_SEC = 600;
-export const CLI_PUBLISH_POLL_SEC = 15;
+export const PUBLISH_GAME_SERVER_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-game-server.yml";
+export const PUBLISH_WAIT_SEC = 600;
+export const PUBLISH_POLL_SEC = 15;
 export const REQUEST_TIMEOUT_MS = 15_000;
 export const ATTEMPT_COUNT = 4;
 export const RETRY_WAIT_MS = 3000;
@@ -278,18 +279,18 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
   ]);
 }
 
-/** Waits for npm to have the CLI's version, which the Publish CLI workflow puts there from main. */
-export async function checkCliOnNpm(cliVersion, { waitSec = CLI_PUBLISH_WAIT_SEC, pollSec = CLI_PUBLISH_POLL_SEC } = {}) {
-  const name = "CLI on npm";
+/** Waits for npm to have a package's version, which its publish workflow (workflowUrl) puts there from main. */
+export async function checkPackageOnNpm(packageName, version, workflowUrl, { waitSec = PUBLISH_WAIT_SEC, pollSec = PUBLISH_POLL_SEC } = {}) {
+  const name = `${packageName} on npm`;
   const started = Date.now();
   for (;;) {
     try {
-      const response = await fetch(`${CLI_REGISTRY_URL}/${cliVersion}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (response.status === 200) return passed(name, false, `CLI ${cliVersion} on npm`);
+      const response = await fetch(`${NPM_REGISTRY_URL}/${packageName.replace("/", "%2f")}/${version}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (response.status === 200) return passed(name, false, `${packageName} ${version} on npm`);
     } catch {}
     if (Date.now() - started >= waitSec * 1000) break;
     await wait(pollSec * 1000);
   }
-  const note = waitSec === 0 ? `CLI ${cliVersion} not on npm yet (the Publish CLI workflow publishes it from main)` : `CLI ${cliVersion} not on npm after ${Math.round(waitSec / 60)} min: see the Publish CLI workflow (${PUBLISH_CLI_WORKFLOW_URL})`;
+  const note = waitSec === 0 ? `${packageName} ${version} not on npm yet (its publish workflow puts it there from main)` : `${packageName} ${version} not on npm after ${Math.round(waitSec / 60)} min: see ${workflowUrl}`;
   return { name, isPass: false, isSecurity: false, note };
 }

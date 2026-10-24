@@ -70,7 +70,7 @@ console.log("loading the boss fight");
 export default {
   setup: () => ({ round: 0 }),
   onJoin(state, player, room) { console.info("player joined:", room.players.length, "in room"); room.send(player.id, "hi"); },
-  async onMessage(state, player, message, room) {
+  async onMessage(state, player, room, message) {
     if (message === "round") {
       state.round++;
       await room.database.query("SELECT 1");

@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, stateSyncModuleSource } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, OUTSIDE_CALL_ERROR_CODES, QUEUES_INPUT, RESERVE_WITH_ROOM_CODE, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayInfo, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, roomCallChecksModuleSource, stateSyncModuleSource } from "@zaisma/game-server/internal";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -198,6 +198,7 @@ import "./outside-calls.js";
 import { withLogs, timedWait } from "./logs.js";
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 import stateSync from "./state-sync.js";
+import roomCalls from "./room-calls.js";
 import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -207,7 +208,8 @@ const HOOKS = ["onJoin", "onLeave", "onSpectatorJoin", "onSpectatorLeave", "onMe
 const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
 const MAXIMUM_STATE_VIEW_SIZE_BYTES = ${ROOM_LIMITS.maximumStateViewSizeBytes};
-const MAXIMUM_LATEST_KEY_CHARACTER_COUNT = ${ROOM_LIMITS.maximumLatestKeyCharacterCount};
+const MAXIMUM_RESERVES_PER_MIN = ${ROOM_LIMITS.maximumReservesPerMin};
+const ROOM_LIMITS = ${JSON.stringify(ROOM_LIMITS)};
 // room.roomCode before the room's first call says its code: a code no room has, so it's always a string.
 const STAND_IN_ROOM_CODE = "SANDBX";
 
@@ -219,6 +221,36 @@ class DatabaseError extends Error {
     this.code = error.code;
     this.fix = error.fix;
   }
+}
+
+// What a game's own room calls and handler answers get wrong, thrown at the call: the same codes and fields as on a game's own server.
+class GameServerError extends Error {
+  constructor(code, field, message, fix) {
+    super(message + " " + fix + " (" + code + ")");
+    this.name = "GameServerError";
+    this.code = code;
+    this.field = field;
+    this.fix = fix;
+  }
+}
+
+// The checks every room call goes through, the same ones a room runs on its own server.
+const checks = roomCalls.checksFor(GameServerError, ROOM_LIMITS);
+
+// Calls that change the room or send from it, which canJoin and stateView can't make.
+const CHANGING_CALLS = ["broadcast", "send", "broadcastBytes", "sendBytes", "end", "setListed", "setOpen", "setFriendJoinsEnabled", "setKept", "setInfo", "reserve", "kick", "moveTo", "applyVersionUpdate"];
+
+// A handler's answer is the state when it is a plain object or an array; nothing keeps the state.
+function isStateAnswer(given) {
+  if (Array.isArray(given)) return true;
+  if (typeof given !== "object" || given === null) return false;
+  const prototype = Object.getPrototypeOf(given);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function badHandlerAnswer(handlerName, answer) {
+  const given = typeof answer === "string" ? "the text " + JSON.stringify(answer.slice(0, 60)) : answer === null ? "null" : typeof answer === "object" ? "a " + ((answer.constructor && answer.constructor.name) || "non-plain") + " object" : String(answer).slice(0, 60);
+  return new GameServerError("bad_handler_answer", handlerName, handlerName + " answered " + given + ", so the state stayed as it was.", "Answer the new state as a plain object or an array, or answer nothing to keep the state.");
 }
 
 function gameDatabase(binding) {
@@ -250,29 +282,38 @@ function receiptChecker(binding) {
   };
 }
 
-// A send's delivery and latestKey, checked here so a mistake throws in the game's own handler, where its developer sees it.
-function delivered(given, call) {
-  const options = given && typeof given === "object" ? given : {};
-  if (options.delivery !== undefined && options.delivery !== "reliable" && options.delivery !== "latest_only") throw new Error(call + "'s delivery is " + JSON.stringify(options.delivery) + '. Give "reliable" (the default) or "latest_only".');
-  if (options.latestKey !== undefined && (typeof options.latestKey !== "string" || options.latestKey.length > MAXIMUM_LATEST_KEY_CHARACTER_COUNT)) throw new Error(call + "'s latestKey must be text up to " + MAXIMUM_LATEST_KEY_CHARACTER_COUNT + ' characters, like "positions".');
-  if (options.delivery === "latest_only" && options.latestKey === undefined) throw Object.assign(new Error(call + "'s delivery is " + '"latest_only" with no latestKey. latest_only needs a latestKey: the slot this update replaces, like "position". (bad_option)'), { code: "bad_option" });
-  if (options.fromPlayerId !== undefined && (typeof options.fromPlayerId !== "string" || !options.fromPlayerId)) throw new Error(call + "'s fromPlayerId must be a player's ID, like player.id.");
-  return { delivery: options.delivery, latestKey: options.latestKey, fromPlayerId: options.fromPlayerId };
+// A send's delivery and latestKey as the effect carries them.
+function sendFields(checked) {
+  return { delivery: checked.delivery.isLatestOnly ? "latest_only" : undefined, latestKey: checked.delivery.isLatestOnly ? checked.delivery.latestKey : undefined, fromPlayerId: checked.fromPlayerId === null ? undefined : checked.fromPlayerId };
 }
 
-function recorder(snapshot, effects, database, secrets, verifyReceipt) {
+// Calls that reserve rooms or move players, counted a minute at a time like a room on its own server does.
+function reserveCounter() {
+  let reservedAtMs = [];
+  return (call) => {
+    const nowMs = Date.now();
+    reservedAtMs = reservedAtMs.filter((at) => nowMs - at < 60000);
+    if (reservedAtMs.length >= MAXIMUM_RESERVES_PER_MIN) throw new GameServerError("room_call_limit", call, "A room can reserve rooms or move players up to " + MAXIMUM_RESERVES_PER_MIN + " times a minute.", "Reserve one room for a whole group, or wait a minute.");
+    reservedAtMs.push(nowMs);
+  };
+}
+
+// The room a handler is given: what it asks for is recorded, after the same checks a room on its own server makes, so a mistake throws
+// in the game's own handler. readOnlyFor names a handler (canJoin, stateView) that may only read: the calls that change the room throw.
+function recorder(snapshot, effects, database, secrets, verifyReceipt, countReserve, readOnlyFor) {
   const clockOffsetMs = (snapshot.serverTimeMs ?? Date.now()) - Date.now();
-  return {
+  const playerIds = () => snapshot.players.map((player) => player.id);
+  const room = {
     database,
     secrets,
     verifyReceipt,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     get spectators() { return snapshot.spectators.map((spectator) => ({ ...spectator })); },
-    broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcast") }); },
-    send(playerId, message, sendOptions) { effects.push({ do: "send", playerId, message, ...delivered(sendOptions, "room.send") }); },
-    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcastBytes") }); },
-    sendBytes(playerId, bytes, sendOptions) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes"), ...delivered(sendOptions, "room.sendBytes") }); },
-    end(message) { effects.push({ do: "end", message }); },
+    broadcast(message, broadcastOptions) { const checked = checks.checkBroadcast(message, broadcastOptions); effects.push({ do: "broadcast", message, exceptPlayerId: checked.exceptPlayerId, audience: checked.audience, ...sendFields(checked) }); },
+    send(playerId, message, sendOptions) { const checked = checks.checkSend(playerId, message, sendOptions); effects.push({ do: "send", playerId: checked.playerId, message, ...sendFields(checked) }); },
+    broadcastBytes(bytes, broadcastOptions) { const checked = checks.checkBroadcastBytes(bytes, broadcastOptions); effects.push({ do: "broadcast_bytes", bytes: copyBytes(checked.bytes), exceptPlayerId: checked.exceptPlayerId, audience: checked.audience, ...sendFields(checked) }); },
+    sendBytes(playerId, bytes, sendOptions) { const checked = checks.checkSendBytes(playerId, bytes, sendOptions); effects.push({ do: "send_bytes", playerId: checked.playerId, bytes: copyBytes(checked.bytes), ...sendFields(checked) }); },
+    end(message) { effects.push({ do: "end", message: checks.checkEnd(message) }); },
     get isListed() { return snapshot.isListed; },
     setListed(isListed) { snapshot.isListed = Boolean(isListed); effects.push({ do: "listed", isListed: snapshot.isListed }); },
     get isOpen() { return snapshot.isOpen; },
@@ -285,10 +326,20 @@ function recorder(snapshot, effects, database, secrets, verifyReceipt) {
     get name() { return snapshot.name; },
     get labels() { return { ...snapshot.labels }; },
     get endsAt() { return snapshot.endsAt ?? null; },
-    setInfo(nameAndLabels) { effects.push({ do: "info", nameAndLabels }); },
-    reserve(reserveOptions) { const roomCode = newRoomCode(); effects.push({ do: "reserve", reserveOptions, roomCode }); return roomCode; },
-    kick(playerId, kickOptions) { effects.push({ do: "kick", playerId, kickOptions }); },
-    moveTo(roomCode, moveOptions) { effects.push({ do: "moveTo", roomCode, moveOptions }); },
+    setInfo(nameAndLabels) { effects.push({ do: "info", nameAndLabels: checks.checkSetInfo(nameAndLabels) }); },
+    reserve(reserveOptions) {
+      const checked = checks.checkReserve(reserveOptions, playerIds());
+      countReserve("room.reserve");
+      const roomCode = newRoomCode();
+      effects.push({ do: "reserve", reserveOptions: checked, roomCode });
+      return roomCode;
+    },
+    kick(playerId, kickOptions) { const checked = checks.checkKick(playerId, kickOptions); effects.push({ do: "kick", playerId: checked.playerId, kickOptions: { message: checked.message, keepOut: checked.isKeptOut } }); },
+    moveTo(roomCode, moveOptions) {
+      const checked = checks.checkMoveTo(roomCode, moveOptions, playerIds());
+      countReserve("room.moveTo");
+      effects.push({ do: "moveTo", roomCode: checked.toRoomCode, moveOptions: { playerIds: checked.playerIds, joinData: checked.joinData } });
+    },
     hasBlockBetween(firstPlayerId, secondPlayerId) { return (snapshot.blockPairs || []).some((pair) => (pair[0] === firstPlayerId && pair[1] === secondPlayerId) || (pair[0] === secondPlayerId && pair[1] === firstPlayerId)); },
     areFriends(firstPlayerId, secondPlayerId) { return (snapshot.friendPairs || []).some((pair) => (pair[0] === firstPlayerId && pair[1] === secondPlayerId) || (pair[0] === secondPlayerId && pair[1] === firstPlayerId)); },
     pingDurationMs(playerId) { const pings = snapshot.pingDurationsMs || {}; return Object.hasOwn(pings, playerId) ? pings[playerId] : null; },
@@ -296,13 +347,17 @@ function recorder(snapshot, effects, database, secrets, verifyReceipt) {
     awayReason(playerId) { const awayReasons = snapshot.awayReasons || {}; return Object.hasOwn(awayReasons, playerId) ? awayReasons[playerId] : null; },
     applyVersionUpdate() { effects.push({ do: "apply_version_update" }); },
   };
+  if (readOnlyFor) {
+    for (const call of CHANGING_CALLS) {
+      room[call] = () => { throw new GameServerError("room_call_unavailable", "room." + call, readOnlyFor + " can't change the room.", "Only read from room in " + readOnlyFor + "; change the room in the handlers that run after it, like onJoin or onMessage."); };
+    }
+  }
+  return room;
 }
 
 // Bytes the game hands the room, copied as they are now (the game may reuse its buffer).
-function copyBytes(given, call) {
-  if (given instanceof ArrayBuffer) return new Uint8Array(given.slice(0));
-  if (ArrayBuffer.isView(given)) return new Uint8Array(given.buffer.slice(given.byteOffset, given.byteOffset + given.byteLength));
-  throw new Error(call + " takes bytes: a Uint8Array, another typed array or an ArrayBuffer.");
+function copyBytes(checked) {
+  return new Uint8Array(checked.buffer.slice(checked.byteOffset, checked.byteOffset + checked.byteLength));
 }
 
 // A handler may be async (it awaits room.database): what it asked the room to do is handed back once it's done.
@@ -326,6 +381,8 @@ class Session extends RpcTarget {
   #database;
   #secrets;
   #verifyReceipt;
+  // The room's reserves and moves this minute, for the limit.
+  #countReserve = reserveCounter();
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
@@ -413,8 +470,8 @@ class Session extends RpcTarget {
     // Players in the match with a connection, and the spectators, who watch it.
     const viewers = new Map([...snapshot.players.filter((player) => awayReasons[player.id] !== "lost"), ...(snapshot.spectators || [])].map((player) => [player.id, player]));
     const state = this.#state;
-    // stateView only answers; anything it asks the room to do is dropped.
-    const viewRoom = typeof server.stateView === "function" ? recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt) : null;
+    // stateView only answers; a call that changes the room throws room_call_unavailable.
+    const viewRoom = typeof server.stateView === "function" ? recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt, this.#countReserve, "stateView") : null;
     const viewOf = viewRoom ? (playerId) => server.stateView(state, { ...viewers.get(playerId) }, viewRoom) : null;
     const round = this.#stateTracker.round(state, [...viewers.keys()], viewOf, new Set(snapshot.backedUpPlayerIds || []));
     for (const frame of round.frames) effects.push({ do: "state", playerIds: frame.playerIds, frame: frame.frame });
@@ -432,22 +489,18 @@ class Session extends RpcTarget {
   }
   // One handler on the state: what it answers is the new state (nothing keeps it). Answers the error it threw, or null.
   async #run(hook, handlerArguments, snapshot, effects) {
-    const room = recorder(snapshot, effects, this.#database, this.#secrets, this.#verifyReceipt);
-    // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
-    // onSpectatorJoin(state, spectator, room), onSpectatorLeave(state, spectator, room),
-    // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
-    // onMoved(state, moveResult, room), onBack(state, player, room), onEnding(state, room), onRestored(state, restoreInfo, room),
-    // onVersionUpdate(state, versionUpdate, room)
+    const room = recorder(snapshot, effects, this.#database, this.#secrets, this.#verifyReceipt, this.#countReserve);
+    // Every handler is (state, who or what it's about, room, then what else it hears): onJoin(state, player, room, joinData, joinInfo),
+    // onMessage(state, player, room, message), onAway(state, player, room, awayInfo), onTick(state, tickDurationSec, room), and so on;
+    // onEnding has only (state, room).
     const state = this.#state;
-    const full =
-      hook === "onJoin" ? [state, handlerArguments[0], room, handlerArguments[1], handlerArguments[2]]
-      : hook === "onMessage" || hook === "onBytes" ? [state, handlerArguments[0], handlerArguments[1], room]
-      : hook === "onLeave" || hook === "onAway" ? [state, handlerArguments[0], room, handlerArguments[1]]
-      : hook === "onEnding" ? [state, room]
-      : [state, handlerArguments[0], room];
+    const full = hook === "onEnding" ? [state, room] : [state, handlerArguments[0], room, ...handlerArguments.slice(1)];
     try {
       const next = await server[hook](...full);
-      if (next !== undefined) this.#state = next;
+      if (next === undefined) return null;
+      // Anything but a plain object or an array is a mistake, and the state stays as it was.
+      if (!isStateAnswer(next)) return String(badHandlerAnswer(hook, next).stack);
+      this.#state = next;
       return null;
     } catch (error) {
       return String((error && error.stack) || error);
@@ -462,7 +515,7 @@ class Session extends RpcTarget {
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
-      answer = await server.canJoin(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt), joinData, joinInfo);
+      answer = await server.canJoin(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt, this.#countReserve, "canJoin"), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -621,6 +674,10 @@ class OutsideCallError extends Error {
     this.code = error.code;
     this.fix = error.fix;
   }
+  // The same error as @zaisma/game-server's, whichever copy a game checks with.
+  static [Symbol.hasInstance](candidate) {
+    return candidate instanceof Error && candidate.name === "OutsideCallError" && ${JSON.stringify(OUTSIDE_CALL_ERROR_CODES)}.includes(candidate.code);
+  }
 }
 const outsideFetch = globalThis.fetch;
 globalThis.fetch = async function fetch(input, init) {
@@ -635,8 +692,6 @@ globalThis.fetch = async function fetch(input, init) {
   throw new OutsideCallError(error);
 };
 globalThis.OutsideCallError = OutsideCallError;
-// Says the game server runs in Zaisma rooms, for the parts of @zaisma/game-server that work only on its own server (checkChat).
-globalThis.isZaismaRoomsSandbox = true;
 `;
 
 /** A version's game server files and their code, or null if it has none (or too much). */
@@ -676,7 +731,7 @@ export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameI
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
     // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
-    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs, "state-sync.js": stateSyncModuleSource() },
+    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs, "state-sync.js": stateSyncModuleSource(), "room-calls.js": roomCallChecksModuleSource() },
     // AsyncLocalStorage, so each call's lines stay with it (logs.js).
     compatibilityFlags: ["nodejs_als"],
     // Its internet is our gateway, which takes only https to the hosts the game lists; and two bindings,
@@ -831,7 +886,13 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   };
   const ask = async (work: () => Promise<Answer & Printed>, room: Room | null): Promise<unknown> => {
     const answer = await reach(work);
-    if (room) apply(answer.effects, room);
+    // A call the room refused when it ran what the game asked for is a mistake in the game, like a handler that threw.
+    const failures = room ? apply(answer.effects, room) : [];
+    if (failures.length) {
+      stats.crashCount += failures.length;
+      for (const failure of failures) record("crash", failure);
+      printed(failures.flatMap((failure) => linesOf(null, failure)));
+    }
     // Input and tick handlers that threw: each is a crash, and the others' changes stand.
     const errors = Array.isArray(answer.errors) ? answer.errors.filter((error): error is string => typeof error === "string") : [];
     if (errors.length) {
@@ -916,7 +977,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     },
     onJoin: (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => call("onJoin", state, [player, joinData, joinInfo], room),
     onLeave: (state: unknown, player: Player, room: Room, leaveInfo: LeaveInfo) => call("onLeave", state, [player, leaveInfo], room),
-    onMessage: (state: unknown, player: Player, message: unknown, room: Room) => (isTicking ? queue("onMessage", player, message) : call("onMessage", state, [player, message], room)),
+    onMessage: (state: unknown, player: Player, room: Room, message: unknown) => (isTicking ? queue("onMessage", player, message) : call("onMessage", state, [player, message], room)),
     onTick: (state: unknown, tickDurationSec: number, room: Room) => {
       if (!isTicking) return call("onTick", state, [tickDurationSec], room);
       // Nothing to run: no call. With state sync, every tick has its round.
@@ -927,10 +988,10 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
     },
     onMoved: (state: unknown, moveResult: unknown, room: Room) => call("onMoved", state, [moveResult], room),
     // Only for game servers that have them: with onAway, players who walk away stay in the room; without onBytes, bytes are refused.
-    ...(handlerNames.has("onBytes") ? { onBytes: (state: unknown, player: Player, bytes: Uint8Array, room: Room) => (isTicking ? queue("onBytes", player, bytes) : call("onBytes", state, [player, bytes], room)) } : {}),
+    ...(handlerNames.has("onBytes") ? { onBytes: (state: unknown, player: Player, room: Room, bytes: Uint8Array) => (isTicking ? queue("onBytes", player, bytes) : call("onBytes", state, [player, bytes], room)) } : {}),
     ...(handlerNames.has("onSpectatorJoin") ? { onSpectatorJoin: (state: unknown, spectator: Player, room: Room) => call("onSpectatorJoin", state, [spectator], room) } : {}),
     ...(handlerNames.has("onSpectatorLeave") ? { onSpectatorLeave: (state: unknown, spectator: Player, room: Room) => call("onSpectatorLeave", state, [spectator], room) } : {}),
-    ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, reason: AwayReason) => call("onAway", state, [player, reason], room) } : {}),
+    ...(handlerNames.has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, awayInfo: AwayInfo) => call("onAway", state, [player, awayInfo], room) } : {}),
     ...(handlerNames.has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(handlerNames.has("onEnding") ? { onEnding: (state: unknown, room: Room) => call("onEnding", state, [], room) } : {}),
     ...(handlerNames.has("onRestored") ? { onRestored: (state: unknown, restoreInfo: RestoreInfo, room: Room) => call("onRestored", state, [restoreInfo], room) } : {}),
@@ -945,9 +1006,9 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
             const read = readJoinAnswer(checked.answer);
             if ("mistake" in read) {
               stats.crashCount++;
-              record("crash", read.mistake);
-              printed(linesOf(null, read.mistake));
-              throw new Error(`Game server error: ${read.mistake}`);
+              record("crash", read.mistake.message);
+              printed(linesOf(null, read.mistake.message));
+              throw new Error(`Game server error: ${read.mistake.message}`);
             }
             return checked.answer as JoinAnswer;
           },
@@ -1028,10 +1089,15 @@ function sendOptionsOf(effect: { delivery?: unknown; latestKey?: unknown; fromPl
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
-function apply(effects: unknown, room: Room): void {
-  if (!Array.isArray(effects)) return;
+function apply(effects: unknown, room: Room): string[] {
+  const failures: string[] = [];
+  if (!Array.isArray(effects)) return failures;
   const asObject = (given: unknown): object => (given && typeof given === "object" ? given : {});
-  for (const effect of effects.slice(0, 1000) as Effect[]) {
+  // The sandbox checked each call as the game made it; the room checks them all again, since nothing from the sandbox is trusted.
+  if (effects.length > MAXIMUM_EFFECT_COUNT) {
+    failures.push(String(new GameServerError("room_call_limit", "room", `A handler made more than ${MAXIMUM_EFFECT_COUNT} room calls in one go.`, "Send fewer, bigger messages.")));
+  }
+  for (const effect of effects.slice(0, MAXIMUM_EFFECT_COUNT) as Effect[]) {
     try {
       switch (effect?.do) {
         case "broadcast":
@@ -1056,7 +1122,7 @@ function apply(effects: unknown, room: Room): void {
           (room as unknown as { [STATE_SYNC]?: StateSyncHooks })[STATE_SYNC]?.send(effect.playerIds, effect.frame);
           break;
         case "end":
-          room.end(typeof effect.message === "string" ? effect.message.slice(0, 200) : undefined);
+          room.end(typeof effect.message === "string" ? effect.message : undefined);
           break;
         case "listed":
           room.setListed(effect.isListed === true);
@@ -1074,7 +1140,7 @@ function apply(effects: unknown, room: Room): void {
           room.setInfo(asObject(effect.nameAndLabels) as never);
           break;
         case "reserve":
-          room.reserve({ ...asObject(effect.reserveOptions), roomCode: effect.roomCode } as never);
+          (room as unknown as { [RESERVE_WITH_ROOM_CODE]: (reserveOptions: unknown, roomCode: unknown) => string })[RESERVE_WITH_ROOM_CODE](asObject(effect.reserveOptions), effect.roomCode);
           break;
         case "kick":
           if (typeof effect.playerId === "string") room.kick(effect.playerId, asObject(effect.kickOptions) as never);
@@ -1087,7 +1153,11 @@ function apply(effects: unknown, room: Room): void {
           break;
       }
     } catch (error) {
-      console.error("Game server error:", error);
+      failures.push(String(error));
     }
   }
+  return failures;
 }
+
+/** The most room calls one handler answer may carry; the rest are dropped. */
+const MAXIMUM_EFFECT_COUNT = 1000;

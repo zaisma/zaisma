@@ -1,7 +1,7 @@
 /**
  * The game database: one SQLite database per game, which its game server reads and changes with
  * plain SQL (room.database). In Zaisma rooms it's a Durable Object of its own (apps/rooms/src/database.ts);
- * on the developer's own server the Node runner keeps it in a local file (bin/node.js). Both check every
+ * on the developer's own server the Node runner keeps it in a local file (@zaisma/game-server/node). Both check every
  * call here first, so a query that works in one works the same in the other.
  */
 
@@ -106,6 +106,8 @@ export const DATABASE_LIMITS = {
 
 export type DatabaseErrorCode = "bad_sql" | "bad_values" | "bad_player_id" | "too_many_rows" | "hosting_paused" | "database_full" | "database_unavailable";
 
+const DATABASE_ERROR_CODES: readonly string[] = ["bad_sql", "bad_values", "bad_player_id", "too_many_rows", "hosting_paused", "database_full", "database_unavailable"];
+
 /** A call the database refused, with a code, what happened and what to do (like the developer API's errors, docs/NAMING.md). */
 export class DatabaseError extends Error {
   readonly code: DatabaseErrorCode;
@@ -115,6 +117,10 @@ export class DatabaseError extends Error {
     this.name = "DatabaseError";
     this.code = code;
     this.fix = fix;
+  }
+  /** True for any error named DatabaseError with a known code, so instanceof works for the copy a game's sandbox has too. */
+  static [Symbol.hasInstance](candidate: unknown): boolean {
+    return candidate instanceof Error && candidate.name === "DatabaseError" && DATABASE_ERROR_CODES.includes((candidate as { code?: string }).code as string);
   }
 }
 
@@ -162,6 +168,7 @@ export function checkStatement(sql: unknown, values: unknown): { sql: string; va
 
 /** One value for a ?, the i-th (from 0). */
 function checkValue(givenValue: unknown, i: number): DatabaseValue {
+  if (typeof givenValue === "number" && Number.isInteger(givenValue) && !Number.isSafeInteger(givenValue)) throw new DatabaseError("bad_values", `Value ${i + 1} is a whole number past 2^53, which JavaScript can't hold exactly.`, "Store it as text, like String(value), and read it back as text.");
   if (givenValue === null || typeof givenValue === "string" || givenValue instanceof Uint8Array || (typeof givenValue === "number" && Number.isFinite(givenValue))) {
     const sizeBytes = typeof givenValue === "string" ? new TextEncoder().encode(givenValue).length : givenValue instanceof Uint8Array ? givenValue.byteLength : 0;
     if (sizeBytes > DATABASE_LIMITS.maximumValueSizeBytes) throw new DatabaseError("bad_values", `Value ${i + 1} is ${sizeBytes} bytes.`, `Keep each text or blob under ${DATABASE_LIMITS.maximumValueSizeBytes / 1024 / 1024} MB; store big files somewhere else and keep a link here.`);
@@ -188,6 +195,20 @@ export function checkBatch(statements: unknown): { sql: string; values: Database
 export function plainRow(row: Record<string, unknown>): DatabaseRow {
   const plain: DatabaseRow = {};
   for (const [column, columnValue] of Object.entries(row)) plain[column] = columnValue instanceof ArrayBuffer ? new Uint8Array(columnValue) : (columnValue as DatabaseValue);
+  return plain;
+}
+
+/**
+ * A row as a game's query gets it: plainRow, refusing a whole number past 2^53, which JavaScript would
+ * round (a game would read a different number than the one stored). Dumps and previews keep plainRow.
+ */
+export function checkedRow(row: Record<string, unknown>): DatabaseRow {
+  const plain = plainRow(row);
+  for (const [column, columnValue] of Object.entries(plain)) {
+    if (typeof columnValue === "number" && Number.isInteger(columnValue) && !Number.isSafeInteger(columnValue)) {
+      throw new DatabaseError("bad_sql", `Column ${column} holds a whole number past 2^53, which JavaScript can't hold exactly.`, `Read it as text with CAST(${column} AS TEXT).`);
+    }
+  }
   return plain;
 }
 
