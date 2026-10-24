@@ -131,7 +131,7 @@ export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckO
     if (error instanceof OutsideCallError && ["unreachable_host", "not_https", "host_not_allowed"].includes(error.code)) {
       throw new ChatCheckError(
         "checkChat is for a game server on your own server. In Zaisma rooms the room runs Zaisma's chat filter on the chat it delivers.",
-        "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.filterText, or offer preset phrases and emotes.",
+        "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.checkChat, or offer preset phrases and emotes.",
       );
     }
     return UNCHECKED;

@@ -1021,7 +1021,7 @@ describe("mistakes in a sandboxed game server's code", () => {
     const a = await join("flood", "ABCDEF");
     a.say("go");
     const errors = await errorsOf("gflood", 1);
-    expect(errors.some((line) => line.includes("more than 1000 room calls") && line.includes("(room_call_limit)"))).toBe(true);
+    expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
     a.ws.close(1000);
   });
 });
