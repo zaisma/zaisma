@@ -5,7 +5,7 @@ import {
   HOSTING_PAUSED_END_MESSAGE,
   NO_ANSWER_CLOSE_CODE,
   PassError,
-  REFUSED_CLOSE_CODE,
+  REMOVED_CLOSE_CODE,
   ROOM_LIMITS,
   VERSION_UPDATE_CLOSE_CODE,
   RoomCore,
@@ -55,8 +55,7 @@ interface Meta {
   server: string;
   /** The game version a room started on: a sandboxed game server keeps running it until the room ends. */
   versionId?: string;
-  /** Rooms made before room browsing don't know their code, and aren't listed. */
-  roomCode?: string;
+  roomCode: string;
   /** The country and continent the room's first player connected from, which is roughly where the room runs. */
   country?: string | null;
   continent?: string | null;
@@ -111,6 +110,8 @@ const CHECK_MS = 60_000;
 const TESTER_CHECK_MS = 10_000;
 /** An empty room's saved state is deleted after this, unless the room is kept (room.setKept). */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
+/** How long a reserved room waits for its players before it's cleared. */
+const RESERVED_DURATION_MS = 600_000;
 /** What a kept room's game server's log says when the game's storage is too full to keep another. */
 const KEEP_REFUSED_TEXT = `Zaisma: this room can't be kept, because this game's storage is full at its ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB. Delete kept rooms (zaisma kept-rooms) or database rows to make room.`;
 /** What players in a kept room hear when its developer deletes it. */
@@ -298,7 +299,7 @@ export class Room extends DurableObject<Env> {
         server: request.headers.get("x-game-server")!,
         versionId: request.headers.get("x-game-version") ?? undefined,
         ...this.meta,
-        roomCode: request.headers.get("x-room-code") ?? undefined,
+        roomCode: request.headers.get("x-room-code")!,
         country: this.meta?.country ?? (request.headers.get("x-room-country") || null),
         continent: this.meta?.continent ?? (request.headers.get("x-room-continent") || null),
       };
@@ -331,7 +332,7 @@ export class Room extends DurableObject<Env> {
 
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const attachment = socket.deserializeAttachment() as Attachment;
-    if (attachment.stage === "hello") return typeof message === "string" ? this.hello(socket, message) : this.refuse(socket, "bad_message");
+    if (attachment.stage === "hello") return typeof message === "string" ? this.hello(socket, message) : this.refuse(socket, "no_hello");
     if (attachment.stage !== "in") return;
 
     // Pings never get here; any other message shows the player is still connected.
@@ -389,7 +390,7 @@ export class Room extends DurableObject<Env> {
       }
       // The hour the match got to finish, once the game's hosting paused, is up.
       if (core && !this.hasEnded && core.endsAt !== null && Date.parse(core.endsAt) <= Date.now()) {
-        core.end(HOSTING_PAUSED_END_MESSAGE);
+        core.end(HOSTING_PAUSED_END_MESSAGE, "hosting_paused");
         await this.finish();
         return;
       }
@@ -514,9 +515,10 @@ export class Room extends DurableObject<Env> {
       ...(start.keptOut ? { keptOut: start.keptOut } : {}),
       ...(typeof start.lobbyRoomCode === "string" && start.lobbyRoomCode ? { lobbyRoomCode: start.lobbyRoomCode } : {}),
     };
-    // Like an empty room: cleared after a day if nobody comes.
-    await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptiedAtMs: Date.now() });
-    await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
+    // Like an empty room, but cleared after RESERVED_DURATION_MS if nobody comes, as on the Node runner.
+    const nowMs = Date.now();
+    await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptiedAtMs: nowMs - KEEP_EMPTY_MS + RESERVED_DURATION_MS });
+    await this.setAlarm(nowMs + RESERVED_DURATION_MS);
     return new Response(null, { status: 204 });
   }
 
@@ -564,15 +566,16 @@ export class Room extends DurableObject<Env> {
       made.clientIdle = clientIdle(hello);
       // How the player who makes the room sets it up; the room takes it only from them.
       const room = hello.room && typeof hello.room === "object" ? hello.room : {};
-      made = { ...made, ...(room.isListed === false ? { isListed: false } : {}), ...(room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(room as RoomInfo) };
+      made = { ...made, ...(room.isListed === true ? { isListed: true } : {}), ...(room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(room as RoomInfo) };
       // What the player brings for the game server's onJoin, like the character they picked.
-      const checked = checkRoomData(hello.joinData);
+      const checked = checkRoomData(hello.joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
       if (!checked.isValid) return this.refuse(socket, "too_big");
       made.joinData = checked.checkedData;
     } catch {
       return this.refuse(socket, "no_hello");
     }
-    if (typeof pass !== "string" || !this.meta) return this.refuse(socket, "bad_pass");
+    if (typeof pass !== "string") return this.refuse(socket, "no_hello");
+    if (!this.meta) return this.refuse(socket, "game_unavailable");
 
     let player: Player;
     try {
@@ -598,7 +601,7 @@ export class Room extends DurableObject<Env> {
     const core = this.room();
     if (!core) return this.refuse(socket, "game_unavailable");
     // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
-    if (isSpectator && core.players.size === 0) return this.refuse(socket, "no_room");
+    if (isSpectator && core.players.size === 0) return this.refuse(socket, "room_not_running");
     // A player always plays the version their room runs: a newcomer whose game runs another one reloads at the
     // room's first (the game domain serves it to the room's players). Players already in the room come back in
     // whatever they run, so a reconnect never bounces them out of their match; built-in game servers have no version.
@@ -631,7 +634,7 @@ export class Room extends DurableObject<Env> {
     // The same player connecting again (a reconnect or a second tab) replaces the old connection.
     for (const other of this.sockets(player.id)) {
       this.retire(other);
-      other.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
+      other.close(REMOVED_CLOSE_CODE, "Joined from somewhere else");
     }
     await this.keepOwnedItemNames(player);
     const nowMs = Date.now();
@@ -685,7 +688,7 @@ export class Room extends DurableObject<Env> {
    * empties as when everyone leaves.
    */
   private dismissSpectators(): void {
-    const text = JSON.stringify({ type: "ended", message: "The match ended." } satisfies ServerMessage);
+    const text = JSON.stringify({ type: "ended", message: "The match ended.", endReason: "no_players" } satisfies ServerMessage);
     for (const socket of this.sockets()) {
       const attachment = this.retire(socket);
       if (attachment.stage === "in") this.core?.leave(attachment.id);
@@ -1016,7 +1019,7 @@ export class Room extends DurableObject<Env> {
     if (this.sockets().length && (await this.load())) {
       const core = this.room();
       if (core && !core.ended) {
-        core.end(KEPT_ROOM_DELETED_MESSAGE);
+        core.end(KEPT_ROOM_DELETED_MESSAGE, "kept_room_deleted");
         await core.settled();
       }
     }
@@ -1024,7 +1027,7 @@ export class Room extends DurableObject<Env> {
       if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
       this.retire(socket);
       try {
-        socket.close(REFUSED_CLOSE_CODE, "Deleted");
+        socket.close(REMOVED_CLOSE_CODE, "Deleted");
       } catch {
         // Already closed.
       }
@@ -1145,10 +1148,10 @@ export class Room extends DurableObject<Env> {
    */
   private moveTo(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void {
     const meta = this.meta!;
-    const nobody = (refusalCode: "no_room" | "busy"): MoveAnswer => ({ movedPlayerIds: [], refusals: ask.players.map((player) => ({ playerId: player.id, code: refusalCode, message: ERROR_TEXT[refusalCode] })) });
+    const nobody = (refusalCode: "room_not_running" | "busy"): MoveAnswer => ({ movedPlayerIds: [], refusals: ask.players.map((player) => ({ playerId: player.id, code: refusalCode, message: ERROR_TEXT[refusalCode] })) });
     const work = (async () => {
       let answer: MoveAnswer;
-      if (roomCode === meta.roomCode || !meta.roomCode) answer = nobody("no_room");
+      if (roomCode === meta.roomCode || !meta.roomCode) answer = nobody("room_not_running");
       else {
         try {
           const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${roomCode}`)).fetch("https://room/expect", {
@@ -1156,7 +1159,7 @@ export class Room extends DurableObject<Env> {
             headers: { "x-game-id": meta.gameId },
             body: JSON.stringify({ ...ask, fromRoomCode: meta.roomCode } satisfies MoveAsk),
           });
-          answer = response.ok ? await response.json() : nobody("no_room");
+          answer = response.ok ? await response.json() : nobody("room_not_running");
         } catch (error) {
           console.error("Couldn't move players:", error);
           answer = nobody("busy");
@@ -1194,7 +1197,7 @@ export class Room extends DurableObject<Env> {
       return [this.playerOf(attachment)];
     });
     const transport = {
-      ...(this.meta?.roomCode ? { roomCode: this.meta.roomCode } : {}),
+      roomCode: this.meta!.roomCode,
       send: (id: string, text: string) => this.sockets(id).forEach((socket) => socket.send(text)),
       sendBytes: (id: string, frame: Uint8Array) => this.sockets(id).forEach((socket) => socket.send(frame)),
       close: (id: string, code: number, reason: string) => {
@@ -1356,10 +1359,10 @@ export class Room extends DurableObject<Env> {
       await this.sendAway();
       return false;
     }
-    this.room()?.end("This game isn't available right now.");
+    this.room()?.end("This game isn't available right now.", "game_unavailable");
     for (const socket of this.ctx.getWebSockets()) {
       this.retire(socket);
-      socket.close(REFUSED_CLOSE_CODE, "Game unavailable");
+      socket.close(REMOVED_CLOSE_CODE, "Game unavailable");
     }
     await this.finish();
     return false;
@@ -1372,7 +1375,7 @@ export class Room extends DurableObject<Env> {
       this.retire(socket);
       try {
         socket.send(errorMessage("game_unavailable"));
-        socket.close(REFUSED_CLOSE_CODE, "Game unavailable");
+        socket.close(REMOVED_CLOSE_CODE, "Game unavailable");
       } catch {
         // Already closed.
       }
@@ -1419,7 +1422,7 @@ export class Room extends DurableObject<Env> {
       }
       await this.left(socket, "left");
       try {
-        socket.close(REFUSED_CLOSE_CODE, "Tester link turned off");
+        socket.close(REMOVED_CLOSE_CODE, "Tester link turned off");
       } catch {
         // Already closed.
       }
@@ -1444,7 +1447,7 @@ export class Room extends DurableObject<Env> {
       }
       await this.left(socket, "left");
       try {
-        socket.close(REFUSED_CLOSE_CODE, "game_not_open_to_player");
+        socket.close(REMOVED_CLOSE_CODE, "game_not_open_to_player");
       } catch {
         // Already closed.
       }
@@ -1455,7 +1458,7 @@ export class Room extends DurableObject<Env> {
   private broken(): void {
     console.error(`Game server for ${this.meta?.slug} stopped working; ending room ${this.meta?.roomCode}`);
     this.isBroken = true;
-    this.room()?.end("This game's server stopped working.");
+    this.room()?.end("This game's server stopped working.", "game_server_stopped");
     void this.finish();
   }
 
@@ -1494,7 +1497,7 @@ export class Room extends DurableObject<Env> {
     this.pendingVersionUpdate = { versionId, isReloading, appliesAtMs: Date.now() };
     if (!core || core.ended) return this.applyVersionUpdate();
     const isHeld = Boolean(core.server.onVersionUpdate);
-    const appliesAtMs = Date.now() + (isHeld ? ROOM_LIMITS.maximumVersionUpdateHoldSec : ROOM_LIMITS.versionUpdateNoticeSec) * 1000;
+    const appliesAtMs = Date.now() + (isHeld ? ROOM_LIMITS.maximumVersionUpdateDelaySec : ROOM_LIMITS.defaultVersionUpdateDelaySec) * 1000;
     this.pendingVersionUpdate = { versionId, isReloading, appliesAtMs };
     await this.ctx.storage.put("versionUpdate", this.pendingVersionUpdate);
     core.startVersionUpdate({ versionId, appliesAt: new Date(appliesAtMs).toISOString(), isReloading }, isHeld);
@@ -1646,7 +1649,7 @@ export class Room extends DurableObject<Env> {
     this.socketIndex = null;
     try {
       socket.send(errorMessage(code, message, details));
-      socket.close(REFUSED_CLOSE_CODE, code);
+      socket.close(REMOVED_CLOSE_CODE, code);
     } catch {
       // Already closed.
     }

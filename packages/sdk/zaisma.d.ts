@@ -18,6 +18,9 @@
  * does (`error.code` "unknown_option" or "unknown_event"), so a misspelled or old one never goes
  * quietly unused. Errors carry `error.code` ({@link Zaisma.ErrorCode}).
  *
+ * Within v1, codes and events only grow: handle unknown ones (a `default` branch), and a new code or event
+ * never breaks your game.
+ *
  * Player passes, for rooms and your own servers, need the game played on its zaisma.com page, which
  * checks the browser on Play: joining fails with `error.code` "unchecked" when it couldn't, or when the
  * game was opened anywhere else, and "not_on_zaisma" when the game isn't hosted on Zaisma at all.
@@ -28,7 +31,7 @@
  * room.on("message", (message) => {});          // from the game server
  * room.on("players", (players) => {});
  * room.on("connectionStatus", (connectionStatus) => {});
- * room.on("ended", (message) => {});
+ * room.on("ended", ({ message, endReason }) => {});
  * room.send({ move: "left" });
  * room.leave();
  * await Zaisma.invite(room);                    // share sheet on phones, copies the link elsewhere
@@ -205,7 +208,7 @@ declare namespace Zaisma {
      * const { friends } = await Zaisma.friends.list();
      * for (const friend of friends) {
      *   if (friend.roomCode) addRow(friend.name, () => Zaisma.joinRoom({ roomCode: friend.roomCode, serverUrl: friend.serverUrl ?? undefined }));
-     *   else addRow(friend.name, null, friend.joinRefusal); // like "room_full" or "no_room": see FriendJoinRefusal
+     *   else addRow(friend.name, null, friend.joinRefusal); // like "room_full" or "friend_not_in_room": see FriendJoinRefusal
      * }
      */
     list(): Promise<FriendList>;
@@ -252,11 +255,14 @@ declare namespace Zaisma {
    * - game_not_taking_joins: your game turned Join off (friend_joins_enabled false in its settings).
    * - friend_not_taking_joins: the friend's own setting doesn't let this player join them.
    * - private_room: your game turned Join off for their room ({@link Room.setFriendJoinsEnabled}).
-   * - match_in_progress: their room is closed to new players.
+   * - room_closed: their room is closed to new players.
    * - room_full: their room has no space (players and held seats).
-   * - no_room: they're playing, but not in a room your game told Zaisma of (a Zaisma room, or one on your own servers through {@link Friends.setRoom}).
+   * - spectators_full: they're watching, and the room takes no more spectators.
+   * - friend_not_in_room: they're playing, but not in a room your game told Zaisma of (a Zaisma room, or one on your own servers through {@link Friends.setRoom}).
+   *
+   * More reasons may come within v1: show a plain "can't join" for one you don't know.
    */
-  type FriendJoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "match_in_progress" | "room_full" | "no_room";
+  type FriendJoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "room_closed" | "room_full" | "spectators_full" | "friend_not_in_room";
 
   /** A room on the game's own servers ({@link Friends.setRoom}). */
   interface OwnServerRoom {

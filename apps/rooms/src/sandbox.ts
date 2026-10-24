@@ -67,10 +67,10 @@ const FAILURE_COUNT = 2;
 
 /** What the game asked the room to do during one handler, in order. */
 type Effect =
-  | { do: "broadcast"; message: unknown; exceptPlayerId?: string; audience?: unknown; delivery?: unknown; latestKey?: unknown }
-  | { do: "send"; playerId: string; message: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "broadcast"; message: unknown; exceptPlayerId?: string; fromPlayerId?: string; audience?: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "send"; playerId: string; message: unknown; fromPlayerId?: string; delivery?: unknown; latestKey?: unknown }
   | { do: "broadcast_bytes"; bytes: unknown; exceptPlayerId?: string; fromPlayerId?: string; audience?: unknown; delivery?: unknown; latestKey?: unknown }
-  | { do: "send_bytes"; playerId: string; bytes: unknown; delivery?: unknown; latestKey?: unknown }
+  | { do: "send_bytes"; playerId: string; bytes: unknown; fromPlayerId?: string; delivery?: unknown; latestKey?: unknown }
   | { do: "state"; playerIds: unknown; frame: unknown }
   | { do: "end"; message?: string }
   | { do: "listed"; isListed: boolean }
@@ -93,8 +93,8 @@ interface Snapshot {
   friendJoinsEnabled: boolean;
   /** room.isKept: the room sleeps with its state when everyone leaves. */
   isKept: boolean;
-  /** room.roomCode: this room's code, or null. */
-  roomCode: string | null;
+  /** room.roomCode: this room's code. */
+  roomCode: string;
   name: string | null;
   labels: Record<string, string>;
   /** When Zaisma will end the match (an ISO time), or null, for room.endsAt. */
@@ -208,6 +208,8 @@ const ERROR_COUNT = 20;
 const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", "onWebhook", "stateView", ...HOOKS];
 const MAXIMUM_STATE_VIEW_SIZE_BYTES = ${ROOM_LIMITS.maximumStateViewSizeBytes};
 const MAXIMUM_LATEST_KEY_CHARACTER_COUNT = ${ROOM_LIMITS.maximumLatestKeyCharacterCount};
+// room.roomCode before the room's first call says its code: a code no room has, so it's always a string.
+const STAND_IN_ROOM_CODE = "SANDBX";
 
 // room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
 class DatabaseError extends Error {
@@ -236,7 +238,9 @@ function delivered(given, call) {
   const options = given && typeof given === "object" ? given : {};
   if (options.delivery !== undefined && options.delivery !== "reliable" && options.delivery !== "latest_only") throw new Error(call + "'s delivery is " + JSON.stringify(options.delivery) + '. Give "reliable" (the default) or "latest_only".');
   if (options.latestKey !== undefined && (typeof options.latestKey !== "string" || options.latestKey.length > MAXIMUM_LATEST_KEY_CHARACTER_COUNT)) throw new Error(call + "'s latestKey must be text up to " + MAXIMUM_LATEST_KEY_CHARACTER_COUNT + ' characters, like "positions".');
-  return { delivery: options.delivery, latestKey: options.latestKey };
+  if (options.delivery === "latest_only" && options.latestKey === undefined) throw new Error(call + "'s delivery is " + '"latest_only" with no latestKey. latest_only needs a latestKey: the slot this update replaces, like "position". (bad_option)');
+  if (options.fromPlayerId !== undefined && (typeof options.fromPlayerId !== "string" || !options.fromPlayerId)) throw new Error(call + "'s fromPlayerId must be a player's ID, like player.id.");
+  return { delivery: options.delivery, latestKey: options.latestKey, fromPlayerId: options.fromPlayerId };
 }
 
 function recorder(snapshot, effects, database, secrets) {
@@ -248,7 +252,7 @@ function recorder(snapshot, effects, database, secrets) {
     get spectators() { return snapshot.spectators.map((spectator) => ({ ...spectator })); },
     broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcast") }); },
     send(playerId, message, sendOptions) { effects.push({ do: "send", playerId, message, ...delivered(sendOptions, "room.send") }); },
-    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, fromPlayerId: broadcastOptions && broadcastOptions.fromPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcastBytes") }); },
+    broadcastBytes(bytes, broadcastOptions) { effects.push({ do: "broadcast_bytes", bytes: copyBytes(bytes, "room.broadcastBytes"), exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcastBytes") }); },
     sendBytes(playerId, bytes, sendOptions) { effects.push({ do: "send_bytes", playerId, bytes: copyBytes(bytes, "room.sendBytes"), ...delivered(sendOptions, "room.sendBytes") }); },
     end(message) { effects.push({ do: "end", message }); },
     get isListed() { return snapshot.isListed; },
@@ -258,7 +262,7 @@ function recorder(snapshot, effects, database, secrets) {
     get friendJoinsEnabled() { return snapshot.friendJoinsEnabled; },
     setFriendJoinsEnabled(isEnabled) { snapshot.friendJoinsEnabled = Boolean(isEnabled); effects.push({ do: "friend_joins", friendJoinsEnabled: snapshot.friendJoinsEnabled }); },
     get isKept() { return snapshot.isKept === true; },
-    get roomCode() { return typeof snapshot.roomCode === "string" ? snapshot.roomCode : null; },
+    get roomCode() { return typeof snapshot.roomCode === "string" ? snapshot.roomCode : STAND_IN_ROOM_CODE; },
     setKept(isKept) { snapshot.isKept = Boolean(isKept); effects.push({ do: "kept", isKept: snapshot.isKept }); },
     get name() { return snapshot.name; },
     get labels() { return { ...snapshot.labels }; },
@@ -306,7 +310,7 @@ class Session extends RpcTarget {
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
-  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, roomCode: null, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
+  #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, roomCode: STAND_IN_ROOM_CODE, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
   // What each player was last sent of the state, with stateSyncEnabled; a fresh session sends everyone a full copy.
   #stateTracker = server.stateSyncEnabled === true ? stateSync.newStateTracker(MAXIMUM_STATE_VIEW_SIZE_BYTES) : null;
   constructor(database, secrets) {
@@ -983,8 +987,12 @@ function audienceOf(effect: { audience?: unknown }): { audience?: Audience } {
 }
 
 /** A send effect's delivery and latestKey, as the room API takes them (it checks them). */
-function sendOptionsOf(effect: { delivery?: unknown; latestKey?: unknown }): SendOptions {
-  return { ...(effect.delivery !== undefined ? { delivery: effect.delivery as SendOptions["delivery"] } : {}), ...(effect.latestKey !== undefined ? { latestKey: effect.latestKey as string } : {}) };
+function sendOptionsOf(effect: { delivery?: unknown; latestKey?: unknown; fromPlayerId?: unknown }): SendOptions {
+  return {
+    ...(effect.delivery !== undefined ? { delivery: effect.delivery as SendOptions["delivery"] } : {}),
+    ...(effect.latestKey !== undefined ? { latestKey: effect.latestKey as string } : {}),
+    ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}),
+  };
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
@@ -1004,7 +1012,6 @@ function apply(effects: unknown, room: Room): void {
           if (effect.bytes instanceof Uint8Array) {
             room.broadcastBytes(effect.bytes, {
               ...(typeof effect.exceptPlayerId === "string" ? { exceptPlayerId: effect.exceptPlayerId } : {}),
-              ...(typeof effect.fromPlayerId === "string" ? { fromPlayerId: effect.fromPlayerId } : {}),
               ...audienceOf(effect),
               ...sendOptionsOf(effect),
             });

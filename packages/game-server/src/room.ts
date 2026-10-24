@@ -33,10 +33,9 @@ export interface Player {
 export interface Room {
   /**
    * This room's code, like K7Q2MX: the code players join it by. Use it to treat rooms differently, like
-   * keeping only your one shared world (setKept in "WRLD22", canJoin refusing elsewhere). null only in a
-   * room made before Zaisma rooms knew their codes.
+   * keeping only your one shared world (setKept in "WRLD22", canJoin refusing elsewhere).
    */
-  readonly roomCode: string | null;
+  readonly roomCode: string;
   /** Players in the room right now, in join order. */
   readonly players: readonly Player[];
   /**
@@ -53,13 +52,12 @@ export interface Room {
   send(playerId: string, message: unknown, sendOptions?: SendOptions): void;
   /**
    * Send bytes to every player, or everyone but one (exceptPlayerId), like a compact snapshot of the
-   * world. fromPlayerId says whose they are when you pass one player's bytes on; each player's game gets
-   * them as the "bytes" event, with that player's ID or null.
+   * world. Each player's game gets them as the "bytes" event, with fromPlayerId or null.
    */
-  broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void;
+  broadcastBytes(bytes: Uint8Array, broadcastOptions?: BroadcastOptions): void;
   /** Send bytes to one player or spectator. */
   sendBytes(playerId: string, bytes: Uint8Array, sendOptions?: SendOptions): void;
-  /** End the match: everyone is told why (message) and disconnected, and the room closes. */
+  /** End the match: everyone is told why (message, with endReason "game") and disconnected, and the room closes. */
   end(message?: string): void;
   /**
    * When Zaisma will end this match, an ISO time, or null. Set once the game's hosting on Zaisma rooms
@@ -190,10 +188,16 @@ export type Delivery = "reliable" | "latest_only";
 export interface SendOptions {
   delivery?: Delivery;
   /**
-   * For "latest_only": which messages replace each other while a player is backed up, up to 40
-   * characters, like "positions". Defaults to the message's type field when it's a string, else "".
+   * For "latest_only", and needed there: which messages replace each other while a player is backed
+   * up, up to 40 characters, like "positions".
    */
   latestKey?: string;
+  /**
+   * The player this message or these bytes are from, when you pass one player's on; each player's game
+   * hears it with the message (or bytes), and null when it's left out: from the game server. The game
+   * server vouches for it.
+   */
+  fromPlayerId?: string;
 }
 
 export interface BroadcastOptions extends SendOptions {
@@ -201,11 +205,6 @@ export interface BroadcastOptions extends SendOptions {
   exceptPlayerId?: string;
   /** Who gets it: "everyone" (the default: players and spectators), "players" or "spectators". */
   audience?: Audience;
-}
-
-export interface BytesBroadcastOptions extends BroadcastOptions {
-  /** The player the bytes came from, when you pass one player's bytes on; left out, they're from the game server. */
-  fromPlayerId?: string;
 }
 
 export interface MoveOptions {
@@ -492,17 +491,21 @@ export interface GameServer<S = any> {
   /**
    * The developer published a version with match_update_mode "now", and this match moves to it. With
    * this handler the room waits for you: call room.applyVersionUpdate() at a good moment, like the end of
-   * a round, or it switches at versionUpdate.forcedAt, 5 minutes on. Without it, it switches 10 seconds
+   * a round, or it switches at versionUpdate.appliesAt, 5 minutes on. Without it, it switches 10 seconds
    * after the notice. Each player's game hears it too (the room's "versionUpdate" event), to show a
    * countdown or save. Never runs on your own server.
    */
   onVersionUpdate?(state: S, versionUpdate: VersionUpdate, room: Room): HandlerResult<S>;
 }
 
-/** What onVersionUpdate hears: the version the match moves to, and when it switches at the latest (an ISO time). */
+/**
+ * What onVersionUpdate hears, as players' games do: the version the match moves to, when it switches at
+ * the latest (an ISO time), and whether the game's files changed, so players' games reload.
+ */
 export interface VersionUpdate {
   versionId: string;
-  forcedAt: string;
+  appliesAt: string;
+  isReloading: boolean;
 }
 
 /**
@@ -600,19 +603,21 @@ export const ROOM_LIMITS = {
   maximumLabelNameCharacterCount: 16,
   maximumLabelValueCharacterCount: 24,
   /** Join data a player brings to a room, and setup data a reserved room starts with, as JSON. */
-  maximumRoomDataSizeBytes: 4 * 1024,
+  maximumJoinDataSizeBytes: 4 * 1024,
+  maximumSetupDataSizeBytes: 4 * 1024,
   /** Rooms one room may reserve or move players to a minute: enough for a full lobby, not for a bug that does it every tick. */
   maximumReservesPerMin: 20,
-  /** A kick's or a refusal's message. */
-  maximumMessageCharacterCount: 200,
+  /** A kick's message, and a refusal's (canJoin's refusalMessage). */
+  maximumKickMessageCharacterCount: 200,
+  maximumRefusalMessageCharacterCount: 200,
   /** Largest game message (or bytes) a client may send. */
   maximumGameMessageSizeBytes: 16 * 1024,
   /**
    * Sustained game messages (and bytes) per second per player, with a short burst allowance. A game at
    * 60 ticks sends two inputs in one message: incoming messages are what a room is billed for.
    */
-  gameMessagesPerSec: 30,
-  gameMessageBurstCount: 60,
+  maximumGameMessagesPerSec: 30,
+  maximumGameMessageBurstCount: 60,
   /** The idle check's default and range (idleTimeoutSec, joinRoom({ idleTimeoutSec })). */
   defaultIdleTimeoutSec: 600,
   minimumIdleTimeoutSec: 30,
@@ -630,22 +635,33 @@ export const ROOM_LIMITS = {
   minimumStateSaveIntervalSec: 1,
   maximumStateSaveIntervalSec: 60,
   /** A match moving to a version published "now": its notice without onVersionUpdate, and the longest onVersionUpdate can hold it. */
-  versionUpdateNoticeSec: 10,
-  maximumVersionUpdateHoldSec: 300,
+  defaultVersionUpdateDelaySec: 10,
+  maximumVersionUpdateDelaySec: 300,
   /** A real-time room's state bigger than this as JSON isn't saved, and a restart starts it fresh. */
   maximumSavedStateSizeBytes: 32 * 1024 * 1024,
+  /** A player's view of the state as JSON (stateSyncEnabled): bigger views aren't sent, and the game's errors say so once. */
+  maximumStateViewSizeBytes: 1024 * 1024,
+  /** A latest-only message's latestKey. */
+  maximumLatestKeyCharacterCount: 40,
+  /** Latest-only messages waiting for a backed-up player, one per latestKey; past it, the oldest is dropped. */
+  maximumLatestOnlySlotCount: 64,
+} as const;
+
+/**
+ * How rooms watch connections: when they probe, and when a player counts as backed up or dropped. Tuning,
+ * not contract: unlike ROOM_LIMITS, these may change in any version.
+ */
+export const ROOM_TUNING = {
   /** How often a ticking room probes each player, for their ping and the room's clock. */
   probeIntervalSec: 2,
   /** A probe left unanswered this long drops the player: their connection stopped or fell too far behind. */
   probeAnswerTimeoutSec: 8,
   /** A player is also probed each time this much has gone out to them since their last probe. */
-  sentBytesPerProbe: 256 * 1024,
+  probeSentSizeBytes: 256 * 1024,
   /** Bytes sent to a player since the last probe they answered; past it, they're dropped. */
-  maximumUnansweredSentBytes: 2 * 1024 * 1024,
+  maximumUnansweredSentSizeBytes: 2 * 1024 * 1024,
   /** Unanswered probes the room remembers per player; the oldest is forgotten past it. */
   maximumUnansweredProbeCount: 16,
-  /** A player's view of the state as JSON (stateSyncEnabled): bigger views aren't sent, and the game's errors say so once. */
-  maximumStateViewSizeBytes: 1024 * 1024,
   /**
    * A player is backed up with this much sent and not yet through: on your own server, the socket's
    * bufferedAmount; in Zaisma rooms, sent since the last probe they answered, while a probe of theirs is
@@ -653,11 +669,10 @@ export const ROOM_LIMITS = {
    */
   backedUpSizeBytes: 64 * 1024,
   backedUpDelayMs: 250,
-  /** A latest-only message's latestKey. */
-  maximumLatestKeyCharacterCount: 40,
-  /** Latest-only messages waiting for a backed-up player, one per latestKey; past it, the oldest is dropped. */
-  maximumLatestOnlySlotCount: 64,
 } as const;
+
+/** The room protocol's version: hello and welcome say it, so either side can tell what the other speaks. */
+export const PROTOCOL_VERSION_NUMBER = 1;
 
 /** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
 const IDLE_ASK_MS = 30_000;
@@ -758,11 +773,17 @@ export interface RoomSettings {
  * Messages from the room to a client. Every message says its type; a game's own messages carry
  * theirs in data (docs/NAMING.md).
  *
- * Clients send {type: "hello", pass, joinData?, room?: {isListed?, friendJoinsEnabled?, name?, labels?}, idleTimeoutSec?,
- * idleCheckEnabled?} first (joinData is for canJoin and onJoin; the room's settings only count from
- * the player who makes it; the idle fields only where the game server's idleCheck is "client"), then
- * {type: "message", data}. With hostControlsEnabled, the host may also send {type: "room", isListed?,
- * isOpen?, friendJoinsEnabled?, name?, labels?} and {type: "kick", playerId, keepOut?}. hostPlayerId is null without host controls.
+ * Clients send {type: "hello", protocolVersionNumber, pass, joinData?, room?: {isListed?, friendJoinsEnabled?, name?, labels?}, idleTimeoutSec?,
+ * idleCheckEnabled?} first (ClientMessage; joinData is for canJoin and onJoin; the room's settings only count from
+ * the player who makes it, and a room is listed only when its first player's hello says isListed: true;
+ * the idle fields only where the game server's idleCheck is "client"), then {type: "message", data}.
+ * With hostControlsEnabled, the host may also send {type: "room", room: {isListed?, isOpen?,
+ * friendJoinsEnabled?, name?, labels?}} and {type: "kick", playerId, keepOut?}. hostPlayerId is null without host controls.
+ *
+ * Versions: welcome says the room's protocolVersionNumber (PROTOCOL_VERSION_NUMBER). A message with a type
+ * the room doesn't know is counted and ignored, never refused, so a newer SDK still talks to an older room.
+ * A game's messages reach players as {type: "message", data, fromPlayerId}: the player the game server
+ * says it's from (SendOptions.fromPlayerId), or null.
  *
  * Blocks (docs/DECISIONS.md, "How blocks work"): a player's game sends {type: "block", playerId} for a
  * player in the room it blocked (a guest's, or one just made) and {type: "unblock", playerId} when it
@@ -784,10 +805,10 @@ export interface RoomSettings {
  * Ping and the room's clock (docs/DECISIONS.md, "Rooms under lag"): the room sends {type: "probe",
  * probeNumber, serverTimeMs, pingDurationMs} right after welcome and again once it's answered (so the
  * client hears its first ping), every welcome.probeIntervalSec while
- * the room ticks (null when it doesn't), and each time ROOM_LIMITS.sentBytesPerProbe has gone out to
+ * the room ticks (null when it doesn't), and each time ROOM_TUNING.probeSentSizeBytes has gone out to
  * the player. The client answers at once with {type: "probe_answer", probeNumber}. Answers aren't game
  * messages: they don't count toward the 30 a second or the idle check. A probe left unanswered for
- * ROOM_LIMITS.probeAnswerTimeoutSec, or ROOM_LIMITS.maximumUnansweredSentBytes sent since the last
+ * ROOM_TUNING.probeAnswerTimeoutSec, or ROOM_TUNING.maximumUnansweredSentSizeBytes sent since the last
  * answered one, closes the connection with NO_ANSWER_CLOSE_CODE.
  *
  * Bytes: after hello, a client may also send binary frames (room.sendBytes), each up to
@@ -816,27 +837,63 @@ export type ServerMessage =
       awayChecks: AwayChecks;
       endsAt: string | null;
       probeIntervalSec: number | null;
+      protocolVersionNumber: number;
     }
   | { type: "probe"; probeNumber: number; serverTimeMs: number; pingDurationMs: number | null }
   | { type: "ending"; endsAt: string }
   // A version published "now": coming at appliesAt (an ISO time), then now, just before the room closes its connections (VERSION_UPDATE_CLOSE_CODE). isReloading: the game's files changed, so it reloads.
-  | { type: "versionUpdate"; step: "coming" | "now"; versionId: string; appliesAt: string; isReloading: boolean }
+  | { type: "version_update"; step: "coming" | "now"; versionId: string; appliesAt: string; isReloading: boolean }
   | { type: "players"; players: ListedPlayer[]; hostPlayerId: string | null }
-  | { type: "away"; reason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
+  | { type: "away"; awayReason: Exclude<AwayReason, "lost">; seatHoldDurationSec: number }
   | { type: "kicked"; message: string; isKeptOut: boolean }
   | { type: "room"; room: RoomSettings; spectatorCount: number }
   | { type: "move"; roomCode: string }
-  | { type: "message"; data: unknown }
+  | { type: "message"; data: unknown; fromPlayerId: string | null }
   | { type: "state"; serverTimeMs: number; full: unknown }
   | { type: "state"; serverTimeMs: number; changes: StateChange[] }
   | { type: "blocks"; playerIds: string[] }
   // versionId: with other_version, the version the room runs, which the game reloads at.
   | { type: "error"; code: RoomErrorCode; message: string; versionId?: string }
-  | { type: "ended"; message: string };
+  | { type: "ended"; message: string; endReason: EndReason };
+
+/**
+ * Messages from a client to the room. A room ignores a type it doesn't know (it counts it, like any
+ * message), so a client may send newer ones.
+ */
+export type ClientMessage =
+  | {
+      type: "hello";
+      protocolVersionNumber: number;
+      pass: string;
+      joinData?: unknown;
+      room?: Partial<Pick<RoomSettings, "isListed" | "friendJoinsEnabled">> & RoomInfo;
+      idleTimeoutSec?: number;
+      idleCheckEnabled?: boolean;
+      isSpectator?: boolean;
+      isQuickJoin?: boolean;
+      avoidBlockedPlayers?: boolean;
+    }
+  | { type: "message"; data: unknown }
+  | { type: "room"; room: Partial<RoomSettings> }
+  | { type: "kick"; playerId: string; keepOut?: boolean }
+  | { type: "block"; playerId: string }
+  | { type: "unblock"; playerId: string }
+  | { type: "probe_answer"; probeNumber: number }
+  | { type: "here" }
+  | { type: "idle" }
+  | { type: "hidden" }
+  | { type: "shown" }
+  | { type: "back"; joinData?: unknown; idleTimeoutSec?: number; idleCheckEnabled?: boolean };
+
+/**
+ * Why a match ended: the game ended it (room.end), its hosting paused, its game server stopped working,
+ * the game became unavailable, its kept room was deleted, or no players were left for its spectators.
+ */
+export type EndReason = "game" | "hosting_paused" | "game_server_stopped" | "game_unavailable" | "kept_room_deleted" | "no_players";
 
 export type RoomErrorCode =
-  | "full"
-  | "closed"
+  | "room_full"
+  | "room_closed"
   | "ended"
   | "too_big"
   | "too_fast"
@@ -848,22 +905,25 @@ export type RoomErrorCode =
   | "busy"
   | "kept_out"
   | "refused"
-  | "no_room"
+  | "room_not_running"
   | "hosting_paused"
   | "account_needed"
   | "game_not_open_to_player"
   | "blocked_player_here"
   | "other_version"
-  | "watching_full"
-  | "spectator_cannot_send";
+  | "spectators_full"
+  | "spectator_cannot_send"
+  | "already_playing"
+  | "bad_origin"
+  | "send_queue_full";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
-  full: "This room is full.",
-  closed: "This room isn't taking new players.",
+  room_full: "This room is full.",
+  room_closed: "This room isn't taking new players.",
   ended: "This match has ended.",
   too_big: "Message too big.",
   too_fast: "Too many messages. Slow down.",
-  bad_message: "Messages must be JSON with a type the room takes.",
+  bad_message: "The room couldn't read or use that message.",
   bad_pass: "Your player pass isn't valid for this game.",
   no_hello: "Send your player pass first.",
   not_allowed: "Only the game server or the room's host can do that.",
@@ -871,14 +931,18 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   busy: "Rooms are busy. Try again soon.",
   kept_out: "You were removed from this room.",
   refused: "The game didn't let you into this room.",
-  no_room: "That room isn't running.",
+  room_not_running: "That room isn't running.",
   hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
   account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
   game_not_open_to_player: "This game isn't open to this account.",
   blocked_player_here: "Someone you blocked is in this room.",
   other_version: "This room runs another version of the game, so the game reloads at it first.",
-  watching_full: "Nobody else can watch this room right now.",
+  spectators_full: "Nobody else can watch this room right now.",
   spectator_cannot_send: "Spectators watch; they can't send to the room.",
+  already_playing: "You're playing in this room, so you can't watch it too.",
+  bad_origin: "Rooms take players from the game's own page.",
+  // The SDK's own: sends waiting while it reconnects ran past its queue.
+  send_queue_full: "Up to 60 sends wait while reconnecting; older ones were dropped.",
 };
 
 /** What players are told when Zaisma ends a match at room.endsAt. */
@@ -961,15 +1025,15 @@ export interface Transport {
    * "move" message, then hand the answer to this room's moved(). Without it, rooms can't move players.
    */
   moveTo?(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void;
-  /** This room's code, as room.roomCode. Without it, null. */
-  roomCode?: string;
+  /** This room's code, as room.roomCode. */
+  roomCode: string;
   /** The game's database, as room.database. Without it, its calls fail with database_unavailable. */
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
   secrets?: Readonly<Record<string, string>>;
   /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
   applyVersionUpdate?(): void;
-  /** Whether a player's connection holds ROOM_LIMITS.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
+  /** Whether a player's connection holds ROOM_TUNING.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
   isBackedUp?(playerId: string): boolean;
 }
 
@@ -984,10 +1048,10 @@ const NO_DATABASE: GameDatabase = {
 };
 
 /**
- * Plain JSON within ROOM_LIMITS.maximumRoomDataSizeBytes, copied, or isValid false if it isn't.
+ * Plain JSON within maximumSizeBytes (ROOM_LIMITS.maximumJoinDataSizeBytes or maximumSetupDataSizeBytes), copied, or isValid false if it isn't.
  * Nothing (undefined or null) is null. Players' data that fails this is refused.
  */
-export function checkRoomData(given: unknown): { isValid: true; checkedData: unknown } | { isValid: false } {
+export function checkRoomData(given: unknown, maximumSizeBytes: number): { isValid: true; checkedData: unknown } | { isValid: false } {
   if (given === undefined || given === null) return { isValid: true, checkedData: null };
   let text: string | undefined;
   try {
@@ -995,7 +1059,7 @@ export function checkRoomData(given: unknown): { isValid: true; checkedData: unk
   } catch {
     return { isValid: false };
   }
-  if (text === undefined || new TextEncoder().encode(text).length > ROOM_LIMITS.maximumRoomDataSizeBytes) return { isValid: false };
+  if (text === undefined || new TextEncoder().encode(text).length > maximumSizeBytes) return { isValid: false };
   return { isValid: true, checkedData: JSON.parse(text) };
 }
 
@@ -1012,14 +1076,16 @@ export type Admission = { isAllowed: true } | { isAllowed: false; code: RoomErro
 
 /** WebSocket close code for a match that ended normally. */
 export const ENDED_CLOSE_CODE = 4000;
-/** Close code for a player refused or removed by the room. */
-export const REFUSED_CLOSE_CODE = 4001;
+/** Close code for a player refused or removed by the room: the SDK doesn't reconnect. */
+export const REMOVED_CLOSE_CODE = 4001;
 /** Close code for a player who walked away, once the room stops holding their seat. They may try to come back. */
 export const SEAT_GONE_CLOSE_CODE = 4002;
 /** Close code for a connection that stopped answering or fell too far behind; the SDK reconnects. */
 export const NO_ANSWER_CLOSE_CODE = 4003;
 /** Close code for a match switching to a version published "now"; the SDK reconnects, or the page reloads the game first. */
 export const VERSION_UPDATE_CLOSE_CODE = 4004;
+/** Close code (the WebSocket standard's "try again later") for rooms too busy to take the connection; the SDK tries again. */
+export const BUSY_CLOSE_CODE = 1013;
 
 /**
  * A binary frame as the room sends it: one byte, the length of fromPlayerId in UTF-8 bytes (0 for the
@@ -1171,7 +1237,8 @@ export class RoomCore<S = any> {
   versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean } | null = null;
   /** When a real-time room's state was last saved, set by the transport after each save; null until it has been. */
   savedAtMs: number | null = null;
-  isListed = true;
+  /** Hidden from room lists until its first player's hello asks for it (joinRoom's isListed, quickJoin), or a reserve does. */
+  isListed = false;
   isOpen = true;
   friendJoinsEnabled = true;
   name: string | null = null;
@@ -1345,7 +1412,7 @@ export class RoomCore<S = any> {
     }
     const core = this;
     this.api = {
-      roomCode: transport.roomCode ?? null,
+      roomCode: transport.roomCode,
       get players() {
         return [...core.players.values()];
       },
@@ -1353,25 +1420,28 @@ export class RoomCore<S = any> {
         return [...core.spectators.values()];
       },
       broadcast: (message, broadcastOptions) => {
-        const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "audience", "delivery", "latestKey"], "room.broadcast");
-        const delivery = readDelivery(given, "room.broadcast", defaultLatestKey(message));
+        const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "audience", "delivery", "latestKey", "fromPlayerId"], "room.broadcast");
+        const delivery = readDelivery(given, "room.broadcast");
         this.deliver(
           this.audienceOf(given.audience, "room.broadcast").filter((id) => id !== given.exceptPlayerId),
-          { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) },
+          { text: JSON.stringify({ type: "message", data: message, fromPlayerId: readFromPlayerId(given, "room.broadcast") } satisfies ServerMessage), messageType: messageTypeOf(message) },
           delivery,
         );
       },
       send: (playerId, message, sendOptions) => {
-        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.send"), "room.send", defaultLatestKey(message));
-        if (this.isViewer(playerId)) this.deliver([playerId], { text: JSON.stringify({ type: "message", data: message } satisfies ServerMessage), messageType: messageTypeOf(message) }, delivery);
+        const given = closed(sendOptions ?? {}, ["delivery", "latestKey", "fromPlayerId"], "room.send");
+        const delivery = readDelivery(given, "room.send");
+        const text = JSON.stringify({ type: "message", data: message, fromPlayerId: readFromPlayerId(given, "room.send") } satisfies ServerMessage);
+        if (this.isViewer(playerId)) this.deliver([playerId], { text, messageType: messageTypeOf(message) }, delivery);
       },
       broadcastBytes: (bytes, broadcastOptions) => this.broadcastBytes(bytes, broadcastOptions),
       sendBytes: (playerId, bytes, sendOptions) => {
-        const delivery = readDelivery(closed(sendOptions ?? {}, ["delivery", "latestKey"], "room.sendBytes"), "room.sendBytes", "");
-        const frame = bytesFrame(readBytes(bytes, "room.sendBytes"), null);
+        const given = closed(sendOptions ?? {}, ["delivery", "latestKey", "fromPlayerId"], "room.sendBytes");
+        const delivery = readDelivery(given, "room.sendBytes");
+        const frame = bytesFrame(readBytes(bytes, "room.sendBytes"), readFromPlayerId(given, "room.sendBytes"));
         if (this.isViewer(playerId)) this.deliver([playerId], { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
       },
-      end: (message) => this.end(message ?? "The match is over."),
+      end: (message) => this.end(message ?? "The match is over.", "game"),
       get endsAt() {
         return core.endsAt;
       },
@@ -1621,7 +1691,7 @@ export class RoomCore<S = any> {
       return { isAllowed: false, code: "refused" };
     }
     if (!read.isAllowed) {
-      const message = tidy(read.refusalMessage, ROOM_LIMITS.maximumMessageCharacterCount);
+      const message = tidy(read.refusalMessage, ROOM_LIMITS.maximumRefusalMessageCharacterCount);
       return { isAllowed: false, code: "refused", ...(message ? { message } : {}) };
     }
     return door() ?? { isAllowed: true };
@@ -1638,8 +1708,8 @@ export class RoomCore<S = any> {
     const keptOutMessage = this.keptOut.get(id);
     if (keptOutMessage !== undefined) return { isAllowed: false, code: "kept_out", message: keptOutMessage };
     if (this.players.has(id) || this.seat(id) || this.holding(id)) return null;
-    if (!isMoving && !this.isOpen && !this.known.has(id)) return { isAllowed: false, code: "closed" };
-    if (this.players.size + this.countHeldSeats() >= this.maximumPlayerCount) return { isAllowed: false, code: "full" };
+    if (!isMoving && !this.isOpen && !this.known.has(id)) return { isAllowed: false, code: "room_closed" };
+    if (this.players.size + this.countHeldSeats() >= this.maximumPlayerCount) return { isAllowed: false, code: "room_full" };
     return null;
   }
 
@@ -1652,9 +1722,9 @@ export class RoomCore<S = any> {
     if (this.ended) return { isAllowed: false, code: "ended" };
     const keptOutMessage = this.keptOut.get(id);
     if (keptOutMessage !== undefined) return { isAllowed: false, code: "kept_out", message: keptOutMessage };
-    if (this.players.has(id)) return { isAllowed: false, code: "bad_message", message: "You're playing in this room, so you can't watch it too." };
+    if (this.players.has(id)) return { isAllowed: false, code: "already_playing" };
     if (this.spectators.has(id)) return null;
-    if (this.spectators.size >= this.maximumSpectatorCount) return { isAllowed: false, code: "watching_full" };
+    if (this.spectators.size >= this.maximumSpectatorCount) return { isAllowed: false, code: "spectators_full" };
     return null;
   }
 
@@ -1698,7 +1768,7 @@ export class RoomCore<S = any> {
    */
   async expect(ask: MoveAsk): Promise<MoveAnswer> {
     const answer: MoveAnswer = { movedPlayerIds: [], refusals: [] };
-    const checked = checkRoomData(ask.joinData);
+    const checked = checkRoomData(ask.joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
     const joinData = checked.isValid ? checked.checkedData : null;
     for (const player of ask.players) {
       const verdict: Admission = this.players.has(player.id)
@@ -1739,7 +1809,7 @@ export class RoomCore<S = any> {
     const joinData = seat ? seat.joinData : (joinOptions.joinData ?? null);
     const joinInfo: JoinInfo = seat ? { fromRoomCode: seat.fromRoomCode, isReturning: false, isSpectator: false } : back ? { fromRoomCode: null, isReturning: true, isSpectator: false } : NOBODY_JOINED;
     if (this.known.size === 0) {
-      if (joinOptions.isListed === false) this.isListed = false;
+      if (joinOptions.isListed === true) this.isListed = true;
       if (joinOptions.friendJoinsEnabled === false) this.friendJoinsEnabled = false;
       Object.assign(this, tidyRoomInfo({ name: joinOptions.name, labels: joinOptions.labels }));
     }
@@ -1752,10 +1822,10 @@ export class RoomCore<S = any> {
     this.players.set(player.id, player);
     this.remember(player.id);
     this.presence.set(player.id, newPresence(this.now(), joinOptions.clientIdle === undefined ? (this.presence.get(player.id)?.clientIdle ?? {}) : clientIdle(joinOptions.clientIdle)));
-    const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
+    const probeIntervalSec = this.ticking ? ROOM_TUNING.probeIntervalSec : null;
     this.sendText(
       player.id,
-      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(player), isSpectator: false, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: this.checks(player.id), endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER } satisfies ServerMessage),
     );
     // Every room gets a first ping and clock sample right away, ticking or not.
     this.probe(player.id);
@@ -1788,10 +1858,10 @@ export class RoomCore<S = any> {
     const isRejoin = this.spectators.has(spectator.id);
     this.spectators.set(spectator.id, spectator);
     this.presence.set(spectator.id, newPresence(this.now(), {}));
-    const probeIntervalSec = this.ticking ? ROOM_LIMITS.probeIntervalSec : null;
+    const probeIntervalSec = this.ticking ? ROOM_TUNING.probeIntervalSec : null;
     this.sendText(
       spectator.id,
-      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec } satisfies ServerMessage),
+      JSON.stringify({ type: "welcome", me: shownPlayer(spectator), isSpectator: true, players: this.list(), room: this.settings(), spectatorCount: this.spectators.size, hostPlayerId: this.hostPlayerId, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, endsAt: this.endsAt, probeIntervalSec, protocolVersionNumber: PROTOCOL_VERSION_NUMBER } satisfies ServerMessage),
     );
     this.probe(spectator.id);
     // A new connection starts with nothing of the state: a full copy comes with the next round.
@@ -1923,7 +1993,7 @@ export class RoomCore<S = any> {
     }
     this.out(playerId);
     const seatHoldDurationSec = this.hold(player, reason);
-    this.sendText(playerId, JSON.stringify({ type: "away", reason, seatHoldDurationSec } satisfies ServerMessage));
+    this.sendText(playerId, JSON.stringify({ type: "away", awayReason: reason, seatHoldDurationSec } satisfies ServerMessage));
     this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }));
     this.broadcastPlayers();
     if (this.server.awayMode === "lobby" && this.lobbyRoomCode && this.transport.moveTo) {
@@ -1943,7 +2013,7 @@ export class RoomCore<S = any> {
     }
     const held = this.holding(playerId);
     if (!held) return null;
-    const checked = checkRoomData(joinData);
+    const checked = checkRoomData(joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
     const joined = this.join(held.player, { joinData: checked.isValid ? checked.checkedData : null, clientIdle: asked });
     return joined.isAllowed ? null : joined.code;
   }
@@ -2071,7 +2141,8 @@ export class RoomCore<S = any> {
       case "unblock":
         return this.sessionBlock(playerId, message, false);
       default:
-        return "bad_message";
+        // A type this room doesn't know, maybe from a newer SDK: counted and limited above, then ignored.
+        return typeof message.type === "string" ? null : "bad_message";
     }
   }
 
@@ -2180,10 +2251,13 @@ export class RoomCore<S = any> {
   /** The host hides, shows, opens, closes, turns friends' Join on or off, names or labels the room, when the game server allows it. */
   private hostChange(playerId: string, message: Record<string, unknown>): RoomErrorCode | null {
     if (this.hostPlayerId !== playerId) return "not_allowed";
-    const change: Partial<RoomSettings> = tidyRoomInfo(message as RoomInfo);
-    if (typeof message.isListed === "boolean") change.isListed = message.isListed;
-    if (typeof message.isOpen === "boolean") change.isOpen = message.isOpen;
-    if (typeof message.friendJoinsEnabled === "boolean") change.friendJoinsEnabled = message.friendJoinsEnabled;
+    const asked = message.room;
+    if (!asked || typeof asked !== "object" || Array.isArray(asked)) return "bad_message";
+    const room = asked as Record<string, unknown>;
+    const change: Partial<RoomSettings> = tidyRoomInfo(room as RoomInfo);
+    if (typeof room.isListed === "boolean") change.isListed = room.isListed;
+    if (typeof room.isOpen === "boolean") change.isOpen = room.isOpen;
+    if (typeof room.friendJoinsEnabled === "boolean") change.friendJoinsEnabled = room.friendJoinsEnabled;
     this.settle(change);
     this.dirty = true;
     return null;
@@ -2248,8 +2322,8 @@ export class RoomCore<S = any> {
     const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "isKept", "name", "labels", "roomCode"], "room.reserve");
     const playerIds = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].filter((id) => this.players.has(id));
     if (!playerIds.length) throw new Error("room.reserve needs playerIds of players who are in this room");
-    const checked = checkRoomData(given.setupData);
-    if (!checked.isValid) throw new Error(`room.reserve's setupData must be plain JSON up to ${ROOM_LIMITS.maximumRoomDataSizeBytes / 1024} KB`);
+    const checked = checkRoomData(given.setupData, ROOM_LIMITS.maximumSetupDataSizeBytes);
+    if (!checked.isValid) throw new Error(`room.reserve's setupData must be plain JSON up to ${ROOM_LIMITS.maximumSetupDataSizeBytes / 1024} KB`);
     this.limit();
     const nameAndLabels = tidyRoomInfo({ name: given.name ?? null, labels: given.labels ?? {} });
     const newRoomCode = typeof given.roomCode === "string" && isRoomCode(given.roomCode) ? given.roomCode : roomCode();
@@ -2274,8 +2348,8 @@ export class RoomCore<S = any> {
     const given = closed(moveOptions, ["playerIds", "joinData"], "room.moveTo");
     const players = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].map((id) => this.players.get(id)).filter((player): player is Player => Boolean(player));
     if (!players.length) throw new Error("room.moveTo needs playerIds of players who are in this room");
-    const checked = checkRoomData(given.joinData);
-    if (!checked.isValid) throw new Error(`room.moveTo's joinData must be plain JSON up to ${ROOM_LIMITS.maximumRoomDataSizeBytes / 1024} KB`);
+    const checked = checkRoomData(given.joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
+    if (!checked.isValid) throw new Error(`room.moveTo's joinData must be plain JSON up to ${ROOM_LIMITS.maximumJoinDataSizeBytes / 1024} KB`);
     this.limit();
     this.transport.moveTo(toRoomCode, { players, joinData: checked.checkedData });
   }
@@ -2317,12 +2391,12 @@ export class RoomCore<S = any> {
     const held = this.held.get(playerId);
     const isSpectator = this.spectators.has(playerId);
     if ((!player && !held && !isSpectator) || this.ended) return;
-    const message = tidy(given.message, ROOM_LIMITS.maximumMessageCharacterCount) || ERROR_TEXT.kept_out;
+    const message = tidy(given.message, ROOM_LIMITS.maximumKickMessageCharacterCount) || ERROR_TEXT.kept_out;
     const isKeptOut = given.keepOut === true;
     if (isSpectator) {
       if (isKeptOut) this.keepOut({ [playerId]: message });
       this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
-      this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
+      this.transport.close(playerId, REMOVED_CLOSE_CODE, "Removed from the room");
       this.stopWatching(playerId);
       return;
     }
@@ -2331,7 +2405,7 @@ export class RoomCore<S = any> {
     // A player whose connection dropped has none to tell or close.
     if (!this.isLost(playerId)) {
       this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
-      this.transport.close(playerId, REFUSED_CLOSE_CODE, "Removed from the room");
+      this.transport.close(playerId, REMOVED_CLOSE_CODE, "Removed from the room");
     }
     this.held.delete(playerId);
     this.out(playerId);
@@ -2349,7 +2423,7 @@ export class RoomCore<S = any> {
     for (const [id, message] of Object.entries(players ?? {})) {
       if (typeof message !== "string") continue;
       this.keptOut.delete(id);
-      this.keptOut.set(id, message.slice(0, ROOM_LIMITS.maximumMessageCharacterCount));
+      this.keptOut.set(id, message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount));
       if (this.keptOut.size > REMEMBERED_PLAYER_COUNT) this.keptOut.delete(this.keptOut.keys().next().value!);
     }
   }
@@ -2418,8 +2492,8 @@ export class RoomCore<S = any> {
 
   /**
    * Whether a player's connection is backed up: the transport says (the socket's bufferedAmount on your
-   * own server), or, in Zaisma rooms, a probe of theirs is ROOM_LIMITS.backedUpDelayMs later than their
-   * ping with ROOM_LIMITS.backedUpSizeBytes or more sent since the last probe they answered.
+   * own server), or, in Zaisma rooms, a probe of theirs is ROOM_TUNING.backedUpDelayMs later than their
+   * ping with ROOM_TUNING.backedUpSizeBytes or more sent since the last probe they answered.
    */
   isBackedUp(playerId: string): boolean {
     if (!this.isViewer(playerId) || this.isLost(playerId)) return false;
@@ -2427,7 +2501,7 @@ export class RoomCore<S = any> {
     const presence = this.presence.get(playerId);
     const oldest = presence?.unansweredProbes.values().next().value;
     if (!presence || !oldest) return false;
-    return this.now() - oldest.sentAtMs > (presence.pingDurationMs ?? 0) + ROOM_LIMITS.backedUpDelayMs && presence.sentByteCount - presence.answeredSentByteCount >= ROOM_LIMITS.backedUpSizeBytes;
+    return this.now() - oldest.sentAtMs > (presence.pingDurationMs ?? 0) + ROOM_TUNING.backedUpDelayMs && presence.sentByteCount - presence.answeredSentByteCount >= ROOM_TUNING.backedUpSizeBytes;
   }
 
   /** The players who see the state: everyone in the match with a connection, and the spectators. */
@@ -2531,14 +2605,14 @@ export class RoomCore<S = any> {
   startVersionUpdate(versionUpdate: { versionId: string; appliesAt: string; isReloading: boolean }, isHeld: boolean): void {
     if (this.ended || this.versionUpdate?.versionId === versionUpdate.versionId) return;
     this.versionUpdate = versionUpdate;
-    this.sendEach(this.everyone(), JSON.stringify({ type: "versionUpdate", step: "coming", ...versionUpdate } satisfies ServerMessage));
-    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { versionId: versionUpdate.versionId, forcedAt: versionUpdate.appliesAt }, this.api));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "version_update", step: "coming", ...versionUpdate } satisfies ServerMessage));
+    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { ...versionUpdate }, this.api));
   }
 
   /** The switch is happening: every player hears it just before the room closes their connections. */
   tellVersionUpdateNow(): void {
     if (!this.versionUpdate) return;
-    this.sendEach(this.everyone(), JSON.stringify({ type: "versionUpdate", step: "now", ...this.versionUpdate } satisfies ServerMessage));
+    this.sendEach(this.everyone(), JSON.stringify({ type: "version_update", step: "now", ...this.versionUpdate } satisfies ServerMessage));
   }
 
   /**
@@ -2553,11 +2627,12 @@ export class RoomCore<S = any> {
     if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api));
   }
 
-  end(message: string): void {
+  /** End the match: everyone hears message and why (endReason), and their connections close. */
+  end(message: string, endReason: EndReason): void {
     if (this.ended) return;
     this.ended = true;
     this.listingChanged = true;
-    const text = JSON.stringify({ type: "ended", message } satisfies ServerMessage);
+    const text = JSON.stringify({ type: "ended", message, endReason } satisfies ServerMessage);
     for (const id of [...this.players.keys(), ...this.held.keys(), ...this.spectators.keys()]) {
       if (this.isLost(id)) continue;
       this.sendText(id, text);
@@ -2579,11 +2654,10 @@ export class RoomCore<S = any> {
   }
 
   /** room.broadcastBytes: one frame, built once, to the audience (everyone, by default) but exceptPlayerId. */
-  private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BytesBroadcastOptions): void {
+  private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BroadcastOptions): void {
     const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId", "audience", "delivery", "latestKey"], "room.broadcastBytes");
-    const delivery = readDelivery(given, "room.broadcastBytes", "");
-    const fromPlayerId = typeof given.fromPlayerId === "string" ? given.fromPlayerId : null;
-    const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), fromPlayerId);
+    const delivery = readDelivery(given, "room.broadcastBytes");
+    const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), readFromPlayerId(given, "room.broadcastBytes"));
     this.deliver(this.audienceOf(given.audience, "room.broadcastBytes").filter((id) => id !== given.exceptPlayerId), { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
   }
 
@@ -2627,8 +2701,8 @@ export class RoomCore<S = any> {
 
   /**
    * Send a player a text, counting the bytes that went out to them: past
-   * ROOM_LIMITS.maximumUnansweredSentBytes since the last probe they answered, they're dropped;
-   * every ROOM_LIMITS.sentBytesPerProbe, they're probed, so a backed-up connection shows as a late answer.
+   * ROOM_TUNING.maximumUnansweredSentSizeBytes since the last probe they answered, they're dropped;
+   * every ROOM_TUNING.probeSentSizeBytes, they're probed, so a backed-up connection shows as a late answer.
    * A player whose connection dropped gets nothing: nothing is sent, counted or probed until they're back.
    */
   private sendText(playerId: string, text: string, byteCount = utf8ByteCount(text), messageType: string | null = ZAISMA_MESSAGE_TYPE): void {
@@ -2644,8 +2718,8 @@ export class RoomCore<S = any> {
     const presence = this.presence.get(playerId);
     if (!presence) return;
     presence.sentByteCount += byteCount;
-    if (presence.sentByteCount - presence.answeredSentByteCount > ROOM_LIMITS.maximumUnansweredSentBytes) this.dropBehind(playerId);
-    else if (presence.sentByteCount - presence.lastProbeSentByteCount >= ROOM_LIMITS.sentBytesPerProbe) this.probe(playerId);
+    if (presence.sentByteCount - presence.answeredSentByteCount > ROOM_TUNING.maximumUnansweredSentSizeBytes) this.dropBehind(playerId);
+    else if (presence.sentByteCount - presence.lastProbeSentByteCount >= ROOM_TUNING.probeSentSizeBytes) this.probe(playerId);
   }
 
   /** Probe a player for their ping and a clock sample. Probes aren't counted as bytes sent, so a probe never sets off another. */
@@ -2655,7 +2729,7 @@ export class RoomCore<S = any> {
     const probeNumber = ++this.probeCount;
     const nowMs = this.now();
     presence.unansweredProbes.set(probeNumber, { sentAtMs: nowMs, sentByteCount: presence.sentByteCount });
-    if (presence.unansweredProbes.size > ROOM_LIMITS.maximumUnansweredProbeCount) presence.unansweredProbes.delete(presence.unansweredProbes.keys().next().value!);
+    if (presence.unansweredProbes.size > ROOM_TUNING.maximumUnansweredProbeCount) presence.unansweredProbes.delete(presence.unansweredProbes.keys().next().value!);
     presence.lastProbeAtMs = nowMs;
     presence.lastProbeSentByteCount = presence.sentByteCount;
     const text = JSON.stringify({ type: "probe", probeNumber, serverTimeMs: nowMs, pingDurationMs: presence.pingDurationMs } satisfies ServerMessage);
@@ -2663,21 +2737,21 @@ export class RoomCore<S = any> {
     this.countTraffic("outbound", ZAISMA_MESSAGE_TYPE, 1, text.length);
   }
 
-  /** A ticking room probes each player in the match, and each spectator, every ROOM_LIMITS.probeIntervalSec, and drops those who stopped answering. */
+  /** A ticking room probes each player in the match, and each spectator, every ROOM_TUNING.probeIntervalSec, and drops those who stopped answering. */
   private probeDue(): void {
     const nowMs = this.now();
     for (const id of this.everyone()) {
       const presence = this.presence.get(id);
-      if (presence && !this.kept.has(id) && nowMs - presence.lastProbeAtMs >= ROOM_LIMITS.probeIntervalSec * 1000) this.probe(id);
+      if (presence && !this.kept.has(id) && nowMs - presence.lastProbeAtMs >= ROOM_TUNING.probeIntervalSec * 1000) this.probe(id);
     }
     for (const id of [...this.presence.keys()]) this.checkAnswers(id);
   }
 
-  /** A player whose oldest unanswered probe is ROOM_LIMITS.probeAnswerTimeoutSec old is dropped. */
+  /** A player whose oldest unanswered probe is ROOM_TUNING.probeAnswerTimeoutSec old is dropped. */
   private checkAnswers(playerId: string): void {
     if (this.isLost(playerId)) return;
     const oldest = this.presence.get(playerId)?.unansweredProbes.values().next().value;
-    if (oldest && this.now() - oldest.sentAtMs >= ROOM_LIMITS.probeAnswerTimeoutSec * 1000) this.dropBehind(playerId);
+    if (oldest && this.now() - oldest.sentAtMs >= ROOM_TUNING.probeAnswerTimeoutSec * 1000) this.dropBehind(playerId);
   }
 
   /** A probe answer: the player's ping moves a quarter of the way to this sample. False if it answers no probe of theirs. */
@@ -2711,8 +2785,8 @@ export class RoomCore<S = any> {
   /** Token bucket per player: a short burst is fine, a flood is dropped. */
   private take(playerId: string): boolean {
     const nowMs = this.now();
-    const bucket = this.buckets.get(playerId) ?? { tokenCount: ROOM_LIMITS.gameMessageBurstCount, filledAtMs: nowMs };
-    bucket.tokenCount = Math.min(ROOM_LIMITS.gameMessageBurstCount, bucket.tokenCount + ((nowMs - bucket.filledAtMs) / 1000) * ROOM_LIMITS.gameMessagesPerSec);
+    const bucket = this.buckets.get(playerId) ?? { tokenCount: ROOM_LIMITS.maximumGameMessageBurstCount, filledAtMs: nowMs };
+    bucket.tokenCount = Math.min(ROOM_LIMITS.maximumGameMessageBurstCount, bucket.tokenCount + ((nowMs - bucket.filledAtMs) / 1000) * ROOM_LIMITS.maximumGameMessagesPerSec);
     bucket.filledAtMs = nowMs;
     this.buckets.set(playerId, bucket);
     if (bucket.tokenCount < 1) return false;
@@ -2804,21 +2878,23 @@ type Outgoing = { text: string; messageType: string } | { frame: Uint8Array; mes
 /** A send's delivery as the room acts on it: latest-only, with its latestKey, or reliable. */
 type ReadDelivery = { isLatestOnly: false } | { isLatestOnly: true; latestKey: string };
 
-/** A latest-only message's latestKey when the game gives none: its type field when that's text, else "". */
-function defaultLatestKey(message: unknown): string {
-  const type = message && typeof message === "object" ? (message as { type?: unknown }).type : undefined;
-  return typeof type === "string" ? type : "";
-}
-
-/** A send's delivery and latestKey, checked: mistakes throw, naming what to give. defaultKey is the latestKey when it gives none. */
-function readDelivery(given: SendOptions, call: string, defaultKey: string): ReadDelivery {
+/** A send's delivery and latestKey, checked: mistakes throw, naming what to give. latest_only needs its latestKey. */
+function readDelivery(given: SendOptions, call: string): ReadDelivery {
   const { delivery, latestKey } = given;
   if (delivery !== undefined && delivery !== "reliable" && delivery !== "latest_only") throw new Error(`${call}'s delivery is ${JSON.stringify(delivery)}. Give "reliable" (the default) or "latest_only".`);
   if (latestKey !== undefined && (typeof latestKey !== "string" || latestKey.length > ROOM_LIMITS.maximumLatestKeyCharacterCount)) {
     throw new Error(`${call}'s latestKey must be text up to ${ROOM_LIMITS.maximumLatestKeyCharacterCount} characters, like "positions".`);
   }
   if (delivery !== "latest_only") return { isLatestOnly: false };
-  return { isLatestOnly: true, latestKey: latestKey ?? defaultKey };
+  if (latestKey === undefined) throw new GameServerError("bad_option", "latestKey", `${call}'s delivery is "latest_only" with no latestKey.`, 'latest_only needs a latestKey: the slot this update replaces, like "position".');
+  return { isLatestOnly: true, latestKey };
+}
+
+/** Who a send says it's from (SendOptions.fromPlayerId), or null for the game server. */
+function readFromPlayerId(given: SendOptions, call: string): string | null {
+  if (given.fromPlayerId === undefined) return null;
+  if (typeof given.fromPlayerId !== "string" || !given.fromPlayerId) throw new Error(`${call}'s fromPlayerId must be a player's ID, like player.id.`);
+  return given.fromPlayerId;
 }
 
 /** Bytes a game handed the room, as a Uint8Array: anything else is a mistake in the game's call. */

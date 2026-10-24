@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -33,7 +33,7 @@ const DEAD_MS = 75 * 1000;
 /** The most of a request read: the request, its pass and the JSON around them. */
 const MAXIMUM_REQUEST_BODY_SIZE_BYTES = REQUEST_LIMITS.maximumRequestSizeBytes + REQUEST_LIMITS.maximumPassSizeBytes + 1024;
 /** The most of one WebSocket message: a hello with the fullest pass and joinData at its limit, with room for its other fields. Messages after it are held to ROOM_LIMITS.maximumGameMessageSizeBytes. */
-const MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES = REQUEST_LIMITS.maximumPassSizeBytes + ROOM_LIMITS.maximumRoomDataSizeBytes + 4 * 1024;
+const MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES = REQUEST_LIMITS.maximumPassSizeBytes + ROOM_LIMITS.maximumJoinDataSizeBytes + 4 * 1024;
 /** A reserved room nobody comes to is dropped after this. */
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
@@ -43,7 +43,7 @@ const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often saved states of rooms that emptied over a day ago are deleted. */
 const ROOM_STATE_SWEEP_MS = 3600 * 1000;
 /** A player whose socket holds this much not yet sent is backed up: state sync skips them, and latest-only messages wait. */
-const BACKED_UP_SIZE_BYTES = ROOM_LIMITS.backedUpSizeBytes;
+const BACKED_UP_SIZE_BYTES = ROOM_TUNING.backedUpSizeBytes;
 /** How often rooms with something waiting for a backed-up player check whether they caught up. */
 const CATCH_UP_MS = 50;
 
@@ -399,7 +399,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
           const target = rooms.get(next);
           const answer = target && next !== code
             ? target.core.expect({ ...ask, fromRoomCode: code })
-            : Promise.resolve({ movedPlayerIds: [], refusals: ask.players.map((player) => ({ playerId: player.id, code: "no_room", message: ERROR_TEXT.no_room })) });
+            : Promise.resolve({ movedPlayerIds: [], refusals: ask.players.map((player) => ({ playerId: player.id, code: "room_not_running", message: ERROR_TEXT.room_not_running })) });
           answer
             .then((moveAnswer) => {
               if (target && moveAnswer.movedPlayerIds.length) wait(next, target, SEAT_MS);
@@ -509,7 +509,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   // A room with only spectators left has no match to watch: they're told it ended and go, so it empties.
   function dismissSpectatorsIfAlone(room) {
     if ([...room.sockets.keys()].some((id) => !room.core.spectators.has(id))) return;
-    const text = JSON.stringify({ type: "ended", message: "The match ended." });
+    const text = JSON.stringify({ type: "ended", message: "The match ended.", endReason: "no_players" });
     for (const [id, ws] of [...room.sockets]) {
       room.sockets.delete(id);
       room.core.leave(id);
@@ -563,10 +563,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
     const refuse = (code, message) => {
       ws.send(errorMessage(code, message));
-      ws.close(REFUSED_CLOSE_CODE, code);
+      ws.close(REMOVED_CLOSE_CODE, code);
     };
-    if (!address || address[1] !== game || !isRoomCode(address[2])) return ws.close(REFUSED_CLOSE_CODE, "Unknown room");
-    if (origins.length && !origins.includes(request.headers.origin)) return ws.close(REFUSED_CLOSE_CODE, "Not allowed from here");
+    // Refused before the hello too, with a code the SDK reads: a browser never sees why a socket closed otherwise.
+    if (!address || address[1] !== game || !isRoomCode(address[2])) return refuse("game_unavailable");
+    if (origins.length && !origins.includes(request.headers.origin)) return refuse("bad_origin");
     if (typeof definition.setup !== "function") return refuse("game_unavailable", "This game server has no setup(), so it runs no rooms: it only answers requests, runs on schedules or takes webhooks.");
     const code = address[2];
     let playerId = null;
@@ -595,9 +596,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
         pass = hello.pass;
         isSpectator = hello.isSpectator === true;
-        if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === false ? { isListed: false } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
+        if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === true ? { isListed: true } : {}), ...(hello.room.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}), ...tidyRoomInfo(hello.room) };
         made.clientIdle = clientIdle(hello);
-        const checked = checkRoomData(hello.joinData);
+        const checked = checkRoomData(hello.joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
         if (!checked.isValid) return refuse("too_big");
         made.joinData = checked.checkedData;
       } catch {
@@ -616,7 +617,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       const { player, claims } = checked;
       clearTimeout(helloTimer);
       // A spectator watches a match: one with nobody in it isn't running, and a spectator never starts one.
-      if (isSpectator && !(rooms.get(code)?.core.players.size > 0)) return refuse("no_room");
+      if (isSpectator && !(rooms.get(code)?.core.players.size > 0)) return refuse("room_not_running");
       const room = roomFor(code);
       // The room's rules and the game's canJoin, before anyone hears about this player.
       const admitted = await room.core.admit(player, made.joinData, { isSpectator });
@@ -624,7 +625,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         closeIfEmpty(code, room);
         return refuse(admitted.code, admitted.message);
       }
-      room.sockets.get(player.id)?.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
+      room.sockets.get(player.id)?.close(REMOVED_CLOSE_CODE, "Joined from somewhere else");
       room.sockets.set(player.id, ws);
       // Blocks between accounts come in their passes: this player's and those of everyone the room remembers.
       // Spectators send nothing, so nothing of theirs reaches a player to block.
