@@ -188,7 +188,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : null;
   const gamePane = glassPane({
-    paneWidth: "fit",
+    paneWidth: "full",
     label: game.title,
     body: stack({
       items: [

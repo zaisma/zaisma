@@ -75,7 +75,7 @@ html.is-playing .game-frame { display: block; animation: playing-in 0.4s cubic-b
 .game-frame:focus-visible { outline: none; }
 @keyframes playing-in { from { opacity: 0; } }
 /* Going in: the panes and the background fade first (is-leaving), then the page turns into the game. */
-html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: opacity 0.25s ease; }
+html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, .dropdown, dialog), html.is-leaving body > :is(.top, .backdrop, .foot, .rail) { opacity: 0; transition: var(--glass-transition), opacity 0.25s ease; }
 @media (prefers-reduced-motion: reduce) { html.is-leaving body > * { transition: none; } }
 
 /* The bar: one slim slab of glass above the game, Zaisma's mark at its start and the game's buttons at its end. */
@@ -130,7 +130,6 @@ const STAND_IN_CONTROLS = (): ControlMarkup[] => [
   cutButton("Players", { type: "button", icon: "people", isLabelHidden: true, isSmall: true }),
   cutButton("Join", { type: "button", icon: "hash", isSmall: true }),
   cutButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }),
-  cutButton("Full screen", { type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true }),
   cutButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false }),
 ];
 
