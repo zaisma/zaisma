@@ -497,12 +497,36 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
   });
 }
 
-/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively. */
+/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively.
+ *  A browser that can't keep a closing dialog in the top layer (CSS \`overlay\`: WebKit) stops drawing it the moment it closes, so its
+ *  exit never shows: there, every close (Esc, a dialog-method button, a press beside it, a script's close()) waits while it leaves. */
 export const SHEET_SCRIPT = `/* sheets */(function () {
+  var close = HTMLDialogElement.prototype.close;
+  var isHeldOpen = !CSS.supports("overlay", "auto");
+  function isLeaving(sheet) { return isHeldOpen && sheet.open && sheet.matches(".sheet:not(.in-place)") && !matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  function leave(sheet, closeArguments) {
+    if (sheet.classList.contains("is-leaving")) return;
+    sheet.classList.add("is-leaving");
+    var timer = setTimeout(done, 400);
+    function end(event) { if (event.target === sheet && event.propertyName === "opacity") done(); }
+    function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
+    sheet.addEventListener("transitionend", end);
+  }
+  if (isHeldOpen) {
+    HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
+    document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
+    document.addEventListener("submit", function (event) {
+      var method = (event.submitter && event.submitter.getAttribute("formmethod")) || event.target.getAttribute("method");
+      var sheet = event.target.closest("dialog");
+      if (!method || method.toLowerCase() !== "dialog" || !sheet || !isLeaving(sheet)) return;
+      event.preventDefault();
+      leave(sheet, event.submitter && event.submitter.hasAttribute("value") ? [event.submitter.value] : []);
+    });
+  }
   document.addEventListener("click", function (event) {
     var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
     var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
-    if (named && named.matches("dialog.sheet")) { event.preventDefault(); if (!named.open) named.showModal(); return; }
+    if (named && named.matches("dialog.sheet")) { event.preventDefault(); named.classList.remove("is-leaving"); if (!named.open) named.showModal(); return; }
     var open = event.target.matches && event.target.matches("dialog.sheet[open]") ? event.target : null;
     if (!open || !event.detail) return;
     var r = open.getBoundingClientRect();
@@ -526,14 +550,14 @@ const SHEET_STYLES = `
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
-.sheet:not([open]) { opacity: 0; transform: translateY(16px) scale(0.98); transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
+.sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
-.sheet:not([open])::backdrop { opacity: 0; }
+.sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
 .sheet.placement-foot:not(.in-place) { margin: auto auto var(--pad-pane); }
-.sheet.placement-foot:not([open]) { transform: translateY(40px); }
+.sheet.placement-foot:is(:not([open]), .is-leaving) { transform: translateY(40px); }
 @starting-style { .sheet.placement-foot[open] { transform: translateY(40px); } }
 .sheet.placement-foot::backdrop { background: transparent; }
 /* In place (the gallery's still copy): a pane where it sits, in the page's flow, so it shows whole: there's no window to fit. */
