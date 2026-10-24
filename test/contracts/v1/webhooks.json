@@ -1,0 +1,87 @@
+{
+  "WebhookEvent": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "kind": ": WebhookEventKind | (string & {})",
+      "created_at": ": string",
+      "game": ": Record<string, unknown> | null",
+      "version": ": Record<string, unknown> | null",
+      "bug_report": ": Record<string, unknown> | null",
+      "player_report": ": Record<string, unknown> | null",
+      "game_server_error": ": Record<string, unknown> | null",
+      "alert": ": Record<string, unknown> | null",
+      "account_deletion": ": AccountDeletion | null",
+      "sign_in_app": ": Record<string, unknown> | null",
+      "security_event": ": Record<string, unknown> | null"
+    }
+  },
+  "WebhookEventKind": {
+    "kind": "values",
+    "values": [
+      "account_deleted",
+      "alert_raised",
+      "bug_reported",
+      "country_blocks_changed",
+      "game_server_error_found",
+      "live_version_changed",
+      "player_reported",
+      "review_status_changed",
+      "scan_status_changed",
+      "security_alert",
+      "test"
+    ]
+  },
+  "AccountDeletion": {
+    "kind": "fields",
+    "fields": {
+      "player_id": ": string",
+      "deleted_account_erase_enabled": ": boolean"
+    }
+  },
+  "WebhookHeaders": {
+    "kind": "fields",
+    "fields": {
+      "webhookId": ": string | null",
+      "webhookTimestamp": ": string | null",
+      "webhookSignature": ": string | null"
+    }
+  },
+  "WebhookError": {
+    "kind": "fields",
+    "fields": {
+      "code": ": WebhookErrorCode",
+      "message": ": string",
+      "fix": ": string"
+    }
+  },
+  "WebhookErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_signature",
+      "bad_signing_secret",
+      "game_server_error",
+      "missing_headers",
+      "no_webhook_handler",
+      "not_an_event",
+      "old_timestamp",
+      "too_large"
+    ]
+  },
+  "WEBHOOK_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "answerTimeoutSec": 10,
+      "maximumEventSizeBytes": 16777216,
+      "timestampToleranceDurationSec": 300
+    }
+  },
+  "verifyWebhook": {
+    "kind": "signature",
+    "signature": "(signingSecret: string, headers: WebhookHeaders, body: string, nowMs?: number): Promise<{ event: WebhookEvent; } | { error: WebhookError; }>"
+  },
+  "runWebhook": {
+    "kind": "signature",
+    "signature": "(handler: WebhookHandler, event: WebhookEvent, server: Server): Promise<{ isDone: true; } | { error: WebhookError; }>"
+  }
+}

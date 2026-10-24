@@ -233,17 +233,17 @@ describe("sandboxed game servers", () => {
   setup: () => ({}),
   onMessage(state, player, message, room) {
     const other = room.players.find((each) => each.id !== player.id);
-    if (message === "check" && other) room.send(player.id, { hasBlockBetween: room.hasBlockBetween(player.id, other.id), areFriends: room.areFriends(player.id, other.id) });
+    if (message === "check" && other) room.send(player.id, { passesHaveBlockBetween: room.hasBlockBetween(player.id, other.id), passesAreFriends: room.areFriends(player.id, other.id) });
   },
 };`,
     );
     const a = await join("walled", "WALLED");
     const b = await join("walled", "WALLED");
     a.say("check");
-    expect(await a.next()).toEqual({ type: "message", data: { hasBlockBetween: false, areFriends: false } });
+    expect(await a.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: false, passesAreFriends: false } });
     a.ws.send(JSON.stringify({ type: "block", playerId: b.player.id }));
     b.say("check");
-    expect(await b.next()).toEqual({ type: "message", data: { hasBlockBetween: true, areFriends: false } });
+    expect(await b.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: true, passesAreFriends: false } });
   });
 
   it("reads each player's ping and the room's clock", async () => {
@@ -681,7 +681,7 @@ function tickingSession(asked: { method: string; queued?: any[]; roomChanges?: a
   };
 }
 
-const ROOM = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, awayReason: () => null, hasBlockBetween: () => false, areFriends: () => false, serverTimeMs: () => Date.now() } as never;
+const ROOM = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {}, endsAt: null, pingDurationMs: () => null, awayReason: () => null, passesHaveBlockBetween: () => false, passesAreFriends: () => false, serverTimeMs: () => Date.now() } as never;
 const PLAYER = { id: "player_a", name: "A", kind: "guest" as const };
 
 describe("a game server whose sandbox keeps failing", () => {

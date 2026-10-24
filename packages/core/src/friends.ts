@@ -3,7 +3,7 @@
  * invite the other made, a link or an 8-character code given by hand, never by a stranger pressing
  * "Add friend". An invite works once, for a week. Friends are symmetric, at most MAXIMUM_FRIEND_COUNT
  * each, and both sides go when either removes the other or deletes their account. Passes carry an
- * account's friends' player IDs, so canChat can let friends chat. A block between two accounts
+ * account's friends as opaque tags, so canChat can let friends chat. A block between two accounts
  * (blocks.ts) ends their friendship and keeps them from becoming friends again until it's undone.
  */
 
@@ -152,7 +152,7 @@ export async function friendsAmong(database: D1Database, playerId: string, other
   return results.map((row) => row.player_id);
 }
 
-/** An account's friends' player IDs, for its passes (as tags, friend_tag_ids). */
+/** An account's friends' player IDs, for its passes (as tags, friend_player_tag_ids). */
 export async function friendPlayerIdsOf(database: D1Database, accountId: string): Promise<string[]> {
   const { results } = await database
     .prepare("SELECT accounts.player_id FROM friendships JOIN accounts ON accounts.id = friendships.friend_account_id WHERE friendships.account_id = ? ORDER BY friendships.created_at_ms, accounts.player_id")

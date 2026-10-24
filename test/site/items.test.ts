@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { unzipSync } from "fflate";
 import { accountById, createAccount, createApiKey, gameBySlug, gameRowDeletions, newGrant, recordGrant } from "@zaisma/core";
-import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server";
+import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server/internal";
 import { accountDataZip } from "../../apps/site/src/account-data.ts";
 import { purchasesRoute } from "../../apps/site/src/items-api.ts";
 import type { Caller, CheckedCall } from "../../apps/site/src/developer.ts";
@@ -148,10 +148,10 @@ describe("grants", () => {
     expect(schemaProblems(PURCHASE, granted.answer.purchase)).toEqual([]);
     expect(granted.answer).toMatchObject({ is_already_owned: false, purchase: { purchase_source: "grant", purchase_status: "completed", item_count: 1, price_minor_units: null, game_account_id: "patreon-4417" } });
     const keys = await receiptKeys();
-    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { game: "sky-hopper", issuer: ISSUER });
+    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER });
     expect(claims).toMatchObject({ sub: playerId, aud: "sky-hopper", kind: "receipt", jti: granted.answer.purchase.id, item_name: "supporter_cape", item_kind: "permanent", purchase_source: "grant", game_account_id: "patreon-4417" });
-    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { game: "moon-base", issuer: ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
-    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { game: "sky-hopper", issuer: ISSUER }).catch((error: unknown) => error);
+    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "moon-base", issuerUrl: ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
+    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER }).catch((error: unknown) => error);
     expect(asPass).toBeInstanceOf(PassError);
     expect((asPass as PassError).code).toBe("wrong_kind");
     // The same purchase always signs to the same receipt.

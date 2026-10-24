@@ -1,5 +1,5 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server";
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
@@ -50,6 +50,8 @@ export interface Env extends RelayEnv {
   GAME_ORIGIN: string;
   GAME_DOMAIN: string;
   PASS_SIGNING_KEY: string;
+  /** 32 random bytes, base64: keys the player tags and chat groups in passes, apart from the signing key so replacing that never changes a tag. */
+  PLAYER_TAG_KEY: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
   ROOM_LIST_CACHE_SECONDS?: string;
 }
@@ -132,7 +134,7 @@ export { signingKey } from "./signing.ts";
 /**
  * The opaque chat group an open-and-social account carries in this game's passes: a keyed hash of the
  * game and the band group, so players in the same group match and nobody can tell which group is which
- * age, or link a group across games. Keyed with the pass signing secret, which never leaves Zaisma.
+ * age, or link a group across games. Keyed with PLAYER_TAG_KEY, which never leaves Zaisma.
  */
 export async function chatGroupId(env: Env, slug: string, bandGroup: string): Promise<string> {
   return `chat_group_${await keyedHash(env, `chat_group:${slug}:${bandGroup}`)}`;
@@ -148,9 +150,13 @@ export async function playerTag(env: Env, slug: string, playerId: string): Promi
 }
 
 let hashing: { secret: string; key: Promise<CryptoKey> } | null = null;
-/** 20 hex characters of an HMAC keyed with the pass signing secret, which never leaves Zaisma. */
+/** 20 hex characters of an HMAC keyed with PLAYER_TAG_KEY's bytes, which never leave Zaisma. */
 async function keyedHash(env: Env, text: string): Promise<string> {
-  if (hashing?.secret !== env.PASS_SIGNING_KEY) hashing = { secret: env.PASS_SIGNING_KEY, key: crypto.subtle.importKey("raw", new TextEncoder().encode(env.PASS_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) };
+  if (hashing?.secret !== env.PLAYER_TAG_KEY) {
+    const keyBytes = Uint8Array.from(atob(env.PLAYER_TAG_KEY), (character) => character.charCodeAt(0));
+    if (keyBytes.length < 32) throw new Error("PLAYER_TAG_KEY must be 32 random bytes, base64 (openssl rand -base64 32)");
+    hashing = { secret: env.PLAYER_TAG_KEY, key: crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) };
+  }
   const digest = new Uint8Array(await crypto.subtle.sign("HMAC", await hashing.key, new TextEncoder().encode(text)));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 20);
 }
@@ -241,11 +247,11 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
 
   let player: Player;
   try {
-    const claims = await verifyPass(body.pass, [(await signingKey(env)).publicKey], { game: slug, issuer: env.ISSUER });
+    const claims = await verifyPass(body.pass, [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
     // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? await accountName(env, claims.sub) : claims.name;
     if (!name) return requestFailure("bad_pass", cors);
-    player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
+    player = { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return requestFailure("bad_pass", cors);
@@ -284,7 +290,7 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
   if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
   let claims: PassClaims;
   try {
-    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { game: slug, issuer: env.ISSUER });
+    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "This player's pass didn't check out. Zaisma.player() gets a new one.", 401, cors);
@@ -336,7 +342,7 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   if (!Array.isArray(recentTexts) || !recentTexts.every((recentText) => typeof recentText === "string")) return failure("bad_request", "recentTexts takes a list of the sender's last messages, oldest first.", 400, undefined, "recentTexts");
 
   const keys = [(await signingKey(env)).publicKey];
-  const check = async (pass: unknown) => verifyPass(typeof pass === "string" ? pass : "", keys, { game: slug, issuer: env.ISSUER });
+  const check = async (pass: unknown) => verifyPass(typeof pass === "string" ? pass : "", keys, { gameSlug: slug, issuerUrl: env.ISSUER });
   let sender: PassClaims;
   try {
     sender = await check(body.senderPass);
@@ -353,10 +359,15 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   }
   // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else.
   if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender.sub}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
+  // One verdict for the message, never which receiver.
+  if (receivers.some((receiver) => receiver.sub !== sender.sub && !canChat(sender, receiver))) {
+    return json({ isAllowed: false, reason: "not_allowed_to_chat", message: CHAT_BLOCK_MESSAGES.not_allowed_to_chat, hasSwearing: false });
+  }
 
   const answer = await filterChatMessage(env, {
     gameId: game.id,
-    text: tidyText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount),
+    text: body.text,
     senderPlayerId: sender.sub,
     receiverPlayerIds: receivers.map((receiver) => receiver.sub),
     recentTexts: recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)),
@@ -418,6 +429,9 @@ export default {
       // Zaisma checks again on its side as each message is delivered (chat-filter.ts).
       if (url.pathname === "/v1/filter") {
         if (await limited(env.FILTER_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+        if (String(body.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) {
+          return json({ isAllowed: false, reason: "too_long", message: CHAT_BLOCK_MESSAGES.too_long, hasSwearing: false, text: "" }, 200, cors);
+        }
         const text = tidyText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
         const rules = checkChatText(text);
         let reason = rules.reason as keyof typeof CHAT_BLOCK_MESSAGES | null;
@@ -425,7 +439,7 @@ export default {
           const checked = env.CHAT_CHECK ? await env.CHAT_CHECK.checkUnclear({ text, recentTexts: [], isAdultToMinor: false }).catch(() => ({ verdict: "unchecked" as const })) : { verdict: "unchecked" as const };
           reason = checked.verdict === "blocked" ? checked.reason : checked.verdict === "unchecked" ? "unchecked" : null;
         }
-        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, text }, 200, cors);
+        return json({ isAllowed: reason === null, reason, message: reason ? CHAT_BLOCK_MESSAGES[reason] : null, hasSwearing: rules.hasSwearing, text: tidyChatText(body.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount) }, 200, cors);
       }
 
       if (url.pathname === "/v1/pass") {
@@ -451,16 +465,16 @@ export default {
           ? {
               // An account whose chat the filter stopped chats with nobody, so own servers stop it too with its next pass.
               who_can_chat: isChatStopped(account) ? "nobody" : socialSettingsOf(account).who_can_chat,
-              ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}),
-              player_tag: await playerTag(env, slug, account.player_id),
-              friend_tag_ids: await Promise.all((await friendPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
-              block_tag_ids: await Promise.all((await blockPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
+              ...(bandGroup ? { chat_group_id: await chatGroupId(env, slug, bandGroup) } : {}),
+              player_tag_id: await playerTag(env, slug, account.player_id),
+              friend_player_tag_ids: await Promise.all((await friendPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
+              block_player_tag_ids: await Promise.all((await blockPlayerIdsOf(env.DB, account.id)).map((playerId) => playerTag(env, slug, playerId))),
             }
           : {};
         // The permanent items the account owns here, so any game server sees them on connect without calling Zaisma.
         const ownedNames = account ? await ownedItemNames(env.DB, game.id, account.player_id) : [];
         const owned = ownedNames.length ? { owned_item_names: ownedNames } : {};
-        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, ...owned, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, pass_version_number: PASS_VERSION_NUMBER, kind: player.kind, ...chat, ...owned, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }

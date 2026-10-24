@@ -27,7 +27,8 @@
     "design:catalog": "node scripts/design-catalog.mjs",
     "layout:check": "node scripts/layout-check.mjs",
     "components:minify": "node scripts/minify-components.mjs",
-    "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
+    "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts",
+    "contracts:baseline": "CONTRACTS_WRITE_BASELINE=1 vitest run --project contracts"
   },
   "overrides": {
     "@puppeteer/browsers": "3.2.5"

@@ -20,7 +20,7 @@ export interface ChatMessage {
   text: string;
   senderPlayerId: string;
   receiverPlayerIds: string[];
-  /** The sender's last messages, oldest first: up to CHAT_FILTER_LIMITS.recentTextCount from the last recentTextWindowMs. */
+  /** The sender's last messages, oldest first: up to CHAT_FILTER_LIMITS.recentTextCount from the last recentTextDurationMs. */
   recentTexts: string[];
   source: ChatSource;
 }
@@ -40,6 +40,8 @@ const stopped = (reason: ChatFilterReason, hasSwearing = false): ChatFilterAnswe
 
 /** One verdict per message for every receiver, so it never tells a game which of them is under 18. */
 export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Date.now()): Promise<ChatFilterAnswer> {
+  // The whole message is checked or none of it: a longer one is refused, never cut.
+  if (String(chat.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) return stopped("too_long");
   const text = tidyText(chat.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
   const recentTexts = chat.recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount));
   const playerIds = [...new Set([chat.senderPlayerId, ...chat.receiverPlayerIds])];
