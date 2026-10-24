@@ -607,7 +607,7 @@ const NOT_SPACING = new Set<string>([
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
+  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
@@ -640,8 +640,8 @@ const NOT_SPACING = new Set<string>([
   ".dropdown | gap",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", "html | scroll-padding-top", ".gallery-layout | padding-right",
-  ".choice-list-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-in.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".sheet-body.own-scroll:has(+ .rail:not([hidden])) | padding-right",
-  ".select-options.own-scroll:has(+ .rail:not([hidden])) | padding-right", ".field.long textarea.is-scrolling | padding-right",
+  ".choice-list-in.own-scroll.shows-rail | padding-right", ".sheet-in.own-scroll.shows-rail | padding-right", ".sheet-body.own-scroll.shows-rail | padding-right",
+  ".select-options.own-scroll.shows-rail | padding-right", ".field.long textarea.is-scrolling | padding-right",
   // Where a small thing sits on what it marks: a rail's tick, a cover's line.
   ".rail-mark | margin-top", ".rail.sideways .rail-mark | margin", ".cover-bar | margin-top", ".text-line | margin-top",
   // Lines a box's or a card's icon up with the first line of its words.

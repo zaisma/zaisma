@@ -193,8 +193,13 @@ textarea:focus{border-color:var(--accent)}
   const actions = [];
   const isOurs = (event) => event.composedPath().includes(host);
   const labelOf = (target) => (target instanceof Element && target !== document.documentElement ? chipText(describe(target)) : "");
-  function record(action, isRun) {
+  // An action's element is named only when a comment sends it: naming it runs the inspector and reads the layout, which in
+  // WebKit held a tap's frame for most of a second and cut the start off whatever the tap set moving.
+  const actionTargets = new WeakMap();
+  const named = (entry) => (actionTargets.has(entry) ? { ...entry, element_label: labelOf(actionTargets.get(entry)) } : entry);
+  function record(action, isRun, target) {
     const entry = { ...action, at_ms: Math.round(performance.now()) };
+    if (target) actionTargets.set(entry, target);
     if (isRun && actions.at(-1)?.kind === action.kind && actions.at(-1)?.pointer_type === action.pointer_type) actions[actions.length - 1] = entry;
     else actions.push(entry);
     if (actions.length > MAXIMUM_ACTION_COUNT) actions.shift();
@@ -204,7 +209,7 @@ textarea:focus{border-color:var(--accent)}
     const pointerType = event.pointerType === "touch" || event.pointerType === "pen" ? "touch" : "mouse";
     // A touch only moves while it's down; a mouse's moves are where it points.
     if (kind === "move" && pointerType === "touch" && !event.pressure) return;
-    record({ kind, x_px: event.clientX, y_px: event.clientY, pointer_type: pointerType, element_label: kind === "move" ? "" : labelOf(event.target) }, kind === "move");
+    record({ kind, x_px: event.clientX, y_px: event.clientY, pointer_type: pointerType, element_label: "" }, kind === "move", kind === "move" ? null : event.target);
   };
   addEventListener("pointermove", pointerAction("move"), { capture: true, passive: true });
   addEventListener("pointerdown", pointerAction("press"), { capture: true, passive: true });
@@ -212,7 +217,7 @@ textarea:focus{border-color:var(--accent)}
   addEventListener("keydown", (event) => {
     if (isOurs(event) || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key) || event.metaKey || event.ctrlKey) return;
     if (event.target?.type === "password") return;
-    record({ kind: "key", key: event.key, element_label: labelOf(event.target) }, false);
+    record({ kind: "key", key: event.key, element_label: "" }, false, event.target);
   }, { capture: true });
   addEventListener("scroll", (event) => event.target === document && record({ kind: "scroll", scroll_x_px: scrollX, scroll_y_px: scrollY }, true), { capture: true, passive: true });
 
@@ -352,7 +357,7 @@ textarea:focus{border-color:var(--accent)}
       snapshotHtml = snapshot();
     } catch {}
     const screen = { page_url: pageUrl(), is_in_frame: isInFrame, viewport_width_px: innerWidth, viewport_height_px: innerHeight, scroll_x_px: scrollX, scroll_y_px: scrollY, theme: theme() };
-    return { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.slice(), screen };
+    return { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.map(named), screen };
   }
   // The form, by the spot it's about (shownRect: where that is on this page, when it's in a frame).
   function openDraft(draft) {
