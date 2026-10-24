@@ -164,6 +164,8 @@
       "onBack",
       "onMessage",
       "onBytes",
+      "onPurchase",
+      "onRefund",
       "onTick",
       "onEnding",
       "onRestored",
@@ -211,6 +213,8 @@
       "onAway": "?: ((state: S, player: Player, room: Room, awayInfo: AwayInfo) => HandlerResult<S>) | undefined",
       "onBack": "?: ((state: S, player: Player, room: Room) => HandlerResult<S>) | undefined",
       "onMessage": "?: ((state: S, player: Player, room: Room, message: unknown) => HandlerResult<S>) | undefined",
+      "onPurchase": "?: ((state: S, player: Player, room: Room, purchase: Purchase) => HandlerResult<S>) | undefined",
+      "onRefund": "?: ((state: S, player: Player, room: Room, purchase: Purchase) => HandlerResult<S>) | undefined",
       "onBytes": "?: ((state: S, player: Player, room: Room, bytes: Uint8Array<ArrayBufferLike>) => HandlerResult<S>) | undefined",
       "onTick": "?: ((state: S, tickDurationSec: number, room: Room) => HandlerResult<S>) | undefined",
       "onEnding": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
@@ -420,6 +424,23 @@
       "x": "?: string | undefined",
       "y": "?: string | undefined",
       "kid": ": string"
+    }
+  },
+  "Purchase": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "itemName": ": string",
+      "itemKind": ": \"permanent\" | \"consumable\"",
+      "itemCount": ": number",
+      "purchaseSource": ": \"sale\" | \"grant\"",
+      "purchaseStatus": ": \"completed\" | \"refunded\" | \"charged_back\"",
+      "gameAccountId": ": string | null",
+      "paidMinorUnits": ": number | null",
+      "currencyCode": ": string | null",
+      "purchasedAt": ": string | null",
+      "refundedAt": ": string | null",
+      "receipt": ": string"
     }
   },
   "RECEIPT_ISSUER_URL": {
@@ -748,7 +769,8 @@
       "alert": ": Record<string, unknown> | null",
       "account_deletion": ": AccountDeletion | null",
       "sign_in_app": ": Record<string, unknown> | null",
-      "security_event": ": Record<string, unknown> | null"
+      "security_event": ": Record<string, unknown> | null",
+      "purchase": ": Record<string, unknown> | null"
     }
   },
   "WebhookEventKind": {
@@ -761,6 +783,8 @@
       "game_server_error_found",
       "live_version_changed",
       "player_reported",
+      "purchase_completed",
+      "purchase_refunded",
       "review_status_changed",
       "scan_status_changed",
       "security_alert",
@@ -848,7 +872,9 @@
       "database": "?: GameDatabase | undefined",
       "secrets": "?: Readonly<Record<string, string>> | undefined",
       "webhookSigningSecret": "?: string | undefined",
-      "roomStateFile": "?: string | null | undefined"
+      "roomStateFile": "?: string | null | undefined",
+      "zaismaKey": "?: string | undefined",
+      "developerApiUrl": "?: string | undefined"
     }
   },
   "startServer": {

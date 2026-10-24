@@ -152,6 +152,8 @@ function isGrownFrom(was: string, now: string): boolean {
 function isWidenedFrom(was: unknown, now: unknown, key = ""): boolean {
   if (JSON.stringify(was) === JSON.stringify(now)) return true;
   if (typeof was === "number" && typeof now === "number") return (key.startsWith("maximum") && now > was) || (key.startsWith("minimum") && now < was);
+  // A list of names (like GAME_SERVER_OPTIONS) widens when it keeps every name it had.
+  if (Array.isArray(was) && Array.isArray(now) && was.every((entry) => typeof entry === "string")) return was.every((entry) => now.includes(entry));
   if (!was || !now || typeof was !== "object" || typeof now !== "object" || Array.isArray(was) || Array.isArray(now)) return false;
   return Object.entries(was).every(([field, value]) => field in now && isWidenedFrom(value, (now as Record<string, unknown>)[field], field));
 }

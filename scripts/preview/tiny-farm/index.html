@@ -51,7 +51,7 @@ function save() {
   tx.oncomplete = () => show("Saved in IndexedDB at " + new Date().toLocaleTimeString());
 }
 
-(async () => {
+const loaded = (async () => {
   // Kept open the whole time, like Emscripten's file system does.
   db = await openDb("/idbfs", 21, (d) => d.createObjectStore("FILE_DATA").createIndex("timestamp", "timestamp"));
   const cache = await openDb("UnityCache", 1, (d) => d.createObjectStore("files"));
@@ -61,10 +61,22 @@ function save() {
     if (r.result) farm = JSON.parse(new TextDecoder().decode(r.result.contents));
     show(r.result ? "Loaded from IndexedDB" : "A new farm");
   };
+  await new Promise((done) => r.addEventListener("success", done));
 })();
 
 document.getElementById("harvest").onclick = () => { farm.carrots++; save(); };
 document.getElementById("reset").onclick = () => { farm = { carrots: 0 }; save(); };
+// Purchases come to the game itself (purchase_delivery "game"): marked handled first, so a second tab skips it.
+Zaisma.items.on("purchase", async (purchase) => {
+  await Zaisma.items.markHandled(purchase.id);
+  await loaded;
+  if (purchase.itemName === "golden_seeds") { farm.carrots += 10 * purchase.itemCount; save(); }
+});
+Zaisma.items.on("refund", async (purchase) => {
+  await Zaisma.items.markHandled(purchase.id);
+  await loaded;
+  if (purchase.itemName === "golden_seeds") { farm.carrots = Math.max(0, farm.carrots - 10 * purchase.itemCount); save(); }
+});
 // Its registered links (Zaisma.links.open): Zaisma's page asks "You're leaving Zaisma" over the game.
 document.querySelectorAll("[data-link]").forEach((button) => button.onclick = async () => {
   const status = document.getElementById("link-status");

@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { unzipSync } from "fflate";
-import { accountById, createAccount, createApiKey, gameBySlug, gameRowDeletions, newGrant, recordGrant } from "@zaisma/core";
+import { accountById, createAccount, createApiKey, gameBySlug, gameRowDeletions, newGrant, recordGrant, startHandling } from "@zaisma/core";
 import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server/internal";
 import { accountDataZip } from "../../apps/site/src/account-data.ts";
 import { purchasesRoute } from "../../apps/site/src/items-api.ts";
@@ -187,7 +187,10 @@ describe("grants", () => {
     expect(revives.purchase).toMatchObject({ item_count: 5, item_kind: "consumable" });
     await tool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive" });
     // Only permanent items are owned; consumables are delivered and then the game's to count.
-    expect((await api(`/games/sky-hopper/players/${playerId}/items`)).answer).toEqual({ player_id: playerId, owned_item_names: ["supporter_cape"] });
+    // The cape and the revives (6 of them in 2 grants) are all still to hand over.
+    const owned = (await api(`/games/sky-hopper/players/${playerId}/items`)).answer;
+    expect(owned).toMatchObject({ player_id: playerId, owned_item_names: ["supporter_cape"] });
+    expect(owned.unhandled_purchases.map((purchase: { item_name: string }) => purchase.item_name).sort()).toEqual(["revive", "revive", "supporter_cape"]);
     const listed = await tool("list_purchases", { slug: "sky-hopper", item_name: "revive" });
     expect(listed.purchases.map((purchase: { item_count: number }) => purchase.item_count)).toEqual([1, 5]);
   });
@@ -313,12 +316,163 @@ describe("a grant whose receipt can't be signed", () => {
     const caller = { accountId: developerId, ownerId: game.owner_id, actor: "claude", cookies: [], via: "api", access: { apiKeyId: null, apiKeyName: null }, where: {} } as unknown as Caller;
     const checked = { pathValues: {}, query: new URLSearchParams(), body: { player_id: playerId, item_name: "revive", item_count: 5 }, game, webhook: null, signInApp: null } as unknown as CheckedCall;
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const failed = await purchasesRoute(new Request(`${SITE}/api/dev/games/sky-hopper/purchases`, { method: "POST" }), signingDown, game, undefined, false, caller, checked).catch((error: { code?: string }) => error.code);
+    const failed = await purchasesRoute(new Request(`${SITE}/api/dev/games/sky-hopper/purchases`, { method: "POST" }), signingDown, game, undefined, null, caller, checked).catch((error: { code?: string }) => error.code);
     vi.restoreAllMocks();
     expect(failed).toBe("receipts_unavailable");
     expect((await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive", item_count: 5 } })).status).toBe(201);
     const granted = (await api(`/games/sky-hopper/purchases?player_id=${playerId}`)).answer.purchases;
     expect(granted.map((purchase: { item_count: number }) => purchase.item_count)).toEqual([5]);
+  });
+});
+
+describe("purchase delivery", () => {
+  const settings = (body: Record<string, unknown>) => api("/games/sky-hopper/purchase-settings", { method: "PATCH", body });
+  const unhandledIds = async () => (await api(`/games/sky-hopper/players/${playerId}/items`)).answer.unhandled_purchases.map((purchase: { id: string }) => purchase.id);
+  /** A game with a game server on Zaisma, so game_server can be chosen. */
+  const withGameServer = () => env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'sky-hopper'").run();
+
+  it("is game until it's set, set whole alone, kept when other settings change, and read back with the items", async () => {
+    expect((await api("/games/sky-hopper/items")).answer.purchase_delivery).toBe("game");
+    const set = await settings({ purchase_delivery: "own_server" });
+    expect(set.status).toBe(200);
+    expect(schemaProblems(PURCHASE_SETTINGS, (({ next_steps: _, ...rest }) => rest)(set.answer))).toEqual([]);
+    expect(set.answer).toMatchObject({ purchase_delivery: "own_server", refund_policy: null });
+    const listed = await api("/games/sky-hopper/items");
+    expect(schemaProblems(ITEMS, listed.answer)).toEqual([]);
+    expect(listed.answer.purchase_delivery).toBe("own_server");
+    // Leaving it out keeps it.
+    expect((await settings({ refund_policy: "no_refunds" })).answer).toMatchObject({ purchase_delivery: "own_server", refund_policy: "no_refunds" });
+    expect((await api("/games/sky-hopper/items")).answer.purchase_delivery).toBe("own_server");
+    expect((await settings({ purchase_delivery: "game" })).answer.purchase_delivery).toBe("game");
+    // The MCP tool takes it the same way.
+    const throughTool = await tool("set_purchase_settings", { slug: "sky-hopper", purchase_delivery: "own_server" });
+    expect(throughTool).toMatchObject({ purchase_delivery: "own_server", refund_policy: "no_refunds" });
+    expect((await gameBySlug(env.DB, "sky-hopper"))!.purchase_delivery).toBe("own_server");
+  });
+
+  it("refuses a way that isn't one, naming the field", async () => {
+    for (const purchase_delivery of ["server", "Game", "", null, 1]) {
+      const refused = await settings({ purchase_delivery });
+      expect(refused.status, JSON.stringify(purchase_delivery)).toBe(400);
+      expect(refused.answer.error).toMatchObject({ code: "bad_purchase_delivery", field: "purchase_delivery" });
+      expect(errorProblems(refused.answer, refused.status)).toEqual([]);
+    }
+    expect((await api("/games/sky-hopper/items")).answer.purchase_delivery).toBe("game");
+  });
+
+  it("refuses game_server for a game with no game server, until it has one, and says what to do", async () => {
+    const refused = await settings({ purchase_delivery: "game_server" });
+    expect(refused.status).toBe(409);
+    expect(refused.answer.error).toMatchObject({ code: "no_game_server", field: "purchase_delivery" });
+    expect(refused.answer.error.fix).toContain("game server");
+    expect(errorProblems(refused.answer, refused.status)).toEqual([]);
+    expect((await tool("set_purchase_settings", { slug: "sky-hopper", purchase_delivery: "game_server" })).error).toMatchObject({ code: "no_game_server", field: "purchase_delivery" });
+    expect((await gameBySlug(env.DB, "sky-hopper"))!.purchase_delivery).toBe("game");
+    // The relay runs no game code, so it isn't one; a game server on the developer's own address is.
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'sky-hopper'").run();
+    expect((await settings({ purchase_delivery: "game_server" })).answer.error).toMatchObject({ code: "no_game_server" });
+    await env.DB.prepare(`UPDATE games SET own_server_urls = '["wss://play.example.com"]' WHERE slug = 'sky-hopper'`).run();
+    expect((await settings({ purchase_delivery: "game_server" })).answer.purchase_delivery).toBe("game_server");
+    await env.DB.prepare(`UPDATE games SET own_server_urls = '[]', purchase_delivery = 'game' WHERE slug = 'sky-hopper'`).run();
+    await withGameServer();
+    expect((await settings({ purchase_delivery: "game_server" })).answer.purchase_delivery).toBe("game_server");
+    // game and own_server need no game server.
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'none' WHERE slug = 'sky-hopper'").run();
+    expect((await settings({ purchase_delivery: "own_server" })).status).toBe(200);
+  });
+
+  it("is told by the owner's server once: marked handled, answered as a purchase, and already_handled the second time", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    const granted = (await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive", item_count: 3 } })).answer.purchase;
+    expect(granted).toMatchObject({ handled_at: null, refund_handled_at: null });
+    const handled = await api(`/games/sky-hopper/purchases/${granted.id}/handled`, { method: "POST" });
+    expect(handled.status).toBe(200);
+    expect(schemaProblems(PURCHASE, handled.answer.purchase)).toEqual([]);
+    expect(handled.answer).toMatchObject({ purchase: { id: granted.id, purchase_status: "completed", item_count: 3, refund_handled_at: null }, next_steps: [] });
+    expect(handled.answer.purchase.handled_at).toEqual(expect.stringMatching(/^\d{4}-\d\d-\d\dT/));
+    expect(handled.answer.purchase.receipt).not.toBeNull();
+    // Read back by get_purchase and list_purchases.
+    expect((await api(`/games/sky-hopper/purchases/${granted.id}`)).answer.purchase.handled_at).toBe(handled.answer.purchase.handled_at);
+
+    const again = await api(`/games/sky-hopper/purchases/${granted.id}/handled`, { method: "POST" });
+    expect(again.status).toBe(409);
+    expect(again.answer.error).toMatchObject({ code: "already_handled", field: "purchase_id" });
+    expect(errorProblems(again.answer, again.status)).toEqual([]);
+    expect((await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: granted.id })).error).toMatchObject({ code: "already_handled" });
+    expect((await api(`/games/sky-hopper/purchases/${granted.id}`)).answer.purchase.handled_at).toBe(handled.answer.purchase.handled_at);
+  });
+
+  it("is told through the MCP tool too, and a refund after that is told once more, and no more", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    const granted = (await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive" } })).answer.purchase;
+    const handled = await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: granted.id });
+    expect(handled.purchase.handled_at).not.toBeNull();
+    await tool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.id });
+    // The refund waits to be told, the game having had the purchase.
+    expect(await unhandledIds()).toEqual([granted.id]);
+    const told = await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: granted.id });
+    expect(told.purchase).toMatchObject({ purchase_status: "refunded", handled_at: handled.purchase.handled_at });
+    expect(told.purchase.refund_handled_at).not.toBeNull();
+    expect(await unhandledIds()).toEqual([]);
+    expect((await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: granted.id })).error).toMatchObject({ code: "already_handled" });
+  });
+
+  it("refuses a purchase that wasn't bought or isn't there", async () => {
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    for (const purchaseStatus of ["pending", "failed"]) {
+      const purchaseId = `purchase_${purchaseStatus}test0001`;
+      await env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, paid_minor_units, currency_code, created_at_ms) VALUES (?, ?, 'revive', 'consumable', ?, 'sale', ?, 199, 'usd', ?)").bind(purchaseId, game.id, playerId, purchaseStatus, Date.now()).run();
+      const refused = await api(`/games/sky-hopper/purchases/${purchaseId}/handled`, { method: "POST" });
+      expect(refused.status, purchaseStatus).toBe(404);
+      expect(refused.answer.error, purchaseStatus).toMatchObject({ code: "no_purchase", field: "purchase_id" });
+      expect(await env.DB.prepare("SELECT handled_at_ms FROM purchases WHERE id = ?").bind(purchaseId).first("handled_at_ms")).toBeNull();
+    }
+    expect((await api("/games/sky-hopper/purchases/purchase_nothingthere01/handled", { method: "POST" })).answer.error).toMatchObject({ code: "no_purchase", field: "purchase_id" });
+  });
+
+  it("shows a player's purchases still to hand over, oldest first, until they're handled", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    await setItem("supporter_cape", cape);
+    const first = (await tool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive", item_count: 2 })).purchase;
+    const second = (await tool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "supporter_cape", game_account_id: "patreon-4417" })).purchase;
+    await env.DB.prepare("UPDATE purchases SET created_at_ms = created_at_ms - 5000 WHERE id = ?").bind(first.id).run();
+    const shown = await tool("get_player_items", { slug: "sky-hopper", player_id: playerId });
+    expect(shown.unhandled_purchases.map((purchase: { id: string }) => purchase.id)).toEqual([first.id, second.id]);
+    expect(shown.unhandled_purchases[1]).toMatchObject({ game_account_id: "patreon-4417", handled_at: null });
+    expect(shown.unhandled_purchases[1].receipt).not.toBeNull();
+    expect(shown.owned_item_names).toEqual(["supporter_cape"]);
+
+    await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: first.id });
+    expect((await tool("get_player_items", { slug: "sky-hopper", player_id: playerId })).unhandled_purchases.map((purchase: { id: string }) => purchase.id)).toEqual([second.id]);
+    // Handled, it still counts as owned: only the list to hand over shrinks.
+    await tool("mark_purchase_handled", { slug: "sky-hopper", purchase_id: second.id });
+    expect(await tool("get_player_items", { slug: "sky-hopper", player_id: playerId })).toMatchObject({ unhandled_purchases: [], owned_item_names: ["supporter_cape"] });
+  });
+
+  it("shows a refund after the purchase was handled, and never one for a purchase nobody took", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    const taken = (await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive" } })).answer.purchase;
+    const untaken = (await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive" } })).answer.purchase;
+    await api(`/games/sky-hopper/purchases/${taken.id}/handled`, { method: "POST" });
+    await api(`/games/sky-hopper/purchases/${taken.id}/refund`, { method: "POST" });
+    await api(`/games/sky-hopper/purchases/${untaken.id}/refund`, { method: "POST" });
+    const shown = (await api(`/games/sky-hopper/players/${playerId}/items`)).answer.unhandled_purchases;
+    expect(shown.map((purchase: { id: string }) => purchase.id)).toEqual([taken.id]);
+    expect(shown[0]).toMatchObject({ purchase_status: "refunded", refund_handled_at: null });
+    expect(schemaProblems(PURCHASE, shown[0])).toEqual([]);
+  });
+
+  it("can be marked by the owner's server whatever lease a room holds on it", async () => {
+    await setItem("revive", { ...revive, price_minor_units: null, currency_code: null });
+    const granted = (await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "revive" } })).answer.purchase;
+    const game = (await gameBySlug(env.DB, "sky-hopper"))!;
+    expect(await startHandling(env.DB, granted.id, playerId, game.id, Date.now())).toBe(true);
+    // The list is of what's left to hand over; who may is startHandling's call.
+    expect(await unhandledIds()).toEqual([granted.id]);
+    expect(await startHandling(env.DB, granted.id, playerId, game.id, Date.now())).toBe(false);
+    // The owner's own server marks it at once, whatever lease a room holds.
+    expect((await api(`/games/sky-hopper/purchases/${granted.id}/handled`, { method: "POST" })).status).toBe(200);
+    expect(await unhandledIds()).toEqual([]);
   });
 });
 

@@ -40,7 +40,8 @@ import type { Env } from "./env.ts";
  *     "game_server_error": { …as get_stats lists it } | null, "alert": { …as the game's alerts list it } | null,
  *     "account_deletion": { "player_id": "player_…", "deleted_account_erase_enabled": true } | null,
  *     "sign_in_app": { …as list_sign_in_apps } | null,
- *     "security_event": { …as get_activity lists it } | null }
+ *     "security_event": { …as get_activity lists it } | null,
+ *     "purchase": { …as get_purchase, receipt and game_account_id included } | null }
  *
  * Each event is tried straight after it happens (in the background on API calls), then by the cron
  * every 5 minutes until it's delivered or has failed every try. Telling webhooks never fails the change
@@ -82,7 +83,7 @@ export async function tellWebhooks(
   env: Env,
   kind: WebhookEventKind,
   gameId: string,
-  parts: { versionId?: string | null; bugReport?: BugReportRow; playerReport?: PlayerReportRow; gameServerError?: GameServerErrorRow; alert?: GameAlert; isSkippingGameServer?: boolean },
+  parts: { versionId?: string | null; bugReport?: BugReportRow; playerReport?: PlayerReportRow; gameServerError?: GameServerErrorRow; alert?: GameAlert; purchase?: Record<string, unknown>; isSkippingGameServer?: boolean },
   waitUntil?: WaitUntil,
 ): Promise<void> {
   try {
@@ -106,6 +107,7 @@ export async function tellWebhooks(
       account_deletion: null,
       sign_in_app: null,
       security_event: null,
+      purchase: parts.purchase ?? null,
     });
     const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
     const sending = sendAll(env, webhooks, deliveries);
@@ -116,10 +118,19 @@ export async function tellWebhooks(
   }
 }
 
+/**
+ * A purchase or grant completed (purchase_completed), or was refunded or charged back (purchase_refunded:
+ * purchase.purchase_status says which): the permanent record, which reaches the developer's server even when
+ * no game is open, with game_account_id for games with their own accounts. purchase is as the API answers it.
+ */
+export function tellPurchase(env: Env, game: Pick<Game, "id">, purchase: Record<string, unknown>, kind: "purchase_completed" | "purchase_refunded", waitUntil?: WaitUntil): Promise<void> {
+  return tellWebhooks(env, kind, game.id, { purchase }, waitUntil);
+}
+
 /** A test event to one webhook, tried once and answered: the way to check an endpoint and its signature check. */
 export async function sendTestEvent(env: Env, webhook: Webhook): Promise<WebhookDelivery> {
   const webhookEventId = newId("webhook_event");
-  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: null });
+  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: null, purchase: null });
   const delivery = await queueDelivery(env.DB, webhook, webhookEventId, eventJson);
   return (await attemptDelivery(env.DB, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
 }
@@ -142,7 +153,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
   const queueEvent = async (webhooks: Webhook[], parts: { game: unknown; signInApp: unknown; isErasing: boolean }) => {
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", created_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: { player_id: reach.playerId, deleted_account_erase_enabled: parts.isErasing }, sign_in_app: parts.signInApp, security_event: null });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", created_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: { player_id: reach.playerId, deleted_account_erase_enabled: parts.isErasing }, sign_in_app: parts.signInApp, security_event: null, purchase: null });
     for (const webhook of webhooks) {
       sendingWebhooks.push(webhook);
       deliveries.push(await queueDelivery(env.DB, webhook, webhookEventId, eventJson));
@@ -186,7 +197,7 @@ export async function tellSecurityAlert(env: Env, accountId: string, securityEve
     const webhooks = webhooksTakingSignInAppEvent(await webhooksFor(env.DB, owner.id), "security_alert");
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: securityEvent });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: securityEvent, purchase: null });
     const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
     const sending = sendAll(env, webhooks, deliveries);
     if (waitUntil) waitUntil(sending);
