@@ -119,7 +119,10 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // nothing is laid out or redrawn while the new page is still starting, and the settles that follow (fonts, the first resize) can't cut it short.
     var came = window.navigation && navigation.activation && navigation.activation.from;
     if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      var lastPath = new URL(came.url).pathname, last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      // The tab whose page it came from: by its whole address where tabs share a path (Browse's sorts are all /games), else by its path.
+      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname;
+      var last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname + new URL(tab.href).search === lastPath + cameFrom.search; })
+        || Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
       var on = current();
       if (last && on && last !== on) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
@@ -151,9 +154,14 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     function isDisabled(tab) { return tab.disabled || tab.getAttribute("aria-disabled") === "true"; }
     tabs.forEach(function (tab) {
       tab.addEventListener("pointerenter", function () { if (isDisabled(tab)) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
-      // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab.
-      tab.addEventListener("click", function () {
-        if (isDisabled(tab) || (tab.href && new URL(tab.href, location.href).pathname !== location.pathname)) return;
+      // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab, so the slide
+      // plays once. Only a link within this page (its address but for the #), or one a page script shows without leaving, slides here.
+      tab.addEventListener("click", function (event) {
+        if (isDisabled(tab)) return;
+        if (tab.href && !event.defaultPrevented) {
+          var to = new URL(tab.href, location.href);
+          if (to.pathname !== location.pathname || to.search !== location.search) return;
+        }
         sw.pickTab(tab);
       });
     });

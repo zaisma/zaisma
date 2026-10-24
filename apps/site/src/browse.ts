@@ -143,6 +143,7 @@ const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
     hasHighPriority: coverIndex === 0,
+    isTitleShown: true,
   }),
 });
 
@@ -226,8 +227,9 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
 }
 
 /**
- * Browse's script: the search narrows the grid as you type (a quarter second after the last key), keeping the link in step, and a page
- * drawn for another device than this one is drawn again once in the right order.
+ * Browse's script: the search narrows the grid as you type (a quarter second after the last key), keeping the link in step, a sort or
+ * genre swaps the grid in place without loading the page (its switch slides once, and the background stays put), and a page drawn for
+ * another device than this one is drawn again once in the right order.
  */
 export const BROWSE_SCRIPT = pageScript("browse", String.raw`(() => {
 ${DEVICE_KIND_SOURCE}
@@ -235,31 +237,69 @@ const browse = document.getElementById("browse");
 if (!browse) return;
 const search = document.querySelector('header .find input[name="search_text"]');
 let latest = 0;
-function show(href, isNewEntry) {
+// The pane's rows: a switch stays where it is (only its links and current tab follow the new page), so a slide on it isn't cut short.
+function swap(next) {
+  const rows = (root) => { const sorts = root.querySelector(".tab-switch"); return sorts ? Array.from(sorts.closest(".stack-cell").parentElement.children) : []; };
+  const here = rows(browse), there = rows(next);
+  if (!here.length || !there.length) { browse.replaceChildren(...Array.from(next.childNodes).map((node) => document.importNode(node, true))); return; }
+  here.forEach((row, at) => {
+    const to = there[at];
+    if (!to) { row.remove(); return; }
+    const switchHere = row.querySelector(".tab-switch"), switchThere = to.querySelector(".tab-switch");
+    if (switchHere && switchThere) {
+      const tabsThere = switchThere.querySelectorAll(":scope > a");
+      switchHere.querySelectorAll(":scope > a").forEach((tab, index) => {
+        const tabThere = tabsThere[index]; if (!tabThere) return;
+        tab.href = tabThere.getAttribute("href");
+        if (tabThere.getAttribute("aria-current") === "page") { if (tab.getAttribute("aria-current") !== "page") { switchHere.querySelectorAll(":scope > a").forEach((each) => each.removeAttribute("aria-current")); tab.setAttribute("aria-current", "page"); if (switchHere.pickTab) switchHere.pickTab(tab); } }
+      });
+    } else row.replaceWith(document.importNode(to, true));
+  });
+  const parent = here[0].parentElement;
+  there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
+}
+function show(href, isNewEntry, isSearch) {
   const asked = ++latest;
   fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)).then((text) => {
     if (asked !== latest) return;
-    const next = new DOMParser().parseFromString(text, "text/html").getElementById("browse");
+    const page = new DOMParser().parseFromString(text, "text/html"), next = page.getElementById("browse");
     if (!next) return;
-    browse.replaceChildren(...Array.from(next.childNodes).map((node) => document.importNode(node, true)));
+    if (isSearch) browse.replaceChildren(...Array.from(next.childNodes).map((node) => document.importNode(node, true))); else swap(next);
     browse.dataset.deviceKind = next.dataset.deviceKind;
-    document.title = new DOMParser().parseFromString(text, "text/html").title;
-    if (isNewEntry !== undefined) history.replaceState(null, "", href);
+    document.title = page.title;
+    if (isNewEntry === "push") history.pushState(null, "", href); else if (isNewEntry) history.replaceState(null, "", href);
     browse.querySelectorAll("[data-loads-on-scroll]").forEach((holder) => window.zaismaLoadMore && window.zaismaLoadMore.watch(holder));
-  }).catch(() => {});
+  }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
+// A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
+browse.addEventListener("click", (event) => {
+  const tab = event.target.closest && event.target.closest(".tab-switch > a[href]");
+  if (!tab || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const sw = tab.parentElement;
+  if (tab.getAttribute("aria-current") === "page") return;
+  sw.querySelectorAll(":scope > a").forEach((each) => each.removeAttribute("aria-current"));
+  tab.setAttribute("aria-current", "page");
+  if (sw.pickTab) sw.pickTab(tab);
+  show(tab.getAttribute("href"), "push");
+});
+window.addEventListener("popstate", () => show(location.pathname + location.search));
 if (zaismaDeviceKind() !== browse.dataset.deviceKind) show(location.pathname + location.search);
 if (search) {
   let timer = 0;
+  // The search as the page's address has it now, with the sort and genre picked here since it loaded.
+  const searched = () => {
+    const url = new URL(location.href);
+    const searchText = search.value.trim();
+    if (searchText) url.searchParams.set("search_text", searchText); else url.searchParams.delete("search_text");
+    url.searchParams.delete("page");
+    return url.pathname + url.search;
+  };
   search.addEventListener("input", () => {
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      const url = new URL(location.href);
-      const searchText = search.value.trim();
-      if (searchText) url.searchParams.set("search_text", searchText); else url.searchParams.delete("search_text");
-      url.searchParams.delete("page");
-      show(url.pathname + url.search, true);
-    }, 250);
+    timer = setTimeout(() => show(searched(), true, true), 250);
   });
+  const form = search.closest("form");
+  if (form) form.addEventListener("submit", (event) => { event.preventDefault(); clearTimeout(timer); show(searched(), true, true); });
 }
 })();`);
