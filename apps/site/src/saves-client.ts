@@ -83,12 +83,19 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const m = Math.round((Date.now() - Date.parse(updatedAt)) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
-  // Green when progress is reaching the account, amber when it isn't.
-  const say = (text) => { if (status) { status.textContent = text; status.hidden = false; status.classList.toggle("ok", text.startsWith("Progress saves to your account")); } };
+  // Where progress goes, in the Keep your progress card.
   let toastTimer = null;
+  // What happened to the account's save: in the Keep card while it shows (a guest's), otherwise a card that stays until the next word.
+  const say = (text) => {
+    if (status && offer && !offer.hidden) { (status.querySelector("p") || status).textContent = text; status.hidden = false; return; }
+    if (!toast) return;
+    clearTimeout(toastTimer);
+    (toast.querySelector("p") || toast).textContent = text;
+    toast.hidden = false;
+  };
   const pop = (text) => {
     if (!toast) return;
-    toast.textContent = text;
+    (toast.querySelector("p") || toast).textContent = text;
     toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast.hidden = true), 8000);

@@ -72,11 +72,14 @@ export interface StackOptions {
   items: LayoutItem[];
   /** What the group is, for a screen reader, when it's one thing to them. */
   label?: string;
+  /** data-* attributes a page's script reads ({ count: "2" } is data-count="2"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
 }
 
 /** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
 export function stack(options: StackOptions): Raw {
-  return html`<div class="layout-stack"${groupLabel(options.label)}>${options.items.map((layoutItem, itemIndex) => {
+  const dataMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  return html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
     const above = options.items[itemIndex - 1];
     return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   })}</div>`;
@@ -247,7 +250,7 @@ const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, inp
  * its words, or nothing when its words are all of it]: at a pane's edge, those words keep its margin.
  */
 const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""]];
-const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""]];
+const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [".qr-code", ".qr-caption"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""]];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in

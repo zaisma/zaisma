@@ -44,7 +44,11 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
   const answer = (method: string, path: string, body: unknown, httpStatus = 200) => answers.unshift({ method, path, answer: { httpStatus, body } });
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const documentListeners: Record<string, (() => void)[]> = {};
-  const element = () => ({ hidden: true, textContent: "", classList: { toggle() {} }, querySelector: () => ({ focus() {} }), focus() {}, onclick: null as null | (() => void) });
+  // Its words go in its own <p> (querySelector("p")); the stand-in is its own <p>, so they land in its textContent.
+  const element = () => {
+    const stand = { hidden: true, textContent: "", classList: { toggle() {} }, querySelector: (): unknown => stand, focus() {}, onclick: null as null | (() => void) };
+    return stand;
+  };
   const elements: Record<string, ReturnType<typeof element> | { textContent: string }> = {
     "saves-data": { textContent: JSON.stringify({ api: API, root: `${FRAME_ORIGIN}/`, query: "", frameOrigin: FRAME_ORIGIN, slug: "owl-game", offerAfter: 300000, isAccountOfferEnabled }) },
     "save-status": element(),

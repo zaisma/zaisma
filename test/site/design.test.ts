@@ -36,6 +36,7 @@ import layoutGallerySource from "../../apps/site/src/components/layout-gallery.t
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
+import playingSource from "../../apps/site/src/components/playing.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
@@ -44,7 +45,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
@@ -570,6 +571,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="foot glass"', "the footer"],
   ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
+  ['class="playing-bar glass', "the bar beside a running game"],
+  ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
@@ -698,7 +701,7 @@ describe("pages", () => {
   // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md). Pages signed in are checked
   // where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every page is measured in Chrome by
   // npm run layout:check (scripts/layout-check.mjs).
-  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/developers/backgrounds", "/oauth/authorize?client_id=nope"];
+  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/developers/backgrounds", "/oauth/authorize?client_id=nope", "/g/no-such-game/report"];
 
   it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
     for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);

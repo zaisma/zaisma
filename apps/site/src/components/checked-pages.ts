@@ -38,6 +38,10 @@ const GALLERY_GROUPS = ["", "/layout", "/actions", "/inputs", "/navigation", "/p
 export const CHECKED_PAGES: CheckedPage[] = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
+  { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
+  { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
+  { name: "Playing a game", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere" },
   { name: "Sign in", area: "Signing in", path: "/signin", ...CITY },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "Forgot your password", area: "Signing in", path: "/signin/email", ...CITY },

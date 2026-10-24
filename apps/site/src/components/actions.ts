@@ -15,6 +15,10 @@ const ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right"
 
 /** What a button is: a link when it has an address, otherwise a button of a form. */
 interface ButtonTarget {
+  /** Unique on the page, for the page's script to find it by (Play, a bar's Share). */
+  id?: string;
+  /** data-* attributes a page's script reads ({ keep: "/join" } is data-keep="/join"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   href?: string;
   type?: "submit" | "button";
   name?: string;
@@ -31,8 +35,10 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+const dataMarkup = (target: ButtonTarget): Raw | "" =>
+  target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 /** Can't be pressed now: a button is disabled (a busy one is already); a link can't be, so it's left as it is. */
@@ -755,12 +761,16 @@ const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;
+  /** It opens in a new tab, so the page it's on keeps running (a notice's page from beside a running game). */
+  isNewTab?: boolean;
+  /** data-* attributes a page's script reads ({ keep: "/signin" } is data-keep="/signin"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   state?: "is-pointed" | "is-focused";
 }
 
 /** A link in words: ink with an orange underline, so it reads as a link without shouting. Quiet in a list of links, where it's plain until pointed at. */
 export function textLink(words: string, href: string, options: TextLinkOptions = {}): Raw {
-  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}">${words}</a>`;
+  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}"${options.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : ""}>${words}</a>`;
 }
 
 component({
@@ -803,6 +813,7 @@ component({
       markup: html`<p style="margin:0;max-width:300px;font:var(--type-reading);color:var(--ink-2)">Saves stay on this device until you sign in. ${textLink("Read how cloud saves keep your progress on every device you play on", "#link", { state: "is-pointed" })}, or keep playing as a guest.</p>`,
       isStill: true,
     },
+    { label: "In a new tab, beside a running game", markup: html`<p style="margin:0;font:var(--type-words)">Someone copied your work? ${textLink("Send a copyright notice", "#link", { isNewTab: true })}</p>` },
     // The list spaces its links, not the link: a footer's are a block's gap apart, so each reads as its own.
     { label: "Quiet, in a list of links", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true })}${textLink("Source code", "#link", { isQuiet: true })}</p>` },
     { label: "Quiet, pointed", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true, state: "is-pointed" })}${textLink("Source code", "#link", { isQuiet: true })}</p>`, isStill: true },

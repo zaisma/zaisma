@@ -1,14 +1,18 @@
 import { checkText, gameBySlug, hasSpace, hasWatchSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
-import { html, raw, securityHeaders, type Raw } from "./html.ts";
+import { html, securityHeaders, type Raw } from "./html.ts";
+import { cutButton, textButton } from "./components/actions.ts";
+import { emptyState, listRows, type ListRow } from "./components/data.ts";
+import { cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
+import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
+import { readingText } from "./components/reading.ts";
 import { playingNowCounts } from "./plays.ts";
 
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
- * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows the code,
- * where the room runs (a country flag and code) and how full it is, never who's in it. Flags are
- * flag-icons (MIT), rendered small into brand/flags. Join is an ordinary room link, so the
- * game decides what happens next, as with invites.
+ * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows the room's
+ * name and labels, where it runs (its country, in words) and how full it is, never who's in it. Join is
+ * an ordinary room link, so the game decides what happens next, as with invites.
  */
 
 /** The game runs on Zaisma rooms and its developer lists them on the page. */
@@ -41,98 +45,95 @@ function shownText(room: ListedRoom): { name: string | null; labels: [string, st
 }
 
 /**
- * The Rooms panel's contents, also sent on its own to refresh the panel. "Press Play and the game finds
- * you one" only for a game that joins players by itself (isQuickJoining).
+ * The Rooms section's contents, also sent on its own to refresh it (into #rooms-list): the region switch and label filters, the rooms as
+ * list rows (the first ten, the rest hidden until Show all), and what's past them. Its first element carries what the page's script reads:
+ * data-count (the number by Rooms), data-playing (for "playing now") and data-shown (the region and labels it shows). "Press Play and the
+ * game finds you one" only for a game that joins players by itself (isQuickJoining).
  */
 export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}, ticketPlayerCount = 0): Raw {
   const slug = game.slug;
   const open = list.rooms.filter((room) => room.isOpen);
-  const { playerCount, roomCount, closedRoomCount } = list.playing;
+  const { playerCount, closedRoomCount } = list.playing;
   const region = list.region ? list.regions.find((entry) => entry.region === list.region) : null;
-  const head = playerCount
-    ? html`<p class="rooms-head"><span class="badge">${playerCount} playing now</span><span class="muted">in ${plural(roomCount, "room", "rooms")}</span></p>`
-    : "";
-  // Regions to pick from, once rooms run in more than one: each with how many rooms it has.
-  const regions =
-    list.regions.length > 1 || (list.region && list.regions.length)
-      ? html`<div class="seg regions" role="group" aria-label="Region"><button type="button" data-region="" aria-pressed="${String(!list.region)}">All</button>${list.regions.map(
-          (entry) => html`<button type="button" data-region="${entry.region}" title="${entry.name}" aria-pressed="${String(list.region === entry.region)}">${entry.region}<small>${entry.roomCount}</small></button>`,
-        )}</div>`
-      : "";
-  // Labels worth filtering by, with only the values that pass the filter.
+  const items: LayoutItem[] = [];
+  // Regions to pick from, once rooms run in more than one: each with how many rooms it has. The page's script reads data-region.
+  if (list.regions.length > 1 || (list.region && list.regions.length)) {
+    const tabs: SwitchTab[] = [
+      { label: "All", isCurrent: !list.region, extra: html` data-region=""` },
+      ...list.regions.map((entry) => ({ label: entry.name, badgeCount: entry.roomCount, isCurrent: list.region === entry.region, extra: html` data-region="${entry.region}"` })),
+    ];
+    items.push({ kind: "control", markup: tabSwitch({ label: "Region", switchSize: "small", isFramed: true, tabs }) });
+  }
+  // Labels worth filtering by, with only the values that pass the filter. The page's script reads data-label on the field a pick changes.
   const filters = list.filters
     .filter((labelFilter) => fine(labelFilter.label))
     .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
     .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
-  const filterBar = filters.length
-    ? html`<div class="filters">${filters.map(
-        (labelFilter) => html`<label class="filter"><span>${labelFilter.label}</span><select data-label="${labelFilter.label}"><option value="">Any</option>${labelFilter.values.map(
-          (labelValue) => html`<option${picked[labelFilter.label] === labelValue ? raw(" selected") : ""}>${labelValue}</option>`,
-        )}</select></label>`,
-      )}</div>`
-    : "";
+  if (filters.length) {
+    const fields = filters.map((labelFilter, filterIndex): LayoutItem => ({
+      kind: "control",
+      markup: selectField({
+        id: `rooms-label-${filterIndex}`,
+        name: `room_label_${filterIndex}`,
+        label: labelFilter.label,
+        choices: [{ label: "Any", choiceValue: "" }, ...labelFilter.values.map((labelValue) => ({ label: labelValue, choiceValue: labelValue }))],
+        pickedValue: picked[labelFilter.label] ?? "",
+        dataAttributes: { label: labelFilter.label },
+      }),
+    }));
+    items.push({ kind: "block", markup: row({ widths: "fit", items: fields }) });
+  }
   const filtered = Object.keys(picked).length > 0;
   const hiddenRoomCount = open.length - FIRST_ROOM_COUNT;
   const empty = filtered
     ? "No open rooms like that right now. Pick something else, or press Play to start."
     : region || list.region
-    ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
-    : closedRoomCount
-      ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
-      : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-shown="${shownKey(list.region, picked)}">
-${head}
-${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
-${open.length ? html`<ol class="rooms${open.some(hasWatchSpace) ? " watchable" : ""}">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
-${hiddenRoomCount > 0 ? html`<button class="btn ghost rooms-all" type="button">Show ${plural(hiddenRoomCount, "more room", "more rooms")}</button>` : ""}
-${list.moreOpenRoomCount > 0 ? html`<p class="muted rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
-${closedRoomCount && open.length ? html`<p class="muted rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
-</div>`;
+      ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
+      : closedRoomCount
+        ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
+        : "Nobody's in an open room right now. Press Play to start.";
+  items.push(
+    open.length
+      ? { kind: "block", markup: listRows({ id: "rooms-rows", label: "Open rooms", rows: open.map((room, roomIndex) => roomRow(slug, room, roomIndex >= FIRST_ROOM_COUNT)) }) }
+      : { kind: "block", markup: emptyState({ title: "No open rooms", text: empty }) },
+  );
+  // Show all: the page's script shows the hidden rows (#rooms-rows > li[hidden]) and hides this.
+  if (hiddenRoomCount > 0) items.push({ kind: "control", id: "rooms-all", markup: textButton(`Show ${plural(hiddenRoomCount, "more room", "more rooms")}`, { type: "button", icon: "chevron-down" }) });
+  const notes = [
+    list.moreOpenRoomCount > 0 ? `And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}` : "",
+    closedRoomCount && open.length ? `Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.` : "",
+  ].filter(Boolean);
+  if (notes.length) items.push({ kind: "words", markup: readingText({ markup: html`${notes.map((note) => html`<p>${note}</p>`)}` }) });
+  return stack({ items, dataAttributes: { count: String(tabCount(list)), playing: String(Math.max(playerCount, ticketPlayerCount)), shown: shownKey(list.region, picked) } });
 }
 
 /** Which region and labels a panel shows, so the page knows when to load another. */
 export const shownKey = (region: string | null, picked: Record<string, string>) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}`;
 
-function roomRow(slug: string, room: ListedRoom, later: boolean): Raw {
-  const space = hasSpace(room);
+/**
+ * A room's row: its name and labels (or how full it is, when it has neither), then how full, how many watch and where it runs, in words;
+ * Join (or Full), Watch for a room that takes spectators, and Report for a room with a name or labels to report. The code stays in the links.
+ */
+function roomRow(slug: string, room: ListedRoom, isLater: boolean): ListRow {
   const filled = `${room.playerCount} of ${room.maximumPlayerCount} ${room.maximumPlayerCount === 1 ? "player" : "players"}`;
-  const meter = html`<span class="seats" aria-hidden="true">${Array.from({ length: Math.min(room.maximumPlayerCount, MAXIMUM_SEAT_COUNT) }, (_, i) => raw(i < lit(room) ? '<i class="on"></i>' : "<i></i>"))}</span>`;
   const { name, labels } = shownText(room);
-  const named = Boolean(name || labels.length);
-  const tags = labels.length ? html`<span class="labels">${labels.map(([labelName, labelValue], i) => html`${i ? " · " : ""}<span title="${labelName}">${labelValue}</span>`)}</span>` : "";
-  // A named room leads with its name, others with how full they are; labels go underneath. The code stays in the link.
-  const main = html`<span class="title">${name ? html`<strong class="name">${name}</strong>` : html`<span class="count">${filled}</span>`}${tags}</span>`;
-  const label = `Join ${name ? `“${name}”` : "a room"} with ${filled}${room.location ? ` in ${room.location.countryName}` : ""}`;
-  const said = [name, labels.map(([, labelValue]) => labelValue).join(", ")].filter(Boolean).join(", ");
-  return html`<li class="room plate${later ? " later" : ""}${named ? " named" : ""}">
-<span class="main">${main}</span>
-<span class="fill">${meter}${name ? html`<span class="small-count">${filled}</span>` : ""}${room.spectatorCount > 0 ? html`<span class="watching">· ${room.spectatorCount} watching</span>` : ""}</span>
-<span class="where">${room.location ? html`<img class="flag" src="/flags/${room.location.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${room.location.countryName}">${room.location.countryCode}</abbr>` : ""}</span>
-<span class="doors">${space ? html`<a class="btn" href="/g/${slug}?room=${room.roomCode}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}${hasWatchSpace(room) ? html`<a class="btn ghost" href="/g/${slug}?room=${room.roomCode}&watch=1" aria-label="Watch ${name ? `“${name}”` : "a room"} with ${filled}">Watch</a>` : ""}</span>
-<span class="act">${named ? html`<button class="report-room" type="button" data-report-room="${room.roomCode}" data-room-name="${said}" title="Report this room's name" aria-label="Report the room “${said}”">${raw(ICON_REPORT)}</button>` : ""}</span>
-</li>`;
+  const labelValues = labels.map(([, labelValue]) => labelValue);
+  const title = [name, ...labelValues].filter(Boolean).join(" · ") || filled;
+  const detail = [title === filled ? "" : filled, room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
+  const said = [name, labelValues.join(", ")].filter(Boolean).join(", ");
+  const actions: ControlMarkup[] = [
+    ...(hasSpace(room) ? [cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : []),
+    ...(hasWatchSpace(room) ? [cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
+    // The page's script (report.ts) opens the report with the room's code and what it's called.
+    ...(said ? [cutButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
+  ];
+  return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : "Full", action: actions.length > 1 ? actions : actions[0], isHidden: isLater || undefined };
 }
 
-// The same mark as Report in the game page's menu.
-const ICON_REPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></svg>`;
-
-/** Most seats the meter draws. A bigger room's seats each stand for a share of its places. */
-const MAXIMUM_SEAT_COUNT = 16;
-
-/** Seats lit: one per player, or the share that's full in a bigger room (one if anyone's in, all only when full). */
-export function lit(room: { playerCount: number; maximumPlayerCount: number }): number {
-  if (room.maximumPlayerCount <= MAXIMUM_SEAT_COUNT) return room.playerCount;
-  if (room.playerCount >= room.maximumPlayerCount) return MAXIMUM_SEAT_COUNT;
-  return Math.min(MAXIMUM_SEAT_COUNT - 1, Math.max(room.playerCount > 0 ? 1 : 0, Math.round((room.playerCount / room.maximumPlayerCount) * MAXIMUM_SEAT_COUNT)));
-}
-
-/** A box for a room code a friend shared. It opens the same room link an invite does. */
+/** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  return html`<form class="code-join" method="get" action="/g/${slug}">
-<label for="room-code">Have a room code?</label>
-<input id="room-code" name="room" required maxlength="6" minlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" placeholder="ABC234" title="6 letters and numbers, like ABC234">
-<button class="btn" type="submit">Join</button>
-</form>`;
+  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true });
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: cutButton("Join", { type: "submit" }) }] })}</form>`;
 }
 
 /** GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen. */

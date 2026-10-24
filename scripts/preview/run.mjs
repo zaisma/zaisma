@@ -172,6 +172,9 @@ function querySql(sql) {
   }
 }
 
+/** The fixed token of Rocket Lab's "My team" tester link: the page /t/<token> is in CHECKED_PAGES (apps/site/src/components/checked-pages.ts). */
+const TEAM_TESTER_TOKEN = "7e57ed00dcafe0a1b2c3";
+
 // How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
 let stepStartedMs = Date.now();
 function stepDone(label) {
@@ -1049,6 +1052,9 @@ async function seed() {
   await approveNewest(secret.slug);
   const { tester: team } = await api("POST", `/games/${secret.slug}/testers`, { name: "My team", version_choice: "newest_passed", ends_at: new Date(Date.now() + 14 * 86400_000).toISOString() });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
+  // "My team" gets a fixed token (20 lowercase hex, like the real ones), so the layout check can list its page, /t/<token>, in CHECKED_PAGES.
+  runSql(`UPDATE tester_links SET token = '${TEAM_TESTER_TOKEN}' WHERE id = '${team.id}'`);
+  team.link_url = `${new URL(team.link_url).origin}/t/${TEAM_TESTER_TOKEN}`;
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: new URL(tester.link_url).pathname, team: new URL(team.link_url).pathname, arena: new URL(arena.link_url).pathname }));
   // Star Haul: a game with a $2 budget that used it this month, so its hosting is paused (seedHolds writes the month).
   await api("POST", "/games", { title: "Star Haul", slug: "star-haul", description: "Haul cargo between stations before the pirates catch you.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] });

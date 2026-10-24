@@ -145,6 +145,8 @@ export interface SelectFieldOptions {
   /** It can't be changed now: its pick shows, and its form sends nothing for it. */
   isDisabled?: boolean;
   error?: string;
+  /** data-* attributes on the hidden field it sends, as on a button: what a page's script reads when a pick changes it ({ label: "Mode" } is data-label="Mode"). */
+  dataAttributes?: Record<string, string>;
   /** The gallery's fixed states: focused, or open with its list under it, or above it where there's no room below. */
   state?: "is-focused" | "is-open" | "is-open-above";
 }
@@ -169,7 +171,7 @@ export function selectField(options: SelectFieldOptions): ControlMarkup {
   const opens = isOpen || options.isDisabled ? raw("") : html` popovertarget="${id}-list"`;
   return controlMarkup(html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
 ${isAbove ? list : ""}<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${opens}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
-${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}>
+${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -313,6 +315,7 @@ component({
     { label: "Picked: try it", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
     { label: "Nothing picked yet", markup: examplePane(selectField({ id: "example-select-placeholder", name: "room_region", label: "Where rooms run", choices: REGIONS, placeholder: "Pick a region" })) },
     { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest", icon: "globe" })) },
+    { label: "With a data attribute a script reads: a room list's filter", markup: examplePane(selectField({ id: "example-select-filter", name: "room_mode", label: "Mode", choices: [{ label: "Any", choiceValue: "" }, { label: "Classic", choiceValue: "Classic" }, { label: "Hardcore", choiceValue: "Hardcore" }], dataAttributes: { label: "Mode" } })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
     { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },
     { label: "Open above, with no room below", markup: examplePane(selectField({ id: "example-select-above", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "asia-pacific", state: "is-open-above" })), isStill: true },

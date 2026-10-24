@@ -15,6 +15,8 @@ import "./layout-gallery.ts";
 import "./reading.ts";
 import "./people.ts";
 import "./screens.ts";
+// A game's page while it plays: the bar beside the game and the cards over it.
+import "./playing.ts";
 // The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it.
 import "./city.ts";
 

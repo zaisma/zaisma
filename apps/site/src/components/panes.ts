@@ -25,6 +25,14 @@ export interface DropdownChoice {
    * It looks like any other choice, never red: only a delete's confirm step is.
    */
   confirmSheetId?: string;
+  /** Unique on the page, for the page's script to find it by (the game page's Keep your progress). */
+  id?: string;
+  /** Not shown for now: a page script shows it (Keep your progress, once there's progress to keep). Arrow keys skip it. */
+  isHidden?: boolean;
+  /** A link that opens in a new tab, so the page it's on keeps running (the rules from beside a running game): it ends in the out-of-the-page arrow. */
+  isNewTab?: boolean;
+  /** data-* attributes a page's script reads ({ report: "" } is data-report=""), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   /** The page you're on, or the choice that's made: it sits on a slab with the orange line, like a switch's. */
   isCurrent?: boolean;
   icon?: IconName;
@@ -39,11 +47,12 @@ export type DropdownItem = DropdownChoice | { kind: "rule" };
 
 /** One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one. */
 function dropdownChoice(choice: DropdownChoice): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}`;
-  const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}" role="menuitem" tabindex="-1" data-cut-line="8"${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
+  const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}" role="menuitem" tabindex="-1" data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
   if (choice.confirmSheetId !== undefined) return html`<button type="button" aria-controls="${choice.confirmSheetId}"${shared}>${inside}</button>`;
-  return html`<a href="${choice.href ?? "#"}"${shared}>${inside}</a>`;
+  return html`<a href="${choice.href ?? "#"}"${choice.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${dataMarkup}${shared}>${inside}</a>`;
 }
 
 export interface DropdownOptions {
@@ -131,7 +140,7 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     return { left: 0, top: 0 };
   }
   function buttonOf(menu) { return document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded]'); }
-  function items(menu) { return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')); }
+  function items(menu) { return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')).filter(function (item) { return !item.closest("[hidden]"); }); }
   function place(menu) {
     var button = buttonOf(menu); if (!button || menu.classList.contains("shut")) return;
     var gapPx = token("--gap-control-stack", 8), edgePx = token("--pad-frame", 10);
@@ -203,6 +212,7 @@ const DROPDOWN_STYLES = `
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dropdown-choice > .tag { margin-left: auto; }
+.dropdown-choice > span.dropdown-out { display: flex; margin-left: auto; overflow: visible; }
 /* Pointed at, a choice takes a wash of the words' own color: darker on light glass, lighter on smoked, so it shows on either. */
 .dropdown-choice:hover, .dropdown-choice.is-pointed, .dropdown-choice:focus-visible, .dropdown-choice.is-focused { --face-color: var(--wash); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }

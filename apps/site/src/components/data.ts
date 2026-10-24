@@ -3,6 +3,7 @@ import { component } from "./component.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, MINUTE_MS, ago, glassPane, icon, tag, type IconName, type TagTone } from "./foundations.ts";
+import { row } from "./layout.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -268,19 +269,32 @@ interface ListRowParts {
   end?: Raw | string;
   /** The gallery's fixed states. */
   state?: "is-pointed" | "is-pressed" | "is-focused";
+  /**
+   * A row with an address that opens it in a new tab, away from Zaisma (a developer's links beside a running game): it ends in the
+   * out-of-the-page arrow in place of the chevron.
+   */
+  isNewTab?: boolean;
+  /** Not shown for now: a page script shows it (a long list's rows past the first ten, after Show all). It takes no room and no hairline. */
+  isHidden?: boolean;
 }
 
-/** A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in one (Remove, Invite). */
-export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?: undefined; action?: ControlMarkup });
+/**
+ * A row that goes somewhere is a link as a whole, so it never holds a button; a row to read may end in one (Remove, Invite), or in a few
+ * small ones side by side (a player in a room: Mute, and ⋯ for the rest).
+ */
+export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?: undefined; action?: ControlMarkup | ControlMarkup[] });
+
+/** A row's buttons side by side, slanting toward each other. */
+const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.map((markup) => ({ kind: "control" as const, markup })) });
 
 /** List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole. */
 export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
   return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
-    return html`<li>${row.href
-      ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span></a>`
-      : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${row.action}</span>` : ""}</div>`}</li>`;
+    return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
+      ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      : html`<div class="list-row">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
 }
 
@@ -317,11 +331,14 @@ component({
 .list-row-action { flex: none; display: inline-flex; }
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
+/* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
+.list-row-go.is-new-tab > .ico { width: 16px; height: 16px; stroke-width: 1.8; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
 .list-row.is-link::before { content: ""; position: absolute; z-index: 2; left: 0; top: 30%; bottom: 30%; width: 3px; background: var(--run); transform: scaleY(0); transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
 .list-row.is-link:hover, .list-row.is-link.is-pointed { --face-color: var(--row-hover); }
 .list-row.is-link:hover::before, .list-row.is-link.is-pointed::before, .list-row.is-link.is-pressed::before, .list-row.is-link:focus-visible::before { transform: scaleY(1); }
 .list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
+.list-row.is-link:hover > .list-row-go.is-new-tab, .list-row.is-link.is-pointed > .list-row-go.is-new-tab { transform: translate(2px, -2px); }
 .list-row.is-link:active, .list-row.is-link.is-pressed { --face-color: var(--row-press); }
 .list-row.is-link:focus-visible { outline: none; }
 .list-row.is-link:focus-visible > .cut-line polygon, .list-row.is-link.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -344,12 +361,32 @@ component({
       ]),
     },
     {
+      label: "A few buttons a row: players in a room",
+      isWide: true,
+      markup: listPane([
+        { lead: pictureFrame("Sofia", "md"), title: "Sofia", detail: "Friend", action: [cutButton("Mute", ROW_BUTTON), cutButton("More for Sofia", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
+        { lead: pictureFrame("Liam", "md"), title: "Liam", detail: "Muted", action: [cutButton("Unmute", ROW_BUTTON), cutButton("More for Liam", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
+      ]),
+    },
+    {
       label: "Led by icons, with a second line",
       isWide: true,
       markup: listPane([
         { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: cutButton("Remove", ROW_BUTTON) },
         { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: cutButton("Remove", ROW_BUTTON) },
       ]),
+    },
+    {
+      label: "Opening in a new tab: a developer's links beside a running game",
+      isWide: true,
+      markup: listPane([
+        { lead: icon("globe"), title: "Wishlist on Steam", detail: "store.steampowered.com", href: "#list-rows", isNewTab: true },
+        { lead: icon("globe"), title: "ashencrown.com", href: "#list-rows", isNewTab: true, state: "is-pointed" },
+      ]),
+    },
+    {
+      label: "A row hidden for now: a page script shows it, after Show all",
+      markup: listPane([{ title: "Version 15", detail: "An hour ago", href: "#list-rows" }, { title: "Version 14", detail: "2 days ago", href: "#list-rows" }, { title: "Version 13", detail: "5 days ago", href: "#list-rows", isHidden: true }]),
     },
     { label: "Rows to read, not to open", markup: listPane([{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }]) },
   ],

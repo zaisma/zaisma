@@ -246,7 +246,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Layout
 
 - **Stack** (`stack(options: StackOptions)`, `layout.ts`): Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.
-  - `options`: `items: LayoutItem[]`, `label?: string`
+  - `options`: `items: LayoutItem[]`, `label?: string`, `dataAttributes?: Record<string, string>`
 - **Row** (`row(options: RowOptions)`, `layout.ts`): Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other.
   - `options`: `items: LayoutItem[]`, `widths: "equal" | "lead-fills" | "fit"`, `alignment?: "start" | "end" | "center" | "between"`, `label?: string`
 - **Grid** (`grid(options: GridOptions)`, `layout.ts`): Cells of one size, as many to a line as fit: covers, cards, figures. Say what a cell holds and the grid sizes it; it folds to fewer columns as it narrows, to one on a phone, by its own width.
@@ -263,9 +263,9 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Actions
 
 - **Runner button** (`runButton(label: string, options?: RunButtonOptions)`, `actions.ts`): The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `isDisabled?: boolean`, `state?: ButtonState`
+  - `options`: `id?: string`, `dataAttributes?: Record<string, string>`, `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `isDisabled?: boolean`, `state?: ButtonState`
 - **Cut button** (`cutButton(label: string, options?: CutButtonOptions)`, `actions.ts`): Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `reactionCount?: number`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
+  - `options`: `id?: string`, `dataAttributes?: Record<string, string>`, `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `reactionCount?: number`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
 - **Glass button** (`glassButton(label: string, options: GlassButtonOptions)`, `actions.ts`): Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS | IconName`, `tint?: GlassTint`, `isDisabled?: boolean`, `isBusy?: boolean`, `state?: ButtonState`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
@@ -275,12 +275,12 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`, `isConfirmBusy?: boolean`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
-  - `options`: `isQuiet?: boolean`, `state?: "is-pointed" | "is-focused"`
+  - `options`: `isQuiet?: boolean`, `isNewTab?: boolean`, `dataAttributes?: Record<string, string>`, `state?: "is-pointed" | "is-focused"`
 
 ### Inputs
 
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
-  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon?: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isPasswordShown?: boolean`, `isReadOnly?: boolean`, `isDisabled?: boolean`, `state?: "is-focused"`
+  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon?: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `pattern?: string`, `isPasswordShown?: boolean`, `isReadOnly?: boolean`, `isDisabled?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.
@@ -294,7 +294,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Long field** (`longField(options: LongFieldOptions)`, `choices.ts`): More than a line of words: a game's description, patch notes, a reply. It grows with what's written, and counts the characters only once the limit is near.
   - `options`: `name: string`, `label: string`, `id?: string`, `text?: string`, `placeholder?: string`, `rowCount: number`, `maximumCharacterCount?: number`, `hint?: string`, `isRequired?: boolean`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused"`
 - **Select field** (`selectField(options: SelectFieldOptions)`, `choices.ts`): One of many, from a list: a region, a language, a category. It opens a list of Zaisma's glass under the field, on every device. For one of a few, use Choice cards or a Switch.
-  - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `placeholder?: string`, `id?: string`, `icon?: IconName`, `isDisabled?: boolean`, `error?: string`, `state?: "is-focused" | "is-open" | "is-open-above"`
+  - `options`: `name: string`, `label: string`, `choices: SelectChoice[]`, `pickedValue?: string`, `placeholder?: string`, `id?: string`, `icon?: IconName`, `isDisabled?: boolean`, `error?: string`, `dataAttributes?: Record<string, string>`, `state?: "is-focused" | "is-open" | "is-open-above"`
 - **Check field** (`checkField(options: CheckFieldOptions)`, `choices.ts`): A yes or no sent with its form: I agree, Email me replies. A small carved box that turns orange with a dark tick. On a page that saves at once, use a Toggle.
   - `options`: `name: string`, `label: string`, `isChecked?: boolean`, `hint?: string`, `checkValue?: string`, `isRequired?: boolean`, `error?: string`, `isDisabled?: boolean`, `id?: string`, `state?: PressState`
 - **Choice cards** (`choiceCards(options: ChoiceCardsOptions)`, `choices.ts`): One of a few, when each needs a line to say what it means: who can see a game, how its rooms run. Compact for many (a report's reasons): close together down a carved well that scrolls. The picked one is the raised white slab with the orange line; the rest sit carved and quieter.
@@ -306,7 +306,9 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **File drop** (`fileDrop(options: FileDropOptions)`, `inputs.ts`): Handing over files: a game's build, a cover, a screenshot for a report. Drop them on it, tap it, or reach it by keyboard; what's picked is listed with its size.
   - `options`: `name: string`, `label: string`, `accept: string`, `isMultiple?: boolean`, `hint: string`, `maximumByteCount?: number`, `error?: string`, `pickedFiles?: FileDropFile[]`, `isDisabled?: boolean`, `id?: string`, `state?: "over"`
 - **Code field** (`codeField(options: CodeFieldOptions)`, `inputs.ts`): Code to copy and keep: an API key shown once, a game's address, an upload command. It's read-only, in code's own letters, with a Copy button at its end.
-  - `options`: `label: string`, `code: string`, `id?: string`, `state?: "is-focused" | "is-copied"`
+  - `options`: `label: string`, `code: string`, `id?: string`, `state?: "is-focused" | "is-copied"`, `isMasked?: boolean`
+- **QR code** (`qrCode(options: QrCodeOptions)`, `inputs.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.
+  - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `isMasked?: boolean`
 
 ### Navigation
 
@@ -328,6 +330,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `trail: { label: string; href: string }[]`, `current: string`
 - **Pager** (`pager(options: PagerOptions)`, `reading.ts`): Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.
   - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
+- **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
+  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
 
 ### Panes
 
@@ -352,6 +356,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
   - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
 - **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
+- **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view.
+  - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
 
 ### Data
 
@@ -390,6 +396,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
 - **Post** (`post(options: PostOptions)`, `people.ts`): What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.
   - `options`: `author: { username: string; href: string }`, `postedAtMs: number`, `body: Raw`, `marks?: Raw`, `actions?: ControlMarkup[]`
+- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, cut like a pane's corner; it opens large in a sheet, whole, as big as the screen allows.
+  - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 
 <!-- catalog:end -->
 
