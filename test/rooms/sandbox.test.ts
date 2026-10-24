@@ -1048,7 +1048,7 @@ describe("mistakes in a sandboxed game server's code", () => {
       "flood",
       `export default {
   setup: () => ({}),
-  onMessage(state, player, room) { for (let i = 0; i < 1500; i++) room.setOpen(true); room.send(player.id, "done"); },
+  onMessage(state, player, room) { room.send(player.id, "start"); for (let i = 0; i < 1500; i++) room.setOpen(true); room.send(player.id, "done"); },
 };`,
     );
     const a = await join("flood", "ABCDEF");
