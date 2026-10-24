@@ -51,6 +51,14 @@ async function tool(name: string, args: Record<string, unknown> = {}, key = toke
   return result.structuredContent;
 }
 
+/** A developer of their own for the purchase tests, so their calls don't count toward dev-1's 120 a minute. */
+async function purchaseDeveloperTool(): Promise<(name: string, args?: Record<string, unknown>) => Promise<any>> {
+  await createAccount(env.DB, { id: "dev-3", username: "Coin_Smith", ageBand: "18+" });
+  await letPublish(env.DB, "dev-3");
+  const purchaseKey = (await createApiKey(env.DB, "dev-3", "claude")).token;
+  return (name, args = {}) => tool(name, args, purchaseKey);
+}
+
 /** Checks a request the Standard Webhooks way, from the spec, without Zaisma's own code. */
 async function isSignedBy(request: Received, signingSecret: string): Promise<boolean> {
   const secretBytes = Uint8Array.from(atob(signingSecret.slice("whsec_".length)), (character) => character.charCodeAt(0));
@@ -236,19 +244,20 @@ describe("sending events", () => {
   });
 
   it("tells a webhook about a grant and a take-back with the purchase, as the API answers it, receipt and game_account_id included, and only the webhooks that take them", async () => {
-    await tool("create_game", { title: "sky hopper", slug: "sky-hopper" });
-    await tool("create_game", { title: "moon base", slug: "moon-base" });
+    const developerTool = await purchaseDeveloperTool();
+    await developerTool("create_game", { title: "sky hopper", slug: "sky-hopper" });
+    await developerTool("create_game", { title: "moon base", slug: "moon-base" });
     await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
     const playerId = (await accountById(env.DB, "player-1"))!.player_id;
-    await tool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
-    const { webhook: both, signing_secret: signingSecret } = await tool("create_webhook", { endpoint_url: `${HOOKS}/both`, event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
-    await tool("create_webhook", { endpoint_url: `${HOOKS}/completed`, event_kinds: ["purchase_completed"] });
-    await tool("create_webhook", { endpoint_url: `${HOOKS}/refunded`, event_kinds: ["purchase_refunded"] });
-    await tool("create_webhook", { endpoint_url: `${HOOKS}/bugs`, event_kinds: ["bug_reported", "scan_status_changed"] });
-    await tool("create_webhook", { endpoint_url: `${HOOKS}/moon`, event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["moon-base"] });
+    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
+    const { webhook: both, signing_secret: signingSecret } = await developerTool("create_webhook", { endpoint_url: `${HOOKS}/both`, event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
+    await developerTool("create_webhook", { endpoint_url: `${HOOKS}/completed`, event_kinds: ["purchase_completed"] });
+    await developerTool("create_webhook", { endpoint_url: `${HOOKS}/refunded`, event_kinds: ["purchase_refunded"] });
+    await developerTool("create_webhook", { endpoint_url: `${HOOKS}/bugs`, event_kinds: ["bug_reported", "scan_status_changed"] });
+    await developerTool("create_webhook", { endpoint_url: `${HOOKS}/moon`, event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["moon-base"] });
     const sentTo = () => received.map((request) => request.url.replace(HOOKS, "")).sort();
 
-    const granted = (await tool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive", item_count: 4, game_account_id: "patreon-4417" })).purchase;
+    const granted = (await developerTool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive", item_count: 4, game_account_id: "patreon-4417" })).purchase;
     await vi.waitFor(() => expect(sentTo()).toEqual(["/both", "/completed"]));
     const completed = JSON.parse(received.find((request) => request.url.endsWith("/both"))!.body);
     expect(schemaProblems(WEBHOOK_EVENT, completed)).toEqual([]);
@@ -263,7 +272,7 @@ describe("sending events", () => {
     expect(sentTo()).toEqual(["/both", "/completed"]);
 
     received = [];
-    await tool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.id });
+    await developerTool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.id });
     await vi.waitFor(() => expect(sentTo()).toEqual(["/both", "/refunded"]));
     const refunded = JSON.parse(received.find((request) => request.url.endsWith("/both"))!.body);
     expect(schemaProblems(WEBHOOK_EVENT, refunded)).toEqual([]);
@@ -274,19 +283,20 @@ describe("sending events", () => {
     expect(sentTo()).toEqual(["/both", "/refunded"]);
 
     // Both events are in the webhook's deliveries, with the kinds they are.
-    const { deliveries } = await tool("list_webhook_deliveries", { webhook_id: both.id });
+    const { deliveries } = await developerTool("list_webhook_deliveries", { webhook_id: both.id });
     expect(deliveries.map((delivery: { webhook_event: { kind: string } }) => delivery.webhook_event.kind)).toEqual(["purchase_refunded", "purchase_completed"]);
     // A test event, and every other kind, carries purchase: null.
     received = [];
-    const tested = await tool("test_webhook", { webhook_id: both.id });
+    const tested = await developerTool("test_webhook", { webhook_id: both.id });
     expect(tested.delivery.webhook_event).toMatchObject({ kind: "test", purchase: null });
   });
 
   it("takes both purchase event kinds when a webhook changes, and refuses a purchase kind that doesn't exist", async () => {
-    const made = await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["purchase_completed"] });
+    const developerTool = await purchaseDeveloperTool();
+    const made = await developerTool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["purchase_completed"] });
     expect(made.webhook.event_kinds).toEqual(["purchase_completed"]);
-    expect((await tool("update_webhook", { webhook_id: made.webhook.id, event_kinds: ["purchase_refunded", "purchase_completed"] })).webhook.event_kinds.sort()).toEqual(["purchase_completed", "purchase_refunded"]);
-    expect((await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["purchase_refunded_all"] })).error).toMatchObject({ code: "bad_event_kinds", field: "event_kinds" });
+    expect((await developerTool("update_webhook", { webhook_id: made.webhook.id, event_kinds: ["purchase_refunded", "purchase_completed"] })).webhook.event_kinds.sort()).toEqual(["purchase_completed", "purchase_refunded"]);
+    expect((await developerTool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["purchase_refunded_all"] })).error).toMatchObject({ code: "bad_event_kinds", field: "event_kinds" });
   });
 
   it("passes a player report Zaisma leaves to the developer, as get_reports lists it, and never one about child safety", async () => {
@@ -415,16 +425,17 @@ describe("webhooks to the game server", () => {
   });
 
   it("send a game's purchase_completed and purchase_refunded events to its game server's onWebhook, with the purchase and its game_account_id", async () => {
-    await tool("create_game", { title: "sky hopper", slug: "sky-hopper" });
-    await tool("create_game", { title: "cave crew", slug: "cave-crew" });
+    const developerTool = await purchaseDeveloperTool();
+    await developerTool("create_game", { title: "sky hopper", slug: "sky-hopper" });
+    await developerTool("create_game", { title: "cave crew", slug: "cave-crew" });
     await createAccount(env.DB, { id: "player-2", username: "Ben_Miller", ageBand: "18+" });
     const playerId = (await accountById(env.DB, "player-2"))!.player_id;
-    await tool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
-    await tool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
-    await tool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed"], game_slugs: ["cave-crew"] });
+    await developerTool("set_item", { slug: "sky-hopper", item_name: "revive", title: "Revive", description: "", item_kind: "consumable", item_category: "gameplay", price_minor_units: null, currency_code: null, local_prices: [] });
+    await developerTool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed", "purchase_refunded"], game_slugs: ["sky-hopper"] });
+    await developerTool("create_webhook", { destination_kind: "game_server", event_kinds: ["purchase_completed"], game_slugs: ["cave-crew"] });
     const game = (await env.DB.prepare("SELECT id FROM games WHERE slug = 'sky-hopper'").first<{ id: string }>())!;
 
-    const granted = (await tool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive", item_count: 2, game_account_id: "patreon-4417" })).purchase;
+    const granted = (await developerTool("grant_item", { slug: "sky-hopper", player_id: playerId, item_name: "revive", item_count: 2, game_account_id: "patreon-4417" })).purchase;
     await vi.waitFor(async () => expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM webhook_deliveries WHERE delivery_status = 'delivered'").first<{ count: number }>()).toEqual({ count: 1 }));
     let sent = await gameServers().takeSent(null);
     // Only the purchase's own game's game server, and the event as the API answers the purchase.
@@ -436,7 +447,7 @@ describe("webhooks to the game server", () => {
     expect(received).toEqual([]);
 
     // A take-back reaches it as purchase_refunded, whose purchase_status says it was; the other game's webhook takes neither kind from this game.
-    await tool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.id });
+    await developerTool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.id });
     await vi.waitFor(async () => expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM webhook_deliveries WHERE delivery_status = 'delivered'").first<{ count: number }>()).toEqual({ count: 2 }));
     sent = await gameServers().takeSent(null);
     expect(sent.map((event) => event.gameId)).toEqual([game.id]);

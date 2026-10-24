@@ -1731,7 +1731,7 @@ describe("the v1 rooms transcript, in Zaisma rooms", () => {
 
 describe("purchases to the game's page, exactly once", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM purchases; DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM reports; DELETE FROM versions; DELETE FROM tester_links; DELETE FROM room_keys; DELETE FROM room_message_types; DELETE FROM game_hosting_months; DELETE FROM domains; DELETE FROM games;");
   });
 
   const accountFor = (id: string) => createAccount(e.DB, { id, username: id, ageBand: "18+" });

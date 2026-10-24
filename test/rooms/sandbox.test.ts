@@ -300,7 +300,7 @@ describe("sandboxed game servers", () => {
     await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
   });
 
-  it("runs onPurchase once for a player in two rooms of the game at the same time, and not at all when the game's purchases go to its own server", async () => {
+  it("runs onPurchase once for a player across two rooms of the game, and not at all when the game's purchases go to its own server", async () => {
     await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
     await addSandboxGame("twin-rooms", GAME_ASKING_PURCHASE_HANDLING);
     await addSandboxGame("own-backend", GAME_ASKING_PURCHASE_HANDLING);
@@ -309,20 +309,21 @@ describe("sandboxed game servers", () => {
     await addGrantedPurchase("purchase_twinrooms0001", "twin-rooms", account.player_id, 1);
     await addGrantedPurchase("purchase_ownbackend001", "own-backend", account.player_id, 1);
 
-    const pass = await accountPassFor("twin-rooms", account.id);
-    const [inFirst, inSecond] = await Promise.all([join("twin-rooms", "TWINAA", undefined, pass), join("twin-rooms", "TWINBB", undefined, pass)]);
-    await vi.waitFor(async () => expect(await handlingOf("purchase_twinrooms0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
-    // Let a second, wrongly started hand-over show itself, then count what each room heard before its pong.
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const heardIn = async (room: typeof inFirst) => {
+    // A player plays in one room of a game at a time: the first room hands it over, and the next room the player
+    // joins finds it handled and hands nothing over again.
+    const heardIn = async (room: Awaited<ReturnType<typeof join>>) => {
       room.say("ping");
       const heard: unknown[] = [];
       for (let message = await room.next(); message.data !== "pong"; message = await room.next()) heard.push(message.data);
       return heard;
     };
-    const heard = [...(await heardIn(inFirst)), ...(await heardIn(inSecond))];
-    expect(heard).toEqual([{ kind: "purchase", id: "purchase_twinrooms0001", purchaseStatus: "completed", isBroken: false }]);
+    const inFirst = await join("twin-rooms", "TWINAA", undefined, await accountPassFor("twin-rooms", account.id));
+    await vi.waitFor(async () => expect(await handlingOf("purchase_twinrooms0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
+    expect(await heardIn(inFirst)).toEqual([{ kind: "purchase", id: "purchase_twinrooms0001", purchaseStatus: "completed", isBroken: false }]);
     inFirst.ws.close(1000);
+    const inSecond = await join("twin-rooms", "TWINBB", undefined, await accountPassFor("twin-rooms", account.id));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await heardIn(inSecond)).toEqual([]);
     inSecond.ws.close(1000);
 
     // purchase_delivery own_server: the developer's own backend marks it handled, so the room's game server never gets it.

@@ -255,6 +255,7 @@ const UNLOGGED_CHANGES: Record<string, string> = {
   "POST /files/:sha256/parts/done": "A piece of an upload: the version is the event.",
   "POST /webhooks/:webhook_id/test": "Changes nothing.",
   "POST /games/:slug/shader-checks": "Changes nothing of the game's: it draws the shader and keeps only a sheet picture for a day.",
+  "POST /games/:slug/purchases/:purchase_id/handled": "Delivery bookkeeping, once for every purchase players make: the purchase's handled_at is its record.",
 };
 /** Reads that are logged: what a player saved, and the whole database. */
 const LOGGED_READS = ["GET /games/:slug/export/download", "GET /games/:slug/database/export", "GET /games/:slug/saves/:player_id", "GET /games/:slug/saves/:player_id/copies/:save_copy_id"];

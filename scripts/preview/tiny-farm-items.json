@@ -16,6 +16,7 @@
     "item_kind": "consumable",
     "item_category": "gameplay",
     "price_minor_units": 99,
-    "currency_code": "usd"
+    "currency_code": "usd",
+    "local_prices": []
   }
 ]
