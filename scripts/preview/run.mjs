@@ -19,6 +19,7 @@ import { startFakeDns } from "./fake-dns.mjs";
 import { startFakeMail } from "./fake-mail.mjs";
 import { LATER_MARKER, MATCH_MARKER, startFakeShield } from "./fake-shield.mjs";
 import { startFakeSite } from "./fake-site.mjs";
+import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
 import { finishTurn, noteMemoryFreed, waitForTurn } from "./memory.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
@@ -30,7 +31,7 @@ const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
 // servers is the one wrangler's own port, behind the site, games and rooms ports (forward(), below).
-const PORTS = { servers: 8799 + OFFSET, site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET };
+const PORTS = { servers: 8799 + OFFSET, site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET, feedback: 8798 + OFFSET, stripe: 8803 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -74,6 +75,20 @@ const FEEDBACK = `http://localhost:${PORTS.feedback}`;
 const EMAIL = "preview@zaisma.test";
 // The token Cloudflare's test keys answer for (the preview uses them).
 const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
+// The buy sheet's second game, whose developer has no Stripe connected (its owner is set beside dashking's), and a test player's purchase PIN.
+const NO_STRIPE_GAME_TITLE = "Seaside Stand";
+const PURCHASE_PIN = "246810";
+// Payments (the buy sheet): Stripe's own test mode when apps/site/.dev.vars holds test keys (their values go straight into the
+// site's preview settings and are never printed), else a stand-in (fake-stripe.mjs) that answers every call with no real card.
+const STRIPE_TEST_VARS = (() => {
+  try {
+    const vars = Object.fromEntries(readFileSync(join(ROOT, "apps/site/.dev.vars"), "utf8").split("\n").map((line) => line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r]*)"?\s*$/)).filter(Boolean).map(([, name, value]) => [name, value]));
+    if (!vars.STRIPE_SECRET_KEY?.startsWith("sk_test_") || !vars.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_")) return null;
+    return { STRIPE_SECRET_KEY: vars.STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY: vars.STRIPE_PUBLISHABLE_KEY, ...(vars.STRIPE_CONNECT_CLIENT_ID ? { STRIPE_CONNECT_CLIENT_ID: vars.STRIPE_CONNECT_CLIENT_ID } : {}) };
+  } catch {
+    return null;
+  }
+})();
 
 // --engines-only seeds only what npm run engines:play needs (one developer and the engine samples), for GitHub's
 // "Engine exports" job: no other test games, accounts, forum or pretend traffic. The marker file says which data this is.
@@ -114,6 +129,12 @@ const siteSettings = {
   // Cloudflare's published test keys for its check on Play: invisible, and every browser passes. The
   // server's side of the check asks a stand-in (fake-turnstile.mjs), so the preview makes no outside call.
   TURNSTILE_SITE_KEY: "1x00000000000000000000BB", TURNSTILE_SECRET: "1x0000000000000000000000000000000AA", TURNSTILE_SITEVERIFY_URL: `http://localhost:${PORTS.turnstile}/turnstile/v0/siteverify`,
+  // The buy sheet's Stripe: test mode with the keys from .dev.vars, else the stand-in (fake-stripe.mjs) for Stripe's API and Connect sign-in.
+  ...(STRIPE_TEST_VARS ?? {
+    STRIPE_API_ORIGIN: `http://localhost:${PORTS.stripe}`,
+    STRIPE_SECRET_KEY: "sk_test_preview", STRIPE_PUBLISHABLE_KEY: "pk_test_preview", STRIPE_EVENTS_SECRET: "whsec_test_preview",
+    STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview",
+  }),
 };
 const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS };
 // Multiplayer rooms, with their own pass and receipt signing keys kept between runs so passes and receipts stay valid.
@@ -430,6 +451,7 @@ await Promise.all([startFakeAi(PORTS.ai), startFakeShield(PORTS.shield, STATE)])
 startFakeDns(PORTS.dns);
 startFakeMail(PORTS.mail, STATE);
 startFakeTurnstile(PORTS.turnstile);
+if (!STRIPE_TEST_VARS) startFakeStripe(PORTS.stripe);
 startFakeSite(PORTS.signInSite, SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID);
 writeFileSync(join(STATE, "feedback.log"), "");
 // workers/router.mjs comes first in the one wrangler dev and sends each port's requests to its Worker.
@@ -527,6 +549,7 @@ const reuploadReport = (originalId) =>
   }).replaceAll("'", "''");
 runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('preview-dashking', 'player_previewdashking001', 'dashking', '18+', ${Date.now()}, ${Date.now()});
      INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_previewdashking001', 'person', 'preview-dashking', ${Date.now()});
+     UPDATE games SET owner_id = 'owner_previewdashking001' WHERE title = '${NO_STRIPE_GAME_TITLE}';
      INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
@@ -599,6 +622,7 @@ try {
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
+  Payments        ${STRIPE_TEST_VARS ? "Stripe test mode" : "stand-in Stripe"}
   Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
                   Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
                   Play starts the game in place and Back returns)
@@ -635,6 +659,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Your games      ${SITE}/dashboard
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
+  Buy sheet       ${SITE}/g/tiny-farm?play  (its shop buttons call Zaisma.items.buy: Revive $1.99 (R$ 9,90 in Brazil), Straw Hat $4.99, Spring Valley $19.99, and Founders Badge,
+                  given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat),
+                  Pin_Keeper (purchase PIN ${PURCHASE_PIN}), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
+                  ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
   Share cards     ${SITE}/g/shard-dodge  (its developer links in each site's look: Discord and the website only signed in
@@ -970,6 +998,8 @@ async function seed() {
   for (const { item_name: itemName, ...fields } of JSON.parse(readFileSync(join(ROOT, "scripts/preview/tiny-farm-items.json"), "utf8"))) {
     await api("PUT", `/games/tiny-farm/items/${itemName}`, fields);
   }
+  await seedBuySheet(api, upload, approveNewest);
+  stepDone("buy sheet");
   // Shard Dodge's links on its game page, each in its site's look (Discord and the website only for
   // signed-in adults), and a share picture of its own that shared links show instead of the cover.
   await api("PATCH", "/games/shard-dodge", {
@@ -1801,6 +1831,38 @@ async function seedWrongPasswords() {
     `UPDATE accounts SET wrong_password_notice_at_ms = ${nowMs} WHERE username IN ('Guessed_At', 'Guessed_Twice')`,
   ];
   runSql(sql.join("; "));
+}
+
+/**
+ * Test data for the buy sheet (Zaisma.items.buy on Tiny Farm's shop buttons): Tiny Farm's developer has a Stripe account
+ * connected (the stand-in's, fake-stripe.mjs), a second game sells an item for a developer who has none, and four kinds of
+ * player: a saved card (who owns Straw Hat through a grant), a purchase PIN and no card, an adult with neither, and one
+ * with no email or passkey (Saved_Farmer, made later). In Stripe's test mode the connected account and the card would be
+ * ones Stripe doesn't know, so Preview_Studio connects its own Stripe on /dashboard instead and the card is added on the sheet.
+ */
+async function seedBuySheet(api, upload, approveNewest) {
+  if (!STRIPE_TEST_VARS) {
+    runSql(`UPDATE owners SET stripe_account_id = 'acct_preview_studio', can_take_stripe_payments = 1, stripe_country_code = 'US', stripe_default_currency_code = 'usd', stripe_business_name = 'Preview Studio', stripe_support_email = 'support@preview-studio.example', stripe_connected_at_ms = ${Date.now()} WHERE id = (SELECT owner_id FROM games WHERE slug = 'tiny-farm')`);
+  }
+  // A game with a priced item whose developer has no Stripe: its owner is switched to dashking once that account exists.
+  const { game } = await api("POST", "/games", { title: NO_STRIPE_GAME_TITLE, description: "Sell lemonade to the whole beach.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  await upload("examples/hello-game", game.slug, "First version.");
+  await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+  await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+  await api("PATCH", `/games/${game.slug}/purchase-settings`, { refund_policy: "no_refunds" });
+  await api("PUT", `/games/${game.slug}/items/extra_lemons`, { title: "Extra Lemons", description: "A crate of lemons for the stand.", item_kind: "consumable", item_category: "gameplay", price_minor_units: 299, currency_code: "usd", local_prices: [] });
+
+  await signedIn({ name: "Card_Keeper", email: "card@example.test", year: "1992" }, "198.51.100.233");
+  const withPin = await signedIn({ name: "Pin_Keeper", email: "pin@example.test", year: "1993" }, "198.51.100.234");
+  if (!STRIPE_TEST_VARS) {
+    runSql(`INSERT OR REPLACE INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) SELECT id, 'pm_preview_saved', 'visa', '4242', 'card@example.test', ${Date.now()} FROM accounts WHERE username = 'Card_Keeper'`);
+  }
+  // Card_Keeper was given Straw Hat (the developer API's grant), so buying it again says it's owned.
+  const [{ player_id: cardKeeperPlayerId }] = querySql("SELECT player_id FROM accounts WHERE username = 'Card_Keeper'");
+  await api("POST", "/games/tiny-farm/purchases", { player_id: cardKeeperPlayerId, item_name: "straw_hat" });
+  // Setting a PIN needs the password and an email or passkey on the account.
+  const pinResponse = await withPin("/api/account/purchase-pin", JSON.stringify({ purchase_pin: PURCHASE_PIN, password: PASSWORD }), "PUT");
+  if (!pinResponse.ok) console.log(`  Couldn't set Pin_Keeper's purchase PIN: ${pinResponse.status} ${await pinResponse.text()}`);
 }
 
 /**

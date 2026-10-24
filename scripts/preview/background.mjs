@@ -40,7 +40,7 @@ const READY_LINE = "Zaisma preview is running.";
 // From its turn in the line for memory: the wait in line has no limit.
 const READY_TIMEOUT_MS = 9 * 60_000;
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
-const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 9340, 9341, 9342].map((port) => port + offset);
+const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 8803, 9340, 9341, 9342].map((port) => port + offset);
 // Where a browser opens it: this Mac's tailnet name when the preview is on a phone (phoneHost), else localhost.
 const addressFor = (port, phoneHost) => (phoneHost ? `https://${phoneHost}:${port}` : `http://localhost:${port}`);
 const siteFor = (offset, phoneHost = null) => addressFor(8800 + offset, phoneHost);
@@ -339,9 +339,11 @@ function printReady(offset, startedHow, phone) {
     return;
   }
   const width = Math.max(...SIGN_INS.map((account) => account.username.length));
+  // run.mjs's banner says which payments it runs on: Stripe's stand-in, or Stripe's test mode when .dev.vars has test keys.
+  const paymentsText = /^ +Payments +(.+)$/m.exec(text)?.[1];
   console.log(`
 Preview ${how}: ${site}  (this checkout only; nothing touches the live site)
-${phoneText}
+${phoneText}${paymentsText ? `\nPayments: ${paymentsText}` : ""}
 
 Sign in at ${site}/signin, password "${PASSWORD}" for every one:
 ${SIGN_INS.map((account) => `  ${account.username.padEnd(width)}  ${account.about}`).join("\n")}
