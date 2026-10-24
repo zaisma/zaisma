@@ -283,6 +283,10 @@ const COVER_STYLES = `
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
+/* What's under a cover is words, so it keeps the pane's words margin (--pad-words) in from the art's edges. With a title it belongs to the
+   cover above it: just under the orange line, with more room after it before the next row. */
+.cover-meta { padding-inline: var(--pad-words); }
+.cover-meta.has-title { margin-top: 2px; margin-bottom: var(--gap-words-words); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }

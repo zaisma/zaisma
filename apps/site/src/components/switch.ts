@@ -153,7 +153,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     };
     function isDisabled(tab) { return tab.disabled || tab.getAttribute("aria-disabled") === "true"; }
     tabs.forEach(function (tab) {
-      tab.addEventListener("pointerenter", function () { if (isDisabled(tab)) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
+      // Pointing is a mouse's: a tap fires it too, and on a link to another page the ghost would glide there before the next page slides the slab.
+      tab.addEventListener("pointerenter", function (event) { if (isDisabled(tab) || (event.pointerType && event.pointerType !== "mouse")) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
       // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab, so the slide
       // plays once. Only a link within this page (its address but for the #), or one a page script shows without leaving, slides here.
       tab.addEventListener("click", function (event) {
