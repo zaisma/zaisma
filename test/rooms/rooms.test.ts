@@ -99,7 +99,7 @@ async function until(c: { next: () => Promise<any> }, want: (m: any) => boolean)
 async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string }; answersProbes?: false } = {}) {
   const { pass, player } = await getPass(game);
   const c = await connect(game, code, ORIGIN, opts.from, opts.answersProbes !== false);
-  c.ws.send(JSON.stringify({ type: "hello", pass, room: opts.listed === false ? { isListed: false } : undefined }));
+  c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: opts.listed !== false } }));
   const welcome = await c.next();
   expect(welcome.type).toBe("welcome");
   return { ...c, player, pass };
@@ -129,7 +129,10 @@ describe("rooms", () => {
     const block = { country_code: "GB", review_reason: { code: "country_law_notice", message: "A notice under GB law names this: the poster.", content_rule: null }, blocked_at_ms: 1 };
     await e.DB.prepare("UPDATE games SET country_blocks = ? WHERE id = ?").bind(JSON.stringify([block]), id).run();
     const there = await connect("blocked-here", "ABCDEF", ORIGIN, { country: "GB", continent: "EU" });
-    expect(there.res.status).toBe(404);
+    // Told on the socket why it's turned away, since a browser never sees an HTTP status on a WebSocket.
+    expect(there.res.status).toBe(101);
+    expect(await there.next()).toMatchObject({ type: "error", code: "game_unavailable" });
+    expect(await there.closed).toBe(4001);
     const passThere = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: "blocked-here", roomKey: await keyFor("blocked-here") }), cf: { country: "GB" } } as RequestInit);
     expect(passThere.status).toBe(404);
     const elsewhere = await connect("blocked-here", "ABCDEF", ORIGIN, { country: "DE", continent: "EU" });
@@ -177,7 +180,7 @@ describe("rooms", () => {
 
     // Rooms show the account's name, and the game server sees its kind.
     const c = await connect("arena", "ACCNTS");
-    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     expect((await c.next()).me).toEqual({ id: account.player_id, name: "Night_Owl", kind: "account" });
     c.ws.close(1000);
     // A guest beside them is still a guest.
@@ -187,7 +190,7 @@ describe("rooms", () => {
     const leftoverKey = await issueRoomKey(e.DB, arena, account.id);
     await deleteAccount(e.DB, account.id);
     const late = await connect("arena", "ACCNTS");
-    late.ws.send(JSON.stringify({ type: "hello", pass }));
+    late.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     expect(await late.next()).toMatchObject({ type: "error", code: "bad_pass" });
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: leftoverKey })).status).toBe(403);
   });
@@ -215,7 +218,7 @@ describe("rooms", () => {
 
     // Players' games never hear what anyone owns; the room keeps it for its game server through a sleep.
     const c = await connect("arena", "CRWNS2");
-    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     const welcome = await c.next();
     expect(welcome.me).toEqual({ id: account.player_id, name: "Gold_Owl", kind: "account" });
     expect(welcome.players).toEqual([{ id: account.player_id, name: "Gold_Owl", kind: "account", awayReason: null }]);
@@ -235,10 +238,10 @@ describe("rooms", () => {
       for (let i = 0; i < 50 && (await seated()).length !== count; i++) await new Promise((resolve) => setTimeout(resolve, 20));
     };
     const c = await connect("arena", "SEATED");
-    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     expect((await c.next()).type).toBe("welcome");
     const guest = await connect("arena", "SEATED");
-    guest.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    guest.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("arena")).pass }));
     expect((await guest.next()).type).toBe("welcome");
     await until(1);
     expect(await seated()).toEqual([{ game_id: arena, room_code: "SEATED", player_id: account.player_id }]);
@@ -357,7 +360,7 @@ describe("rooms", () => {
     expect(await answer.json()).toEqual({
       friends: [
         { player_id: ben.player_id, username: "ingame_ben", room_code: "FRNDAA", server_url: null, join_refusal: null },
-        { player_id: eve.player_id, username: "ingame_eve", room_code: null, server_url: null, join_refusal: "no_room" },
+        { player_id: eve.player_id, username: "ingame_eve", room_code: null, server_url: null, join_refusal: "friend_not_in_room" },
       ],
     });
     // A full room, or a friend who doesn't take joins, gives the reason instead of the room.
@@ -400,7 +403,7 @@ describe("rooms", () => {
     expect(await e.DB.prepare("SELECT room_code FROM room_players WHERE player_id = ?").bind(eve.player_id).all()).toMatchObject({ results: [{ room_code: "WNRMAB" }] });
     // A page that stopped saying it for 5 minutes no longer counts.
     await e.DB.prepare("UPDATE room_players SET updated_at_ms = ? WHERE player_id = ?").bind(nowMs - 6 * 60_000, eve.player_id).run();
-    expect(await eveNow()).toMatchObject({ room_code: null, join_refusal: "no_room" });
+    expect(await eveNow()).toMatchObject({ room_code: null, join_refusal: "friend_not_in_room" });
     expect((await setRoom({ serverUrl: null, roomCode: null })).status).toBe(200);
     expect(await e.DB.prepare("SELECT COUNT(*) AS row_count FROM room_players WHERE player_id = ?").bind(eve.player_id).first("row_count")).toBe(0);
 
@@ -439,7 +442,7 @@ describe("rooms", () => {
 
     const enter = async (account: { id: string }, roomCode: string, hello: Record<string, unknown> = {}) => {
       const c = await connect("arena", roomCode);
-      c.ws.send(JSON.stringify({ type: "hello", pass: await passOf(account), ...hello }));
+      c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: await passOf(account), ...hello }));
       return { ...c, first: await c.next() };
     };
     // The wall goes up both ways as Mia joins, with neither game saying a thing; Cy hears nothing of it.
@@ -491,7 +494,7 @@ describe("rooms", () => {
     }
     // A guest's pass from before the change no longer gets into a room.
     const late = await connect("arena", "GSTWAY");
-    late.ws.send(JSON.stringify({ type: "hello", pass: earlier.pass }));
+    late.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: earlier.pass }));
     expect(await late.next()).toMatchObject({ type: "error", code: "account_needed" });
     // Guests welcome again: passes as before.
     await e.DB.prepare("UPDATE games SET account_requirement = 'none' WHERE id = ?").bind(arena).run();
@@ -507,7 +510,7 @@ describe("rooms", () => {
     // Everyone 13 and up: the teen plays, and joins a room.
     const teenPass = (await (await passFor(teen.id)).json<{ pass: string }>()).pass;
     const teenInRoom = await connect("grown", "GRWNPL");
-    teenInRoom.ws.send(JSON.stringify({ type: "hello", pass: teenPass }));
+    teenInRoom.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: teenPass }));
     expect((await teenInRoom.next()).type).toBe("welcome");
 
     // 16 and up: no pass for the teen, and the pass never says why beyond the code.
@@ -522,12 +525,12 @@ describe("rooms", () => {
 
     // The room checks the game on the next join, and the teen already in it leaves with the same code.
     const sixteenInRoom = await connect("grown", "GRWNPL");
-    sixteenInRoom.ws.send(JSON.stringify({ type: "hello", pass: sixteenAnswer.pass }));
+    sixteenInRoom.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: sixteenAnswer.pass }));
     expect((await until(sixteenInRoom, (m) => m.type === "welcome")).type).toBe("welcome");
     expect(await until(teenInRoom, (m) => m.type === "error")).toMatchObject({ type: "error", code: "game_not_open_to_player" });
     // And a pass the teen got before can't get back in.
     const late = await connect("grown", "GRWNPL");
-    late.ws.send(JSON.stringify({ type: "hello", pass: teenPass }));
+    late.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: teenPass }));
     expect(await late.next()).toMatchObject({ type: "error", code: "game_not_open_to_player" });
   });
 
@@ -554,11 +557,21 @@ describe("rooms", () => {
     // A game that isn't there answers quickly, and still counts toward the limit.
     const open = (address: string) =>
       roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, CONNECT_LIMIT: connectLimit });
-    for (let i = 0; i < 60; i++) expect((await open("203.0.113.9")).status).toBe(404);
-    expect((await open("203.0.113.9")).status).toBe(429);
+    /** What a turned-away socket says and how it closes: refusals come on a socket, never as an HTTP status. */
+    const refusal = async (res: Response) => {
+      expect(res.status).toBe(101);
+      const ws = res.webSocket!;
+      const said = new Promise<any>((resolve) => ws.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
+      const closeCode = new Promise<number>((resolve) => ws.addEventListener("close", (ev) => resolve(ev.code), { once: true }));
+      ws.accept();
+      return { said: await said, closeCode: await closeCode };
+    };
+    for (let i = 0; i < 60; i++) expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "game_unavailable" }, closeCode: 4001 });
+    // Past the limit it says busy, and its close code (1013) has the SDK try again later.
+    expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "busy" }, closeCode: 1013 });
     expect(new Set(connectLimit.keys)).toEqual(new Set(["203.0.113.9"]));
     // Another address has its own count.
-    expect((await open("203.0.113.10")).status).toBe(404);
+    expect(await refusal(await open("203.0.113.10"))).toMatchObject({ said: { code: "game_unavailable" }, closeCode: 4001 });
   });
 
   it("lets the tester address in for the link it names, with room links back through it", async () => {
@@ -598,7 +611,7 @@ describe("rooms", () => {
     const said: any[] = [];
     tester.addEventListener("message", (ev) => said.push(JSON.parse(ev.data as string)));
     const testerClosed = new Promise<number>((r) => tester.addEventListener("close", (ev) => r(ev.code)));
-    tester.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    tester.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("arena")).pass }));
     const other = await join("arena", "TSTRMS");
     expect((await other.next()).players).toHaveLength(2);
 
@@ -646,7 +659,7 @@ describe("rooms", () => {
     await b.next(); // b's player list
 
     a.ws.send(JSON.stringify({ type: "message", data: { x: 3 } }));
-    expect(await b.next()).toEqual({ type: "message", data: { fromPlayerId: a.player.id, data: { x: 3 } } });
+    expect(await b.next()).toEqual({ type: "message", data: { x: 3 }, fromPlayerId: a.player.id });
 
     b.ws.close(1000);
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
@@ -677,8 +690,8 @@ describe("rooms", () => {
 
     const { pass } = await getPass("arena");
     const c = await connect("arena", "BYTES2");
-    c.ws.send(new TextEncoder().encode(JSON.stringify({ type: "hello", pass })));
-    expect(await c.next()).toMatchObject({ type: "error", code: "bad_message" });
+    c.ws.send(new TextEncoder().encode(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass })));
+    expect(await c.next()).toMatchObject({ type: "error", code: "no_hello" });
   });
 
   it("probes each player right after welcome", async () => {
@@ -729,7 +742,7 @@ describe("rooms", () => {
 
     // b's game reconnects with the same pass: they're playing again, and a hears it.
     const back = await connect("arena", "DRPRMA");
-    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect(await back.next()).toMatchObject({ type: "welcome", players: [{ id: a.player.id, awayReason: null }, { id: b.player.id, awayReason: null }] });
     await until(a, (m) => m.type === "players" && m.players.every((p: any) => p.awayReason === null));
 
@@ -780,7 +793,9 @@ describe("rooms", () => {
     await addGame("arena");
     await addGame("other");
     const wrongOrigin = await connect("arena", "ABCDEF", "https://evil.example");
-    expect(wrongOrigin.res.status).toBe(403);
+    expect(wrongOrigin.res.status).toBe(101);
+    expect(await wrongOrigin.next()).toMatchObject({ type: "error", code: "bad_origin" });
+    expect(await wrongOrigin.closed).toBe(4001);
 
     const noHello = await connect("arena", "ABCDEF");
     noHello.ws.send(JSON.stringify({ type: "message", data: 1 }));
@@ -788,7 +803,7 @@ describe("rooms", () => {
 
     const { pass } = await getPass("other");
     const wrongGame = await connect("arena", "ABCDEF");
-    wrongGame.ws.send(JSON.stringify({ type: "hello", pass }));
+    wrongGame.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     expect(await wrongGame.next()).toMatchObject({ type: "error", code: "bad_pass" });
   });
 
@@ -796,7 +811,7 @@ describe("rooms", () => {
     await addGame("arena");
     const a = await join("arena", "QRSTUV");
     const again = await connect("arena", "QRSTUV");
-    again.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    again.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: a.pass }));
     expect((await again.next()).me.id).toBe(a.player.id);
     expect(await a.closed).toBe(4001);
   });
@@ -812,7 +827,10 @@ describe("rooms", () => {
     expect((await a.next()).type).toBe("players");
     a.ws.send(JSON.stringify({ type: "message", data: 1 }));
     expect(await a.next()).toMatchObject({ type: "ended" });
-    expect((await connect("arena", "HJKLMN")).res.status).toBe(404);
+    const turnedAway = await connect("arena", "HJKLMN");
+    expect(turnedAway.res.status).toBe(101);
+    expect(await turnedAway.next()).toMatchObject({ type: "error", code: "game_unavailable" });
+    expect(await turnedAway.closed).toBe(4001);
   });
 
   it("records usage when the room empties, with nothing about players", async () => {
@@ -870,7 +888,7 @@ describe("rooms", () => {
     expect(made.status).toBe(403);
     expect(await made.json()).toMatchObject({ error: { code: "hosting_paused" } });
     const fresh = await connect("arena", "NEWRMA");
-    fresh.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    fresh.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("arena")).pass }));
     expect(await fresh.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const reserve = await e.ROOMS.get(e.ROOMS.idFromName("arena:RSRVDA")).fetch("https://room/reserve", {
       method: "POST",
@@ -881,7 +899,7 @@ describe("rooms", () => {
 
     // The running match takes no new players, and the one who knocked tells it when it ends: an hour after the pause.
     const stranger = await connect("arena", "CAPPDA");
-    stranger.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    stranger.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("arena")).pass }));
     expect(await stranger.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const ending = await until(a, (m) => m.type === "ending");
     expect(Date.parse(ending.endsAt)).toBe(pausedAtMs + MATCH_FINISH_DURATION_SEC * 1000);
@@ -891,16 +909,16 @@ describe("rooms", () => {
     b.ws.close(1000);
     await b.closed;
     const bBack = await connect("arena", "CAPPDA");
-    bBack.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    bBack.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect(await bBack.next()).toMatchObject({ type: "welcome", me: { id: b.player.id }, endsAt: ending.endsAt });
     a.ws.close(1000);
     bBack.ws.close(1000);
     await Promise.all([a.closed, bBack.closed]);
     const another = await connect("arena", "CAPPDA");
-    another.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    another.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("arena")).pass }));
     expect(await another.next()).toMatchObject({ type: "error", code: "hosting_paused" });
     const back = await connect("arena", "CAPPDA");
-    back.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: a.pass }));
     expect(await back.next()).toMatchObject({ type: "welcome", me: { id: a.player.id }, endsAt: ending.endsAt });
     back.ws.close(1000);
   });
@@ -930,11 +948,11 @@ describe("rooms", () => {
       (room as any).core.endsAt = new Date(Date.now() - 1000).toISOString();
     });
     await runDurableObjectAlarm(stub);
-    expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: HOSTING_PAUSED_END_MESSAGE });
+    expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: HOSTING_PAUSED_END_MESSAGE, endReason: "hosting_paused" });
     await a.closed;
     // The room is over for good, even for its own players.
     const late = await connect("finisher", "FNSHRA");
-    late.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    late.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: a.pass }));
     expect(await late.next()).toMatchObject({ type: "error", code: "ended" });
   });
 });
@@ -962,7 +980,7 @@ describe("reserved rooms", () => {
   async function hello(game: string, code: string, msg: Record<string, unknown>, pass?: { pass: string; player: { id: string; name: string } }) {
     const p = pass ?? (await getPass(game));
     const c = await connect(game, code);
-    c.ws.send(JSON.stringify({ type: "hello", pass: p.pass, ...msg }));
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: p.pass, ...msg }));
     return { ...c, pass: p.pass, player: p.player, first: await c.next() };
   }
 
@@ -976,7 +994,7 @@ describe("reserved rooms", () => {
 
     // The room is waiting for them before they hear its code, so nobody else can start it first.
     const stranger = await hello("four", ma.roomCode, {});
-    expect(stranger.first).toMatchObject({ type: "error", code: "closed" });
+    expect(stranger.first).toMatchObject({ type: "error", code: "room_closed" });
 
     const bIn = await hello("four", ma.roomCode, {}, b);
     expect(bIn.first).toMatchObject({ type: "welcome", room: { isListed: false, isOpen: false } });
@@ -1050,7 +1068,7 @@ describe("turn-based rooms", () => {
       (room as any).saved = saved!.state;
     });
     const back = await connect("four", "DRPSLP");
-    back.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: a.pass }));
     expect(await back.next()).toMatchObject({ type: "welcome", players: [{ id: b.player.id, awayReason: null }, { id: a.player.id, awayReason: null }] });
     // onBack sends the board as it is, with a still in seat 1.
     const shared = await until(back, (m) => m.type === "message" && m.data.board);
@@ -1168,21 +1186,21 @@ describe("room browsing", () => {
         if (m.type === t) return m;
       }
     };
-    b.ws.send(JSON.stringify({ type: "room", isOpen: false }));
+    b.ws.send(JSON.stringify({ type: "room", room: { isOpen: false } }));
     expect(await next(b, "error")).toMatchObject({ code: "not_allowed" });
-    a.ws.send(JSON.stringify({ type: "room", isOpen: false }));
+    a.ws.send(JSON.stringify({ type: "room", room: { isOpen: false } }));
     expect(await next(a, "room")).toEqual({ type: "room", room: { isListed: true, isOpen: false, friendJoinsEnabled: true, name: null, labels: {} }, spectatorCount: 0 });
     expect((await rows(id, (r) => r[0]?.is_open === 0))[0]).toMatchObject({ player_count: 2, is_open: 0 });
 
     const { pass } = await getPass("party");
     const c = await connect("party", "XYZ234");
-    c.ws.send(JSON.stringify({ type: "hello", pass }));
-    expect(await c.next()).toMatchObject({ type: "error", code: "closed" });
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
+    expect(await c.next()).toMatchObject({ type: "error", code: "room_closed" });
     // b drops out and comes back: they were in the match.
     b.ws.close(1000);
     await b.closed;
     const again = await connect("party", "XYZ234");
-    again.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    again.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect((await again.next()).type).toBe("welcome");
   });
 
@@ -1191,14 +1209,14 @@ describe("room browsing", () => {
     const { pass } = await getPass("hideout");
     const a = await connect("hideout", "PRVT23");
     // Made private by its first player, and from quickJoin.
-    a.ws.send(JSON.stringify({ type: "hello", pass, room: { friendJoinsEnabled: false }, isQuickJoin: true }));
+    a.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { friendJoinsEnabled: false }, isQuickJoin: true }));
     expect(await a.next()).toMatchObject({ type: "welcome", room: { friendJoinsEnabled: false } });
     // The room's row is written once the player is in, after the quick join is noted.
     expect((await rows(id, (r) => r.length === 1))[0]).toMatchObject({ room_code: "PRVT23", friend_joins_enabled: 0 });
     const quickJoinedAtMs = await e.DB.prepare("SELECT quick_joined_at_ms FROM games WHERE id = ?").bind(id).first<number>("quick_joined_at_ms");
     expect(quickJoinedAtMs).toBeGreaterThan(Date.now() - 60_000);
     // The host turns Join back on.
-    a.ws.send(JSON.stringify({ type: "room", friendJoinsEnabled: true }));
+    a.ws.send(JSON.stringify({ type: "room", room: { friendJoinsEnabled: true } }));
     expect((await rows(id, (r) => r[0]?.friend_joins_enabled === 1))[0]).toMatchObject({ friend_joins_enabled: 1 });
     // Another quick join the same day doesn't write again.
     await noteQuickJoin(e.DB, id, quickJoinedAtMs! + 3_600_000);
@@ -1261,7 +1279,7 @@ describe("room browsing", () => {
     const id = await addGame("named");
     const { pass } = await getPass("named");
     const c = await connect("named", "NMDRM2");
-    c.ws.send(JSON.stringify({ type: "hello", pass, room: { name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } } }));
+    c.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: true, name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } } }));
     expect((await c.next()).room).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
     expect((await rows(id, (r) => r.length === 1))[0]).toMatchObject({ name: "Ana's castle", labels: '{"Mode":"Classic","Map":"Docks"}' });
     const add = (code: string, labels: string) =>
@@ -1278,7 +1296,7 @@ describe("room browsing", () => {
     await e.DB.prepare("UPDATE live_rooms SET is_name_hidden = 1 WHERE room_code = 'NMDRM2'").run();
     expect((await list()).rooms.find((r: any) => r.roomCode === "NMDRM2")).toMatchObject({ name: null, labels: {} });
     // A room renaming itself doesn't bring back a name a person hid.
-    c.ws.send(JSON.stringify({ type: "room", name: "Ana's castle 2" }));
+    c.ws.send(JSON.stringify({ type: "room", room: { name: "Ana's castle 2" } }));
     await rows(id, (r) => r.find((x) => x.code === "NMDRM2")?.name === "Ana's castle 2");
     expect((await list()).rooms.find((r: any) => r.roomCode === "NMDRM2").name).toBeNull();
   });
@@ -1366,7 +1384,7 @@ describe("room browsing", () => {
     // Not playing now, but still in the match while they reconnect.
     expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 0 });
     const back = await connect("pinger", "PNGRMA");
-    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
     expect((await rows(id, (r) => r[0]?.player_count === 2))[0]).toMatchObject({ player_count: 2, held_seat_count: 0 });
     a.ws.close(1000);
@@ -1379,7 +1397,7 @@ describe("room browsing", () => {
     const b = await join("idler", "DLRRMA");
     await until(a, (m) => m.type === "players" && m.players.length === 2);
     b.ws.send(JSON.stringify({ type: "idle" }));
-    expect(await until(b, (m) => m.type === "away")).toEqual({ type: "away", reason: "idle", seatHoldDurationSec: 300 });
+    expect(await until(b, (m) => m.type === "away")).toEqual({ type: "away", awayReason: "idle", seatHoldDurationSec: 300 });
     await until(a, (m) => m.type === "players" && m.players.length === 1);
     expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 1 });
     const list = await SELF.fetch(`${R}/v1/rooms/idler`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
@@ -1403,7 +1421,7 @@ describe("room browsing", () => {
     expect(await b.closed).toBe(4002);
     expect((await rows(id, (r) => r[0]?.held_seat_count === 0))[0]).toMatchObject({ player_count: 1, held_seat_count: 0 });
     const back = await connect("idler", "DLRRMA");
-    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    back.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
 
     // A room where everyone walked away has no row: nobody's playing in it.

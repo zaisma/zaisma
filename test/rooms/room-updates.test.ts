@@ -66,7 +66,7 @@ async function join(game: string, code: string, samePass?: string, helloFields: 
     }
   };
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
-  ws.send(JSON.stringify({ type: "hello", pass, ...helloFields }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, ...helloFields }));
   expect((await next()).type).toBe("welcome");
   return { ws, player, pass, say, next, until, closed };
 }
@@ -103,7 +103,7 @@ describe("a match moving to a version published now", () => {
     await publishNow(gameId, "vholder2", false);
 
     expect(await service().updateMatches({ gameId, slug: "holder", versionId: "vholder2", hasGameFileChanges: false })).toEqual({ toldRoomCount: 1 });
-    const coming = await lucas.until("versionUpdate");
+    const coming = await lucas.until("version_update");
     expect(coming).toMatchObject({ step: "coming", versionId: "vholder2", isReloading: false });
     // Held: up to 5 minutes, while the game server finishes its round.
     expect(Date.parse(coming.appliesAt) - Date.now()).toBeGreaterThan(290_000);
@@ -111,7 +111,7 @@ describe("a match moving to a version published now", () => {
     expect((await lucas.until("message")).data).toMatchObject({ version: "one", count: 2, heldFor: "vholder2" });
 
     lucas.say("round over");
-    expect(await lucas.until("versionUpdate")).toMatchObject({ step: "now", versionId: "vholder2" });
+    expect(await lucas.until("version_update")).toMatchObject({ step: "now", versionId: "vholder2" });
     expect(await lucas.closed).toBe(4004);
 
     // Back in on the new version, from the saved state, told which version saved it.
@@ -132,7 +132,7 @@ describe("a match moving to a version published now", () => {
     // Not told: the room's next check of the game finds it.
     await runInDurableObject(roomStub("noticer", "NTCRNW"), (room: Room) => void ((room as any).lastCheckAtMs = 0));
     emma.say("add");
-    const coming = await emma.until("versionUpdate");
+    const coming = await emma.until("version_update");
     expect(coming).toMatchObject({ step: "coming", versionId: "vnoticer2", isReloading: true });
     const noticeMs = Date.parse(coming.appliesAt) - Date.now();
     expect(noticeMs).toBeGreaterThan(5_000);
@@ -143,7 +143,7 @@ describe("a match moving to a version published now", () => {
       await state.storage.setAlarm(Date.now());
     });
     await runDurableObjectAlarm(roomStub("noticer", "NTCRNW"));
-    expect(await emma.until("versionUpdate")).toMatchObject({ step: "now", isReloading: true });
+    expect(await emma.until("version_update")).toMatchObject({ step: "now", isReloading: true });
     expect(await emma.closed).toBe(4004);
     const back = await join("noticer", "NTCRNW", emma.pass);
     back.say("how");
@@ -179,7 +179,7 @@ async function knock(game: string, code: string, helloFields: Record<string, unk
   ws.accept();
   const first = new Promise<any>((resolve) => ws.addEventListener("message", (event) => resolve(JSON.parse(event.data as string)), { once: true }));
   const closed = new Promise<number>((resolve) => ws.addEventListener("close", (event) => resolve(event.code)));
-  ws.send(JSON.stringify({ type: "hello", pass, ...helloFields }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, ...helloFields }));
   return { ws, first: await first, closed };
 }
 

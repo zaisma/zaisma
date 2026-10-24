@@ -48,7 +48,7 @@ async function join(slug: string, code: string) {
       if (["message", "ended", "error", "welcome"].includes(m.type)) return m;
     }
   };
-  ws.send(JSON.stringify({ type: "hello", pass }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
   expect((await next()).type).toBe("welcome");
   return { ws, next, say: (data: unknown) => ws.send(JSON.stringify({ type: "message", data })) };
 }

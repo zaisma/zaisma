@@ -332,6 +332,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A send that may be dropped for a newer one while a player's connection is backed up | | `delivery`: `reliable`, `latest_only`; `latestKey` (needed with `latest_only`); `SendOptions` in the SDK and on the game server, error `code` `bad_send_option`; a player's connection is backed up (`isBackedUp`, `ROOM_TUNING.backedUpSizeBytes`, `backedUpDelayMs`); `ROOM_LIMITS.maximumLatestOnlySlotCount`, `maximumLatestKeyCharacterCount` |
 | A message between a game and its room, the game's own message in it, and the player it came from | | `type`, `data`, `fromPlayerId` (a send option on the game server, `null` for the game server's own); the `"message"` event `(message, fromPlayerId)`; `ClientMessage`, `ServerMessage` |
 | Which room messages a game and its room speak | | `protocolVersionNumber` (a hello's and a welcome's), `PROTOCOL_VERSION_NUMBER` (1) |
+| A quick join's hello asking for a room without anyone the player blocked (an action, so a verb) | | `avoidBlockedPlayers` |
 | Why a match ended | | `endReason`: `game`, `no_players`, `hosting_paused`, `kept_room_deleted`, `game_unavailable`, `game_server_stopped` (`EndReason`); the `"ended"` event `{ message, endReason }` |
 | Where the "Still there?" question stands | | `idleStatus`: `asking`, `answered`, `timed_out`, with `answerTimeoutSec`; the `"idle"` event (`Idle`) |
 | A player back after walking away, and whether their seat was still held | | the `"back"` event `{ roomCode, isSeatHeld, rejoin() }` |
