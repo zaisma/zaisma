@@ -120,6 +120,7 @@
    * no connection, or an answer that isn't one of Zaisma's, is request_failed.
    */
   function post(path, body) {
+    if (!config.rooms) return Promise.reject(notOnZaisma("This call goes to Zaisma, so it works only in games played on Zaisma."));
     // text/plain keeps this a simple request, so the browser needs no preflight.
     return fetch(config.rooms + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(answered, requestFailed);
   }
@@ -180,7 +181,7 @@
    * This tab's player: { id, name, kind, pass, expiresAt }. The signed-in account, or a guest. Kept for
    * the tab, so a guest who reloads stays the same guest and gets their seat back.
    */
-  function player() {
+  function getPass() {
     if (!config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so they work only in games played on Zaisma."));
     if (!passPromise) {
       passPromise = roomKey().then(function (given) {
@@ -214,7 +215,7 @@
    */
   function getProfile(playerId) {
     if (!config.rooms) return Promise.reject(notOnZaisma("Profiles come from Zaisma, so they work only in games played on Zaisma."));
-    if (typeof playerId !== "string" || !/^player_[a-z0-9]+$/.test(playerId)) return Promise.reject(codedError("bad_player_id", "playerId isn't a player ID like \"player_8f3k2m\": take it from room.players or Zaisma.player()."));
+    if (typeof playerId !== "string" || !/^player_[a-z0-9]+$/.test(playerId)) return Promise.reject(codedError("bad_player_id", "playerId isn't a player ID like \"player_8f3k2m\": take it from room.players or Zaisma.player.getPass()."));
     return fetch(config.rooms + "/v1/players/" + playerId).then(answered, requestFailed).then(function (answer) {
       var profile = answer.player;
       var game = function (playedGame) {
@@ -237,7 +238,6 @@
       };
     });
   }
-  player.getProfile = getProfile;
 
   /*
    * Signing in while the game runs. The Zaisma page asks the player beside the game and signs them in in
@@ -303,7 +303,6 @@
     });
     return signInPromise;
   }
-  player.signIn = signIn;
 
   /** Show Zaisma's "Keep your progress" card at the game's moment: the account, once the player has one (zaisma.d.ts: Zaisma.player.offerAccount). */
   var offerPromise = null;
@@ -314,6 +313,7 @@
       declined: ["sign_in_declined", "The player chose Not now. Zaisma's card won't show again for 3 days; show your own message if you like."],
       too_soon: ["account_offer_too_soon", "Zaisma's card showed this visit or the player chose Not now in the last 3 days. Show your own message instead."],
       cloud_saves_off: ["cloud_saves_off", "This game has cloud saves off, so there's no progress for Zaisma's card to keep: ask with Zaisma.player.signIn() instead."],
+      cloud_saves_not_here: ["cloud_saves_not_here", "Cloud saves don't work here (a tester link, or a Zaisma without accounts), so there's no progress for Zaisma's card to keep. Save in the browser as usual."],
     }).then(function (signedIn) {
       offerPromise = null;
       return signedIn;
@@ -323,7 +323,9 @@
     });
     return offerPromise;
   }
-  player.offerAccount = offerAccount;
+
+  /** Zaisma.player: this tab's player and their account (zaisma.d.ts: Zaisma.player). */
+  var player = { getPass: getPass, getProfile: getProfile, signIn: signIn, offerAccount: offerAccount };
 
   function roomCodeFromPage() {
     try {
@@ -1284,7 +1286,7 @@
       : serverUrl
         ? Promise.resolve(randomRoomCode())
         : post("/v1/rooms", { gameSlug: config.game }).then(function (answer) { return answer.roomCode; });
-    return Promise.all([roomCodeReady, player()]).then(function (ready) {
+    return Promise.all([roomCodeReady, getPass()]).then(function (ready) {
       var base = (serverUrl || config.rooms).replace(/^http/, "ws");
       var room = new Room({
         roomCode: ready[0],
@@ -1437,7 +1439,7 @@
 
   /** A call about friends with the player's pass, with a new pass once if Zaisma's keys changed; guests have no friends. */
   function friendsCall(path, body, isRetry) {
-    return player().then(function (mine) {
+    return getPass().then(function (mine) {
       if (mine.kind !== "account") throw codedError("account_needed", "Friends are for players signed in to Zaisma: ask the player to sign in first (Zaisma.player.signIn).");
       return post(path, Object.assign({ gameSlug: config.game, pass: mine.pass }, body));
     }).catch(function (error) {
@@ -1529,7 +1531,7 @@
     if (requestText === undefined) return Promise.reject(codedError("bad_request", "A request is plain JSON: numbers, text, true or false, null, lists and plain objects, like { type: \"buy\", itemId: \"sword\" }."));
     if (new TextEncoder().encode(requestText).length > MAXIMUM_REQUEST_SIZE_BYTES) return Promise.reject(codedError("too_big", "Requests are up to 16 KB as JSON."));
     var base = (serverUrl || config.rooms).replace(/^ws/, "http");
-    return player().then(function (mine) {
+    return getPass().then(function (mine) {
       return fetch(base + "/v1/requests/" + config.game, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ pass: mine.pass, request: JSON.parse(requestText) }) }).then(answered, requestFailed);
     }).then(function (answer) {
       return answer.answer;
@@ -1545,19 +1547,43 @@
     request: function (request, requestOptions) { return serverRequest(request, requestOptions, false); },
   };
 
-  /** Zaisma's chat filter: { isAllowed, reason, message, hasSwearing, text } (zaisma.d.ts: Zaisma.filterText). */
-  function filterText(text) {
+  /** Zaisma's chat check: { isAllowed, reason, message, hasSwearing, text } (zaisma.d.ts: Zaisma.checkChat). */
+  function checkChat(text) {
     return post("/v1/filter", { gameSlug: config.game, text: String(text == null ? "" : text) });
   }
 
+  var shareRequestCount = 0;
+  var shareWaiters = {};
+
+  window.addEventListener("message", function (event) {
+    if (!config.site || event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:share-answer") return;
+    var waiter = shareWaiters[event.data.requestNumber];
+    if (!waiter) return;
+    delete shareWaiters[event.data.requestNumber];
+    clearTimeout(waiter.timer);
+    waiter.resolve(event.data.isOpened === true ? "opened" : "failed");
+  });
+
   /**
-   * On Zaisma, the page's Share (its QR code, the link and the room's code): "opened". Elsewhere the
-   * share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed".
+   * On Zaisma, the page's Share (its QR code, the link and the room's code): "opened", or "failed" when the
+   * page couldn't open it. Elsewhere the share sheet on phones, else copy the link: "shared", "copied",
+   * "cancelled" or "failed". Either way only right after the player's tap.
    */
   function invite(room) {
+    // Only right after the player tapped or pressed a key in the game, on Zaisma or off it.
+    if (navigator.userActivation && !navigator.userActivation.isActive) return Promise.reject(codedError("needs_player_tap", "Invite opens only right after the player taps or presses a key in the game: call Zaisma.invite from that tap's handler."));
     if (onZaismaPage()) {
-      window.parent.postMessage({ type: "zaisma:share" }, config.site);
-      return Promise.resolve("opened");
+      return new Promise(function (resolve, reject) {
+        var requestNumber = ++shareRequestCount;
+        var waiter = { resolve: resolve };
+        // No answer means no Zaisma page is around the game.
+        waiter.timer = setTimeout(function () {
+          delete shareWaiters[requestNumber];
+          reject(notOnZaisma("No Zaisma page answered: Zaisma's Share opens when the game is played on its zaisma.com page."));
+        }, 3000);
+        shareWaiters[requestNumber] = waiter;
+        window.parent.postMessage({ type: "zaisma:share", requestNumber: requestNumber }, config.site);
+      });
     }
     var link = room && room.inviteUrl ? room.inviteUrl : config.site && config.game ? config.site + gamePage() : location.href;
     function copy() {
@@ -1669,7 +1695,7 @@
     }
   }
   function ownedItems() {
-    return player().then(function (mine) {
+    return getPass().then(function (mine) {
       var names = passClaimsOf(mine.pass).owned_item_names;
       return Array.isArray(names) ? names.slice() : [];
     });
@@ -1833,14 +1859,14 @@
    * the player's session and answers (apps/site/src/saves-client.ts); the game never talks to a server.
    */
   var SAVE_COPY_ID = /^save_copy_[a-z0-9-]{1,40}$/;
-  var SAVES_ERROR_CODES = ["account_needed", "bad_save_copy_id", "no_save_copy", "cloud_saves_off", "slow_down", "request_failed"];
+  var SAVES_ERROR_CODES = ["account_needed", "bad_save_copy_id", "no_save_copy", "cloud_saves_off", "cloud_saves_not_here", "slow_down", "request_failed"];
   var savesRequestCount = 0;
   var savesWaiters = {};
   var savesEvents = new Emitter(SAVES_EVENTS, "Zaisma.saves has");
 
   /** An earlier version as the game gets it (SaveCopy). */
   function saveCopyOf(given) {
-    return { id: given.id, savedAt: given.savedAt, copyReason: given.copyReason, sizeBytes: given.sizeBytes, isCurrentSave: given.isCurrentSave };
+    return { id: given.id, savedAt: given.savedAt, copyReason: given.copyReason, sizeBytes: given.sizeBytes, isCurrentSave: given.isCurrentSave, versionId: typeof given.versionId === "string" ? given.versionId : null };
   }
 
   window.addEventListener("message", function (event) {
@@ -1848,8 +1874,8 @@
     var message = event.data;
     if (message.type === "zaisma:saves-event") {
       var given = message.event || {};
-      if (message.eventName === "conflict" && given.keptSaveCopy) savesEvents._emit("conflict", { winningProgress: given.winningProgress, keptSaveCopy: saveCopyOf(given.keptSaveCopy) });
-      if (message.eventName === "developerChange") savesEvents._emit("developerChange", { changedAt: given.changedAt, keptSaveCopy: given.keptSaveCopy ? saveCopyOf(given.keptSaveCopy) : null });
+      if (message.eventName === "conflict" && given.keptSaveCopy) savesEvents._emit("conflict", { winnerKind: given.winnerKind, keptSaveCopy: saveCopyOf(given.keptSaveCopy) });
+      if (message.eventName === "developerChange") savesEvents._emit("developerChange", { savedAt: given.savedAt, keptSaveCopy: given.keptSaveCopy ? saveCopyOf(given.keptSaveCopy) : null });
       return;
     }
     if (message.type !== "zaisma:saves-answer") return;
@@ -1900,7 +1926,7 @@
     },
   };
   saves.listCopies = function () {
-    return askSaves("list_copies").then(function (copies) { return copies.map(saveCopyOf); });
+    return askSaves("list_copies").then(function (copies) { return { saveCopies: copies.map(saveCopyOf) }; });
   };
   saves.getCopy = function (saveCopyId) {
     var problem = checkedSaveCopyId(saveCopyId);
@@ -2121,8 +2147,8 @@
   // The first four go to Zaisma; the rest to the game's developer.
   var REASONS = [["real_life_threat", "Threatening them in real life"], ["personal_details", "Sharing someone's personal details"], ["following_after_block", "Following me after I blocked them"], ["sexual", "Sexual behavior"], ["harassment", "Harassing or bullying"], ["cheating", "Cheating"], ["other", "Something else"]];
 
-  /** A ready-made mute, block and report panel. Games open it from their own menu. */
-  function openSafetyPanel(room) {
+  /** A ready-made Players panel: mute, block and report. Games open it from their own menu. */
+  function openPlayersPanel(room) {
     // On Zaisma, the page's own Players (the bar's), so a game's Players button opens the same one.
     if (onZaismaPage()) {
       window.parent.postMessage({ type: "zaisma:players-open" }, config.site);
@@ -2233,5 +2259,5 @@
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null, isLinkedAsSpectator: watchFromPage() };
   var friends = { list: listFriends, setRoom: setOwnRoom };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel, links: links, items: items, friends: friends, saves: saves, versions: versions };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions };
 })();

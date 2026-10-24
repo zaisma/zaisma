@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createContext, runInContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
@@ -84,8 +85,12 @@ describe("the SDK's types say what the SDK does", () => {
     expect(Object.keys(Zaisma.items).sort()).toEqual(fieldsOf("Items"));
     expect(Object.keys(Zaisma.friends).sort()).toEqual(fieldsOf("Friends"));
     expect(Object.keys(Zaisma.saves).sort()).toEqual(fieldsOf("Saves"));
+    // Zaisma.player is a plain object of calls, not a call itself.
     const player = membersOf(TYPES).find((member) => member.name === "player")!;
-    expect(Object.keys(Zaisma.player).sort()).toEqual([...player.exports!.keys()].map(String).sort());
+    expect(typeof Zaisma.player).toBe("object");
+    expect(Object.keys(Zaisma.player).sort()).toEqual(checker.getPropertiesOfType(checker.getTypeOfSymbol(player)).map((property) => property.name).sort());
+    expect(Zaisma.filterText).toBeUndefined();
+    expect(Zaisma.openSafetyPanel).toBeUndefined();
   });
 
   it("the options each call takes", async () => {
@@ -160,7 +165,7 @@ describe("the SDK's types say what the SDK does", () => {
 
     // A game hosted somewhere else.
     const elsewhere = loadSdk(null);
-    expect(await failureCode(() => elsewhere.Zaisma.player())).toBe("not_on_zaisma");
+    expect(await failureCode(() => elsewhere.Zaisma.player.getPass())).toBe("not_on_zaisma");
     expect(await failureCode(() => elsewhere.Zaisma.joinRoom())).toBe("not_on_zaisma");
     expect(await failureCode(() => elsewhere.Zaisma.rooms.list())).toBe("not_on_zaisma");
     expect(await failureCode(() => elsewhere.Zaisma.server.request({ type: "leaderboard" }))).toBe("not_on_zaisma");
@@ -203,10 +208,10 @@ describe("the SDK's types say what the SDK does", () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(passAnswer) });
     }) as () => Promise<unknown>;
     // Still a guest: the kept guest pass, with no call.
-    expect(await loadSdk(ON_ZAISMA, fetchAnswer).Zaisma.player()).toEqual({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" });
+    expect(await loadSdk(ON_ZAISMA, fetchAnswer).Zaisma.player.getPass()).toEqual({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" });
     expect(asked).toEqual([]);
     // Signed in since: a new pass, for the account, with the page's key.
-    const signedIn = await loadSdk(ON_ZAISMA, fetchAnswer, "account").Zaisma.player();
+    const signedIn = await loadSdk(ON_ZAISMA, fetchAnswer, "account").Zaisma.player.getPass();
     expect(signedIn).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
     expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("PlayerWithPass"));
     expect(asked).toEqual([{ url: "https://rooms.zaisma.test/v1/pass", body: JSON.stringify({ gameSlug: "test-game", roomKey: "room_key_test" }) }]);
@@ -215,7 +220,7 @@ describe("the SDK's types say what the SDK does", () => {
   it("asks the page to sign a guest in, then gives the account's pass", async () => {
     const passAnswer = { pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" };
     const sdk = loadSdk(ON_ZAISMA, () => Promise.resolve({ ok: true, json: () => Promise.resolve(passAnswer) }));
-    expect((await sdk.Zaisma.player()).kind).toBe("guest");
+    expect((await sdk.Zaisma.player.getPass()).kind).toBe("guest");
     const asking = sdk.Zaisma.player.signIn();
     // A second call while the page is asking waits for the same answer.
     expect(sdk.Zaisma.player.signIn()).toBe(asking);
@@ -227,7 +232,7 @@ describe("the SDK's types say what the SDK does", () => {
     const signedIn = await asking;
     expect(signedIn).toEqual(passAnswer.player);
     expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("Player"));
-    expect(await sdk.Zaisma.player()).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
+    expect(await sdk.Zaisma.player.getPass()).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
 
     // Not now.
     const declined = sdk.Zaisma.player.signIn();
@@ -241,20 +246,23 @@ describe("the SDK's types say what the SDK does", () => {
   it("asks the page for the player's earlier versions, and hands them out as SaveCopy says", async () => {
     const sdk = loadSdk();
     const savesMessages = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:saves-request");
-    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "replaced", sizeBytes: 120, isCurrentSave: false };
+    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "account_lost", sizeBytes: 120, isCurrentSave: false, versionId: "version_k2v9q4x7m1p3w8r5t6y0" };
+    const gameCopy = pageCopy;
     const listing = sdk.Zaisma.saves.listCopies();
     expect(savesMessages()).toEqual([{ type: "zaisma:saves-request", requestNumber: 1, request: "list_copies", saveCopyId: undefined }]);
     sdk.page.say({ type: "zaisma:saves-answer", requestNumber: 1, status: "asking" });
     sdk.page.say({ type: "zaisma:saves-answer", requestNumber: 1, answer: [{ ...pageCopy, extra: "not handed out" }] });
     const copies = await listing;
-    expect(copies).toEqual([pageCopy]);
-    expect(Object.keys(copies[0]).sort()).toEqual(fieldsOf("SaveCopy"));
+    expect(copies).toEqual({ saveCopies: [gameCopy] });
+    expect(Object.keys(copies).sort()).toEqual(fieldsOf("SaveCopyList"));
+    expect(Object.keys(copies.saveCopies[0]).sort()).toEqual(fieldsOf("SaveCopy"));
     expect(valuesOf("SaveCopyReason")).toEqual([...SAVE_COPY_REASONS].sort());
 
     const reading = sdk.Zaisma.saves.getCopy(pageCopy.id);
     sdk.page.say({ type: "zaisma:saves-answer", requestNumber: 2, answer: { ...pageCopy, localStorageItems: { level: "7" }, indexeddbDatabases: [] } });
     const contents = await reading;
     expect(contents.localStorageItems).toEqual({ level: "7" });
+    expect(contents.versionId).toBe(pageCopy.versionId);
     expect(Object.keys(contents).sort()).toEqual(fieldsOf("SaveCopyContents"));
 
     const restoring = sdk.Zaisma.saves.restoreCopy(pageCopy.id);
@@ -263,7 +271,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await restoring).toBeUndefined();
 
     // What the page refuses comes back with its code; a code that isn't one of its own is request_failed.
-    for (const code of ["account_needed", "no_save_copy", "cloud_saves_off", "slow_down", "bad_save_copy_id"]) {
+    for (const code of ["account_needed", "no_save_copy", "cloud_saves_off", "cloud_saves_not_here", "slow_down", "bad_save_copy_id"]) {
       const asking = sdk.Zaisma.saves.listCopies();
       sdk.page.say({ type: "zaisma:saves-answer", requestNumber: (savesMessages().at(-1) as { requestNumber: number }).requestNumber, error: { code, message: "The page says no." } });
       expect(await failureCode(() => asking)).toBe(code);
@@ -291,7 +299,7 @@ describe("the SDK's types say what the SDK does", () => {
       sdk.page.say({ type: "zaisma:saves-answer", requestNumber: slowNumber, status: "asking" });
       vi.advanceTimersByTime(10000);
       sdk.page.say({ type: "zaisma:saves-answer", requestNumber: slowNumber, answer: [] });
-      expect(await slow).toEqual([]);
+      expect(await slow).toEqual({ saveCopies: [] });
     } finally {
       vi.useRealTimers();
     }
@@ -301,26 +309,27 @@ describe("the SDK's types say what the SDK does", () => {
     const sdk = loadSdk();
     expect(listed(await refusal(() => sdk.Zaisma.saves.on("notAnEvent", () => {})))).toEqual(fieldsOf("SavesEvents"));
     const listens = () => sdk.page.posted.filter((message) => (message as { request?: string }).request === "listen");
-    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device", sizeBytes: 80, isCurrentSave: false };
+    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 80, isCurrentSave: false, versionId: null };
+    const gameCopy = { ...pageCopy };
     const conflicts: Record<string, unknown>[] = [];
     const listener = (conflict: Record<string, unknown>) => conflicts.push(conflict);
     expect(sdk.Zaisma.saves.on("conflict", listener)).toBe(sdk.Zaisma.saves);
     sdk.Zaisma.saves.on("conflict", () => {});
     // The page hears once per event.
     expect(listens()).toEqual([{ type: "zaisma:saves-request", requestNumber: 1, request: "listen", eventNames: ["conflict"] }]);
-    sdk.page.say({ type: "zaisma:saves-event", eventName: "conflict", event: { winningProgress: "other_device", keptSaveCopy: pageCopy } });
-    expect(conflicts).toEqual([{ winningProgress: "other_device", keptSaveCopy: pageCopy }]);
+    sdk.page.say({ type: "zaisma:saves-event", eventName: "conflict", event: { winnerKind: "account", keptSaveCopy: pageCopy } });
+    expect(conflicts).toEqual([{ winnerKind: "account", keptSaveCopy: gameCopy }]);
     expect(Object.keys(conflicts[0]!).sort()).toEqual(fieldsOf("SaveConflict"));
     sdk.Zaisma.saves.off("conflict", listener);
-    sdk.page.say({ type: "zaisma:saves-event", eventName: "conflict", event: { winningProgress: "this_device", keptSaveCopy: pageCopy } });
+    sdk.page.say({ type: "zaisma:saves-event", eventName: "conflict", event: { winnerKind: "this_device", keptSaveCopy: pageCopy } });
     expect(conflicts).toHaveLength(1);
 
     const changes: Record<string, unknown>[] = [];
     sdk.Zaisma.saves.on("developerChange", (change: Record<string, unknown>) => changes.push(change));
     expect(listens().at(-1)).toMatchObject({ request: "listen", eventNames: ["developerChange"] });
-    sdk.page.say({ type: "zaisma:saves-event", eventName: "developerChange", event: { changedAt: "2026-10-18T09:05:00.000Z", keptSaveCopy: null } });
-    sdk.page.say({ type: "zaisma:saves-event", eventName: "developerChange", event: { changedAt: "2026-10-18T09:06:00.000Z", keptSaveCopy: pageCopy } });
-    expect(changes).toEqual([{ changedAt: "2026-10-18T09:05:00.000Z", keptSaveCopy: null }, { changedAt: "2026-10-18T09:06:00.000Z", keptSaveCopy: pageCopy }]);
+    sdk.page.say({ type: "zaisma:saves-event", eventName: "developerChange", event: { savedAt: "2026-10-18T09:05:00.000Z", keptSaveCopy: null } });
+    sdk.page.say({ type: "zaisma:saves-event", eventName: "developerChange", event: { savedAt: "2026-10-18T09:06:00.000Z", keptSaveCopy: pageCopy } });
+    expect(changes).toEqual([{ savedAt: "2026-10-18T09:05:00.000Z", keptSaveCopy: null }, { savedAt: "2026-10-18T09:06:00.000Z", keptSaveCopy: gameCopy }]);
     expect(Object.keys(changes[0]!).sort()).toEqual(fieldsOf("DeveloperChange"));
     // Off Zaisma there's no page to tell.
     const elsewhere = loadSdk(null);
@@ -338,7 +347,7 @@ describe("the SDK's types say what the SDK does", () => {
     const account = await offering;
     expect(account).toEqual({ id: "player_cy", name: "Cy", kind: "account" });
     expect(Object.keys(account).sort()).toEqual(fieldsOf("Player"));
-    for (const [status, code] of [["declined", "sign_in_declined"], ["too_soon", "account_offer_too_soon"], ["cloud_saves_off", "cloud_saves_off"]]) {
+    for (const [status, code] of [["declined", "sign_in_declined"], ["too_soon", "account_offer_too_soon"], ["cloud_saves_off", "cloud_saves_off"], ["cloud_saves_not_here", "cloud_saves_not_here"]]) {
       const asking = sdk.Zaisma.player.offerAccount();
       sdk.page.say({ type: "zaisma:account-offer", status });
       expect(await failureCode(() => asking)).toBe(code);
@@ -494,15 +503,61 @@ describe("the SDK's types say what the SDK does", () => {
   it("opens the page's own Share and Players from a game's Invite and Players buttons on Zaisma", async () => {
     const sdk = loadSdk();
     const { room } = await joinedRoom(sdk);
-    expect(await sdk.Zaisma.invite(room)).toBe("opened");
-    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:share" });
-    sdk.Zaisma.openSafetyPanel(room);
+    const shares = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:share");
+    // The page answers whether its Share opened.
+    const inviting = sdk.Zaisma.invite(room);
+    expect(shares()).toEqual([{ type: "zaisma:share", requestNumber: 1 }]);
+    // An answer for another request isn't this one's.
+    sdk.page.say({ type: "zaisma:share-answer", requestNumber: 7, isOpened: false });
+    sdk.page.say({ type: "zaisma:share-answer", requestNumber: 1, isOpened: true });
+    expect(await inviting).toBe("opened");
+    const refused = sdk.Zaisma.invite(room);
+    sdk.page.say({ type: "zaisma:share-answer", requestNumber: 2, isOpened: false });
+    expect(await refused).toBe("failed");
+    expect(valuesOf("InviteStatus")).toEqual(expect.arrayContaining(["opened", "failed"]));
+    sdk.Zaisma.openPlayersPanel(room);
     expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:players-open" });
-    // A game on its own site has no Zaisma page: it tells none.
+    // No page answering: like links, not on Zaisma.
+    vi.useFakeTimers();
+    try {
+      const unanswered = sdk.Zaisma.invite(room);
+      vi.advanceTimersByTime(3000);
+      expect(await failureCode(() => unanswered)).toBe("not_on_zaisma");
+    } finally {
+      vi.useRealTimers();
+    }
+    // Only right after the player's tap, on Zaisma or off it, and then the page hears nothing.
+    sdk.navigator.userActivation = { isActive: false };
+    const before = shares().length;
+    expect(await failureCode(() => sdk.Zaisma.invite(room))).toBe("needs_player_tap");
+    expect(shares()).toHaveLength(before);
     const elsewhere = loadSdk(null);
-    const before = elsewhere.page.posted.length;
+    elsewhere.navigator.userActivation = { isActive: false };
+    expect(await failureCode(() => elsewhere.Zaisma.invite(null))).toBe("needs_player_tap");
+    // A game on its own site has no Zaisma page: it tells none.
+    elsewhere.navigator.userActivation = { isActive: true };
+    const elsewhereBefore = elsewhere.page.posted.length;
     await elsewhere.Zaisma.invite(null).catch(() => "failed");
-    expect(elsewhere.page.posted.slice(before).filter((message) => ["zaisma:share", "zaisma:players-open"].includes((message as { type: string }).type))).toEqual([]);
+    expect(elsewhere.page.posted.slice(elsewhereBefore).filter((message) => ["zaisma:share", "zaisma:players-open"].includes((message as { type: string }).type))).toEqual([]);
+  });
+
+  it("checks chat through Zaisma, and calls Zaisma only from a game on Zaisma", async () => {
+    const asked: string[] = [];
+    const tooLong = { isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, text: "" };
+    const fetchAnswer = ((url: string) => {
+      asked.push(url);
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(tooLong) });
+    }) as () => Promise<unknown>;
+    const check = await loadSdk(ON_ZAISMA, fetchAnswer).Zaisma.checkChat("x".repeat(2001));
+    expect(check).toEqual(tooLong);
+    expect(Object.keys(check).sort()).toEqual(fieldsOf("ChatCheck"));
+    expect(asked).toEqual(["https://rooms.zaisma.test/v1/filter"]);
+    // The SDK's reasons are the ones /v1/filter gives: the game server's, but for the two only a room gives.
+    const gameServerReasons = valuesInSource(join(ROOT, "packages/game-server/src/chat.ts"), "ChatCheckReason");
+    expect(valuesOf("ChatCheckReason")).toEqual(gameServerReasons.filter((reason) => reason !== "chat_paused" && reason !== "not_allowed_to_chat"));
+    // Off Zaisma there's nowhere to ask: refused before any fetch.
+    expect(await failureCode(() => loadSdk(null, fetchAnswer).Zaisma.checkChat("hello"))).toBe("not_on_zaisma");
+    expect(asked).toHaveLength(1);
   });
 
   it("tells the Zaisma page who's in the room for its Players plate, and mutes and blocks when the plate asks", async () => {
@@ -997,6 +1052,53 @@ describe("state sync and latest-only sends in the SDK", () => {
     buffered.bufferedAmount = 0;
     check();
     expect(socket.sent.slice(2).map((sent) => (typeof sent === "string" ? JSON.parse(sent) : [...new Uint8Array(sent as unknown as ArrayBuffer)]))).toEqual([{ type: "message", data: { type: "aim", angle: 3 } }, [2]]);
+  });
+});
+
+describe("the scripts the games server serves, in a page of their own", () => {
+  /** A script as the games Worker serves it (withSetup in apps/games/src/index.ts): its setup handed in as a parameter. */
+  const served = (parameterName: string, setup: unknown, script: string) => `(function (${parameterName}) {\n${script}\n})(${JSON.stringify(setup)});\n`;
+  const listen = () => {};
+  /** A fresh page with nothing on it but what a browser has, where the game sits in a Zaisma page. */
+  function freshPage() {
+    const zaismaPage = { postMessage() {} };
+    const element = (): Record<string, unknown> => ({ style: {}, appendChild() {}, remove() {}, addEventListener: listen, setAttribute() {} });
+    const storage = new Map<string, string>();
+    const page = createContext({
+      parent: zaismaPage,
+      document: { hidden: false, visibilityState: "visible", currentScript: null, addEventListener: listen, getElementById: () => null, createElement: element, body: element() },
+      location: { pathname: "/index.html", search: "", hash: "", href: "https://test-game.games.zaisma.test/index.html" },
+      sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+      localStorage: { length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {}, clear() {} },
+      navigator: {},
+      fetch: () => Promise.reject(new TypeError("Failed to fetch")),
+      WebSocket: class {},
+      addEventListener: listen,
+      removeEventListener: listen,
+      setInterval: () => 0,
+      clearInterval() {},
+      setTimeout: () => 0,
+      clearTimeout() {},
+      URL,
+    });
+    runInContext("var window = this;", page);
+    const before = new Set(Object.getOwnPropertyNames(page));
+    return { page, added: () => Object.getOwnPropertyNames(page).filter((name) => !before.has(name)) };
+  }
+  const zaismaGlobals = (names: string[]) => names.filter((name) => name.startsWith("__ZAISMA"));
+
+  it("v1.js sets up window.Zaisma and leaves no __ZAISMA global", () => {
+    const { page, added } = freshPage();
+    runInContext(served("__ZAISMA__", ON_ZAISMA, SDK), page);
+    expect(typeof (page as { Zaisma?: unknown }).Zaisma).toBe("object");
+    expect(added()).toContain("Zaisma");
+    expect(zaismaGlobals(Object.getOwnPropertyNames(page))).toEqual([]);
+  });
+
+  it("saves.js leaves no __ZAISMA global", () => {
+    const { page } = freshPage();
+    runInContext(served("__ZAISMA_SAVES__", { site: ON_ZAISMA.site, saveLimitBytes: 5 * 1024 * 1024, versionId: null }, readFileSync(join(ROOT, "packages/sdk/saves.js"), "utf8")), page);
+    expect(zaismaGlobals(Object.getOwnPropertyNames(page))).toEqual([]);
   });
 });
 

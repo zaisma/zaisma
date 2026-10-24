@@ -435,8 +435,18 @@ describe("database export and import", () => {
 
 describe("saves", () => {
   const player = "player_8f3k2m9q1x7c4v6b0n5z";
-  const save = { player_id: player, sha256: "ab", size_bytes: 30, updated_at: "2026-10-17T09:00:00.000Z", changed_by_kind: "player", save_copy_count: 1 };
+  const save = { player_id: player, sha256: "ab", size_bytes: 30, saved_at: "2026-10-17T09:00:00.000Z", changed_by_kind: "player", save_copy_count: 1, version_id: null };
   const changed = { save: { ...save, changed_by_kind: "developer" }, kept_save_copy_id: "save_copy_4k2m9q1x7c4v6b0n5z8f", next_steps: [] };
+
+  it("lists saves with when each was saved, and the opaque cursor as it came", async () => {
+    answers["GET /games/sky-hopper/saves"] = { status: 200, body: { saves: [save], next_cursor: "saves_WyJwbGF5ZXJfOGYzayJd" } };
+    const result = await zaisma(["saves", "sky-hopper"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`${player}  2026-10-17 09:00`);
+    expect(result.stdout).toContain("zaisma saves sky-hopper --cursor saves_WyJwbGF5ZXJfOGYzayJd");
+    answers["GET /games/sky-hopper/saves?cursor=saves_WyJwbGF5ZXJfOGYzayJd"] = { status: 200, body: { saves: [], next_cursor: null } };
+    expect((await zaisma(["saves", "sky-hopper", "--cursor", "saves_WyJwbGF5ZXJfOGYzayJd"])).exitCode).toBe(0);
+  });
 
   it("reads some keys, each its own parameter, and prints them", async () => {
     answers[`GET /games/sky-hopper/saves/${player}`] = { status: 200, body: { save: { ...save, local_storage_items: { "level,best": "3" }, missing_keys: ["gems"], indexeddb_databases: null } } };

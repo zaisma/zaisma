@@ -1,0 +1,17 @@
+{
+  "name": "local-storage-only",
+  "stored_text": "{\"save_format_version_number\":1,\"local_storage_items\":{\"__proto__\":\"a key named __proto__\",\"best_score\":\"4200\",\"settings.v2\":\"{\\\"music\\\":false}\",\"名前\":\"Ada ✨\"},\"indexeddb_databases\":[]}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{\"__proto__\":\"a key named __proto__\",\"best_score\":\"4200\",\"settings.v2\":\"{\\\"music\\\":false}\",\"名前\":\"Ada ✨\"},\"indexeddb_databases\":[]}",
+  "sha256": "775dd072d8466b0aa8534affef45cfef863b6d145ea0422dc0277e905233fb18",
+  "size_bytes": 190,
+  "projection": {
+    "local_storage_items": {
+      "__proto__": "a key named __proto__",
+      "best_score": "4200",
+      "settings.v2": "{\"music\":false}",
+      "名前": "Ada ✨"
+    },
+    "missing_keys": [],
+    "indexeddb_databases": []
+  }
+}

@@ -412,7 +412,7 @@ describe("deleting an account reaches developers", () => {
     await createAccount(env.DB, { id: "mia", username: "mia_plays", ageBand: "18+" });
     const playerId = (await env.DB.prepare("SELECT player_id FROM accounts WHERE id = 'mia'").first<{ player_id: string }>())!.player_id;
     await recordPlayed(env.DB, "mia", await gameId("sky-hopper"));
-    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES ('mia', ?, 1, 'x', 2, 0)").bind(await gameId("cave-crew")).run();
+    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, saved_at_ms) VALUES ('mia', ?, 1, 'x', 2, 0)").bind(await gameId("cave-crew")).run();
     const app = await (await SELF.fetch(`${SITE}/api/dev/sign-in-apps`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ name: "Hop Online", kind: "public", redirect_urls: ["https://hop.example.test/back"] }) })).json<any>();
     await useSignInGrant(env.DB, "mia", app.sign_in_app.id);
     const reach = await accountDeletionReach(env.DB, "mia");

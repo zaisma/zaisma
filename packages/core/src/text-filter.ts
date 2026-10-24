@@ -7,7 +7,7 @@ import { CHAT_FILTER_LIMITS } from "./chat-filter.ts";
  * ways to reach someone somewhere else (links, emails, handles, phone numbers, contact apps), which
  * is how strangers move a 13-year-old to a private chat, and slurs and sexual words (the obscenity
  * library's English list). It doesn't judge meaning; reports catch what it misses. Chat has its own
- * rules below (checkChatText), which games reach through Zaisma.filterText.
+ * rules below (checkChatText), which games reach through Zaisma.checkChat.
  */
 
 const words = new RegExpMatcher({ ...englishDataset.build(), ...englishRecommendedTransformers });

@@ -12,6 +12,7 @@ import {
   gameHeaders,
   isCompressibleType,
   isEntryCookieValid,
+  isIdOf,
   isServerPath,
   isBlockedInCountry,
   isTesterLinkOn,
@@ -35,11 +36,11 @@ import {
   upgradeToHttps,
   withTransportSecurity,
 } from "@zaisma/core";
-import savesScript from "@zaisma/sdk/saves.js";
-import pictureScript from "@zaisma/sdk/picture.js";
-import relayScript from "@zaisma/sdk/relay.js";
-import warmScript from "@zaisma/sdk/warm.js";
-import performanceScript from "@zaisma/sdk/performance.js";
+import savesScript from "../../../packages/sdk/saves.js";
+import pictureScript from "../../../packages/sdk/picture.js";
+import relayScript from "../../../packages/sdk/relay.js";
+import warmScript from "../../../packages/sdk/warm.js";
+import performanceScript from "../../../packages/sdk/performance.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 import sdkTypes from "@zaisma/sdk/zaisma.d.ts";
 import { serveBackground } from "./background.ts";
@@ -109,9 +110,19 @@ function page(httpStatus: number, title: string, text: string, env: Env): Respon
 }
 
 /** Bump when our scripts or the injected tags change, so browsers fetch the new ones. */
-const SCRIPTS_VERSION_NUMBER = 6;
+const SCRIPTS_VERSION_NUMBER = 7;
 
-const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION_NUMBER}"></script>`;
+/** The page that puts an account's save in place, loading the saves script for the version it serves. */
+const restorePage = (versionId: string) =>
+  `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION_NUMBER}&version_id=${versionId}"></script>`;
+
+/**
+ * A script with its setup handed in as a parameter, so the setup never becomes a global the game's
+ * own code can read or change. The scripts read the name with typeof, which a parameter satisfies.
+ */
+function withSetup(parameterName: string, setup: unknown, script: string): string {
+  return `(function (${parameterName}) {\n${script}\n})(${JSON.stringify(setup)});\n`;
+}
 
 /**
  * Put our scripts first in <head>, before any game script runs: the relay script must be there before
@@ -533,7 +544,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       // Checked on every load, like the game's own HTML, so the version it names is the one the tab gets.
       headers.set("Cache-Control", "no-cache");
-      return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
+      return new Response(request.method === "HEAD" ? null : withSetup("__ZAISMA__", config, sdk), { headers });
     }
     // The SDK's types beside it: its reference, for the developer's editor and AI.
     if (filePath === "_zaisma/v1.d.ts") {
@@ -548,14 +559,14 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       const relay = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, ownRelayHosts: ownHostnames(ownServerUrls), fetchEarly: playsOnline(game) };
-      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_RELAY__ = ${JSON.stringify(relay)};\n${relayScript}`, { headers });
+      return new Response(request.method === "HEAD" ? null : withSetup("__ZAISMA_RELAY__", relay, relayScript), { headers });
     }
 
     // Report pictures: every game page can hand the Zaisma page a picture of the game when a player reports it.
     if (filePath === "_zaisma/picture.js") {
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
-      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_PICTURE__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${pictureScript}`, { headers });
+      return new Response(request.method === "HEAD" ? null : withSetup("__ZAISMA_PICTURE__", { site: env.SITE_ORIGIN }, pictureScript), { headers });
     }
 
     // How the game runs for its players: load time, frame rate, stutter and crashes, sent to the Zaisma game page as totals.
@@ -563,7 +574,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       const setup = { site: env.SITE_ORIGIN, limits: PLAYER_PERFORMANCE_LIMITS, frameRateBuckets: FRAME_RATE_BUCKETS, graphicsFamilyPatterns: GRAPHICS_FAMILY_PATTERNS };
-      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_PERFORMANCE__ = ${JSON.stringify(setup)};\n${FIRST_DRAW_WATCH}\n${performanceScript}`, { headers });
+      return new Response(request.method === "HEAD" ? null : withSetup("__ZAISMA_PERFORMANCE__", setup, `${FIRST_DRAW_WATCH}\n${performanceScript}`), { headers });
     }
 
     // Cloud saves: the script that hands the game's browser save to the Zaisma game page,
@@ -571,12 +582,15 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (cloudSavesEnabled && filePath === "_zaisma/saves.js") {
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
-      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_SAVES__ = ${JSON.stringify({ site: env.SITE_ORIGIN, saveLimitBytes: SAVE_LIMIT_BYTES })};\n${savesScript}`, { headers });
+      // version_id: the version the page was served from, a label each save carries. The script's worker starts from this same URL.
+      const versionIdGiven = url.searchParams.get("version_id");
+      const setup = { site: env.SITE_ORIGIN, saveLimitBytes: SAVE_LIMIT_BYTES, versionId: isIdOf("version", versionIdGiven) ? versionIdGiven : null };
+      return new Response(request.method === "HEAD" ? null : withSetup("__ZAISMA_SAVES__", setup, savesScript), { headers });
     }
     if (cloudSavesEnabled && filePath === "_zaisma/restore") {
       const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "no-cache");
-      return new Response(request.method === "HEAD" ? null : RESTORE_PAGE, { headers });
+      return new Response(request.method === "HEAD" ? null : restorePage(version.id), { headers });
     }
 
     // Game files start before Play: the warm-up page, its script and the live version's start files, only on the
@@ -637,9 +651,10 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       headers.delete("Accept-Ranges");
       // The version's own page preloads what its run in Chrome needed first; one cached before the run finished is fetched again.
       const startFiles = path === "index.html" ? await startFilesOf(env, servedVersion.id) : [];
-      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION_NUMBER}${cloudSavesEnabled ? "s" : ""}${performanceMeasuringEnabled ? "m" : ""}${startFiles.length ? "p" : ""}"`);
+      // The version too: two versions can share an identical page, but their saves script is told a different one.
+      headers.set("ETag", `W/"${object.etag}-${servedVersion.id}-z${SCRIPTS_VERSION_NUMBER}${cloudSavesEnabled ? "s" : ""}${performanceMeasuringEnabled ? "m" : ""}${startFiles.length ? "p" : ""}"`);
       if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
-      const scripts = [`${target.base}_zaisma/relay.js?v=${SCRIPTS_VERSION_NUMBER}`, ...(cloudSavesEnabled ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION_NUMBER}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION_NUMBER}`, ...(performanceMeasuringEnabled ? [`${target.base}_zaisma/performance.js?v=${SCRIPTS_VERSION_NUMBER}`] : [])];
+      const scripts = [`${target.base}_zaisma/relay.js?v=${SCRIPTS_VERSION_NUMBER}`, ...(cloudSavesEnabled ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION_NUMBER}&version_id=${servedVersion.id}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION_NUMBER}`, ...(performanceMeasuringEnabled ? [`${target.base}_zaisma/performance.js?v=${SCRIPTS_VERSION_NUMBER}`] : [])];
       const text = await object.text();
       const preloads = preloadLinkHeader(text, `${target.base}_zaisma/versions/${servedVersion.id}/`, startFiles);
       if (preloads) headers.set("Link", preloads);

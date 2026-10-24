@@ -26,7 +26,12 @@ const ID_PATTERN = new RegExp(`^\\^(${ID_KINDS.join("|")})_`);
 /** IDs that aren't Zaisma's, so they say no kind: the game's own ID for a player's account, given back as the game sent it, and Stripe's ID for a developer's connected account. */
 const OUTSIDE_IDS = new Set(["game_account_id", "stripe_account_id"]);
 /** Objects whose keys are the caller's own, not ours: next steps' arguments, and a game database's rows, by its own columns. */
-const OPEN_OBJECTS = new Set(["arguments", "rows[]", "local_storage_items", "indexeddb_databases[]"]);
+const OPEN_OBJECTS = new Set(["arguments", "rows[]", "local_storage_items"]);
+/**
+ * IndexedDB's own names, kept as the browser and the game domain script (packages/sdk/saves.js) store them
+ * under a save's indexeddb_databases[] (docs/NAMING.md, Exceptions). Only there; anything else in it follows the rules.
+ */
+const INDEXEDDB_NAMES = new Set(["version", "keyPath", "autoIncrement", "unique", "multiEntry"]);
 
 const typesOf = (s: Schema): string[] => {
   const t = s.type;
@@ -59,6 +64,7 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
     const types = typesOf(s);
     const tokens = name.split("_");
     const say = (problem: string) => out.push(`${path}: ${problem}`);
+    if (INDEXEDDB_NAMES.has(name) && path.includes("indexeddb_databases[]")) return walk(s, path);
     if (VAGUE.has(name)) say(`"${name}" alone doesn't say what it is`);
     if (tokens.some((t) => SHORT.has(t))) say("no short forms like dt, msg, opts or pos");
     if (tokens.length > 1 && (tokens[0] === "max" || tokens[0] === "min")) say("spell out maximum_ or minimum_");
