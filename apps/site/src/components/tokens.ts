@@ -82,12 +82,12 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
   --table-head: rgba(14, 17, 24, 0.9); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #E6B53A; --meter-full: #A9811C; --meter-full-ink: var(--warning); --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
-  /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. It has no caustics:
-     on light glass they're light on light and only round the edge off, but on dark glass they read as a glow fanning in from the rim, which
-     blurs the pane's edge against what sits near it. Smoked glass keeps to the edge, as narrow and clean as light glass's. */
-  --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
-  --edge-lit: rgba(220, 228, 242, 0.55); --edge-shade: rgba(140, 152, 176, 0.05); --edge-corner: rgba(196, 206, 224, 0.26);
-  --edge-spec: rgba(255, 255, 255, 0.4); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: transparent;
+  /* Smoked glass has no caustics: on light glass they're light on light and only round the edge off, but on dark glass they read as a glow
+     fanning in from the rim, which blurs the pane's edge against what sits near it. So it keeps to the edge, as narrow and clean as light
+     glass's and as strong: the same bevel, rim, fringe and facets, in smoked glass's own colors. */
+  --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
+  --edge-lit: rgba(220, 228, 242, 1); --edge-shade: rgba(140, 152, 176, 0.6); --edge-corner: rgba(196, 206, 224, 0.75);
+  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(255, 255, 255, 0.015); --edge-caustic: transparent;
   --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
