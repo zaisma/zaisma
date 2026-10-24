@@ -1053,8 +1053,10 @@ describe("mistakes in a sandboxed game server's code", () => {
     );
     const a = await join("flood", "ABCDEF");
     a.say("go");
+    // The room writes a new error within a minute, or when its last player leaves.
+    for (let heard = 0; heard < 1000; heard++) await a.next();
+    a.ws.close(1000);
     const errors = await errorsOf("gflood", 1, 400);
     expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
-    a.ws.close(1000);
   }, 30_000);
 });
