@@ -509,6 +509,14 @@ describe("making an account", () => {
     expect(users.size).toBe(0);
   });
 
+  it("blocks nothing after a too-young answer where the block lasts 0 seconds, as in the local preview", async () => {
+    const b = new Browser();
+    b.bindings = { TOO_YOUNG_BLOCK_SECONDS: "0" };
+    expect(await (await b.go("/join/age", { year: String(thisYear - 10), month: "1", day: "1" })).text()).toContain("You can't make an account");
+    b.jar.set("__Host-zaisma_age", "no");
+    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).not.toContain("You can't make an account");
+  });
+
   it("refuses a bad username and keeps what was typed", async () => {
     const b = new Browser();
     await b.go("/join/age", BIRTH_ADULT);

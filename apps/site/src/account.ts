@@ -156,6 +156,7 @@ import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnsti
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCK_DURATION_SEC = 24 * 3600;
+const blockDurationSec = (env: Env): number => (env.TOO_YOUNG_BLOCK_SECONDS === undefined ? BLOCK_DURATION_SEC : Number(env.TOO_YOUNG_BLOCK_SECONDS) || 0);
 const JOIN_DURATION_SEC = 3600;
 const OAUTH_DURATION_SEC = 600;
 /** Longer than any password Supabase takes, so a long one gets the "too long" message instead of being cut. */
@@ -264,7 +265,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     await deleteAuthUser(env, signedIn.userId);
     return withCookies(redirect(`/join?with=${provider}${back ? `&next=${encodeURIComponent(back)}` : ""}`), cookies);
   }
-  if (path.startsWith("/join") && readCookie(request, env, "zaisma_age") === "no") return done(tooYoungPage(env));
+  if (path.startsWith("/join") && blockDurationSec(env) > 0 && readCookie(request, env, "zaisma_age") === "no") return done(tooYoungPage(env));
 
   // --- Signing in with a username (or email) and password ---
   if (path === "/signin" && post) {
@@ -350,7 +351,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
       const band = ageBand(ageYearCount);
       if (!band) {
         // Under 13: no account. Anything Supabase already holds (a half-finished sign-in) is deleted now.
-        const cookies = [setCookie(env, "zaisma_age", "no", { maximumAgeSec: BLOCK_DURATION_SEC }), setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })];
+        const cookies = [setCookie(env, "zaisma_age", "no", { maximumAgeSec: blockDurationSec(env) }), setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })];
         if (session) {
           await deleteAuthUser(env, session.userId);
           cookies.push(...clearSessionCookies(env));
