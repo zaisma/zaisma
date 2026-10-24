@@ -284,7 +284,8 @@ export interface ReceiptClaims {
 
 /** Check a receipt. Throws PassError if it's forged, for another game, or a pass (wrong_kind). */
 export async function verifyReceipt(token: string, keys: PublicKey[], expect: { gameSlug: string; issuerUrl?: string }): Promise<ReceiptClaims> {
-  const { header: _header, ...signed } = await signedClaims(token, keys);
+  const signed: Record<string, unknown> = { ...(await signedClaims(token, keys)) };
+  delete signed.header;
   const claims = signed as unknown as ReceiptClaims;
   if (claims.kind !== "receipt") throw new PassError("wrong_kind");
   if (claims.iss !== (expect.issuerUrl ?? PASS_ISSUER_URL)) throw new PassError("wrong_issuer");
