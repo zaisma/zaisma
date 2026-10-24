@@ -173,6 +173,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       // plays once. Only a link within this page (its address but for the #), or one a page script shows without leaving, slides here.
       tab.addEventListener("click", function (event) {
         if (isDisabled(tab)) return;
+        // The tab you're on is where you are: pressing it again changes nothing (a new tab or window from it still opens).
+        if (tab.href && tab.getAttribute("aria-current") === "page" && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); return; }
         if (tab.href && !event.defaultPrevented) {
           var to = new URL(tab.href, location.href);
           if (to.pathname !== location.pathname || to.search !== location.search) return;
