@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAXIMUM_OTHER_PLAYER_COUNT, blocksAmong, friendsAmong } from "../../packages/core/src/index.ts";
-import { ROOM_LIMITS, RoomCore, defineGameServer } from "../../packages/game-server/src/index.ts";
+import { ROOM_LIMITS, RoomCore, defineGameServer } from "../../packages/game-server/src/internal.ts";
 
 // A stand-in database that answers the two queries over in-memory rows, honouring the bound player lists as the SQL does.
 function standInDatabase(blocks: [string, string][], friendships: [string, string][]) {

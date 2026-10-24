@@ -1,4 +1,4 @@
-import { loadSigningKey, type SigningKey } from "@zaisma/game-server";
+import { loadSigningKey, type SigningKey } from "@zaisma/game-server/internal";
 
 /** The pass signing key (PASS_SIGNING_KEY), loaded once per secret: it signs passes and receipts. */
 let signing: { secret: string; key: Promise<SigningKey> } | null = null;

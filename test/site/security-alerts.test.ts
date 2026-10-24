@@ -1,4 +1,4 @@
-import { createExecutionContext, env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SECURITY_LOG_LIMITS, SPIKE_THRESHOLDS, createAccount, createApiKey, createGame, createWebhook, personOwner, NO_WHERE } from "@zaisma/core";
 import worker from "../../apps/site/src/index.ts";
@@ -7,6 +7,8 @@ import { noteWrongPassword } from "../../apps/site/src/device-marks.ts";
 import { ACTIVITY, WEBHOOK_EVENT } from "../../apps/site/src/schemas.ts";
 import { logSecurityEvent, type SecurityEventRow } from "../../apps/site/src/security-log.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
 
 // Security alerts (apps/site/src/security-alerts.ts) through the security log, the developer API, webhooks and
 // the admin MCP: who gets an email, the hourly cap, the security_alert webhook, spikes and script reports. The
@@ -201,13 +203,18 @@ describe("script policy reports", () => {
     await report(JSON.stringify(legacy("https://evil.example/a.js")) + " ".repeat(17_000));
     await report("not json");
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM blocked_scripts").first()).toEqual({ row_count: 0 });
-    // The limiter counts in windows aligned to the clock's minutes, so the 31 reports go out well inside one: past a minute's 40th
-    // second, it waits for the next (on a busy runner they once crossed into a new window, and the 31st counted).
-    const intoMinuteMs = Date.now() % 60_000;
-    if (intoMinuteMs > 40_000) await new Promise((done) => setTimeout(done, 60_000 - intoMinuteMs + 100));
-    for (let i = 0; i < 31; i++) expect((await report(legacy("https://evil.example/a.js"), "application/csp-report", "192.0.2.250")).status).toBe(204);
+    // 30 a minute from one address, counted by a limiter with no clock (test/rate-limits.ts), so the 31 reports can't straddle two minutes.
+    expect(configuredRateLimit(siteWranglerText, "CSP_REPORT_LIMIT")).toEqual({ limit: 30, period: 60 });
+    const reportLimit = countingRateLimiter(30);
+    for (let i = 0; i < 31; i++) {
+      const context = createExecutionContext();
+      const sent = new Request(`${SITE}/csp-reports`, { method: "POST", headers: { "content-type": "application/csp-report", "cf-connecting-ip": "192.0.2.250" }, body: JSON.stringify(legacy("https://evil.example/a.js")) });
+      expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, CSP_REPORT_LIMIT: reportLimit }, context)).status).toBe(204);
+      await waitOnExecutionContext(context);
+    }
+    expect(new Set(reportLimit.keys)).toEqual(new Set(["192.0.2.250"]));
     expect(await env.DB.prepare("SELECT occurrence_count FROM blocked_scripts").first()).toEqual({ occurrence_count: 30 });
-  }, 40_000);
+  });
 
   it("are asked for by every zaisma.com page's policy", async () => {
     const response = await SELF.fetch(`${SITE}/`);
