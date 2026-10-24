@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { CONTROL_HEIGHTS, type ControlHeight, type ControlMarkup } from "./control-markup.ts";
+import { WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -280,7 +281,7 @@ const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [".qr
 function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
-  const selectors = [0, 1, 2, 3].flatMap((depthCount) => {
+  const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead.
     const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
     return [
@@ -293,21 +294,29 @@ function edgeWords(edge: "top" | "bottom"): string {
       // A component whose words are its whole (Numbers) takes the margin itself.
       ...own.flatMap(([component, words]) => (words ? [`${into}${component}${end} > ${words}`, `${into}.layout-row${end} > .row-cell > ${component} > ${words}`] : [`${into}${component}${end}`])),
     ];
-  });
-  return PANE_CONTENT.flatMap((pane) => selectors.map((selector) => `${pane}${selector}`)).join(",\n");
+  };
+  return PANE_CONTENT.filter((pane) => pane.edges.includes(edge))
+    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => selectorsOf(depthCount).map((selector) => `${pane.holder}${selector}`)).flat()).join(",\n");
 }
 
 /** What places its own words: a row with controls on one line and a pane's foot with a corner control (on the control's center line), and a pane's head. */
 const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped), .pane-head, .pane-foot[data-control-height])";
 
-/** What holds a pane's content, a tray's and a sheet's: the edges its words and rows measure from. */
-const PANE_CONTENT = [".glass-pane > .pane-in", ".tray", ".sheet-in"];
+/**
+ * What holds a surface's content (tokens.ts's WORDS_HOLDERS), the edges its words and rows measure from, and how deep in the first and last of
+ * what it holds the edge rules look. A sheet's body, with no buttons under it, is where its words end.
+ */
+const PANE_CONTENT: { holder: string; depthCount: number; edges: ("top" | "bottom")[]; isForRows: boolean }[] = [
+  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 2 : 4, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
+  { holder: ".pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body", depthCount: 3, edges: ["bottom"], isForRows: false },
+];
 
 /** The rows at a pane's top or bottom edge, however deep in the first or last of what it holds. */
 function edgeRows(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
-  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3].map((depthCount) => `${pane}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
+  return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
+    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
 }
 
 export const STACK_STYLES = `

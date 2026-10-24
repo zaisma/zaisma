@@ -35,6 +35,29 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     if (kind === "resize") { hasResizeListener = true; window.addEventListener("resize", function () { runBatched(resizeCallbacks.slice()); }); }
     else { hasScrollListener = true; window.addEventListener("scroll", function () { runBatched(scrollCallbacks.slice()); }, { passive: true, capture: true }); }
   }
+  // The selectors of what scrolls: the browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest. Found once.
+  var scrollSelectorList = null;
+  function scrollSelectors() {
+    if (scrollSelectorList) return scrollSelectorList;
+    var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"];
+    function visit(rules) {
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i], style = rule.style;
+        if (style && rule.selectorText && /auto|scroll|var\\(/.test(style.overflowY + " " + style.getPropertyValue("overflow"))) selectors.push(rule.selectorText);
+        if (rule.cssRules) visit(rule.cssRules);
+      }
+    }
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) { try { visit(sheet.cssRules); } catch (error) { /* a sheet from another site */ } });
+    scrollSelectorList = selectors;
+    return selectors;
+  }
+  // What a selector matches under a root. A rule for a pseudo-element (::before) can't be asked for: the element it's on is.
+  function matching(root, selector) {
+    var matched;
+    try { matched = root.querySelectorAll(selector); } catch (error) { try { matched = root.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return []; } }
+    return Array.from(matched);
+  }
+  function isScrolling(box) { return box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
     size: function (element, callback, batch) {
@@ -55,24 +78,20 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
-      // The browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest.
-      var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"], found = new Set();
-      function visit(rules) {
-        for (var i = 0; i < rules.length; i++) {
-          var rule = rules[i], style = rule.style;
-          if (style && rule.selectorText && /auto|scroll|var\\(/.test(style.overflowY + " " + style.getPropertyValue("overflow"))) selectors.push(rule.selectorText);
-          if (rule.cssRules) visit(rule.cssRules);
-        }
-      }
-      Array.prototype.forEach.call(document.styleSheets, function (sheet) { try { visit(sheet.cssRules); } catch (error) { /* a sheet from another site */ } });
-      selectors.forEach(function (selector) {
-        var matched;
-        // A rule for a pseudo-element (::before) can't be asked for: the element it's on is.
-        try { matched = document.querySelectorAll(selector); } catch (error) { try { matched = document.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return; } }
-        matched.forEach(function (box) { if (box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) found.add(box); });
-      });
+      var found = new Set();
+      scrollSelectors().forEach(function (selector) { matching(document, selector).forEach(function (box) { if (isScrolling(box)) found.add(box); }); });
       scrollBoxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
       return scrollBoxes;
+    },
+    // The same for what was added to the page later (a list the page swaps in): the element and what's inside it that scrolls.
+    scrollBoxesIn: function (root) {
+      var found = new Set();
+      scrollSelectors().forEach(function (selector) {
+        var boxes = matching(root, selector);
+        try { if (root.matches(selector)) boxes.unshift(root); } catch (error) { /* a selector for a pseudo-element */ }
+        boxes.forEach(function (box) { if (isScrolling(box)) found.add(box); });
+      });
+      return Array.from(found);
     },
     each: function (selector, callback) {
       var wired = new WeakSet();

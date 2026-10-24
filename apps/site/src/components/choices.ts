@@ -176,7 +176,7 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
 }
 
 /**
- * Select fields: the list opens as a popover (over everything, never clipped by the pane it's in) just under its field, or above it when
+ * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) just under its field, or above it when
  * there's no room below, as wide as the field. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
  * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
  */
@@ -185,6 +185,11 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     if (!list.hasAttribute("popover")) return;
+    // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
+    // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes.
+    document.querySelectorAll("body > .select-list").forEach(function (left) { if (!document.querySelector('[popovertarget="' + left.id + '"]')) left.remove(); });
+    if (root.closest(".smoke")) list.classList.add("smoke");
+    document.body.appendChild(list);
     var options = Array.prototype.slice.call(box.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
     function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
     function setActive(i) {
@@ -211,7 +216,13 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     list.addEventListener("toggle", function (event) {
       var isOpen = event.newState === "open";
       button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
-      if (isOpen) { place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true }); }
+      if (isOpen) {
+        // The page's own light or dark, and the hue of the glass where the field is, which the list no longer inherits.
+        var themed = root.closest("[data-theme-choice]");
+        if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
+        list.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
+        place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true });
+      }
     });
     window.zaismaWatch.resize(function () { if (list.matches(":popover-open")) place(); });
     window.zaismaWatch.scroll(function () { if (list.matches(":popover-open")) place(); });
@@ -297,7 +308,7 @@ component({
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
 .select-list.in-place { position: relative; display: flex; width: 100%; }
 /* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
-.select-options { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
+.select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }

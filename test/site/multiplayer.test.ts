@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { QUICK_JOIN_KEPT_MS, auditLog, gameById, noteQuickJoin, type Game } from "@zaisma/core";
+import { auditLog, gameById, listRoomPage, listRooms, type Game } from "@zaisma/core";
 import { codeBox } from "../../apps/site/src/rooms.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
@@ -167,9 +167,11 @@ describe("room browsing on the game page", () => {
     expect(list).toMatch(/<span class="list-row-title">3 of 8 players<\/span><span class="list-row-detail"><span class="list-row-fact">Germany<\/span>/);
     expect(list).toMatch(/8 of 8 players<\/span>[\s\S]*?<span class="list-row-end">Full<\/span>/);
     expect(list).not.toContain("JKMN3P");
-    // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
-    expect(list).not.toContain("QRSTVW");
-    expect(list).toContain("Plus 1 match in progress that isn&#39;t taking new players.");
+    // A match in progress is a row of its own, last: Join grayed and off with its reason, and no sentence about it. Rooms that stopped checking in aren't shown at all.
+    expect(list).toMatch(/2 of 8 players<\/span>[\s\S]*?<span class="list-row-end">In a match<\/span><span class="list-row-action"><button class="shell cut-btn small" type="button" disabled>/);
+    expect(list.indexOf("In a match")).toBeGreaterThan(list.indexOf(">Full<"));
+    expect(list).not.toContain("room=QRSTVW");
+    expect(list).not.toContain("in progress that");
     expect(list).not.toContain("XYZ234");
     // Glass: only gallery components, the list and the code box alike.
     expect(pageProblems(list)).toEqual([]);
@@ -186,7 +188,11 @@ describe("room browsing on the game page", () => {
     await watching("BCDFGH", 14, 20);
     await watching("JKMN3P", 2, 20);
     await watching("QRSTVW", 5, 5);
+    // A match in progress isn't taking players, but can be watched.
+    await room(id, "CDFGHJ", 2, 0);
+    await watching("CDFGHJ", 1, 20);
     const list = await roomsList();
+    expect(list).toMatch(/<span class="list-row-end">In a match<\/span><span class="list-row-action"><div[^>]*><div[^>]*><button class="shell cut-btn small" type="button" disabled>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=CDFGHJ&amp;watch=1">/);
     expect(list).toContain('<span class="list-row-title">3 of 8 players</span><span class="list-row-detail"><span class="list-row-fact">14\u00a0watching\u00a0·</span>');
     expect(list).toContain('href="/g/arena?room=BCDFGH&amp;watch=1"');
     // A full room can still be watched.
@@ -202,7 +208,7 @@ describe("room browsing on the game page", () => {
     expect(quiet).not.toContain("<span>Watch</span>");
   });
 
-  it("filters by region once rooms run in more than one, and shows the best ten first", async () => {
+  it("filters by region once rooms run in more than one, and shows the first six rooms", async () => {
     const id = await addGame("arena", "relay");
     const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
@@ -210,9 +216,12 @@ describe("room browsing on the game page", () => {
     const list = await roomsList();
     expect(list).toContain('<button type="button" data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
-    // Every row is there, the list scrolling inside itself past six.
+    // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
     expect(list).toContain('class="list-rows is-capped" style="--shown-row-count:6"');
+    expect(list.match(/<div class="list-row">/g)).toHaveLength(6);
     expect(list).not.toContain("<li hidden>");
+    expect(list).toContain('data-load-more="rooms-rows"');
+    expect(list).toContain('href="/g/arena/rooms?cursor=6"');
     expect(list).toContain('data-count="13"');
     expect(pageProblems(list)).toEqual([]);
 
@@ -221,8 +230,96 @@ describe("room browsing on the game page", () => {
     // The number by Rooms follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
     expect(na.match(/<div class="list-row">/g)).toHaveLength(1);
+    // Nothing more to load: no Load more.
+    expect(na).not.toContain("data-load-more");
     const none = await roomsList("?region=AF");
     expect(none).toContain("No open rooms in that region right now.");
+  });
+
+  it("pages the rooms: six first, then twenty a press, best first with matches in progress last, never all at once", async () => {
+    const id = await addGame("arena", "relay");
+    const alphabet = "BCDFGHJKLMNPQRSTVWXYZ23456789".split("");
+    const code = (index: number) => `${alphabet[Math.floor(index / alphabet.length)]}${alphabet[index % alphabet.length]}${"AAAA"}`;
+    // 37 open rooms, the busiest first by their players, 3 full ones and 5 matches in progress (4 players each).
+    for (let i = 0; i < 34; i++) await room(id, code(i), 1 + (i % 4));
+    for (let i = 34; i < 37; i++) await room(id, code(i), 8);
+    for (let i = 37; i < 42; i++) await room(id, code(i), 4, 0);
+    const first = await roomsList();
+    expect(first.match(/<div class="list-row">/g)).toHaveLength(6);
+    // Everyone in the game's rooms is still counted, and so are the rooms taking players.
+    expect(first).toContain('data-count="37"');
+    expect(first).toContain('href="/g/arena/rooms?cursor=6"');
+    const rowCodes = (fragment: string) => [...fragment.matchAll(/href="\/g\/arena\?room=([A-Z0-9]{6})"/g)].map((found) => found[1]!);
+    const firstCodes = rowCodes(first);
+    expect(firstCodes).toHaveLength(6);
+
+    // The second page is just rows in a list of the panel's id, 20 of them, and the Load more for the page after.
+    const second = await roomsList("?cursor=6");
+    expect(second.startsWith('<ul class="list-rows" id="rooms-rows"')).toBe(true);
+    expect(second.match(/<div class="list-row">/g)).toHaveLength(20);
+    expect(second).toContain('href="/g/arena/rooms?cursor=26"');
+    expect(second).not.toContain("data-region");
+    expect(rowCodes(second).some((roomCode) => firstCodes.includes(roomCode))).toBe(false);
+    expect(pageProblems(second)).toEqual([]);
+
+    // The last page: what's left (42 - 26 = 16 rooms), the full ones and the matches in progress at the end, and no Load more.
+    const last = await roomsList("?cursor=26");
+    expect(last.match(/<div class="list-row">/g)).toHaveLength(16);
+    expect(last).not.toContain("data-load-more");
+    expect(last.match(/<span class="list-row-end">In a match<\/span>/g)).toHaveLength(5);
+    expect(last.match(/<span class="list-row-end">Full<\/span>/g)).toHaveLength(3);
+    expect(last.lastIndexOf(">Full<")).toBeLessThan(last.indexOf("In a match"));
+    expect(pageProblems(last)).toEqual([]);
+    // Past the end, an empty list; a cursor that isn't one starts at the first page.
+    expect((await roomsList("?cursor=999")).match(/<div class="list-row">/g)).toBeNull();
+    expect((await roomsList("?cursor=nonsense")).match(/<div class="list-row">/g)).toHaveLength(20);
+
+    // A refresh keeps how many rows are loaded (shown_row_count), asking for fewer than six or more than allowed is held to the limits.
+    const refreshed = await roomsList("?shown_row_count=26");
+    expect(refreshed.match(/<div class="list-row">/g)).toHaveLength(26);
+    expect(refreshed).toContain('href="/g/arena/rooms?cursor=26"');
+    expect((await roomsList("?shown_row_count=2")).match(/<div class="list-row">/g)).toHaveLength(6);
+    expect((await roomsList("?shown_row_count=nonsense")).match(/<div class="list-row">/g)).toHaveLength(6);
+    expect((await roomsList("?shown_row_count=100000")).match(/<div class="list-row">/g)).toHaveLength(42);
+    expect(await roomsList("?shown_row_count=100000")).not.toContain("data-load-more");
+
+    // What the developer API and the SDK get from listRooms is as it was: one list in its own order (open rooms and matches in progress mixed by
+    // the same sort as before the pages), up to 50, no cursor.
+    const listed = await listRooms(env.DB, id);
+    expect(listed.rooms).toHaveLength(42);
+    expect(listed).not.toHaveProperty("nextCursor");
+    expect(listed.moreOpenRoomCount).toBe(0);
+    expect(listed.playing.closedRoomCount).toBe(5);
+    // The page holds the same rooms, matches in progress last, and says where the next page starts.
+    const everyone = await listRoomPage(env.DB, id, { pageRoomCount: 100 });
+    expect([...everyone.rooms.map((listedRoom) => listedRoom.roomCode)].sort()).toEqual(listed.rooms.map((listedRoom) => listedRoom.roomCode).sort());
+    expect(everyone.rooms.slice(-5).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
+    expect(everyone.nextCursor).toBeNull();
+    expect((await listRoomPage(env.DB, id, { pageRoomCount: 10 })).nextCursor).toBe("10");
+    expect((await listRoomPage(env.DB, id, { pageRoomCount: 10, cursor: "40" })).nextCursor).toBeNull();
+  });
+
+  it("carries the region and labels picked into the next page, and tells no sentences about rooms past the list", async () => {
+    const id = await addGame("arena", "relay");
+    const named = (roomCode: string, labels: Record<string, string>, where: [string, string]) =>
+      env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, labels, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, 2, 8, 1, ?, ?, ?, ?, ?)")
+        .bind(id, roomCode, JSON.stringify(labels), where[0], where[1], Date.now(), Date.now())
+        .run();
+    const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
+    for (const [i, c] of codes.slice(0, 12).entries()) await named(c.repeat(6), { Mode: i % 4 === 0 ? "Hardcore" : "Classic" }, ["DE", "EU"]);
+    for (const c of codes.slice(12, 15)) await named(c.repeat(6), { Mode: "Classic" }, ["US", "NA"]);
+    const picked = encodeURIComponent(JSON.stringify({ Mode: "Classic" }));
+    const first = await roomsList(`?region=EU&labels=${picked}`);
+    expect(first.match(/<div class="list-row">/g)).toHaveLength(6);
+    expect(first).toContain("cursor=6&amp;region=EU&amp;labels=");
+    // The next page holds the rest of the 9 Classic rooms in Europe: 3, and nothing after them.
+    const next = await roomsList(`?cursor=6&region=EU&labels=${picked}`);
+    expect(next.match(/<div class="list-row">/g)).toHaveLength(3);
+    expect(next).not.toContain("data-load-more");
+    for (const text of [first, next, await roomsList()]) {
+      expect(text).not.toContain("more rooms with fewer players");
+      expect(text).not.toContain("Press Play and the game finds you one");
+    }
   });
 
   it("shows a kept room waiting with nobody in it after rooms with players, and the daily cleanup keeps it", async () => {
@@ -313,20 +410,6 @@ describe("room browsing on the game page", () => {
     expect(await env.DB.prepare("SELECT is_name_hidden FROM live_rooms WHERE room_code = 'BCDFGH'").first("is_name_hidden")).toBe(1);
     expect(await env.DB.prepare("SELECT report_status FROM reports WHERE id = ?").bind(report!.id).first("report_status")).toBe("actioned");
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).not.toContain("Bad name");
-  });
-
-  it("says Play finds you a room only for a game that joins players by itself", async () => {
-    const id = await addGame("arena", "relay");
-    const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
-    // More open rooms than the list shows.
-    for (let i = 0; i < 52; i++) await room(id, `${codes[i % codes.length]!.repeat(4)}${codes[Math.floor(i / codes.length)]}2`, 1);
-    const more = async () => (await (await SELF.fetch("https://zaisma.test/g/arena/rooms")).text()).match(/And 2 more rooms with fewer players\.[^<]*/)?.[0];
-    expect(await more()).toBe("And 2 more rooms with fewer players.");
-    await noteQuickJoin(env.DB, id);
-    expect(await more()).toBe("And 2 more rooms with fewer players. Press Play and the game finds you one.");
-    // A quick join more than 30 days ago no longer counts.
-    await env.DB.prepare("UPDATE games SET quick_joined_at_ms = ? WHERE id = ?").bind(Date.now() - QUICK_JOIN_KEPT_MS - 1, id).run();
-    expect(await more()).toBe("And 2 more rooms with fewer players.");
   });
 
   it("says when there's no room to join", async () => {

@@ -92,9 +92,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var panes = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (pane) { return isShown(pane) && !pane.classList.contains("frame"); });
   panes.forEach(function (pane) {
-    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
+    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
     var gap = { left: parseFloat(css.paddingLeft), right: parseFloat(css.paddingRight), top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom) };
     var words = parseFloat(css.getPropertyValue("--pad-words")) || 0;
+    // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
+    // whatever the surface pads itself. Only what has an edge of its own may sit closer, at the frame gap.
+    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray") ? "--pad-tray" : "--pad-pane")) || 0;
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
@@ -173,13 +176,14 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         var r = lineBox(glyphs, el), scroller = scrollerIn(el, pane);
         // Words running on past what scrolls sideways round them are measured where they show.
         if (scroller) { var s = scroller.getBoundingClientRect(); if (r.left < s.left - TOLERANCE_PX || r.right > s.right + TOLERANCE_PX) return false; }
-        var d = distances(r), wordsAt = { left: gap.left + words, right: gap.right + words, top: gap.top + words, bottom: gap.bottom + words };
+        var d = distances(r), wordsAt = { left: Math.max(gap.left + words, marginPx), right: Math.max(gap.right + words, marginPx), top: Math.max(gap.top + words, marginPx), bottom: Math.max(gap.bottom + words, marginPx) };
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
         var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed ? ["left", "right"] : ["left", "right", "top", "bottom"];
+        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only.
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
-        if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge, expected " + round(wordsAt[side]) + "px"); return true; }
+        if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         var under = framed.find(function (f) { var o = f.getBoundingClientRect(); return Math.min(r.right, o.right) - Math.max(r.left, o.left) > TOLERANCE_PX && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > TOLERANCE_PX; });
         if (under) { flagged.add(el); report("words over something with an edge", el, "over " + describe(under)); return true; }
         lines.push({ r: r, el: el });

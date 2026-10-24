@@ -58,6 +58,21 @@ export interface RoomList {
 const MAXIMUM_SHOWN_ROOM_COUNT = 50;
 
 /**
+ * One page of a game's rooms for zaisma.com's game page (listRoomPage): every listed room, a page at a time, in the order of the
+ * list with matches in progress last, never cut at 50. Zaisma's own, not for games or the developer API.
+ */
+export interface RoomPage extends RoomList {
+  /** Where the next page starts, to hand back as cursor; null on the last page. */
+  nextCursor: string | null;
+}
+
+/** The most rooms one page of the game page's room list holds. */
+export const MAXIMUM_PAGE_ROOM_COUNT = 200;
+
+/** Where a page of rooms starts, from a cursor it handed out: the first page for anything else. */
+const roomPageStart = (cursor: string | null | undefined) => (cursor && /^\d{1,6}$/.test(cursor) ? Number(cursor) : 0);
+
+/**
  * How long a running match gets to finish once its game's hosting pauses (hosting.ts), counted from the pause, so
  * every room of the game ends together (Julius, Oct 18, 2026).
  */
@@ -174,18 +189,30 @@ export const hasWatchSpace = (room: Pick<ListedRoom, "spectatorCount" | "maximum
  * answers from a short-lived copy, so a busy game page reads the database a few times a minute,
  * not once per visitor.
  */
-export async function listRooms(
-  database: D1Database,
-  gameId: string,
-  options: { country?: string | null; continent?: string | null; region?: string | null; labels?: Record<string, string> | null; cacheDurationSec?: number; nowMs?: number } = {},
-): Promise<RoomList> {
+export async function listRooms(database: D1Database, gameId: string, options: RoomListOptions = {}): Promise<RoomList> {
+  return readRooms(database, gameId, options, null);
+}
+
+type RoomListOptions = { country?: string | null; continent?: string | null; region?: string | null; labels?: Record<string, string> | null; cacheDurationSec?: number; nowMs?: number };
+
+/**
+ * A page of a game's listed rooms, for the game page: the same rooms and order as listRooms, with matches in progress (closed rooms) after
+ * the open ones, full or not, and no cut at 50. cursor says where the page starts (the nextCursor of the page before; left out, the first
+ * page) and pageRoomCount how many rooms it holds (up to MAXIMUM_PAGE_ROOM_COUNT). A game with thousands of rooms is sent a page at a time.
+ */
+export async function listRoomPage(database: D1Database, gameId: string, options: RoomListOptions & { cursor?: string | null; pageRoomCount: number }): Promise<RoomPage> {
+  const pageRoomCount = Math.max(1, Math.min(MAXIMUM_PAGE_ROOM_COUNT, Math.floor(options.pageRoomCount)));
+  return (await readRooms(database, gameId, options, { startIndex: roomPageStart(options.cursor), pageRoomCount })) as RoomPage;
+}
+
+async function readRooms(database: D1Database, gameId: string, options: RoomListOptions, page: { startIndex: number; pageRoomCount: number } | null): Promise<RoomList> {
   const near = options.continent && CONTINENTS[options.continent] ? options.continent : null;
   const here = isCountry(options.country ?? null) ? options.country! : null;
   const region = options.region && CONTINENTS[options.region] ? options.region : null;
   const wanted = Object.entries(options.labels ?? {}).filter(([labelName, labelValue]) => typeof labelName === "string" && typeof labelValue === "string" && labelName && labelValue).slice(0, 4);
   const cacheDurationSec = options.cacheDurationSec ?? 0;
   const key = new Request(
-    `https://rooms-list.zaisma.internal/v3/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
+    `https://rooms-list.zaisma.internal/v3/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}${page ? `/page-${page.startIndex}-${page.pageRoomCount}` : ""}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
   );
   const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
@@ -225,6 +252,8 @@ export async function listRooms(
   all.sort(
     (first, second) =>
       Number(hasSpace(second)) - Number(hasSpace(first)) ||
+      // A page lists matches in progress after every open room, full ones too.
+      (page ? Number(second.isOpen) - Number(first.isOpen) : 0) ||
       waiting(first) - waiting(second) ||
       (waiting(first) && waiting(second) ? (first.name ?? "\uffff").localeCompare(second.name ?? "\uffff", "en") || first.roomCode.localeCompare(second.roomCode) : 0) ||
       mine(second) - mine(first) ||
@@ -245,7 +274,7 @@ export async function listRooms(
   const same = (first: string, second: string) => first.localeCompare(second, "en", { sensitivity: "base" }) === 0;
   const fits = (room: ListedRoom) => wanted.every(([labelName, labelValue]) => Object.entries(room.labels).some(([roomLabelName, roomLabelValue]) => same(roomLabelName, labelName) && same(roomLabelValue, labelValue)));
   const inRegion = all.filter((room) => (!region || where.get(room.roomCode) === region) && fits(room));
-  const shown = inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
+  const shown = page ? inRegion.slice(page.startIndex, page.startIndex + page.pageRoomCount) : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
     playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: playingRows.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
@@ -253,9 +282,10 @@ export async function listRooms(
     openRoomCount: inRegion.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),
     region,
-    moreOpenRoomCount: inRegion.filter((room) => room.isOpen).length - shown.filter((room) => room.isOpen).length,
+    moreOpenRoomCount: page ? inRegion.slice(page.startIndex + page.pageRoomCount).filter((room) => room.isOpen).length : inRegion.filter((room) => room.isOpen).length - shown.filter((room) => room.isOpen).length,
     filters: labelFilters(all),
     changedAtMs: Object.fromEntries(shown.map((room) => [room.roomCode, updated.get(room.roomCode)!])),
+    ...(page ? { nextCursor: page.startIndex + page.pageRoomCount < inRegion.length ? String(page.startIndex + page.pageRoomCount) : null } : {}),
   };
   if (cache) await cache.put(key, Response.json(list, { headers: { "Cache-Control": `max-age=${cacheDurationSec}` } }));
   return list;
@@ -272,7 +302,7 @@ export const LEFT_FOR_MS = 30_000;
  * never counted them. Honest clients say which room they left (docs/DECISIONS.md); it only changes
  * what that player sees. The list sent to games leaves out changedAtMs.
  */
-export function leaveOut(list: RoomList, left: { roomCode: string; leftAtMs: number; joinedAtMs: number }, nowMs = Date.now()): RoomList {
+export function leaveOut<TheList extends RoomList>(list: TheList, left: { roomCode: string; leftAtMs: number; joinedAtMs: number }, nowMs = Date.now()): TheList {
   const changedAtMs = list.changedAtMs?.[left.roomCode];
   // A second's leeway each way: the room writes its row a moment before or after the player's game hears it.
   if (changedAtMs === undefined || nowMs - left.leftAtMs > LEFT_FOR_MS || changedAtMs >= left.leftAtMs - 1000 || changedAtMs < left.joinedAtMs - 1000) return list;

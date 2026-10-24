@@ -49,7 +49,7 @@ import { playersSheet } from "./players-sheet.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
+import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
@@ -190,6 +190,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     : null;
   const gamePane = glassPane({
     paneWidth: "fit",
+    isStartedLow: true,
     label: game.title,
     body: stack({
       items: [
@@ -744,16 +745,24 @@ async function refreshRooms(force) {
   const list = document.getElementById("rooms-list");
   const shown = list.firstElementChild?.dataset.shown || "|[]";
   if (!force && shown === roomsKey() && Date.now() - roomsAt < 19000) return;
+  // A refresh keeps the rooms the player loaded (Load more); past ${MAXIMUM_REFRESHED_ROOM_COUNT} rows the list is left as it is, and another region or label starts over at the first page.
+  const isSamePick = shown === roomsKey();
+  const loadedRows = isSamePick ? list.querySelectorAll("#rooms-rows > li").length : 0;
+  if (!force && loadedRows > ${MAXIMUM_REFRESHED_ROOM_COUNT}) return;
   roomsAt = Date.now();
   try {
     const query = new URLSearchParams();
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
+    if (loadedRows > 0) query.set("shown_row_count", String(Math.min(loadedRows, ${MAXIMUM_REFRESHED_ROOM_COUNT})));
     const left = justLeft();
     if (left) query.set("left", left);
     const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
     if (!res.ok) return;
+    const scrolledTo = isSamePick ? document.getElementById("rooms-rows")?.scrollTop || 0 : 0;
     list.innerHTML = await res.text();
+    const fresh = document.getElementById("rooms-rows");
+    if (fresh && scrolledTo) fresh.scrollTop = scrolledTo;
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
     if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector("b").textContent = playing.toLocaleString("en-US"); }

@@ -3,6 +3,7 @@ import { cutButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
 import { paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
+import { playingCard } from "../../apps/site/src/components/playing.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { checkPages, chromeToRun, LAYOUT_CHECK_PAGES, LAYOUT_CHECK_SIZES, LAYOUT_CHECK_THEMES, layoutCheckShard, previewSites } from "../../scripts/layout-check.mjs";
 
@@ -69,5 +70,17 @@ describe.skipIf(!sites)("the layout check", () => {
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const square = failures.filter((failure) => /square in a cut corner/.test(failure.check));
     expect(square.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(1);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
+    // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
+    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: raw("<p>Sign in to keep what you've done.</p>"), isShown: true, isInPlace: true }).html;
+    const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const close = failures.filter((failure) => /words closer to the pane's edge than its margin/.test(failure.check));
+    expect(close.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBeGreaterThan(0);
+    expect(close.every((failure) => /close-card|Keep your progress|Sign in to keep/.test(`${failure.element} ${failure.said}`))).toBe(true);
+    expect(close.some((failure) => /fine-card/.test(`${failure.element} ${failure.said}`))).toBe(false);
   }, 300_000);
 });

@@ -338,6 +338,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | The room's host, who can run it from the game, and whether a game server has one | | `hostPlayerId`, `hostControlsEnabled` |
 | Whether a room shows in room lists, and takes new players | | `isListed`, `isOpen` |
 | Rooms in a room list: all of a game's, ones with space, ones taking players, the ones past the list, and seats held | | `roomCount`, `joinableRoomCount`, `openRoomCount`, `moreOpenRoomCount`, `heldSeatCount` |
+| The game page's room list, a page at a time (zaisma.com's own, not a developer call): where a page starts and how many rooms it holds, and how many rows a refresh keeps | `GET /g/<slug>/rooms?cursor=` (the page's `nextCursor`, as an opaque string; a Load more link carries it) and `shown_row_count` | `listRoomPage(database, gameId, { cursor, pageRoomCount })` answers a `RoomPage` (a `RoomList` and `nextCursor`, `null` on the last page); `MAXIMUM_PAGE_ROOM_COUNT` |
 | A part of the world rooms run in: a continent code, like `EU` | | `region` |
 | Where a room's connection stands | | `connectionStatus`: `connecting`, `open`, `reconnecting`, `away`, `closed` |
 | Keeping a kicked player out, as asked and as told | | `keepOut` (asked), `isKeptOut` (told) |

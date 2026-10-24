@@ -322,6 +322,8 @@ component({
 .list-rows > li + li { border-top: var(--divider); }
 /* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. */
 .list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; overscroll-behavior: contain; }
+/* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
+.list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
 .list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }

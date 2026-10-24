@@ -42,9 +42,10 @@ import {
  * the canvas. It starts at quality level 2 on a wide screen with a fine pointer, 1 on a tablet and 0 on a phone; a device that can't
  * keep up steps down a level (when the shader reads iQuality), then to fewer pixels, then holds the frame it has.
  *
- * The page round the frame can't be read from here, so it posts where its glass is: { panes: [{ rect: [left, bottom, right, top],
- * cuts: [top left, top right, bottom right, bottom left], isSmoked }] } in the frame's own CSS pixels from its bottom left, on
- * scroll, resize and when the glass changes, never every frame (iGlassPanes and the glass pass, GLASS_LIGHT_PASS); and whether
+ * The page round the frame can't be read from here, so it posts what the runner can't see: { panes } (the glass over it:
+ * [{ rect: [left, bottom, right, top], cuts: [top left, top right, bottom right, bottom left], isSmoked }] in the frame's own CSS pixels
+ * from its bottom left; iGlassPanes and the glass pass, GLASS_LIGHT_PASS), which Zaisma's pages leave empty: a frame can't redraw a bend
+ * in the frame the page scrolls in, so it would trail each pane; and whether
  * nobody has touched the page for a while, { isIdle }, since the frame never sees the page's input: idle, it draws 15 frames a
  * second instead of 30; and { isPaused } while the page keeps it out of sight, ready to show again at once, when it draws nothing. Every
  * pass builds in the background where the browser can (KHR_parallel_shader_compile), so a big shader never stops the page round the frame,

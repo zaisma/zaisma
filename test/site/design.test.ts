@@ -487,7 +487,9 @@ describe("components", () => {
     expect(BACKDROP_SCRIPT).not.toContain("gl_FragColor");
     // Fewer frames when nobody's touched the page for a while, and a game's frame is told, since it never sees the page's input.
     expect(BACKDROP_SCRIPT).toContain(`IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000}`);
-    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: panes, isIdle: isIdle }");
+    // It's told no glass: a frame can't redraw a bend in the frame the page scrolls in, so it bends nothing under glass, and a scroll tells it nothing.
+    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: [], isIdle: isIdle }");
+    expect(BACKDROP_SCRIPT).not.toContain("isScrolling");
   });
 
   it("open the Developer and Forum tabs only on a developer page", () => {
@@ -610,7 +612,7 @@ const NOT_SPACING = new Set<string>([
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right",
+  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right", ".list-rows.is-capped.shows-rail | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.

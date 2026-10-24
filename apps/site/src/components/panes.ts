@@ -234,12 +234,15 @@ const PANE_STYLES = `
 .glass-pane.fit { width: fit-content; }
 /* Phones: a fit pane lines up with the header like every other pane, however little is in it. */
 @media (max-width: 760px) { .glass-pane.fit { width: 100%; } }
+/* Started low (a game's page): on a phone the art behind shows above the pane. The screen's room less what the pane's first part uses from the top of the page
+   (--started-low-used, STARTED_LOW_SCRIPT: down to the end of its runner's block) and a block's gap above the screen's foot (and a phone's home bar), at most a third of the screen. The screen
+   is the small one (svh), so the pane never moves when a browser's bars do; without the script it starts where it would. */
+@media (max-width: 760px) { .glass-pane.is-started-low { margin-top: clamp(0px, calc(100svh - var(--started-low-used, 100svh) - var(--gap-block-block) - env(safe-area-inset-bottom, 0px)), 34svh); } }
 .glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
-   edge of its own sits there, and its words keep the pane's margin, --pad-words further in (layout.ts places them). */
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-frame);
-  --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
+   edge of its own sits there, and its words keep the pane's margin, --pad-words further in (tokens.ts sets both, once). */
+.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
 .glass-pane > .pane-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 16px); }
@@ -255,10 +258,6 @@ const PANE_STYLES = `
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 /* Its own words only: zero specificity, so any component's words (a field's error and hint) keep their own color. */
 :where(.glass-pane, .sheet-in) p { margin: 0; color: var(--ink-2); }
-/* Headings and paragraphs in a pane, a tray or a sheet keep its margin at its sides wherever they sit (layout.ts's edge rules give its top
-   and bottom); inside anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's
-   own padding wins over this. */
-:where(.glass-pane > .pane-in, .tray, .sheet-in) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
 `;
 
 const COVER_STYLES = `
@@ -347,7 +346,7 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
-  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.",
+  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it.",
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
@@ -480,7 +479,7 @@ export interface SheetOptions {
   action?: string;
   /**
    * Where it sits: "center" over the dimmed page (report a game, add a key); "foot" risen from the screen's foot over a running game, which
-   * stays in view and isn't dimmed (a buy sheet). On a phone both rise from the foot.
+   * stays in view and isn't dimmed (a buy sheet). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
    */
   placement?: "center" | "foot";
   /** Open in place rather than over the page: the gallery's still copy. */
@@ -539,6 +538,50 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
     sheet.addEventListener("transitionend", end);
   }
+  // On a wide screen a sheet opened by a button hangs from it like a dropdown: under it (above it when there's no room), at its start edge,
+  // kept inside the window, and following it as the page scrolls or the window changes; a phone keeps its sheet at the foot (the CSS).
+  var wide = window.matchMedia("(min-width: 761px)"), anchors = new Map(), GAP_PX = 8, EDGE_PX = 16;
+  // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
+  // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
+  var pressed = null, showModal = HTMLDialogElement.prototype.showModal;
+  document.addEventListener("click", function (event) { var button = event.target.closest && event.target.closest("button, a, [role='button']"); pressed = button ? { button: button, at: performance.now() } : null; }, true);
+  HTMLDialogElement.prototype.showModal = function () {
+    var wasOpen = this.open;
+    showModal.apply(this, arguments);
+    if (!wasOpen && this.matches(".sheet")) { hold(this); place(this); }
+  };
+  function hold(sheet) {
+    var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
+    if (!opener || sheet.matches(".in-place") || opener.closest("[popover]") || sheet.contains(opener)) return;
+    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
+    sheet.classList.add("is-anchored");
+  }
+  function place(sheet) {
+    var held = anchors.get(sheet);
+    if (!held || !sheet.open || !wide.matches) return;
+    var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
+    if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
+    var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
+    if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) { sheet.close(); return; }
+    sheet.style.setProperty("--sheet-max-height", (windowHeight - 2 * EDGE_PX) + "px");
+    var width = sheet.offsetWidth, height = sheet.offsetHeight;
+    var isAbove = height > windowHeight - rect.bottom - GAP_PX - EDGE_PX && height <= rect.top - GAP_PX - EDGE_PX;
+    var top = isAbove ? rect.top - GAP_PX - height : Math.max(EDGE_PX, Math.min(rect.bottom + GAP_PX, windowHeight - height - EDGE_PX));
+    var left = getComputedStyle(held.opener).direction === "rtl" ? rect.right - width : rect.left;
+    sheet.style.setProperty("--sheet-left", Math.max(EDGE_PX, Math.min(left, windowWidth - width - EDGE_PX)) + "px");
+    sheet.style.setProperty("--sheet-top", Math.round(top) + "px");
+    sheet.classList.toggle("is-above", isAbove);
+  }
+  function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
+  window.addEventListener("resize", placeAll);
+  window.addEventListener("scroll", placeAll, { passive: true, capture: true });
+  document.addEventListener("close", function (event) {
+    var sheet = event.target;
+    if (!anchors.has(sheet)) return;
+    anchors.delete(sheet);
+    sheet.classList.remove("is-anchored", "is-above");
+    sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
+  }, true);
   HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
   document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
   document.addEventListener("submit", function (event) {
@@ -590,7 +633,7 @@ const SHEET_STYLES = `
 /* A sheet is a pane: it pads at the frame gap and its words keep the pane's margin (--pad-words). It's one form, its head (the title, and
    Close in the top end corner, taking the corner's cut, Pane parts' head), its body and its buttons at its foot. Only the body scrolls, so
    the head and the buttons stay in view, and Close keeps its corner. */
-.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; }
 .sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
 .sheet-in > .pane-parts, .sheet-in > .pane-parts > .pane-body { flex: 1 1 auto; min-height: 0; }
 .sheet-title { margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
@@ -599,8 +642,6 @@ const SHEET_STYLES = `
 .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding-inline: var(--pad-frame); }
 /* With its rail showing, the body keeps room for it along its right edge. */
 .sheet-body.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
-/* With no buttons under it, the body's last words are at the sheet's foot and keep its margin there. */
-.pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body > :is(p, h3, .stack-cell.is-words):last-child { padding-bottom: var(--pad-words); }
 .sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
 .sheet-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
@@ -611,7 +652,18 @@ ${touchReach(".sheet")}
   .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } }
+@media (min-width: 761px) {
+  /* Opened by a button on a wide screen (SHEET_SCRIPT sets where): it hangs from the button like a dropdown, under it or above it where there's no
+     room, and comes in from the button's side. The page behind it is dimmed only a little, and not at all over a running game (at the foot). */
+  .sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); margin: 0; max-height: var(--sheet-max-height); transform-origin: 0 0; }
+  .sheet.is-anchored.is-above:not(.in-place) { transform-origin: 0 100%; }
+  .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
+  .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
+  @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
+  .sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
+  .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -623,7 +675,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
@@ -675,6 +727,25 @@ export function notice(options: NoticeOptions): Raw {
 }
 
 /**
+ * A pane started low (isStartedLow) says how much of the page its first part uses: from the top of the page down to the end of the block that
+ * holds its runner (Play and Details). The CSS makes the rest of the screen, less a block's gap, the pane's top margin, so Play never starts
+ * below the fold. It's set as soon as the pane is on the page and again whenever the pane changes size (a note above Play appears, the fonts
+ * arrive), each time before the browser paints: the size watcher runs between layout and paint, and any change it makes is laid out again first.
+ */
+export const STARTED_LOW_SCRIPT = `/* panes started low */(function () {
+  function place(pane) {
+    // The pane's own stack, and the one of its cells that holds the runner (Play, with Details under it).
+    var runner = pane.querySelector(".run-wrap"), inside = pane.querySelector(":scope > .pane-in > .layout-stack") || pane.querySelector(":scope > .pane-in");
+    var part = runner && inside && Array.prototype.find.call(inside.children, function (cell) { return cell.contains(runner); });
+    if (!part) return;
+    var marginPx = parseFloat(getComputedStyle(pane).marginTop) || 0;
+    pane.style.setProperty("--started-low-used", Math.round(part.getBoundingClientRect().bottom + window.scrollY - marginPx) + "px");
+  }
+  window.zaismaWatch.each(".glass-pane.is-started-low", function (pane) { place(pane); window.zaismaWatch.size(pane, function () { place(pane); }); });
+})();
+`;
+
+/**
  * Notices: one that's done leaves after 4 s, or 8 s with Undo (it waits while you point at it); a problem leaves when its close button is
  * pressed. Floating ones stack under the header, newest last, a stacked gap apart, and close up as one leaves. Notices a page adds later
  * are watched too.
@@ -721,7 +792,7 @@ component({
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
    button. Its height is a small control's and the room round it, so a notice with Close or Undo is as tall as one without. */
 .notice { position: fixed; z-index: 30; top: calc(var(--under-header, 96px) + var(--notice-shift, 0px)); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
-  display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-tray); --glass-tint: var(--glass-top);
+  display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-pane); --glass-tint: var(--glass-top);
   font: var(--type-words); color: var(--ink);
   transition: var(--glass-transition), opacity 0.3s, transform 0.3s cubic-bezier(.2,.8,.2,1), top 0.3s cubic-bezier(.2,.8,.2,1); }
 @starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
@@ -793,7 +864,7 @@ component({
    and Close are a row at its end, slanting toward each other, one height, its words' first line on their center line. Narrower than
    ${BANNER_SIDE_BY_SIDE_LEAST_PX}px (by its own width), its words take the whole width, Close sits in the top end corner beside their first
    line, and the button goes under them, as wide as the strip. */
-.banner { width: 100%; container-type: inline-size; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); color: var(--ink); }
+.banner { width: 100%; container-type: inline-size; color: var(--ink); }
 .banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-control); margin: 0; }
 .banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; padding: var(--pad-words); font: var(--type-words); }
 .banner-in:is(.has-action, .has-close) > .banner-words { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }

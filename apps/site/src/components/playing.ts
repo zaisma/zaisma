@@ -116,17 +116,26 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
   .playing-controls { margin-top: auto; width: var(--control-height-small); }
 }
 
-/* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. */
-.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; padding: var(--pad-inner-pane); color: var(--ink); --glass-tint: var(--glass-dropdown); animation: playing-card-in 0.26s cubic-bezier(.2,.8,.2,1); }
-.playing-card[hidden] { display: none; }
+/* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. What's in it is a pane's content
+   (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
+   It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
+   the fade, so it's still there while it leaves. Under reduced motion it only fades. */
+.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
+  transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete; }
+.playing-card[hidden] { display: none; opacity: 0; transform: translateY(-8px); pointer-events: none; }
+@starting-style { .playing-card { opacity: 0; transform: translateY(-8px); } }
 .playing-card > :not(.edge) { position: relative; z-index: 1; }
-.playing-card.in-place { position: relative; top: auto; right: auto; animation: none; }
+.playing-card.in-place { position: relative; top: auto; right: auto; }
 .playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
 .playing-card-in p { margin: 0; }
 .playing-card-title { margin: 0; font: var(--type-heading); }
-@keyframes playing-card-in { from { opacity: 0; transform: translateY(-8px); } }
 @media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
-@media (prefers-reduced-motion: reduce) { .playing-card, html.is-playing .game-frame { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
+  .playing-card[hidden] { transform: none; }
+  @starting-style { .playing-card { transform: none; } }
+  html.is-playing .game-frame { animation: none; }
+}
 
 /* Screenshots: a carved well like a game card's, the picture filling it up to its rim (2px); pointed at, the picture comes a little closer.
    Large, it's whole, as big as the screen allows. */
@@ -136,6 +145,8 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* On a phone, a game's row of them starts at the words' margin, so it lines up with the words and links around it; scrolling, it still runs out to the pane's frame gap. */
+@media (max-width: 760px) { .layout-track:has(> .screenshot) { padding-inline: var(--pad-words); scroll-padding-inline: var(--pad-words); } }
 .screenshot-large { display: block; width: min(1280px, calc(100vw - 6 * var(--pad-pane))); max-height: 70dvh; object-fit: contain; }
 @media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
 

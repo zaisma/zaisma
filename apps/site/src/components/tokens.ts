@@ -95,6 +95,18 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
 
 /**
+ * The words margin (docs/DESIGN.md, Spacing), defined once. Words are never closer to the edge of a surface of glass than its margin, --pad-pane
+ * (a tray's, --pad-tray): only what has an edge of its own (a control, a field, a list's rows, a cover, a table) may sit closer, at the frame
+ * gap. A surface that holds words pads at the frame gap and sets --pad-words, the extra the margin needs; every one is listed here, and
+ * nothing else sets a surface's padding for words. A surface that isn't listed has no words margin, and the layout check
+ * (layout-measure.ts) fails any words it finds closer to a surface's edge than the margin.
+ *   - WORDS_SURFACES: what holds a pane's, a sheet's and a playing card's content, and a banner (which sets its words' own padding).
+ *   - WORDS_HOLDERS: where a heading or paragraph, or the first and last words (layout.ts's edgeWords), take the margin from --pad-words.
+ */
+export const WORDS_HOLDERS = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".tray"];
+export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".banner"];
+
+/**
  * The tokens. Light or dark follows the system unless a choice is fixed with data-theme-choice, on <html>
  * or on any element (the gallery's stage fixes it for what's inside). Dark is smoked glass over a night-dark
  * page. Smoked glass on its own is the class smoke on any ancestor: a dark game's background smokes the
@@ -249,6 +261,12 @@ html { -webkit-tap-highlight-color: transparent; }
 .glass { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
 /* A slab's words keep no inset of their own unless it's a pane that sets one (layout.ts): none comes in from the pane round it. */
 .glass { --pad-words: 0px; }
+/* The words margin, once: what holds a surface's content pads at the frame gap and sets --pad-words, the rest of the margin (--pad-pane less
+   --pad-frame), for its words to take (layout.ts places them). A tray sets its own, smaller (panes.ts). */
+${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+/* Headings and paragraphs keep the margin at their sides wherever they sit in it (layout.ts's edge rules give their top and bottom); inside
+   anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's own padding wins. */
+:where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
 .glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: var(--glass-transition); }

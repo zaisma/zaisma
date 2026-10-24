@@ -62,7 +62,7 @@ function layerFor(background) {
   layer.setAttribute("aria-hidden", "true");
   layer.setAttribute("data-adapts-glass", "");
   // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
-  if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); }
+  if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); layer.setAttribute("data-backdrop-color", background.tone.averageColor); }
   if (background.source === "image") {
     layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async";
     // The size the screen shows, not the picture as it was uploaded.

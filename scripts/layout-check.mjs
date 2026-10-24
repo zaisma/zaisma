@@ -105,6 +105,12 @@ async function checkPage(chrome, contextId, url, size, theme, options) {
     await Promise.race([loaded, wait(30_000)]);
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
     await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
+    // What the page starts hidden (a sheet, a card over the game) is opened first, and settled again.
+    if (options.setUp) {
+      const opened = await send("Runtime.evaluate", { expression: options.setUp, awaitPromise: true, returnByValue: true });
+      if (opened.exceptionDetails) return [{ check: "the check couldn't open the page's hidden state", element: "", said: opened.exceptionDetails.exception?.description ?? opened.exceptionDetails.text }];
+      await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
+    }
     const isMainActionChecked = options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone);
     const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold), isTouch: size.isPhone };
     const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
