@@ -97,14 +97,14 @@ const CHECKED_PAGE_LIST = [
   { name: "Forgot your password, no email", area: "Signing in", path: "/signin/email", ...CITY, stepsToTake: [{ formAction: "/signin/email", fieldValues: { email: "", ...BOT_CHECK_PASSED } }] },
   { name: "Check your email", area: "Signing in", path: "/signin/email", ...CITY, stepsToTake: [{ formAction: "/signin/email", fieldValues: NEW_EMAIL }] },
   {
-    name: "Check your email, wrong code",
+    name: "Check email, wrong code",
     area: "Signing in",
     path: "/signin/email",
     ...CITY,
     stepsToTake: [{ formAction: "/signin/email", fieldValues: NEW_EMAIL }, { formAction: "/signin/code", fieldValues: { code: "000000" } }],
   },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
-  { name: "Make an account, no birthday", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: { birthday: "" } }] },
+  { name: "New account, no birthday", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: { birthday: "" } }] },
   { name: "How will you sign in", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }] },
   { name: "Make an account, too young", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: TOO_YOUNG_BIRTHDAY }], isOffScreens: true },
   // A new player back from Google with no account yet (the preview's stand-in sign-in answers for it), after the age step.

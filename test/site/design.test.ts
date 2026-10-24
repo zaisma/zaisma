@@ -1,5 +1,6 @@
-import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { env, SELF } from "cloudflare:test";
+import { beforeAll, describe, expect, it } from "vitest";
+import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { COMPONENT_GROUPS, component } from "../../apps/site/src/components/component.ts";
@@ -739,7 +740,21 @@ describe("pages", () => {
   // check measures (components/checked-pages.ts) that a plain visit shows: states seen signed in, on a developer's site or after a form are
   // checked where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every one is measured in Chrome
   // by npm run layout:check (scripts/layout-check.mjs).
-  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery);
+  // One live, listed game, so the Browse states that need a game to show (a genre, multiplayer, a search for "farm") are those states here too.
+  beforeAll(async () => {
+    await createAccount(env.DB, { id: "design-dev", username: "Field_Works", ageBand: "18+" });
+    const owner = await personOwner(env.DB, "design-dev");
+    const game = await createGame(env.DB, { slug: "design-farm", title: "Farm Lords", description: "About Farm Lords.", ownerId: owner.id, visibility: "listed" });
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, patch_notes, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', '', ?, 0)").bind("v-design-farm", game.id, "games/design-farm/v1", Date.now()).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, genres = 'strategy', play_modes = ? WHERE id = ?")
+      .bind("v-design-farm", '[{"mode":"online","minimum_player_count":2,"maximum_player_count":8,"play_style":"together"}]', game.id)
+      .run();
+  });
+  // A step through Cloudflare's bot check or a sign-in provider is taken only in Chrome, where the preview's stand-ins answer it;
+  // accounts.test.ts renders those answers.
+  const needsStandIns = (each: (typeof CHECKED_PAGES)[number]) =>
+    (each.stepsToTake ?? []).some((step) => ("fieldValues" in step ? "turnstile_token" in step.fieldValues : step.path.startsWith("/signin/with/")));
+  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each));
   const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
 
   it("are only gallery components in every state a form shows too, and each says the state it's listed as", async () => {

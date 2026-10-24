@@ -960,7 +960,7 @@ ${join}
 <p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
 ${guestWay(game, false)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT)}`,
-    { checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "Make an account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
+    { checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "New account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
   );
 }
 
@@ -1049,7 +1049,7 @@ ${runButton("Continue", { isFullWidth: true, isBig: true })}
 </form>
 <p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>
 ${guestWay(game)}`,
-      { checkedPage: error ? "Check your email, wrong code" : "Check your email", game, httpStatus: error ? 400 : 200 },
+      { checkedPage: error ? "Check email, wrong code" : "Check your email", game, httpStatus: error ? 400 : 200 },
     );
   }
   return page(
