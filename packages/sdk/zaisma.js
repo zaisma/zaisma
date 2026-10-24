@@ -1331,6 +1331,7 @@
           name: typeof room.name === "string" ? room.name : null,
           labels: room.labels && typeof room.labels === "object" ? room.labels : {},
           isKept: room.isKept === true,
+          inviteUrl: room.inviteUrl,
         };
       }),
       playingPlayerCount: countOf(playing.playerCount),

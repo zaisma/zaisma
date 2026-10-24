@@ -728,6 +728,8 @@ How a room and each player's game stay in touch, the same in Zaisma rooms and on
 - **The SDK pings** the room every 25 seconds (the room answers without waking up), and reconnects by itself when a ping goes unanswered for 15 seconds, or in a real-time room (one with `ticksPerSec`) after 8 seconds without a word from the room, which probes every 2 seconds (not while the player is away or the game is hidden).
 - **Reconnecting** waits half a second, then doubles each try up to 8 seconds, with no limit, and `room.connectionStatus` is `"reconnecting"` meanwhile. Your game keeps the same room object: the `players` event and your game server's messages carry on once it's back.
 - **The room drops** a connection with no ping or message for 75 seconds (a closed laptop, lost signal): Zaisma rooms check every 30 seconds, the Node runner every 5. The SDK says goodbye as the page closes, so most players who leave do so at once.
+- **`room.connectionStatus` is the socket only:** `"connecting"`, `"open"`, `"reconnecting"` or `"closed"`. Whether the player is in the match is `room.awayReason` (below), so a player who walked away with the socket still open stays `"open"`.
+- **Sends wait while it's down:** reliable `room.send` and `room.sendBytes` calls made while `connectionStatus` isn't `"open"`, or while the player is away, are kept in order and go once the room lets them back in, before any latest-only sends that waited. Up to 60 wait (the room's burst, so the flush never trips `too_fast`); past that the oldest is dropped and the `error` event says `send_queue_full` once per outage. Both calls return `false` only once the room is gone (ended, kicked or left).
 
 ### Dropped players
 
@@ -746,7 +748,7 @@ Real-time rooms notice a silent drop within seconds (their probes); turn-based r
 
 A version you publish (or roll back to) reaches running matches at their next match, or now: `match_update_mode` `"next_match"` (the default) or `"now"` on `publish_version`, on `upload_files` and `POST /games/:slug/versions` with `publish_when_approved`, `zaisma publish --match-update-mode now`, or Update running games now on the dashboard.
 
-- **Now, in a match:** every live room of the game hears it within seconds (a room that slept through it finds it within a minute of waking). Players' games get the room's `versionUpdate` event, `{ versionId, appliesAt, isReloading }`, to show a countdown or save. Without `onVersionUpdate`, the match switches 10 seconds later. With `onVersionUpdate(state, versionUpdate, room)`, the room waits for your game server: call `room.applyVersionUpdate()` at a good moment, like the end of a round, or it switches at `versionUpdate.forcedAt`, 5 minutes on.
+- **Now, in a match:** every live room of the game hears it within seconds (a room that slept through it finds it within a minute of waking). Players' games get the room's `versionUpdate` event, `{ versionId, appliesAt, isReloading }`, to show a countdown or save. Without `onVersionUpdate`, the match switches 10 seconds later. With `onVersionUpdate(state, versionUpdate, room)`, the room waits for your game server: call `room.applyVersionUpdate()` at a good moment, like the end of a round, or it switches at `versionUpdate.appliesAt`, 5 minutes on.
 - **The switch:** the room saves, its connections close with code `4004`, and the new version's game server starts from the saved state: `onRestored(state, restoreInfo, room)` runs with `restoreInfo.savedVersionId`, the version that saved it, so you can bring an older state up to date (or `room.end()` the match if you can't). When only the game server changed, players' games reconnect by themselves in a second or two. When the game's own files changed (`isReloading`), the game page reloads the game in place at the new version, with its save, and `Zaisma.joinRoom()` with no code brings the player back into the same room. Players come back as dropped players do (away, reason `lost`, for `reconnectTimeoutSec`, then a held seat), so a slow reload still finds its place. The game page's bar says Updating meanwhile; nothing covers the game.
 - **Now, not in a match** (a single-player game, or a menu): never forced. The game page notices within 2 minutes. A game listening to `Zaisma.versions.on("update", (update) => …)` switches when it says, with `update.apply()` (at a checkpoint, back at its menu), and the page reloads it with its save; otherwise the bar beside the game shows Update, and the player taps it when they're ready, or gets the new version the next time they open the game.
 - **Next match:** nothing changes for running matches: a room keeps the version it started on until its match ends.
@@ -759,7 +761,7 @@ Zaisma restarts its rooms whenever Zaisma itself is updated, and a match carries
 
 - **Saved every few seconds:** a real-time room saves its game server's state every `stateSaveIntervalSec` (5 by default, 1 to 60), only when it changed, and once more when everyone walks away or leaves; a turn-based room saves after every change, as always. A state over 32 MB as JSON isn't saved: the game's logs say so once, and a restart starts that room fresh.
 - **Back a few seconds behind:** the restarted room starts from the last save instead of `setup`, and `onRestored(state, restoreInfo, room)` runs once: `restoreInfo.savedAt` (an ISO time) and `restoreInfo.lostDurationSec`, the seconds of play since then that are lost. Use it to resync clocks or tell players.
-- **Players come back as dropped players:** everyone who was in the match is away with reason `lost` (`room.awayReason` answers it in `onRestored`), `onAway` runs for each, and they have the whole `reconnectTimeoutSec` from the restart. The room closes their connections with code `1012`, the SDK reconnects to the same room by itself, and `onBack` runs for each one back; anyone who isn't leaves as `lost` (above).
+- **Players come back as dropped players:** everyone who was in the match is away with reason `lost` (`room.awayReason` answers it in `onRestored`), `onAway` runs for each, and they have the whole `reconnectTimeoutSec` from the restart. Their connections drop (the Node runner closes them with code `1012` as it stops), the SDK reconnects to the same room by itself, and `onBack` runs for each one back; anyone who isn't leaves as `lost` (above).
 - **A room that empties** keeps its saved state for a day, so players rejoining it find the match as it was (`onRestored` runs then too, with `lostDurationSec` 0: it saved as the last player left). A kept room keeps it until it ends (see Kept rooms below). A match that ends keeps nothing.
 - **On your own server** the Node runner saves to its `--room-state` file (`zaisma-room-states.sqlite`) the same way, and saves every room when it's stopped, so a clean restart loses nothing.
 
@@ -770,10 +772,12 @@ Players who walk away stop holding seats and running matches, with no code:
 - **Idle:** after `idleTimeoutSec` without input (600 by default, 30 to 86400), the SDK asks "Still there?" for 30 seconds; no answer, and they walk away (`idleCheck`: `"server"`, the default, `"client"` or `"off"`).
 - **Hidden:** in a real-time room, a game hidden for 2 minutes counts as away.
 - **What happens:** with `awayMode: "hold"` (the default), they leave the match (`onLeave`, reason `idle` or `hidden`) and the room holds their seat for `seatHoldDurationSec` (300 by default, up to 1800, 0 for none); any input brings them back, and `onJoin` gets `joinInfo.isReturning`. `awayMode: "lobby"` sends them to the room that made this one (`room.reserve`). With `onAway`, they stay in the room and your game decides: kick them, move them or keep them.
+- **In the game:** the `idle` event hands `{ idleStatus, answerTimeoutSec }`: `"asking"` when it's time to ask (listening replaces Zaisma's "Still there?" plate), then `"answered"` on input or `"timed_out"` as the room hears they walked away. The `away` event hands `{ awayReason, seatHoldDurationSec }` and `room.awayReason` says `"idle"` or `"hidden"` until they're back. The `back` event hands `{ roomCode, isSeatHeld, rejoin() }`: `isSeatHeld: true` once the room let them back into their held seat; `false` on their first input after the seat ran out, when listening for `back` leaves rejoining to your game (`back.rejoin()`), and without a listener the SDK rejoins by itself.
 
 ### Message limits
 
-- **From each player:** up to 16 KB a message (or bytes), and 30 a second with a burst of 60. Past either, that message is refused with an `error` event (`too_big`, `too_fast`) and the connection stays open.
+- **From each player:** up to 16 KB a message (or bytes), and 30 a second with a burst of 60. The SDK throws `too_big` before sending one over 16 KB; past the rate, that message is refused with an `error` event (`too_fast`) and the connection stays open.
+- **Who sent it:** a message or bytes the game server passes on from one player carries `fromPlayerId` (its send options' `fromPlayerId`; the relay always sets it), and the game's `message` event hands `(message, fromPlayerId)`, `bytes` hands `(bytes, fromPlayerId)`, with `null` for the game server's own.
 - **Join and setup data:** up to 4 KB of JSON (`joinData`, `setupData`).
 - **From the room:** what your game server sends isn't capped, but a player who can't keep up is dropped (below).
 
@@ -795,7 +799,7 @@ An optional building block for real-time worlds, the same in Zaisma rooms and on
 
 - **A full copy, then what changed:** a player gets their whole view as they join (and after reconnecting), then, after each tick (or each handler, in a turn-based game), only what changed since their last: `{ type: "state", serverTimeMs, full }`, then `{ type: "state", serverTimeMs, changes }`. Each change is `[path, value]` (set) or `[path]` (remove), with `path` the keys and indexes from the top: objects by key, arrays by index while their length stays the same and whole when it changes. `serverTimeMs` is the room's clock as it was sent. Nothing goes out when nothing a player sees changed.
 - **Each player's view:** `stateView(state, viewer, room)` answers what `viewer` sees, like only what's near them in a big world or without the other team's hand; without it, everyone sees the whole state. It runs for every player on every tick, so keep it cheap, and it only answers: what it asks the room to do is dropped. A view over 1 MB as JSON isn't sent, and the game's logs say so once.
-- **In the game:** `room.state` is this player's view (null until the first update), the `"state"` event hands `(state, changes)` (`changes` null after a full copy), and `room.smoothedState(delayMs)` answers the state `delayMs` (100 by default, up to 1000) behind the room's clock, between the two updates around then: numbers in between, anything else as the older one had it. Predicting the player's own moves stays your game's.
+- **In the game:** `room.state` is this player's view (null until the first update), the `"state"` event hands `(state, changes)` (`changes` null after a full copy), and `room.smoothedState({ delayMs })` answers the state `delayMs` (100 by default, up to 1000) behind the room's clock, between the two updates around then: numbers blended in a straight line (integers in between come back as fractions, and an angle that wraps blends the long way), anything else as the older one had it. Predicting the player's own moves stays your game's.
 - **Backed up:** a player whose connection is backed up gets nothing until they've caught up, then a full copy, so a slow spell costs one copy instead of a growing queue. There are no acknowledgements: over the room's connection a change can't be lost.
 - **Where it runs:** where the state is, in your game server's sandbox on Zaisma (its time counts as the game server's CPU) and in the room on your own server. The state goes as JSON, so keep it plain; its updates count as `(state)` in `get_stats`.
 
@@ -805,19 +809,48 @@ An optional building block for real-time worlds, the same in Zaisma rooms and on
 
 - **`delivery: "reliable"`** (the default) reaches every player, in order.
 - **`delivery: "latest_only"`** may be dropped: while a player's connection is backed up, a newer latest-only message with the same `latestKey` replaces the one waiting, and the newest goes once they catch up (oldest key first, before anything newer). For positions sent every tick, or where a player aims. A player keeps up to 64 waiting, one per key; past it, the least recently replaced is dropped.
-- **`latestKey`**, up to 40 characters, says which messages replace each other; it defaults to the message's `type` field when that's text, else `""` (bytes have their own keys).
+- **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws (`bad_option` on the game server, `bad_send_option` in the SDK). Bytes have their own keys.
 - **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your handler, naming what to give (`bad_send_option` in the SDK).
 
 ### Close codes
 
 | Code | Why | What the SDK does |
 | --- | --- | --- |
-| `4000` | The match ended (`room.end`, or Zaisma ending it an hour after the game's hosting paused) | Stops: `connectionStatus` `"closed"`, after the `ended` event |
-| `4001` | The room refused the player, removed them (`room.kick`), or they joined from another tab | Stops: `connectionStatus` `"closed"` |
-| `4002` | The seat held for a player who walked away ran out | Waits for the player to come back, then offers their old room (the `back` event) |
+| `4000` | The match ended (`room.end`, or Zaisma ending it) | Stops: `connectionStatus` `"closed"`, after the `ended` event with its `endReason` |
+| `4001` | The room refused the player (an `error` with the code comes first, like `room_full`, `bad_origin` or `game_unavailable`), removed them (`room.kick`), or they joined from another tab | Stops: `connectionStatus` `"closed"` |
+| `4002` | The seat held for a player who walked away ran out | `connectionStatus` `"closed"`; waits for the player to come back, then the `back` event with `isSeatHeld: false` |
 | `4003` | The connection stopped answering probes or fell too far behind | Reconnects by itself, as a dropped player |
+| `4004` | The match switched to a version published `"now"` | Reconnects by itself, or the page reloads the game at the new version (`isReloading`) |
+| `1012` | The Node runner is restarting | Reconnects by itself, as a dropped player |
+| `1013` | Zaisma rooms are busy (an `error` with `busy` comes first) | Reconnects by itself, waiting longer each try |
 
 Any other close (a network drop) reconnects by itself too.
+
+### Room events
+
+Every event the game's room object has, and what its listener gets. Within v1, events and error codes only grow, so keep a `default` for ones you don't know.
+
+| Event | Listener gets |
+| --- | --- |
+| `message` | `(message, fromPlayerId)` |
+| `bytes` | `(bytes, fromPlayerId)` |
+| `state` | `(state, changes)` |
+| `players` | `(players)`, each `{ id, name, kind, awayReason }` |
+| `connectionStatus` | `(connectionStatus)` |
+| `settings` | `{ isListed, isOpen, friendJoinsEnabled, name, labels, spectatorCount }` |
+| `ended` | `{ message, endReason }`: `game`, `no_players`, `hosting_paused`, `kept_room_deleted`, `game_unavailable` or `game_server_stopped` |
+| `ending` | `{ endsAt }` |
+| `kicked` | `{ message, isKeptOut }` |
+| `move` | `{ roomCode, follow(), join(joinOptions) }` |
+| `moved` | `{ roomCode, fromRoomCode }` |
+| `idle` | `{ idleStatus, answerTimeoutSec }` |
+| `away` | `{ awayReason, seatHoldDurationSec }` |
+| `back` | `{ roomCode, isSeatHeld, rejoin() }` |
+| `muted` | `(playerIds)` |
+| `error` | `{ code, message }` |
+| `versionUpdate` | `{ versionId, appliesAt, isReloading }` |
+
+The SDK and rooms say which messages they speak with `protocolVersionNumber` (1 today): the SDK sends it in its hello, and the welcome answers the room's. A room skips a message type it doesn't know, so a newer SDK still plays in an older room.
 
 ## Sign in with Zaisma
 
