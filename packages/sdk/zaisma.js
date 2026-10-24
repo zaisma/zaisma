@@ -29,6 +29,8 @@
   var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
   var SAVES_EVENTS = ["conflict", "developerChange"];
   var VERSIONS_EVENTS = ["update"];
+  var ITEMS_EVENTS = ["sheetOpen", "sheetClose"];
+  var BUY_OPTIONS = ["quantity", "gameAccountId"];
   /** The room closes connections with this as its match switches to a version published "now". */
   var VERSION_UPDATE_CLOSE_CODE = 4004;
   /** A real-time room's ping from this on shows as a weak connection beside the game. */
@@ -1483,7 +1485,112 @@
       });
     });
   }
-  var items = { owns: ownsItem, owned: ownedItems, list: listItems };
+
+  /*
+   * Buying through Zaisma's buy sheet: on the game's zaisma.com page the sheet slides up over the game, which keeps
+   * running; on the developer's own site a zaisma.com window opens. Every player outcome resolves (bought,
+   * cancelled, failed); only a developer's mistake rejects. After a buy, the next pass owns the item at once.
+   */
+  // What a buy rejects with: the developer's mistakes and a page that couldn't be reached.
+  var BUY_ERROR_CODES = ["needs_player_tap", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id", "request_failed"];
+  var BUY_WINDOW_WIDTH_PX = 480;
+  var BUY_WINDOW_HEIGHT_PX = 720;
+  var buyRequestCount = 0;
+  var buyWaiters = {};
+  var itemsEvents = new Emitter(ITEMS_EVENTS, "Zaisma.items has");
+
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "zaisma:buy") return;
+    var waiter = buyWaiters[event.data.requestNumber];
+    // From the page around the game, or the buy window this tab opened: never anyone else.
+    if (!waiter || event.origin !== waiter.origin || event.source !== waiter.source) return;
+    if (event.data.status === "open") {
+      waiter.isOpen = true;
+      clearTimeout(waiter.timer);
+      itemsEvents._emit("sheetOpen", { itemName: waiter.itemName });
+      return;
+    }
+    delete buyWaiters[event.data.requestNumber];
+    clearTimeout(waiter.timer);
+    clearInterval(waiter.closedCheck);
+    if (waiter.isOpen) itemsEvents._emit("sheetClose", { itemName: waiter.itemName });
+    if (event.data.status === "error") {
+      var code = BUY_ERROR_CODES.indexOf(event.data.code) === -1 ? "request_failed" : event.data.code;
+      return waiter.reject(codedError(code, typeof event.data.message === "string" ? event.data.message : "Zaisma didn't answer, so check the connection and try again."));
+    }
+    var status = event.data.status === "bought" || event.data.status === "failed" ? event.data.status : "cancelled";
+    var purchase = event.data.purchase && typeof event.data.purchase === "object" ? event.data.purchase : null;
+    if (status !== "bought") return waiter.resolve({ status: status, purchase: purchase });
+    // A fresh pass, so items.owns and the pass the game's servers get say it's owned now.
+    try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
+    passPromise = null;
+    waiter.resolve({ status: "bought", purchase: purchase });
+  });
+
+  /** Buy an item through Zaisma's buy sheet (zaisma.d.ts: Zaisma.items.buy). */
+  function buyItem(itemName, buyOptions) {
+    var refused = unknownOption(buyOptions, BUY_OPTIONS, "Zaisma.items.buy");
+    if (refused) return Promise.reject(refused);
+    buyOptions = buyOptions || {};
+    if (typeof itemName !== "string" || !itemName) return Promise.reject(codedError("no_item", "itemName isn't an item's name, like \"revive\": list_items names the game's items."));
+    var quantity = buyOptions.quantity === undefined ? 1 : buyOptions.quantity;
+    if (typeof quantity !== "number" || quantity % 1 !== 0 || quantity < 1) return Promise.reject(codedError("bad_item_count", "quantity is a whole number from 1, and 1 for a permanent item."));
+    var gameAccountId = buyOptions.gameAccountId === undefined ? null : buyOptions.gameAccountId;
+    if (gameAccountId !== null && (typeof gameAccountId !== "string" || gameAccountId.length > 200)) return Promise.reject(codedError("bad_game_account_id", "gameAccountId is your game's own account ID for the player, text of up to 200 characters, or null."));
+    // Only right after the player tapped or pressed a key in the game, so a sheet never opens by itself.
+    if (navigator.userActivation && !navigator.userActivation.isActive) return Promise.reject(codedError("needs_player_tap", "The buy sheet opens only right after the player taps or presses a key in the game: call Zaisma.items.buy from that tap's handler."));
+    if (!config.game) return Promise.reject(notOnZaisma("Buying goes through Zaisma's buy sheet, so the game needs its Zaisma link name."));
+    var requestNumber = ++buyRequestCount;
+    var message = { type: "zaisma:buy", requestNumber: requestNumber, itemName: itemName, quantity: quantity, gameAccountId: gameAccountId };
+    return new Promise(function (resolve, reject) {
+      var waiter = { resolve: resolve, reject: reject, isOpen: false, itemName: itemName };
+      if (config.site && window.parent !== window) {
+        waiter.origin = config.site;
+        waiter.source = window.parent;
+        // The page answers "open" at once; no answer means no Zaisma page is around the game.
+        waiter.timer = setTimeout(function () {
+          if (waiter.isOpen) return;
+          delete buyWaiters[requestNumber];
+          reject(notOnZaisma("No Zaisma page answered: the buy sheet opens when the game is played on its zaisma.com page."));
+        }, 3000);
+        buyWaiters[requestNumber] = waiter;
+        window.parent.postMessage(message, config.site);
+        return;
+      }
+      // On the developer's own site: a zaisma.com window, which answers this page if its address is one the developer registered.
+      var site = config.site || "https://zaisma.com";
+      var query = "?quantity=" + quantity + "&request_number=" + requestNumber + (gameAccountId === null ? "" : "&game_account_id=" + encodeURIComponent(gameAccountId));
+      var opened = window.open(site + "/buy/" + encodeURIComponent(config.game) + "/" + encodeURIComponent(itemName) + query, "zaisma-buy", "popup,width=" + BUY_WINDOW_WIDTH_PX + ",height=" + BUY_WINDOW_HEIGHT_PX);
+      if (!opened) return reject(codedError("needs_player_tap", "The browser didn't open the buy window: call Zaisma.items.buy from the tap's handler itself."));
+      waiter.origin = new URL(site).origin;
+      waiter.source = opened;
+      // A window the player closed is a cancel; the purchase, if it went through, still shows in the next pass.
+      waiter.closedCheck = setInterval(function () {
+        if (!opened.closed) return;
+        clearInterval(waiter.closedCheck);
+        if (!buyWaiters[requestNumber]) return;
+        delete buyWaiters[requestNumber];
+        if (waiter.isOpen) itemsEvents._emit("sheetClose", { itemName: itemName });
+        resolve({ status: "cancelled", purchase: null });
+      }, 500);
+      buyWaiters[requestNumber] = waiter;
+    });
+  }
+
+  var items = {
+    owns: ownsItem,
+    owned: ownedItems,
+    list: listItems,
+    buy: buyItem,
+    on: function (event, listener) {
+      itemsEvents.on(event, listener);
+      return items;
+    },
+    off: function (event, listener) {
+      itemsEvents.off(event, listener);
+      return items;
+    },
+  };
 
   /*
    * A version the developer published "now", for a game that isn't in a match (single-player, or a menu):

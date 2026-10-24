@@ -211,6 +211,10 @@ export default defineConfig({
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
         STRIPE_PRO_PRICE_ID: "price_test_pro",
+        // The buy sheet's Connect stand-ins (test/site/buy.test.ts).
+        STRIPE_CONNECT_CLIENT_ID: "ca_test_zaisma",
+        STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect",
+        STRIPE_PUBLISHABLE_KEY: "pk_test_zaisma",
         // The receipt key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
         TEST_RECEIPT_SIGNING_KEY: receiptKey,
         // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).

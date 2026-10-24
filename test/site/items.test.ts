@@ -219,7 +219,7 @@ describe("grants", () => {
     await env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, paid_minor_units, currency_code, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', ?, 'sale', 'completed', 199, 'usd', ?, ?)")
       .bind(purchaseId, game.id, playerId, Date.now(), Date.now())
       .run();
-    expect((await api(`/games/sky-hopper/purchases/${purchaseId}/refund`, { method: "POST" })).answer.error).toMatchObject({ code: "stripe_not_connected" });
+    expect((await api(`/games/sky-hopper/purchases/${purchaseId}/refund`, { method: "POST" })).answer.error).toMatchObject({ code: "purchase_not_paid" });
     expect((await api("/games/sky-hopper/purchases/purchase_nothingthere01")).answer.error).toMatchObject({ code: "no_purchase", field: "purchase_id" });
   });
 

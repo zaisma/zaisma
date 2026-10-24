@@ -31,7 +31,7 @@ import { confirmationOf, recordProof } from "./session-proofs.ts";
  *
  *   POST /api/passkeys/signin/options   a challenge for signing in
  *   POST /api/passkeys/signin           { id, clientDataJSON, authenticatorData, signature, next }
- *   POST /api/passkeys/tap/options      a challenge for a tap, for "confirm" (Confirm it's you) or "key" (making an API key)
+ *   POST /api/passkeys/tap/options      a challenge for a tap, for "confirm" (Confirm it's you), "key" (making an API key) or "purchase" (confirming saved-card buys, buy.ts)
  *   POST /api/passkeys/confirm          a tap made for "confirm": this session has proved it's them
  *   POST /api/passkeys/add/options      what the browser needs to make one (signed in, proven in the last 10 minutes)
  *   POST /api/passkeys/add              { id, clientDataJSON, authenticatorData, publicKey, alg }
@@ -73,7 +73,7 @@ export async function deleteOldPasskeyChallenges(env: Env, nowMs = Date.now()): 
 export const usedChallengeCookie = (env: Env) => setCookie(env, "zaisma_pk", "", { maximumAgeSec: 0 });
 
 /** What a tap is for: confirming it's them on the account page, or making an API key. */
-export type PasskeyTapPurpose = "confirm" | "key";
+export type PasskeyTapPurpose = "confirm" | "key" | "purchase";
 
 /** A tap as the browser sends it: the passkey's ID and what it signed. */
 export interface PasskeyTap {
@@ -172,7 +172,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
   if (path === "/api/passkeys/tap/options") {
     if (env.SIGNIN_LIMIT && !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success) return json({ error: "Too many tries. Wait a minute and try again." }, 429, session.cookies);
     const purpose = (await readJson(request)).purpose;
-    if (purpose !== "confirm" && purpose !== "key") return json({ error: "Say what the tap is for: confirm or key." }, 400, session.cookies);
+    if (purpose !== "confirm" && purpose !== "key" && purpose !== "purchase") return json({ error: "Say what the tap is for: confirm, key or purchase." }, 400, session.cookies);
     const keys = await passkeysFor(env.DB, account.id);
     const allowed = purpose === "key" ? approvingPasskeys(keys) : keys;
     if (!allowed.length) return json({ error: purpose === "key" ? keyRefusal(keys) : "Add a passkey first." }, 400, session.cookies);

@@ -61,7 +61,7 @@ export async function handleGameLinks(request: Request, env: Env, path: string):
 }
 
 /** Whether the game is played on a page here: its public page, or a tester link's for a game that may be private. */
-async function isOpenHere(env: Env, game: Game, testerToken: unknown): Promise<boolean> {
+export async function isOpenHere(env: Env, game: Game, testerToken: unknown): Promise<boolean> {
   if (typeof testerToken !== "string") return playable(game);
   const tester = await testerLinkByToken(env.DB, testerToken);
   return Boolean(tester && isTesterLinkOn(tester) && tester.slug === game.slug && game.review_status === "live" && game.live_version_id);

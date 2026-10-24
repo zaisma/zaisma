@@ -51,10 +51,13 @@ import { handleProfiles } from "./profiles.ts";
 import { deliverDueWebhooks, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
 import { runHostingJob } from "./hosting-job.ts";
 import { handleStripeEvents } from "./stripe-events.ts";
+import { handleStripeConnectEvents } from "./stripe-connect-events.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 import { viewerOf } from "./viewer.ts";
+import { failStaleSales, handleBuy } from "./buy.ts";
+import { handleConnectReturn } from "./stripe-account-api.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
 export { ChatCheckService } from "./chat-check.ts";
@@ -79,12 +82,17 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);
   if (path === "/stripe/events") return handleStripeEvents(request, env);
+  if (path === "/stripe/connect-events") return handleStripeConnectEvents(request, env);
   if (path === "/csp-reports") return method === "POST" ? recordBlockedScripts(request, env) : new Response("Method not allowed", { status: 405 });
   const developer = await handleDeveloper(request, env, path, ctx);
   if (developer) return developer;
   // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).
   const signIn = await handleSignIn(request, env, path);
   if (signIn) return signIn;
+  // The buy sheet's own calls, before the method check: a saved card and the purchase PIN are PUT and DELETE.
+  const buy = await handleBuy(request, env, path);
+  if (buy) return buy;
+  if (path === "/stripe/connect-return" && method === "GET") return handleConnectReturn(request, env);
   if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
   if (path === "/" && method !== "POST") return home(env, request);
@@ -221,7 +229,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), runHostingJob(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), runHostingJob(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

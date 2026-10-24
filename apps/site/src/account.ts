@@ -126,6 +126,7 @@ import { accountDataFileName, accountDataZip } from "./account-data.ts";
 import { tellAccountDeleted, type WaitUntil } from "./webhooks.ts";
 import { carryProof, confirmationOf, recordProof } from "./session-proofs.ts";
 import { refundForDeletion } from "./credit-api.ts";
+import { forgetCardForDeletion } from "./buy.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
 
 /**
@@ -649,6 +650,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
     await refundForDeletion(env, account.id);
+    await forgetCardForDeletion(env, account.id);
     await deleteAccount(env.DB, account.id);
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
@@ -668,7 +670,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
 }
 
 /** What a password try came to: a session, or why not. */
-type PasswordTry = PasswordSignIn | "no-password" | "locked" | "bot-check-failed";
+export type PasswordTry = PasswordSignIn | "no-password" | "locked" | "bot-check-failed";
 
 /**
  * A password for an account (docs/DECISIONS.md, "Accounts open only through Zaisma"). A device with the
@@ -678,7 +680,7 @@ type PasswordTry = PasswordSignIn | "no-password" | "locked" | "bot-check-failed
  * or Discord that never added one; an unknown account is just "wrong", after the same checks, so nothing
  * says whether it exists.
  */
-async function tryPassword(request: Request, env: Env, account: Account | null, password: string, options: { turnstileToken: string | null; knownEmail: string | null }): Promise<PasswordTry> {
+export async function tryPassword(request: Request, env: Env, account: Account | null, password: string, options: { turnstileToken: string | null; knownEmail: string | null }): Promise<PasswordTry> {
   const isMarked = account ? await isDeviceMarked(request, env, account.id) : false;
   if (!isMarked) {
     if (account && (await isPasswordLockedOut(env, account.id))) return "locked";
@@ -1327,9 +1329,10 @@ export const AREA_LABELS: Record<AccessArea, [string, string]> = {
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
   credit_access: ["Hosting credit", "Read-only sees the balance and spending. Write also starts top-ups and refunds, and turns spending off or down; turning it on or up always needs your passkey here."],
+  stripe_account_access: ["Stripe account", "Belongs to your whole account. Read-only sees the connected account. Write also turns Stripe Tax on or off and disconnects; connecting always needs your passkey here."],
 };
 
-const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", purchase_access: "items and purchases", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks", credit_access: "credit" };
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", purchase_access: "items and purchases", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks", credit_access: "credit", stripe_account_access: "Stripe account" };
 
 /** The common words for each choice, as GitHub's tokens say them. */
 export const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };

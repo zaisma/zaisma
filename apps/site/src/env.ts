@@ -72,12 +72,22 @@ export interface Env {
   CREDIT_LIMIT?: RateLimit;
   /** Zaisma Pro checkouts, cancels and resumes an owner starts in a minute (pro-api.ts): each reaches Stripe. */
   PRO_LIMIT?: RateLimit;
-  /** Zaisma's own Stripe account's secret key, for hosting credit (stripe.ts). Without it, top-ups answer stripe_unavailable. */
+  /** Purchases a player starts with the buy sheet in a minute (buy.ts): each makes a purchase and reaches Stripe. */
+  PURCHASE_LIMIT?: RateLimit;
+  /** Zaisma's own Stripe account's secret key, for hosting credit (stripe.ts) and as the platform of the buy sheet's Connect. Without it, top-ups and buys answer stripe_unavailable. */
   STRIPE_SECRET_KEY?: string;
   /** The signing secret of Stripe's endpoint at /stripe/events (stripe-events.ts). */
   STRIPE_EVENTS_SECRET?: string;
   /** The ID of Zaisma Pro's recurring price ($10 a month) in Zaisma's Stripe account (stripe.ts, proCheckout). Without it, starting Pro answers stripe_unavailable. */
   STRIPE_PRO_PRICE_ID?: string;
+  /** The publishable key of the same account, for Stripe.js in the buy sheet (buy.ts). */
+  STRIPE_PUBLISHABLE_KEY?: string;
+  /** The Connect client ID (ca_…) developers connect their own Stripe to for the buy sheet (stripe-account-api.ts). */
+  STRIPE_CONNECT_CLIENT_ID?: string;
+  /** The signing secret of Stripe's Connect endpoint at /stripe/connect-events (stripe-connect-events.ts): events from developers' accounts. */
+  STRIPE_CONNECT_EVENTS_SECRET?: string;
+  /** Only in the local preview: a stand-in Stripe (scripts/preview/fake-stripe.mjs). stripe.ts refuses it unless SITE_ORIGIN is localhost. */
+  STRIPE_API_ORIGIN?: string;
   ALERTS?: SendEmail;
   /** Cloudflare Email Sending, for players' email codes (email-codes.ts), from EMAIL_FROM on zaisma.com. */
   EMAIL?: SendEmail;

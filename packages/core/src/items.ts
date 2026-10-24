@@ -567,3 +567,29 @@ export async function takeBack(database: D1Database, purchaseId: string, purchas
     .run();
   return changed.meta.changes > 0;
 }
+
+/** A game's refund policy in players' words, for the buy sheet, the game page and receipts. Null when it states none. */
+export function refundPolicyWords(game: { refund_policy: RefundPolicy | null; refund_policy_text: string | null }): string | null {
+  if (game.refund_policy === "no_refunds") return "No refunds.";
+  if (game.refund_policy === "unused_within_14_days") return "Refunds for items you haven't used yet, within 14 days.";
+  if (game.refund_policy === "within_14_days") return "Refunds within 14 days.";
+  if (game.refund_policy === "own_words") return game.refund_policy_text;
+  return null;
+}
+
+/**
+ * Where a player gives up the 14-day right to cancel digital content only by agreeing to get it at once: the EU,
+ * the rest of the EEA and the UK. The buy sheet shows them the line above Buy, and the receipt repeats it.
+ */
+export const WITHDRAWAL_LINE_COUNTRY_CODES: readonly string[] = [
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+  "IS", "LI", "NO", "GB",
+];
+
+/** The line, in the sheet and on the receipt. */
+export const WITHDRAWAL_LINE_TEXT = "You get it now, so you can't cancel it in the next 14 days.";
+
+/** Whether a player in this country sees the withdrawal line. Unknown countries don't. */
+export function isWithdrawalLineShownFor(countryCode: string | null | undefined): boolean {
+  return Boolean(countryCode && WITHDRAWAL_LINE_COUNTRY_CODES.includes(countryCode.toUpperCase()));
+}

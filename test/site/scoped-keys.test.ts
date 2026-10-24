@@ -180,7 +180,7 @@ describe("a key for some games", () => {
 
 describe("a custom key", () => {
   it("does what each area allows", async () => {
-    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none" }, gameSlugs: null });
+    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", purchase_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none", credit_access: "none", stripe_account_access: "none" }, gameSlugs: null });
     expect((await api("/games/sky-hopper/stats", key)).status).toBe(200);
     expect((await api("/games/sky-hopper/database", key)).code).toBe("key_not_allowed");
     expect((await api("/games/sky-hopper/saves", key)).code).toBe("key_not_allowed");

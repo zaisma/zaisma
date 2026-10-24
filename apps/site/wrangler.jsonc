@@ -46,7 +46,7 @@
     "BACKUP_ENDPOINT": "https://s3.us-east-005.backblazeb2.com",
     "BACKUP_REGION": "us-east-005",
     "BACKUP_BUCKET_NAME": "zaisma-backups"
-    // Secrets (wrangler secret put): BACKUP_KEY_ID and BACKUP_KEY_SECRET (Backblaze's zaisma-nightly-backup-write key: listBuckets, listFiles and writeFiles on zaisma-backups only), ANTHROPIC_API_KEY, ALERT_EMAIL, PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN (pushes to Julius's phone), CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN (Account Analytics read, for the error-spike alert), SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), STRIPE_SECRET_KEY and STRIPE_EVENTS_SECRET (Zaisma's own Stripe account, for hosting credit and Zaisma Pro: its secret key, and the signing secret of the endpoint at /stripe/events), STRIPE_PRO_PRICE_ID (Zaisma Pro's monthly price there), optional VT_API_KEY
+    // Secrets (wrangler secret put): BACKUP_KEY_ID and BACKUP_KEY_SECRET (Backblaze's zaisma-nightly-backup-write key: listBuckets, listFiles and writeFiles on zaisma-backups only), ANTHROPIC_API_KEY, ALERT_EMAIL, PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN (pushes to Julius's phone), CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN (Account Analytics read, for the error-spike alert), SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), STRIPE_SECRET_KEY and STRIPE_EVENTS_SECRET (Zaisma's own Stripe account, for hosting credit and Zaisma Pro: its secret key, and the signing secret of the endpoint at /stripe/events), STRIPE_PRO_PRICE_ID (Zaisma Pro's monthly price there), STRIPE_PUBLISHABLE_KEY (the same account's, for Stripe.js in the buy sheet), STRIPE_CONNECT_CLIENT_ID and STRIPE_CONNECT_EVENTS_SECRET (the buy sheet's Connect: its client ID, and the signing secret of the Connect endpoint at /stripe/connect-events), optional VT_API_KEY
   },
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [
@@ -109,7 +109,9 @@
     // Credit top-ups and refunds an owner starts (credit-api.ts): each reaches Stripe.
     { "name": "CREDIT_LIMIT", "namespace_id": "1086", "simple": { "limit": 10, "period": 60 } },
     // Zaisma Pro checkouts, cancels and resumes an owner starts (pro-api.ts): each reaches Stripe.
-    { "name": "PRO_LIMIT", "namespace_id": "1094", "simple": { "limit": 10, "period": 60 } }
+    { "name": "PRO_LIMIT", "namespace_id": "1094", "simple": { "limit": 10, "period": 60 } },
+    // Purchases a player starts with the buy sheet (buy.ts): each makes a purchase and reaches Stripe.
+    { "name": "PURCHASE_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }
   ],
   "send_email": [{ "name": "ALERTS" }, { "name": "EMAIL" }]
 }

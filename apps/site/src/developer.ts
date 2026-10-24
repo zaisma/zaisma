@@ -184,6 +184,7 @@ import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
 import { proRoute } from "./pro-api.ts";
+import { stripeAccountRoute } from "./stripe-account-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
 import { itemsRoute, playerItemsRoute, purchaseSettingsRoute, purchasesRoute } from "./items-api.ts";
 import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shadersAnswer, shadersReadingTexture } from "./backgrounds-api.ts";
@@ -301,7 +302,7 @@ export interface Caller {
   placeSha256: string | null;
   /** Whether the account may make, upload and publish games (accounts.can_publish): until the beta, only accounts Zaisma adds. */
   canPublish: boolean;
-  /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts). */
+  /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts) and connect a Stripe account for sales (stripe-account-api.ts). */
   isSpendingConfirmed?: boolean;
 }
 
@@ -648,7 +649,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
   call({ method: "POST", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
   call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" }, body: { inputs: plainInputs("amount_minor_units"), isOptional: true } }),
   call({ method: "GET", path: "/games/:slug/players/:player_id/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
@@ -702,6 +703,10 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
   call({ method: "PATCH", path: "/credit/automatic-top-up", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents") } }),
+  call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/stripe-account/connection-links", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
+  call({ method: "PATCH", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
+  call({ method: "DELETE", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
   call({ method: "GET", path: "/webhooks", reaches: "account", access: needs("webhook_access", "read") }),
   call({ method: "POST", path: "/webhooks", reaches: "account", access: needs("webhook_access", "write"), body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds"), game_slugs: naming("game_list") } } }),
   call({ method: "PATCH", path: "/webhooks/:webhook_id", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" }, body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds", "replace_signing_secret"), game_slugs: naming("game_list") } } }),
@@ -863,6 +868,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
+  if (apiRoute.path === "/stripe-account" || apiRoute.path.startsWith("/stripe-account/")) return answer(...(await stripeAccountRoute(env, apiRoute.path, method, checked.body, caller)));
   if (path === "/check" && method === "POST") return answer(await checkRoute(env, checked));
   if (path === "/api-keys" && method === "GET") return answer(await apiKeysAnswer(env, caller));
   if (path === "/activity" && method === "GET") return answer(await activityAnswer(env, (await accountById(env.DB, caller.accountId))!, checked.query.get("cursor")));

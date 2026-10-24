@@ -1,4 +1,4 @@
-import { sha256Hex } from "@zaisma/core";
+import { WITHDRAWAL_LINE_TEXT, refundPolicyWords, sha256Hex, type RefundPolicy } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { esc } from "./html.ts";
 
@@ -295,6 +295,56 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
 <tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
 <tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
+/**
+ * The receipt for a buy sheet sale, to the email of the card or wallet that paid and to nobody else (Stripe's own
+ * receipt isn't asked for, so the payer gets one email). It names the seller, the developer, never Zaisma, and repeats
+ * the refund policy and, when the sheet showed it, the withdrawal line: the durable confirmation the EU asks for.
+ */
+export function purchaseReceiptEmail(
+  env: Env,
+  details: {
+    purchaseId: string;
+    gameTitle: string;
+    itemTitle: string;
+    itemCount: number;
+    paidText: string;
+    purchasedAtMs: number;
+    sellerName: string | null;
+    sellerSupportEmail: string | null;
+    game: { refund_policy: RefundPolicy | null; refund_policy_text: string | null };
+    isEuWithdrawalLineShown: boolean;
+  },
+): { subject: string; text: string; html: string } {
+  const subject = `Your receipt from ${details.gameTitle}`;
+  const what = details.itemCount > 1 ? `${details.itemCount} × ${details.itemTitle}` : details.itemTitle;
+  const date = new Date(details.purchasedAtMs).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+  const seller = details.sellerName ?? details.gameTitle;
+  const lines: [string, string][] = [
+    ["Item", what],
+    ["Paid", details.paidText],
+    ["Date", date],
+    ["Purchase ID", details.purchaseId],
+    ["Sold by", details.sellerSupportEmail ? `${seller} (${details.sellerSupportEmail})` : seller],
+  ];
+  const refundPolicy = refundPolicyWords(details.game);
+  const notes = [...(refundPolicy ? [`Refund policy: ${refundPolicy}`] : []), ...(details.isEuWithdrawalLineShown ? [WITHDRAWAL_LINE_TEXT] : [])];
+  const help = details.sellerSupportEmail ? `Questions or a refund: write to ${details.sellerSupportEmail} with your purchase ID.` : `Questions or a refund: ask ${seller} with your purchase ID.`;
+  return {
+    subject,
+    text: `You bought ${what} in ${details.gameTitle}.\n\n${lines.map(([label, value]) => `${label}: ${value}`).join("\n")}\n\n${[...notes, help].join("\n\n")}\n\nSold through Zaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">You bought ${esc(what)} in ${esc(details.gameTitle)}.</td></tr>
+${lines.map(([label, value]) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:0 0 4px">${esc(label)}: <span style="color:#eceef0">${esc(value)}</span></td></tr>`).join("\n")}
+${[...notes, help].map((note) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:12px 0 0">${esc(note)}</td></tr>`).join("\n")}
 </table></td></tr></table>
 </body></html>`,
   };

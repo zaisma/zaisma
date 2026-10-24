@@ -342,6 +342,63 @@ declare namespace Zaisma {
      * for (const item of await Zaisma.items.list()) addShopRow(item.title, item.priceText, item.isOwned);
      */
     list(): Promise<ItemForSale[]>;
+    /**
+     * Buy an item through Zaisma's buy sheet: on the game's zaisma.com page it slides up over the game, which
+     * keeps running; on your own site a zaisma.com window opens. The player pays you through your own Stripe
+     * account (get_stripe_account), with no cut. Call it from a tap or key press handler. Every player outcome
+     * resolves: "bought" (the player's pass owns it at once; pass purchase.receipt to your server to check),
+     * "cancelled" or "failed". Fails with error.code needs_player_tap, no_item, not_for_sale,
+     * stripe_not_connected, stripe_cannot_take_payments, bad_item_count, bad_game_account_id, unknown_option,
+     * not_on_zaisma and request_failed: your mistakes, never the player's.
+     *
+     * @example
+     * buyButton.onclick = async () => {
+     *   const bought = await Zaisma.items.buy("revive");
+     *   if (bought.status === "bought") revivePlayer();
+     * };
+     */
+    buy(itemName: string, buyOptions?: BuyOptions): Promise<BuyResult>;
+    /** Listen for the buy sheet's events ({@link ItemsEvents}). A wrong name fails with error.code "unknown_event". */
+    on<EventName extends keyof ItemsEvents>(event: EventName, listener: ItemsEvents[EventName]): this;
+    /** Stop listening. */
+    off<EventName extends keyof ItemsEvents>(event: EventName, listener: ItemsEvents[EventName]): this;
+  }
+
+  /** What the buy sheet tells the game ({@link Items.on}). */
+  interface ItemsEvents {
+    /** The sheet opened over the game, which keeps running: pause it here if it shouldn't. */
+    sheetOpen: (sheet: SheetEvent) => void;
+    /** The sheet closed, bought or not; {@link Items.buy} says how it ended. */
+    sheetClose: (sheet: SheetEvent) => void;
+  }
+
+  /** Which item the buy sheet is for ({@link ItemsEvents}). */
+  interface SheetEvent {
+    itemName: string;
+  }
+
+  /** How {@link Items.buy} buys. */
+  interface BuyOptions {
+    /** How many of a consumable item, from 1 (1 unless you say). A permanent item is always 1. */
+    quantity?: number;
+    /** Your game's own account ID for the player, kept on the purchase and its receipt; null unless you say. */
+    gameAccountId?: string | null;
+  }
+
+  /** How a buy ended ({@link Items.buy}). */
+  interface BuyResult {
+    status: "bought" | "cancelled" | "failed";
+    /** The purchase as the developer API says it (get_purchase), with receipt when bought; null when the player cancelled before paying. */
+    purchase: {
+      id: string;
+      item_name: string;
+      item_count: number;
+      purchase_status: string;
+      game_account_id: string | null;
+      paid_minor_units: number | null;
+      currency_code: string | null;
+      receipt: string | null;
+    } | null;
   }
 
   /** One item the game sells, for this player ({@link Items.list}). */
@@ -1277,6 +1334,12 @@ declare namespace Zaisma {
     | "bad_link_query"
     | "bad_own_site_url"
     | "needs_player_tap"
+    | "no_item"
+    | "not_for_sale"
+    | "stripe_not_connected"
+    | "stripe_cannot_take_payments"
+    | "bad_item_count"
+    | "bad_game_account_id"
     | "connection_closed"
     | "request_failed";
 

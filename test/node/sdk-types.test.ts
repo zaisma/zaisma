@@ -225,6 +225,8 @@ describe("the SDK's types say what the SDK does", () => {
     expect(listed(await refusal(() => sdk.Zaisma.rooms.list(wrong)))).toEqual(fieldsOf("ListOptions"));
     expect(listed(await refusal(() => sdk.Zaisma.server.request({ type: "leaderboard" }, wrong)))).toEqual(fieldsOf("RequestOptions"));
     expect(listed(await refusal(() => sdk.Zaisma.links.open("store", wrong)))).toEqual(fieldsOf("LinkOptions"));
+    expect(listed(await refusal(() => sdk.Zaisma.items.buy("revive", wrong)))).toEqual(fieldsOf("BuyOptions"));
+    expect(listed(await refusal(() => sdk.Zaisma.items.on("notAnEvent", () => {})))).toEqual(fieldsOf("ItemsEvents"));
     expect(listed(await refusal(() => sdk.Zaisma.friends.setRoom(wrong)))).toEqual(fieldsOf("OwnServerRoom"));
     const { room, socket } = await joinedRoom(sdk);
     expect(listed(await refusal(() => room.kick("player_bo", wrong)))).toEqual(fieldsOf("KickOptions"));
@@ -514,6 +516,47 @@ describe("the SDK's types say what the SDK does", () => {
     sdk.navigator.userActivation = { isActive: false };
     expect(await failureCode(() => sdk.Zaisma.links.open("store"))).toBe("needs_player_tap");
     expect(sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:link")).toEqual([]);
+  });
+
+  it("asks the page for the buy sheet, hears it open and close, and gets a fresh pass after a buy", async () => {
+    const sdk = loadSdk();
+    const buyMessages = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:buy");
+    const sheets: string[] = [];
+    sdk.Zaisma.items.on("sheetOpen", (sheet: { itemName: string }) => sheets.push(`open ${sheet.itemName}`));
+    sdk.Zaisma.items.on("sheetClose", (sheet: { itemName: string }) => sheets.push(`close ${sheet.itemName}`));
+    const buying = sdk.Zaisma.items.buy("revive", { quantity: 3, gameAccountId: "farmer-42" });
+    expect(buyMessages()).toEqual([{ type: "zaisma:buy", requestNumber: 1, itemName: "revive", quantity: 3, gameAccountId: "farmer-42" }]);
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 1, status: "open" });
+    // An answer for another request isn't this one's.
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 9, status: "cancelled" });
+    const purchase = { id: "purchase_k2m9x4w7q1z8c3v5b6n0", item_name: "revive", item_count: 3, purchase_status: "completed", game_account_id: "farmer-42", paid_minor_units: 297, currency_code: "eur", receipt: "receipt.signed" };
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 1, status: "bought", purchase });
+    const bought = await buying;
+    expect(bought).toEqual({ status: "bought", purchase });
+    expect(Object.keys(bought).sort()).toEqual(fieldsOf("BuyResult"));
+    expect(sheets).toEqual(["open revive", "close revive"]);
+    const cancelling = sdk.Zaisma.items.buy("skin_red-dragon");
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 2, status: "open" });
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 2, status: "cancelled" });
+    expect(await cancelling).toEqual({ status: "cancelled", purchase: null });
+    // A developer's mistake rejects with its code; anything else the page says is request_failed.
+    const unsold = sdk.Zaisma.items.buy("free_hat");
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 3, status: "error", code: "not_for_sale", message: "Free Hat can't be bought: it has no price." });
+    expect(await failureCode(() => unsold)).toBe("not_for_sale");
+    expect(valuesOf("ErrorCode")).toContain("not_for_sale");
+    const odd = sdk.Zaisma.items.buy("revive");
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 4, status: "error", code: "not_a_code", message: "Something." });
+    expect(await failureCode(() => odd)).toBe("request_failed");
+  });
+
+  it("opens the buy sheet only right after the player's tap, and checks what the game sends", async () => {
+    const sdk = loadSdk();
+    expect(await failureCode(() => sdk.Zaisma.items.buy(""))).toBe("no_item");
+    expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { quantity: 1.5 }))).toBe("bad_item_count");
+    expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { gameAccountId: 42 as unknown as string }))).toBe("bad_game_account_id");
+    sdk.navigator.userActivation = { isActive: false };
+    expect(await failureCode(() => sdk.Zaisma.items.buy("revive"))).toBe("needs_player_tap");
+    expect(sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:buy")).toEqual([]);
   });
 
   it("on the developer's own site, opens ownSiteUrl straight away", async () => {
