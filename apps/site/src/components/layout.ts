@@ -358,6 +358,8 @@ ${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-con
 .layout-row[data-control-height]:not(.is-on-field-boxes) { align-items: flex-start; }
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
+/* A block beside a field's box (a check beside Sort by) sits on the box's center line too, not at its foot. */
+.layout-row.is-on-field-boxes:not(.is-wrapped) > .row-cell.is-block { min-height: var(--row-control-height); }
 ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
 /* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
    and reaches past the row's end like any last cell. */
