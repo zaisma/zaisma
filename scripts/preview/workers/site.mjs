@@ -1,7 +1,7 @@
 // The site Worker as the preview runs it: unchanged, except database calls are tried again when
 // another preview server has the database locked (retry-when-locked.mjs), developers' calls
-// (DEV_LIMIT, FILE_LIMIT) have no rate limit, so seeding the test data never waits on a 429, and every
-// page gets the feedback overlay (withFeedback, below). Production keeps its limits and never has the
+// (DEV_LIMIT, FILE_LIMIT) have no rate limit, so seeding the test data never waits on a 429, the Brotli
+// jobs it queues are noted (notingCompressJobs, below), and every page gets the feedback overlay (withFeedback). Production keeps its limits and never has the
 // overlay: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
@@ -12,10 +12,25 @@ const unlimited = { limit: async () => ({ success: true }) };
 const unlimitedBindings = new Set(["DEV_LIMIT", "FILE_LIMIT"]);
 const withoutDeveloperLimits = new WeakMap();
 
+// Each Brotli job the site queues is noted in preview_compress_jobs, so the preview can wait until the compress Worker has
+// answered every one (a compressed_blobs row) before games play: run.mjs's waitForBrotliCopies.
+function notingCompressJobs(environment) {
+  const queue = environment.COMPRESS_QUEUE;
+  const note = async (jobs) => {
+    await environment.DB.prepare("CREATE TABLE IF NOT EXISTS preview_compress_jobs (storage_key TEXT PRIMARY KEY)").run();
+    for (const job of jobs) await environment.DB.prepare("INSERT OR IGNORE INTO preview_compress_jobs (storage_key) VALUES (?)").bind(job.storageKey).run();
+  };
+  return {
+    send: async (job, options) => (await note([job]), queue.send(job, options)),
+    sendBatch: async (messages, options) => (await note(messages.map((message) => message.body)), queue.sendBatch(messages, options)),
+  };
+}
+
 function unlimitedDeveloperCalls(environment) {
   let unlimitedEnvironment = withoutDeveloperLimits.get(environment);
   if (!unlimitedEnvironment) {
-    unlimitedEnvironment = new Proxy(environment, { get: (target, name) => (unlimitedBindings.has(name) ? unlimited : Reflect.get(target, name)) });
+    const compressQueue = notingCompressJobs(environment);
+    unlimitedEnvironment = new Proxy(environment, { get: (target, name) => (unlimitedBindings.has(name) ? unlimited : name === "COMPRESS_QUEUE" ? compressQueue : Reflect.get(target, name)) });
     withoutDeveloperLimits.set(environment, unlimitedEnvironment);
   }
   return unlimitedEnvironment;

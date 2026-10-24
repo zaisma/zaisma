@@ -1,4 +1,4 @@
-import { BackupStorage, type BackupStorageSettings } from "./backup-storage.ts";
+import { BackupStorage, type BackupStorageSettings, type BackupWait } from "./backup-storage.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { sendPush } from "./push.ts";
@@ -122,13 +122,13 @@ async function tellFailure(env: Env, runDate: string): Promise<void> {
 }
 
 /** One message from the zaisma-backup queue: does its part, records it, queues the next; after its last try, marks the night failed. */
-export async function handleBackupMessage(env: Env, message: Message<BackupPart>): Promise<void> {
+export async function handleBackupMessage(env: Env, message: Message<BackupPart>, wait?: BackupWait): Promise<void> {
   const part = message.body;
   const run = await env.DB.prepare("SELECT * FROM backup_runs WHERE run_date = ?").bind(part.run_date).first<BackupRun>();
   if (!run || run.finished_at_ms !== null) return message.ack();
   let partResult: PartResult;
   try {
-    partResult = await backupPart(env, part, run);
+    partResult = await backupPart(env, part, run, wait);
   } catch (error) {
     console.error("backup part failed", part, error);
     if (message.attempts < BACKUP_LIMITS.partTryCount) return message.retry({ delaySeconds: 60 * message.attempts });
@@ -167,8 +167,8 @@ function partName(part: BackupPart): string {
 }
 
 /** One part of a night's copy: what it copied and the part after it. */
-export async function backupPart(env: Env, part: BackupPart, run: Pick<BackupRun, "started_at_ms" | "changed_after_ms">): Promise<PartResult> {
-  const storage = new BackupStorage(backupStorageSettings(env));
+export async function backupPart(env: Env, part: BackupPart, run: Pick<BackupRun, "started_at_ms" | "changed_after_ms">, wait?: BackupWait): Promise<PartResult> {
+  const storage = new BackupStorage(backupStorageSettings(env), wait);
   const isDue = (key: string, changedAtMs: number) => changedAtMs > run.changed_after_ms || isRefreshDue(key, run);
   if (part.part_kind === "main_database") {
     const copiedSizeBytes = await storage.uploadObject("main-database.sql", encodedLines(mainDatabaseDump(env.DB)));

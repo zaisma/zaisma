@@ -1,5 +1,5 @@
-import { env, SELF } from "cloudflare:test";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createExecutionContext, env } from "cloudflare:test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_AREAS,
   AREA_ACCESS_BY_LEVEL,
@@ -38,6 +38,32 @@ import {
 import { API_ROUTES, type ApiInput, type ApiRoute } from "../../apps/site/src/developer.ts";
 import { errorProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
+
+// A shader check that goes through draws in a stand-in that answers a clean drawing at once: what this file checks is who gets
+// through, and the real drawing (headless Chromium, whose start alone takes seconds on a busy runner) is test/site/shader-check.test.ts's.
+const drawings = vi.hoisted(() => ({ count: 0 }));
+vi.mock("../../apps/site/src/shader-check.ts", async (original) => {
+  const { SHADER_LIMITS } = await import("@zaisma/core");
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const frames = (value: number) => Array.from({ length: SHADER_LIMITS.checkFrameCount }, () => value);
+  const render = async () => {
+    drawings.count++;
+    return {
+      compileError: null,
+      referenceFrameTimesMs: Array.from({ length: 30 }, () => SHADER_LIMITS.referenceFrameMs),
+      levels: [{ qualityLevel: 0, frameTimesMs: frames(20), frameLuminances: frames(0.4) }],
+      stillPng: PNG,
+      smallStillPng: PNG,
+      framePngs: Array.from({ length: SHADER_LIMITS.sampledFrameCount }, () => PNG),
+      shimmerPngs: [],
+      sheetPng: null,
+    };
+  };
+  return { ...(await original<typeof import("../../apps/site/src/shader-check.ts")>()), shaderCheckDeps: () => ({ render }) };
+});
+// The site as loaded again with the stand-in: SELF's copy was loaded before this file's stand-ins.
+vi.resetModules();
+const worker = (await import("../../apps/site/src/index.ts")).default;
 
 /**
  * Access checks in the router (docs/DECISIONS.md, "Access checks in the router"). Every call in
@@ -457,11 +483,16 @@ async function call(apiRoute: ApiRoute, key: string, sample: Sample & { pathValu
   const path = apiRoute.path.replace(/:([a-z0-9_]+)/g, (_, name: string) => encodeURIComponent(sample.pathValues[name]!));
   const query = sample.query ? `?${new URLSearchParams(sample.query)}` : "";
   const isJson = sample.body !== undefined;
-  const response = await SELF.fetch(`${SITE}/api/dev${path}${query}`, {
-    method: apiRoute.method,
-    headers: { authorization: `Bearer ${key}`, ...(isJson ? { "content-type": "application/json" } : {}) },
-    body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
-  });
+  // The site's own fetch, not SELF's, so it runs with this file's stand-in shader renderer.
+  const response = await worker.fetch(
+    new Request(`${SITE}/api/dev${path}${query}`, {
+      method: apiRoute.method,
+      headers: { authorization: `Bearer ${key}`, ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
+      body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
+    }),
+    env,
+    createExecutionContext(),
+  );
   // Bytes, then text: a served image is an answer too.
   const answerText = new TextDecoder().decode(await response.arrayBuffer());
   let answer: { error?: { code: string; field: string | null } } = {};
@@ -709,8 +740,9 @@ describe("every call", () => {
     expect((await eventCount()) - eventCountBefore, isLogged(apiRoute) ? `${routeName} changed something and wrote no security event: log it with logCallerEvent, or add it to UNLOGGED_CHANGES with why.` : `${routeName} wrote a security event it shouldn't`).toBe(isLogged(apiRoute) ? 1 : 0);
     // A call that reaches or names something of the developer's refused someone.
     if (ownsSomething(apiRoute) || Object.values(allInputs(apiRoute)).some((input) => input.kind === "names")) expect(refusals.length, routeName).toBeGreaterThan(0);
-    // A shader check draws the shader in the test's headless Chromium when it goes through, seconds on a CI runner.
-  }, 60_000);
+    // A shader check that went through drew in the stand-in.
+    if (routeName === "POST /games/:slug/shader-checks") expect(drawings.count).toBe(1);
+  });
 });
 
 /** The developer's values for the parts that own something (their game, webhook, sign-in app, private topic), over an example's own. */
