@@ -172,6 +172,27 @@ function querySql(sql) {
   }
 }
 
+/**
+ * Waits until the compress Worker has answered every Brotli job the site queued (preview_compress_jobs, noted by
+ * workers/site.mjs) with a compressed_blobs row. The compress Worker shares the preview's one runtime, so a sample played
+ * while it makes a big build's copy plays on a stalled runtime (late frames, a dropped connection): the engines' play
+ * check (scripts/engines/play.mjs) starts once nothing is left to compress. After the full test data the copies are
+ * usually made already; with --engines-only, the samples' big builds are the last uploads, so it waits for them.
+ */
+async function waitForBrotliCopies() {
+  const waitingKeys = () =>
+    querySql("SELECT name FROM sqlite_master WHERE name = 'preview_compress_jobs'").length === 0
+      ? []
+      : querySql("SELECT storage_key FROM preview_compress_jobs WHERE storage_key NOT IN (SELECT storage_key FROM compressed_blobs)").map((row) => row.storage_key);
+  for (let lookCount = 0; ; lookCount++) {
+    const keys = waitingKeys();
+    if (keys.length === 0) return;
+    // Every 30 seconds, what it's still waiting for: a job that never gets its row shows here.
+    if (lookCount % 30 === 29) console.log(`  Waiting for ${keys.length} Brotli ${keys.length === 1 ? "copy" : "copies"}: ${keys.slice(0, 5).join(", ")}${keys.length > 5 ? ", …" : ""}`);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 // How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
 let stepStartedMs = Date.now();
 function stepDone(label) {
@@ -412,6 +433,8 @@ await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
   await seed();
+  await waitForBrotliCopies();
+  stepDone("Brotli copies");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
 }
 if (IDLE_MINUTES > 0)

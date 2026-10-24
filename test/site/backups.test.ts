@@ -251,14 +251,18 @@ describe("a night's parts", () => {
     await startBackupRun(testEnv);
     const runDate = new Date().toISOString().slice(0, 10);
     const first = message({ run_date: runDate, part_kind: "main_database" }, 1);
-    await handleBackupMessage(testEnv, first.message);
+    // Backblaze's 500 is tried again 2 and 4 seconds later, kept here instead of waited out.
+    const waitDurationsMs: number[] = [];
+    const noWait = async (durationMs: number) => void waitDurationsMs.push(durationMs);
+    await handleBackupMessage(testEnv, first.message, noWait);
     expect(first.outcome).toEqual({ acked: false, retried: true });
+    expect(waitDurationsMs).toEqual([2000, 4000]);
     const last = message({ run_date: runDate, part_kind: "main_database" }, BACKUP_LIMITS.partTryCount);
-    await handleBackupMessage(testEnv, last.message);
+    await handleBackupMessage(testEnv, last.message, noWait);
     expect(last.outcome).toEqual({ acked: true, retried: false });
     const run = await env.DB.prepare("SELECT finished_part_count, failure_message, is_failure_told FROM backup_runs").first<any>();
     expect(run).toEqual({ finished_part_count: 1, failure_message: expect.stringContaining("The main database failed 3 times: Backblaze refused PUT main-database.sql: 500 InternalError stand-in down"), is_failure_told: 1 });
-  }, 60_000);
+  });
 
   it("alerts when the lifecycle rule leaves a copy past 31 days", async () => {
     versions.set("main-database.sql", [{ bytes: new Uint8Array(), atMs: Date.now() - 40 * DAY_MS }]);
