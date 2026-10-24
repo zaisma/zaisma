@@ -530,7 +530,7 @@ async function everything(world: World): Promise<string> {
   return parts.join("\n\n");
 }
 
-/** The stand-in Stripe account a developer has connected. */
+/** The stand-in Stripe account a developer has connected, with the owner's ID after it (each is on one owner only). */
 const CONNECTED_ACCOUNT_ID = "acct_test_access";
 /** Calls a key can't make alone: connecting Stripe decides where players' money goes, so it needs the owner's passkey on a page first. */
 const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links"]);
@@ -746,7 +746,7 @@ describe("every call", () => {
     }
     // Changing or disconnecting a Stripe account needs one connected.
     if (routeName === "PATCH /stripe-account" || routeName === "DELETE /stripe-account") {
-      await env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_connected_at_ms = ? WHERE id = ?").bind(CONNECTED_ACCOUNT_ID, Date.now(), world.victimOwnerId).run();
+      await env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_connected_at_ms = ? WHERE id = ?").bind(`${CONNECTED_ACCOUNT_ID}_${world.victimOwnerId}`, Date.now(), world.victimOwnerId).run();
     }
     // A call that needs the owner's passkey on a page first refuses even the developer's full key, with nothing changed.
     if (CONFIRMED_ON_A_PAGE.has(routeName)) {
