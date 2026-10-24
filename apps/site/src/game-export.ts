@@ -208,7 +208,7 @@ reports.json     Player reports and bug reports, as get_reports answers them.
 history.json     What happened to the game, as get_history answers it.
 
 To run it on your own server: serve the live version's folder (versions.json says which is live),
-and start its game server with @zaisma/game-server's Node runner and --database database.sqlite
+and start its game server with @zaisma/game-server's Node runner and --database-file database.sqlite
 (Zaisma's README, "Run your game server yourself", says how).
 docs/DEVELOPER-API.md, "Export everything", has the details.
 `;

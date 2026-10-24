@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyEnginesProof, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
-import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
+import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
 // Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
@@ -346,8 +346,9 @@ for (const [workerName, secretNames] of Object.entries(REQUIRED_SECRETS)) {
   if (missingSecrets.length) finish("FAIL", `${shortSha}: ${workerName} has no ${missingSecrets.join(" or ")}: put it with \`node scripts/rooms-key.mjs | npx wrangler secret put ${missingSecrets[0]} --config apps/rooms/wrangler.jsonc\`; nothing deployed.`, 1);
 }
 
-// The command-line tool on npm.
+// The command-line tool and the game server package on npm.
 const cliVersion = JSON.parse(readFileSync(join(shipCopy, "packages/cli/package.json"), "utf8")).version;
+const gameServerVersion = JSON.parse(readFileSync(join(shipCopy, "packages/game-server/package.json"), "utf8")).version;
 
 /**
  * Puts the PhotoDNA hasher's SDK file into the ship copy. Answers why it couldn't, or null when it's
@@ -388,13 +389,13 @@ if (isDryRun) {
   const migrationsNote = pendingMigrations.length
     ? `${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")}), ${pendingDeletions.length ? `${pendingDeletions.length} statement(s) deleting data, so Julius answers in a terminal` : "applied by themselves"}`
     : "no migrations";
-  const cliNote = (await checkCliOnNpm(cliVersion, { waitSec: 0 })).note;
+  const npmNote = (await Promise.all([checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL, { waitSec: 0 }), checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL, { waitSec: 0 })])).map((result) => result.note).join("; ");
   // Once against the live site, reported and never failing, so a change to the checks can be tried first.
   const nowResults = [...checkBuckets(runWrangler), ...(await checkSecurityAddresses({ zaismaKey: process.env.ZAISMA_KEY, attemptCount: 1 }))];
   const nowFailed = nowResults.filter((result) => !result.isPass);
   const securityNote = nowFailed.length ? `security now: ${nowFailed.length} of ${nowResults.length} failing (${nowFailed.map((result) => result.note).join("; ")})` : `security now: all ${nowResults.length} hold`;
   const queuesNote = missingQueues.length ? `would make the queue(s) ${missingQueues.join(", ")}` : "every queue there";
-  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${queuesNote}; ${cliNote}; ${securityNote}.`, 0);
+  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${queuesNote}; ${npmNote}; ${securityNote}.`, 0);
 }
 
 // Deploys. Each Worker version is tagged with the commit, so the dashboard shows what's live.
@@ -423,7 +424,7 @@ const mcpInitialize = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initializ
 // The wrangler calls are synchronous, so they run before any fetch starts and no timeout fires while they block.
 const bucketResults = checkBuckets(runWrangler);
 const ok = (isGood) => (response, body) => (isGood(response, body) ? [] : ["unexpected answer"]);
-const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, securityResults] = await Promise.all([
+const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, gameServerResult, securityResults] = await Promise.all([
   checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe"))),
   // With a key: a real MCP session starts. Without one: the MCP answers with its structured no_key error.
   zaismaKey
@@ -435,16 +436,17 @@ const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, sec
   // It answers 503 when RECEIPT_SIGNING_KEY isn't set or a receipt setting doesn't load: then receipts answer receipts_unavailable.
   checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
   checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
-  checkCliOnNpm(cliVersion),
+  checkPackageOnNpm("@zaisma/cli", cliVersion, PUBLISH_CLI_WORKFLOW_URL),
+  checkPackageOnNpm("@zaisma/game-server", gameServerVersion, PUBLISH_GAME_SERVER_WORKFLOW_URL),
   checkSecurityAddresses({ zaismaKey }),
 ]);
 const checks = [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt];
 const securityChecks = [...bucketResults, ...securityResults];
-for (const result of [...checks, cliResult, ...securityChecks]) say(`  ${result.isPass ? "✓" : "✗"} ${result.note}`);
+for (const result of [...checks, cliResult, gameServerResult, ...securityChecks]) say(`  ${result.isPass ? "✓" : "✗"} ${result.note}`);
 
 const migrationsNote = appliedMigrations.length ? `migrations applied: ${appliedMigrations.join(", ")}` : "no migrations";
 const failedSecurityChecks = securityChecks.filter((result) => !result.isPass);
-const otherFailedChecks = [...checks, cliResult].filter((result) => !result.isPass);
+const otherFailedChecks = [...checks, cliResult, gameServerResult].filter((result) => !result.isPass);
 if (failedSecurityChecks.length) {
   const alsoFailed = otherFailedChecks.length ? `; the live check also failed: ${otherFailedChecks.map((result) => result.note).join("; ")}` : "";
   finish("FAIL", `${shortSha} deployed (${WORKERS.join(", ")}) but a security check failed, and fixing it goes ahead of everything else: ${failedSecurityChecks.map((result) => result.note).join("; ")}${alsoFailed}. ${migrationsNote}; ${mainCheckoutNote}.`, 1);
@@ -452,4 +454,4 @@ if (failedSecurityChecks.length) {
 if (otherFailedChecks.length) {
   finish("FAIL", `${shortSha} deployed (${WORKERS.join(", ")}) but the live check failed: ${otherFailedChecks.map((result) => result.note).join("; ")}. ${migrationsNote}; ${mainCheckoutNote}.`, 1);
 }
-finish("PASS", `${shortSha} live: ${WORKERS.join(", ")} deployed; ${checks.map((result) => result.note).join(", ")}; ${cliResult.note}; security held (${securityChecks.length} checks); ${migrationsNote}; ${mainCheckoutNote}.`, 0);
+finish("PASS", `${shortSha} live: ${WORKERS.join(", ")} deployed; ${checks.map((result) => result.note).join(", ")}; ${cliResult.note}; ${gameServerResult.note}; security held (${securityChecks.length} checks); ${migrationsNote}; ${mainCheckoutNote}.`, 0);

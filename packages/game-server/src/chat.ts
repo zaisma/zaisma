@@ -12,6 +12,8 @@
  * server running there never sees passes, and checkChat throws a ChatCheckError (own_server_only).
  */
 
+import { OutsideCallError } from "./outside-calls.ts";
+
 /** Why a message was stopped. The same reasons as Zaisma.checkChat, plus chat_paused and not_allowed_to_chat. */
 export type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
 
@@ -105,12 +107,6 @@ function rememberText(senderPlayerId: string, text: string, nowMs: number): void
  *   if (!check.isAllowed || check.hasSwearing) return reply(sender, check.message ?? "No swearing here.");
  */
 export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckOptions): Promise<ChatCheck> {
-  if ((globalThis as { isZaismaRoomsSandbox?: boolean }).isZaismaRoomsSandbox === true) {
-    throw new ChatCheckError(
-      "checkChat is for a game server on your own server. In Zaisma rooms the room runs Zaisma's chat filter on the chat it delivers.",
-      "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.checkChat, or offer preset phrases and emotes.",
-    );
-  }
   const claims = readClaims(String(senderPass ?? ""));
   if (typeof claims.sub !== "string" || !isZaismaIssuer(claims.iss) || !Array.isArray(receiverPasses)) return UNCHECKED;
   const message = String(text ?? "");
@@ -130,7 +126,14 @@ export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckO
     if (typeof answer.isAllowed !== "boolean") return UNCHECKED;
     const reason = typeof answer.reason === "string" && REASONS.includes(answer.reason) ? (answer.reason as ChatCheckReason) : null;
     return { isAllowed: answer.isAllowed, reason, message: typeof answer.message === "string" ? answer.message : null, hasSwearing: answer.hasSwearing === true };
-  } catch {
+  } catch (error) {
+    // In Zaisma rooms the gateway refuses the call to Zaisma's own address: checkChat is for a game server on your own server.
+    if (error instanceof OutsideCallError && ["unreachable_host", "not_https", "host_not_allowed"].includes(error.code)) {
+      throw new ChatCheckError(
+        "checkChat is for a game server on your own server. In Zaisma rooms the room runs Zaisma's chat filter on the chat it delivers.",
+        "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.checkChat, or offer preset phrases and emotes.",
+      );
+    }
     return UNCHECKED;
   }
 }

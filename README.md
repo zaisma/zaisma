@@ -54,10 +54,10 @@ export default {
   setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
   onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
                                                        // joinInfo: { fromRoomCode, isReturning, isSpectator } (isReturning: back to a held seat)
-  canJoin(state, player, room, joinData, joinInfo) {}, // true (or nothing) lets them in; false or { refusalMessage } turns them away
+  canJoin(state, player, room, joinData, joinInfo) {}, // true lets them in; false or { refusalMessage } turns them away
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
-  onMessage(state, player, message, room) {},
-  onBytes(state, player, bytes, room) {},      // bytes a player's game sent (room.sendBytes), a Uint8Array
+  onMessage(state, player, room, message) {},
+  onBytes(state, player, room, bytes) {},      // bytes a player's game sent (room.sendBytes), a Uint8Array
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
   onRequest(player, request, server) {},       // a request outside any room (Zaisma.server.request): answer it (below)
   schedules: [{ name: "daily-reset", cron: "0 0 * * *" }], // runs by itself, in UTC (below)
@@ -72,7 +72,7 @@ export default {
 
 Names follow [`docs/NAMING.md`](docs/NAMING.md): whole words, with the unit in the name. A game server with an option it doesn't take doesn't start, and says which ones it does take (`unknown_option`); the SDK refuses options and events it doesn't take the same way. Every message between a game and its room says its `type`, and a game's own messages travel in `data`; rooms count messages, not their size, so whole words cost nothing.
 
-`canJoin` decides who comes in, before they join: answer `true` (or nothing) to let them in, `false` to turn them away, or `{ refusalMessage: "Wrong room password." }` to turn them away with a message they see (up to 200 characters). Any other answer, like a string, turns them away too, and shows in your game server's errors with what to answer instead. Only decide there; change the state in `onJoin`.
+`canJoin` decides who comes in, before they join: answer `true` to let them in, `false` to turn them away, or `{ refusalMessage: "Wrong room password." }` to turn them away with a message they see (up to 200 characters). Any other answer, nothing included, like a string, turns them away too, and shows in your game server's errors with what to answer instead. Only decide there; change the state in `onJoin`.
 
 ```ts
 canJoin(state, player, room, joinData) {
@@ -144,7 +144,7 @@ async onJoin(state, player, room) {
   const [mine] = await room.database.query("SELECT best_score FROM scores WHERE player_id = ?", [player.id]);
   room.send(player.id, { bestScore: mine?.best_score ?? 0 });
 },
-async onMessage(state, player, message, room) {
+async onMessage(state, player, room, message) {
   if (message.type === "finished") {
     await room.database.query(
       "INSERT INTO scores VALUES (?, ?) ON CONFLICT (player_id) DO UPDATE SET best_score = max(best_score, excluded.best_score)",
@@ -154,7 +154,7 @@ async onMessage(state, player, message, room) {
 },
 ```
 
-- **`query(sql, values)`** runs one statement and answers its rows as objects (`[]` when it returns none). `values` fill its `?`s in order: text, numbers, `null` or a `Uint8Array` (use 1 and 0 for true and false; store objects as `JSON.stringify` and read them with `JSON.parse` or SQLite's JSON functions). To see what an `INSERT`, `UPDATE` or `DELETE` changed, add `RETURNING`.
+- **`query(sql, values)`** runs one statement and answers its rows as objects (`[]` when it returns none). `values` fill its `?`s in order: text, numbers, `null` or a `Uint8Array` (whole numbers past 2^53 are refused with `bad_values` and can't be read back as numbers (`bad_sql`): store them as text and read them with `CAST(col AS TEXT)`; use 1 and 0 for true and false; store objects as `JSON.stringify` and read them with `JSON.parse` or SQLite's JSON functions). To see what an `INSERT`, `UPDATE` or `DELETE` changed, add `RETURNING`.
 - **`batch([{ sql, values }, ...])`** runs up to 100 statements in one transaction, so they all happen or none do (moving an item between two inventories, say), and answers each one's rows. `BEGIN` and `COMMIT` aren't taken; batch is the transaction.
 - **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `hosting_paused` (the game's hosting is paused this month, below), `database_full` (its storage, the database and kept rooms together, is at the 10 GB a game can have: it can change and delete rows but not grow) and `database_unavailable`.
 - **Part of the game's hosting on Zaisma.** Rows written and read, and what it stores, count on the game's one hosting meter with its rooms and requests (see "Hosting" below). Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows. When the game's hosting pauses, the database keeps answering for the hour running matches get, so their last saves land, then answers `hosting_paused` until it starts again.
@@ -205,7 +205,7 @@ The new room runs the same game server, and its `setup(setupData)` gets your set
 room.setKept(true);  // in your game server, like in setup or when players build their first base
 ```
 
-A listed kept room stays on the game page's Rooms tab with nobody in it, like a server waiting for players (`Zaisma.rooms.list` says `isKept`). A world waking from its sleep runs `onRestored` with `restoreInfo.lostDurationSec` 0 and `restoreInfo.savedAt`, so you can grow crops for the time that passed, and it wakes on the game's live version, with `restoreInfo.savedVersionId` saying which one saved it. `room.end()` ends it for good, and `room.setKept(false)` makes it an ordinary room again. Saved worlds count toward the game's storage with its database, on its hosting meter: at the 10 GB a game can have, new rooms can't be kept until you make room, but kept rooms keep saving. List and delete them with `list_kept_rooms` and `delete_kept_room`, or `zaisma kept-rooms`. A room made with `room.reserve({ ..., isKept: true })` starts kept. On your own server the Node runner keeps them in `--room-state`.
+A listed kept room stays on the game page's Rooms tab with nobody in it, like a server waiting for players (`Zaisma.rooms.list` says `isKept`). A world waking from its sleep runs `onRestored` with `restoreInfo.lostDurationSec` 0 and `restoreInfo.savedAt`, so you can grow crops for the time that passed, and it wakes on the game's live version, with `restoreInfo.savedVersionId` saying which one saved it. `room.end()` ends it for good, and `room.setKept(false)` makes it an ordinary room again. Saved worlds count toward the game's storage with its database, on its hosting meter: at the 10 GB a game can have, new rooms can't be kept until you make room, but kept rooms keep saving. List and delete them with `list_kept_rooms` and `delete_kept_room`, or `zaisma kept-rooms`. A room made with `room.reserve({ ..., isKept: true })` starts kept. On your own server the Node runner keeps them in `--room-state-file`.
 
 `room.roomCode` tells the game server which room it's in, so a game with one shared world can keep only that room and turn players away from any other code, even from a changed page:
 
@@ -268,7 +268,7 @@ export default {
   seatHoldDurationSec: 120,  // seconds a seat stays held (default 300, up to 1800; 0 for none)
   reconnectTimeoutSec: 30,   // seconds a player whose connection dropped stays in the match (default 30, up to 300; 0 to take them out at once)
   awayMode: "lobby",         // send players who walk away back to the room that made this one (room.reserve); "hold" is the default
-  onAway(state, player, room, reason) {},  // reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
+  onAway(state, player, room, awayInfo) {},  // awayInfo.reason "idle", "hidden" or "lost"; for idle and hidden, the player stays and you kick, move or keep them
   onBack(state, player, room) {},          // a player onAway kept, or whose connection dropped, came back: send them the full state
   stateSaveIntervalSec: 5,   // how often a real-time room saves its state, for a restart to come back with (default 5, 1 to 60)
   onRestored(state, restoreInfo, room) {}, // the room restarted with its saved state: restoreInfo.savedAt, lostDurationSec and savedVersionId
@@ -289,7 +289,7 @@ Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game 
 
 Every number behind this (pings, timeouts, reconnecting, held seats, message limits, close codes) is in [Room connections](docs/DEVELOPER-API.md#room-connections).
 
-Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Their hello carries `"protocolVersionNumber":1`. Errors from the room are `{"type":"error","code":"room_full","message":"This room is full."}`, with codes in lowercase snake_case, like `room_full`, `room_closed`, `ended`, `kept_out`, `refused`, `hosting_paused`, `bad_pass`, `bad_origin`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `room_not_running` (the whole list is `RoomErrorCode` in the SDK's types); codes only grow within v1.
+Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Their hello carries `"protocolVersionNumber":1`. Errors from the room are `{"type":"error","code":"room_full","message":"This room is full."}`, with codes in lowercase snake_case, one of: `room_full`, `room_closed`, `ended`, `too_big`, `too_fast`, `bad_message`, `bad_pass`, `no_hello`, `not_allowed`, `game_unavailable`, `busy`, `kept_out`, `refused`, `room_not_running`, `hosting_paused`, `account_needed`, `game_not_open_to_player`, `blocked_player_here`, `other_version`, `spectators_full`, `spectator_cannot_send`, `already_playing`, `bad_origin` or `send_queue_full`. The SDK's types explain each one (`RoomErrorCode`); codes only grow within v1.
 
 #### Requests to your game server
 
@@ -315,7 +315,7 @@ const { isClaimed } = await Zaisma.server.request({ type: "claimDailyReward" });
 
 - **`onRequest(player, request, server)`** answers what the game gets back: plain JSON, up to 1 MB, within 10 seconds. `player` is who sent it, from their player pass, so a player can't claim someone else's reward. `request` is the game's plain JSON, up to 16 KB, from the player's browser, so check it like any message and say what it's for in its `type`. There's no room and no state: what lasts goes in `server.database`, the same game database the game's rooms use.
 - **Rooms or not:** a game server with only `onRequest` needs no `setup()` and runs no rooms; one with both does both. Requests work whatever the game's multiplayer setting, as long as its live version has the game server in its `zaisma-server/` folder or `zaisma-server.js`, run in the same sealed sandbox as its rooms.
-- **Errors:** the game gets an `error.code`: `no_request_handler` (no `onRequest`), `game_server_error` (it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds; you see why with your game server's errors in the dashboard and `get_stats`, with the file and line), `request_limit`, `too_big`, `slow_down` (over about 120 a minute from one address) and the pass's own (`unchecked`, `account_needed`, `bad_pass`). A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
+- **Errors:** the game gets an `error.code`, one of: `bad_request`, `too_big`, `bad_pass`, `account_needed`, `game_not_open_to_player`, `game_unavailable`, `no_request_handler`, `game_server_error`, `hosting_paused`, `slow_down`, `bad_origin` or `busy`. `no_request_handler` means no `onRequest`; `game_server_error` means it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds (you see why with your game server's errors in the dashboard and `get_stats`, with the file and line); `slow_down` means over about 120 a minute from one address; `hosting_paused` answers HTTP 403. The pass's own are `account_needed` and `bad_pass`. A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
 - **Part of the game's hosting on Zaisma.** Each request, webhook event and schedule run counts on the game's hosting meter, and so does its CPU past the first 10 ms (see "Hosting" above). While the game's hosting is paused, requests answer `hosting_paused`. Your dashboard and `get_stats` show the month's count.
 - **On your own server** the Node runner answers the same requests at `POST /v1/requests/<game>` on its port, with `server.database` its local SQLite file: `Zaisma.server.request(request, { serverUrl: "https://play.example.com" })`. Any server can answer them the same way: the body is `{ pass, request }` as JSON (sent as `text/plain`, so browsers need no preflight), and the answer `{ answer }` or `{ error: { code, message } }`.
 
@@ -372,17 +372,17 @@ npx @zaisma/cli secrets set <slug> DISCORD_WEBHOOK_URL   # asks for the value; n
 
 - **Hosts:** `game_server_allowed_hosts`, up to 20 host names like `api.github.com`, or `"*.example.com"` for every name under example.com. Every call is https, never to an IP address or Zaisma's own domains, sends up to 5 MB and gets 10 seconds; redirects come back to your code rather than being followed, and a game makes up to about 600 calls a minute in each place. Live within a minute, with no approval by Zaisma; players don't see the list. A call to anything else throws an `OutsideCallError` with a `code` (like `host_not_allowed`) and a `fix`, which `get_stats` shows with your other errors.
 - **Secrets:** names like `DISCORD_WEBHOOK_URL` (capitals, digits and underscores) with up to 8 KB of text, up to 50 a game, set with `set_secret`, the API or the upload command and never shown again, to anyone. Your game server reads them as `server.secrets` in `onRequest` and `onSchedule` and `room.secrets` in rooms; running rooms get a new value within a minute. Since your code reads them, anyone who can publish the game's code can use them. Never put a secret in the game's own files: players can read those.
-- **On your own server** the Node runner calls out freely, and `server.secrets` is its environment variables, so the same code runs with `DISCORD_WEBHOOK_URL=… node packages/game-server/bin/node.js …`.
+- **On your own server** the Node runner calls out freely, and `server.secrets` is its environment variables, so the same code runs with `DISCORD_WEBHOOK_URL=… npx @zaisma/game-server …`.
 
 #### Run your game server yourself
 
-The same game server runs on your own machine with Node 23.6 or later:
+The same game server runs on your own machine with Node 22.18 or later:
 
 ```sh
-node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080 --database ./zaisma-database.sqlite
+npx @zaisma/game-server@1 ./server.ts --game <your-game> --port 8080 --database-file ./zaisma-database.sqlite
 ```
 
-`room.database` there is that SQLite file, made the first time the game uses it (`zaisma-database.sqlite` where you start it, unless `--database` says otherwise). Its rooms save their states in another, `--room-state` (`zaisma-room-states.sqlite` by default), so a restarted server brings its matches back as Zaisma's rooms do; stopping it (Ctrl-C, or a restart's SIGTERM) saves every room first, so nothing is lost.
+`room.database` there is that SQLite file, made the first time the game uses it (`zaisma-database.sqlite` where you start it, unless `--database-file` says otherwise). Its rooms save their states in another, `--room-state-file` (`zaisma-room-states.sqlite` by default), so a restarted server brings its matches back as Zaisma's rooms do; stopping it (Ctrl-C, or a restart's SIGTERM) saves every room first, so nothing is lost.
 
 Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma (the dashboard's Your own servers, `update_game` with `own_server_urls`, or `zaisma own-servers <slug> wss://play.example.com`; live at once, and the game's menu names it), and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs (header `typ` `pass+jwt`, claim `pass_version_number` `1`) your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, with `verifyPass(pass, keys, { gameSlug })` from `@zaisma/game-server` or any language's JWT library. A pass proves only who the player is: its `sub` is the player's ID (`player_…`), `kind` is `account` (a signed-in Zaisma account, with the same ID in every game) or `guest` (a new ID for each pass), and `aud` is the game. A guest's pass also carries their generated `name`; an account's name comes from its public profile at `https://rooms.zaisma.com/v1/players/<id>`, which the Node runner looks up for you. Game servers see the same `kind` on every player.
 

@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server";
+import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkedRow, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
 import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -357,7 +357,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
           try {
             for (const row of cursor) {
               if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
-              const plain = plainRow(row);
+              const plain = checkedRow(row);
               answerSizeBytes += rowSizeBytes(plain);
               if (answerSizeBytes > maximumAnswerSizeBytes) throw new AnswerTooBig();
               rows.push(plain);

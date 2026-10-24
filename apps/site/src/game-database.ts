@@ -18,7 +18,7 @@ import {
   type DatabaseRestore,
   type Game,
 } from "@zaisma/core";
-import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-server";
+import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-server/internal";
 import type { DeveloperDatabaseAnswer, StatementResult } from "../../rooms/src/database.ts";
 import { hostingUseJson, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";

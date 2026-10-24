@@ -1,0 +1,49 @@
+{
+  "startServerOptions": [
+    "database",
+    "gameServer",
+    "gameSlug",
+    "issuerUrl",
+    "loadPassKeys",
+    "loadProfile",
+    "loadReceiptKeys",
+    "origins",
+    "port",
+    "roomStateFile",
+    "secrets",
+    "webhookSigningSecret"
+  ],
+  "startServerDefaults": {
+    "port": 8080,
+    "origins": [
+      "https://my-game.zaismausercontent.com"
+    ],
+    "issuerUrl": "https://rooms.zaisma.com"
+  },
+  "answerKeys": [
+    "close",
+    "httpServer"
+  ],
+  "commandLineFlags": [
+    "database-file",
+    "game",
+    "issuer-url",
+    "origin",
+    "port",
+    "room-state-file"
+  ],
+  "routes": [
+    "/v1/requests/<game>",
+    "/v1/rooms/<game>/<code>",
+    "/v1/webhooks"
+  ],
+  "roomStatesColumns": {
+    "room_code": "TEXT",
+    "format_version": "INTEGER",
+    "state_json": "TEXT",
+    "saved_room_json": "TEXT",
+    "saved_at_ms": "INTEGER",
+    "is_saved_empty": "INTEGER",
+    "is_kept": "INTEGER"
+  }
+}

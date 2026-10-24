@@ -90,7 +90,7 @@ export default {
   setup: () => ({ logCount: 0, restored: null }),
   onJoin(state, player, room) { room.setKept(true); room.setInfo({ name: "Northwatch" }); },
   onRestored(state, restoreInfo) { state.restored = restoreInfo; },
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "chop") state.logCount++;
     if (message === "how") room.send(player.id, { logCount: state.logCount, restored: state.restored, isKept: room.isKept });
     if (message === "unkeep") room.setKept(false);
