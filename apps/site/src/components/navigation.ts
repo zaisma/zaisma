@@ -15,7 +15,7 @@ import { row, stack, track, type LayoutItem } from "./layout.ts";
  * scrollbar and a row's arrows. From the header draft (ops docs/drafts/look-and-voice/header.html) and the home draft.
  */
 
-export type HeaderTab = "home" | "your-games" | "developer" | "forum";
+export type HeaderTab = "home" | "browse" | "your-games" | "developer" | "forum";
 
 export interface HeaderOptions {
   /** The tab of the page you're on, or none (like sign-in). */
@@ -59,6 +59,7 @@ export function header(options: HeaderOptions): Raw {
   const menuId = `${id}-menu`;
   const tabs = options.ownTabs ?? [
     tab("Home", "/", options.current === "home"),
+    tab("Browse", "/games", options.current === "browse"),
     ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []),
     tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen),
     tab("Forum", "/forum", options.current === "forum", true, isOpen),
@@ -1102,6 +1103,13 @@ export interface LoadMoreOptions {
   label: string;
   /** The id of the list it adds to; the next page has a list of the same id, and its own Load more for the page after, or its end words. */
   listId: string;
+  /**
+   * Lists further down it adds to as well, from the next page's lists of the same ids (Browse's games for other devices, after the games
+   * for yours). One that is hidden, with what leads it, shows once something is added to it.
+   */
+  moreListIds?: string[];
+  /** It loads the next page by itself as it nears the screen, so a long grid of covers just keeps going as you scroll; it stays a button to press. */
+  isLoadedOnScroll?: boolean;
   /** What it says once the list has ended: "That's every version." */
   endText?: string;
   /** The last press didn't load, so it says so under the button: the gallery's fixed state (LOAD_MORE_SCRIPT says it as it happens). */
@@ -1116,8 +1124,9 @@ const LOAD_FAILED_TEXT = "That didn't load. Check your connection, then try agai
  * has ended, a line saying so takes its place.
  */
 export function loadMore(options: LoadMoreOptions): Raw {
-  if (!options.href) return html`<div class="load-more" data-load-more="${options.listId}"><p class="load-more-words">${options.endText ?? ""}</p></div>`;
-  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${options.listId}">${cutButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
+  const listIds = [options.listId, ...(options.moreListIds ?? [])].join(" ");
+  if (!options.href) return html`<div class="load-more" data-load-more="${listIds}"><p class="load-more-words">${options.endText ?? ""}</p></div>`;
+  return html`<div class="load-more${options.isFailed ? " is-failed" : ""}" data-load-more="${listIds}"${options.isLoadedOnScroll ? raw(" data-loads-on-scroll") : ""}>${cutButton(options.label, { href: options.href, isFullWidth: true })}<p class="load-more-words" role="status"${options.isFailed ? "" : raw(" hidden")}>${options.isFailed ? LOAD_FAILED_TEXT : ""}</p></div>`;
 }
 
 /**
@@ -1129,7 +1138,7 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("[data-load-more] > a.shell[href]");
     if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    var holder = link.parentElement, list = document.getElementById(holder.getAttribute("data-load-more")), words = holder.querySelector(".load-more-words");
+    var holder = link.parentElement, ids = holder.getAttribute("data-load-more").split(" "), list = document.getElementById(ids[0]), words = holder.querySelector(".load-more-words");
     if (!list) return;
     event.preventDefault();
     if (link.getAttribute("aria-busy") === "true") return;
@@ -1138,16 +1147,33 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
       if (!response.ok) throw new Error(String(response.status));
       return response.text();
     }).then(function (text) {
-      var next = new DOMParser().parseFromString(text, "text/html"), more = next.getElementById(list.id);
-      if (!more) { location.href = link.href; return; }
-      Array.prototype.slice.call(more.children).forEach(function (child) { list.appendChild(document.importNode(child, true)); });
-      var after = next.querySelector('[data-load-more="' + list.id + '"]');
-      if (after) holder.replaceWith(document.importNode(after, true)); else holder.remove();
+      var next = new DOMParser().parseFromString(text, "text/html");
+      if (!next.getElementById(list.id)) { location.href = link.href; return; }
+      ids.forEach(function (id) {
+        var into = document.getElementById(id), more = next.getElementById(id);
+        if (!into || !more || !more.children.length) return;
+        Array.prototype.slice.call(more.children).forEach(function (child) { into.appendChild(document.importNode(child, true)); });
+        var hidden = into.closest("[hidden]");
+        if (hidden) hidden.hidden = false;
+      });
+      var after = next.querySelector("[data-load-more]");
+      if (after) { var placed = document.importNode(after, true); holder.replaceWith(placed); watch(placed); } else holder.remove();
     }).catch(function () {
       link.removeAttribute("aria-busy"); holder.classList.add("is-failed");
       if (words) { words.textContent = ${JSON.stringify(LOAD_FAILED_TEXT)}; words.hidden = false; }
     });
   });
+  // One that loads on scroll is pressed once it's within a screen of view; a failed one waits to be pressed again.
+  var nearScreen = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      var link = entry.target.querySelector("a.shell[href]");
+      if (entry.isIntersecting && link && !entry.target.classList.contains("is-failed")) link.click();
+    });
+  }, { rootMargin: "100% 0px" }) : null;
+  function watch(holder) { if (nearScreen && holder.hasAttribute("data-loads-on-scroll")) nearScreen.observe(holder); }
+  document.querySelectorAll("[data-loads-on-scroll]").forEach(watch);
+  // A page that swaps its list for another (Browse, as you type a search) hands the new one's Load more here.
+  window.zaismaLoadMore = { watch: watch };
 })();
 `;
 
@@ -1158,7 +1184,7 @@ component({
   name: "Load more",
   slug: "load-more",
   group: "navigation",
-  summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes. Without scripts it's a link to that page.",
+  summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.",
   styles: `
 /* Load more: a full-width cut button under its list, a block below it, with what went wrong under it as a control's words; or, once the
    list has ended, a line of words saying so. */

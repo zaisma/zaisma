@@ -862,15 +862,17 @@ async function seed() {
   runSql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) INSERT OR IGNORE INTO performance_checks (version_id, owner_id, check_status, queued_at_ms, checked_at_ms) SELECT 'version_usedrun' || i, (SELECT owner_id FROM games WHERE slug = 'texture-tour'), 'checked', CAST(unixepoch('subsec') * 1000 AS INTEGER), NULL FROM n");
 
   const games = [
-    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
-    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
-    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }] },
+    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["action"] },
+    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }], genres: ["action", "fighting"] },
+    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }], genres: ["card_and_board", "puzzle"] },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
-    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
-    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }] },
+    // Made for phones only, so Browse on a computer shows it after the divider with its note.
+    { title: "Pocket Putt", folder: "examples/hello-game", color: [60, 160, 120], description: "Flick the ball round tiny courses with one thumb.", devices: ["phone"], controls: ["touch"], play_modes: [{ mode: "single" }], genres: ["sports", "puzzle"] },
+    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["simulation"] },
+    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }], genres: ["adventure", "survival"] },
   ];
   for (const g of games) {
-    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
+    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, genres: g.genres ?? [], ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
     await upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
     // A listed game needs a screenshot.
@@ -1115,6 +1117,10 @@ async function seed() {
   await finishEngineSamples();
   await finishStartedInChrome();
   stepDone("runs in Chrome still going");
+  // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
+  // Last, since they count toward its developer's 50 games.
+  runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);
+  stepDone("Browse's other games");
 }
 
 /**
