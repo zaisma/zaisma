@@ -125,8 +125,10 @@ export const TOKEN_STYLES = `
 /* A box that scrolls keeps a swipe to itself: reaching its end never carries on into the page, so the page never nudges under it. */
 /* Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. */
 .is-scrollable { overscroll-behavior-y: contain; }
-/* The page scrolls only up and down: a sideways drag or swipe never rubber-bands it. */
-html, body { overscroll-behavior-x: none; }
+/* The page never rubber-bands, sideways or past its top or bottom: its backdrop stays put behind the glass, so a page pulled past its end
+   would leave the glass's light on the backdrop behind. A tap shows itself on what was tapped, never as the browser's grey box. */
+html, body { overscroll-behavior: none; }
+html { -webkit-tap-highlight-color: transparent; }
 .is-scrollable-sideways { overscroll-behavior-x: contain; }
 [data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }

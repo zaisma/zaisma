@@ -179,6 +179,19 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
   });
+  // A page left with a view transition fades out as the next fades in. A switch with a tab for the next page leaves its slab out of this
+  // page's last picture, so only the next page's slab shows, sliding over from this tab, and not a second one fading where it was.
+  window.addEventListener("pageswap", function (event) {
+    if (!event.viewTransition || !event.activation || !event.activation.entry || !event.activation.entry.url) return;
+    var to = new URL(event.activation.entry.url);
+    document.querySelectorAll(".tab-switch").forEach(function (sw) {
+      var slab = sw.querySelector(":scope > .slab");
+      var isGoing = Array.prototype.some.call(sw.querySelectorAll(":scope > a[href]"), function (tab) { return new URL(tab.href).pathname === to.pathname && tab.getAttribute("aria-current") !== "page"; });
+      if (slab && isGoing) slab.style.visibility = "hidden";
+    });
+  });
+  // A page kept to go back to gets its slabs back.
+  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .slab").forEach(function (slab) { slab.style.visibility = ""; }); });
 })();
 `;
 
