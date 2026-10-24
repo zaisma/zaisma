@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
-// @ts-expect-error plain JavaScript runner without type declarations
-import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
+import { startServer } from "../../packages/game-server/bin/node.js";
+// @ts-expect-error plain JavaScript without type declarations
+import { localDatabase } from "../../packages/game-server/bin/node-parts.js";
 import { checkStatement, defineGameServer, generateSigningKey, loadSigningKey, signPass, type GameDatabase } from "../../packages/game-server/src/internal.ts";
 
 // The game database on the developer's own server: a local SQLite file, with the same calls and checks as in Zaisma rooms (test/rooms/database.test.ts).
@@ -55,6 +56,16 @@ describe("a local database file", () => {
     expect(await localDatabase(file).query("SELECT player_id, best_score FROM scores")).toEqual([{ player_id: "player_a", best_score: 1200 }]);
   });
 
+  it("refuses whole numbers past 2^53 going in (bad_values) and coming out (bad_sql), and reads them as text", async () => {
+    const database: GameDatabase = localDatabase(join(folder, "big.sqlite"));
+    await database.query("CREATE TABLE totals (player_id TEXT PRIMARY KEY, amount INTEGER NOT NULL)");
+    expect(await attempt(database.query("INSERT INTO totals VALUES (?, ?)", ["player_a", 2 ** 53]))).toMatchObject({ name: "DatabaseError", code: "bad_values", message: expect.stringContaining("Store it as text") });
+    expect(await database.query("INSERT INTO totals VALUES (?, ?) RETURNING amount", ["player_b", Number.MAX_SAFE_INTEGER])).toEqual([{ amount: Number.MAX_SAFE_INTEGER }]);
+    await database.query("INSERT INTO totals VALUES ('player_c', 9223372036854775807)");
+    expect(await attempt(database.query("SELECT amount FROM totals WHERE player_id = 'player_c'"))).toMatchObject({ name: "DatabaseError", code: "bad_sql", message: expect.stringContaining("CAST(amount AS TEXT)") });
+    expect(await database.query("SELECT CAST(amount AS TEXT) AS amount FROM totals WHERE player_id = 'player_c'")).toEqual([{ amount: "9223372036854775807" }]);
+  });
+
   it("erases a player the same way Zaisma rooms do, and makes no file to erase from", async () => {
     const file = join(folder, "erase.sqlite");
     const database: GameDatabase = localDatabase(file);
@@ -103,9 +114,9 @@ describe("room.database on the Node runner", () => {
       },
     });
     const file = join(folder, "runner.sqlite");
-    const own = startServer({ server: leaderboard, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], database: localDatabase(file), roomStateFile: null });
-    await new Promise((resolve) => own.wss.once("listening", resolve));
-    const at = (own.wss.address() as { port: number }).port;
+    const own = startServer({ gameServer: leaderboard, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], database: localDatabase(file), roomStateFile: null });
+    await new Promise((resolve) => own.httpServer.once("listening", resolve));
+    const at = (own.httpServer.address() as { port: number }).port;
     const scoresOnJoin = async (sub: string, code: string) => {
       const ws = new WebSocket(`ws://localhost:${at}/v1/rooms/arena/${code}`, { origin: ORIGIN });
       const got = new Promise<unknown>((resolve) => ws.on("message", (raw) => {

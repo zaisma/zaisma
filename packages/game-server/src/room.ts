@@ -12,6 +12,7 @@ import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
 import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
+import { roomCallChecks, type CheckedDelivery } from "./room-calls.ts";
 import { newStateTracker, type StateChange, type StateFrame, type StateTracker } from "./state-sync.ts";
 import type { WebhookEvent } from "./webhooks.ts";
 
@@ -275,6 +276,11 @@ export interface LeaveInfo {
   reason: LeaveReason;
 }
 
+/** What onAway hears: why the player isn't playing. */
+export interface AwayInfo {
+  reason: AwayReason;
+}
+
 /** What one room asks another when moving players there; fromRoomCode is the asking room's, added by the transport. */
 export interface MoveAsk {
   fromRoomCode: string;
@@ -328,8 +334,12 @@ export type IdleCheck = "server" | "client" | "off";
 /** What happens to a player who walks away: their seat is held (hold), or they're sent to the room that made this one (lobby). */
 export type AwayMode = "hold" | "lobby";
 
-/** A handler answers the new state, or nothing to keep it; an async handler (one that awaits room.database) answers it later. */
-type HandlerResult<S> = void | S | Promise<void | S>;
+/**
+ * A handler answers the new state (a plain object or an array), or nothing to keep it; an async handler
+ * (one that awaits room.database) answers it later. Any other answer, like a number or null, is a mistake:
+ * the state stays and the game's logs say bad_handler_answer.
+ */
+export type HandlerResult<S> = void | S | Promise<void | S>;
 
 export interface GameServer<S = any> {
   /** Up to 100. Defaults to 8. */
@@ -436,10 +446,10 @@ export interface GameServer<S = any> {
    */
   onJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): HandlerResult<S>;
   /**
-   * Say who may come in, before they join: answer true (or nothing) to let them in, false to turn them
+   * Say who may come in, before they join: answer true to let them in, false to turn them
    * away, or { refusalMessage } to turn them away with a message they see (up to 200 characters), like
-   * a wrong room password in joinData or a full team. Anything else is a mistake and turns them away
-   * too, logged as a game server error. Players coming back after a dropped connection don't ask
+   * a wrong room password in joinData or a full team. Answering nothing, or anything else, is a mistake
+   * and turns them away too, logged as a game server error (bad_handler_answer). Players coming back after a dropped connection don't ask
    * again. Only decide here; change the state in onJoin. If it throws, the player is turned away.
    * Players another room sends are asked when it sends them, with its joinData and
    * joinInfo.fromRoomCode, and not again when they arrive.
@@ -465,14 +475,14 @@ export interface GameServer<S = any> {
    * meanwhile. They don't count as playing while away, and a room where everyone is away stops
    * ticking. onBack runs when they return: send them what they missed.
    */
-  onAway?(state: S, player: Player, room: Room, reason: AwayReason): HandlerResult<S>;
+  onAway?(state: S, player: Player, room: Room, awayInfo: AwayInfo): HandlerResult<S>;
   onBack?(state: S, player: Player, room: Room): HandlerResult<S>;
-  onMessage?(state: S, player: Player, message: unknown, room: Room): HandlerResult<S>;
+  onMessage?(state: S, player: Player, room: Room, message: unknown): HandlerResult<S>;
   /**
    * Bytes a player's game sent (room.sendBytes), like a compact input, under the same limits as
    * messages: up to 16 KB each, 30 a second. Read them with a DataView; they're a copy, yours to keep.
    */
-  onBytes?(state: S, player: Player, bytes: Uint8Array, room: Room): HandlerResult<S>;
+  onBytes?(state: S, player: Player, room: Room, bytes: Uint8Array): HandlerResult<S>;
   /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec (more when a tick was skipped). */
   onTick?(state: S, tickDurationSec: number, room: Room): HandlerResult<S>;
   /**
@@ -538,10 +548,10 @@ export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersio
 }
 
 /**
- * What canJoin answers: true, or nothing (undefined or null), lets the player in; false turns them
- * away; { refusalMessage } turns them away with that message.
+ * What canJoin answers: true lets the player in; false turns them away; { refusalMessage } turns them
+ * away with that message. Answering nothing turns them away too, and is logged as a mistake.
  */
-export type JoinAnswer = boolean | { refusalMessage: string } | null | void;
+export type JoinAnswer = boolean | { refusalMessage: string };
 
 function describeObject(given: object): string {
   try {
@@ -553,15 +563,18 @@ function describeObject(given: object): string {
 
 /**
  * canJoin's answer as the room acts on it: let in, or turn away with a refusalMessage (null for the
- * usual one). Any other answer, like a string, is a mistake, described for the game server's errors.
+ * usual one). Answering nothing or anything else is a mistake (bad_handler_answer), described for the game server's errors.
  */
-export function readJoinAnswer(answer: unknown): { isAllowed: true } | { isAllowed: false; refusalMessage: string | null } | { mistake: string } {
-  if (answer === true || answer === undefined || answer === null) return { isAllowed: true };
+export function readJoinAnswer(answer: unknown): { isAllowed: true } | { isAllowed: false; refusalMessage: string | null } | { mistake: GameServerError } {
+  if (answer === true) return { isAllowed: true };
   if (answer === false) return { isAllowed: false, refusalMessage: null };
-  const refusalMessage = typeof answer === "object" && !Array.isArray(answer) ? (answer as { refusalMessage?: unknown }).refusalMessage : undefined;
+  const refusalMessage = typeof answer === "object" && answer !== null && !Array.isArray(answer) ? (answer as { refusalMessage?: unknown }).refusalMessage : undefined;
   if (typeof refusalMessage === "string" && Object.keys(answer as object).length === 1) return { isAllowed: false, refusalMessage };
+  if (answer === undefined || answer === null) {
+    return { mistake: new GameServerError("bad_handler_answer", "canJoin", "canJoin answered nothing, so the player was turned away.", "Answer true to let them in, or { refusalMessage } to say why not.") };
+  }
   const given = typeof answer === "string" ? `the text ${JSON.stringify(answer.slice(0, 60))}` : typeof answer === "object" ? describeObject(answer) : String(answer);
-  return { mistake: `canJoin answered ${given}, so the player was turned away. Answer true (or nothing) to let them in, false to turn them away, or { refusalMessage: "Wrong room password." } to turn them away with a message.` };
+  return { mistake: new GameServerError("bad_handler_answer", "canJoin", `canJoin answered ${given}, so the player was turned away.`, 'Answer true to let them in, false to turn them away, or { refusalMessage: "Wrong room password." } to turn them away with a message.') };
 }
 
 /** Everything a game server object may have, in the order the docs give them. Anything else is refused. */
@@ -688,20 +701,38 @@ const IDLE_ASK_MS = 30_000;
 const IDLE_GRACE_MS = 60_000;
 
 /**
+ * What a GameServerError's code says: unknown_option and bad_option (a game server object that breaks
+ * the rules), bad_room_call (a room call's arguments are wrong), room_call_limit (too many reserves a
+ * minute, or room calls in one go), room_call_unavailable (that call can't run here or now) and
+ * bad_handler_answer (a handler answered something that isn't a state, or canJoin answered nothing).
+ */
+export type GameServerErrorCode = "unknown_option" | "bad_option" | "bad_room_call" | "room_call_limit" | "room_call_unavailable" | "bad_handler_answer";
+
+const GAME_SERVER_ERROR_CODES: readonly string[] = ["unknown_option", "bad_option", "bad_room_call", "room_call_limit", "room_call_unavailable", "bad_handler_answer"];
+
+/**
  * A game server object that breaks the rules, with a code, the option at fault and what to do
  * (like the developer API's errors, docs/NAMING.md).
  */
 export class GameServerError extends Error {
-  readonly code: "unknown_option" | "bad_option";
+  readonly code: GameServerErrorCode;
   readonly field: string;
   readonly fix: string;
-  constructor(code: "unknown_option" | "bad_option", field: string, message: string, fix: string) {
+  constructor(code: GameServerErrorCode, field: string, message: string, fix: string) {
     super(`${message} ${fix} (${code})`);
+    this.name = "GameServerError";
     this.code = code;
     this.field = field;
     this.fix = fix;
   }
+  /** True for any error named GameServerError with a known code, so instanceof works for the copy a game's sandbox has too. */
+  static [Symbol.hasInstance](candidate: unknown): boolean {
+    return candidate instanceof Error && candidate.name === "GameServerError" && GAME_SERVER_ERROR_CODES.includes((candidate as { code?: GameServerErrorCode }).code as GameServerErrorCode);
+  }
 }
+
+/** The checks every room call goes through, here and in a game's sandbox (room-calls.ts). */
+const checks = roomCallChecks(GameServerError, ROOM_LIMITS);
 
 /** The error for an option a game server doesn't take, naming the ones it does. */
 export function unknownOptionError(field: string): GameServerError {
@@ -1052,13 +1083,13 @@ export interface Transport {
 export const NO_SECRETS: Readonly<Record<string, string>> = Object.freeze({});
 
 /** room.verifyReceipt and server.verifyReceipt where the runtime has no receipt keys. */
-export const NO_RECEIPT_CHECK = (): Promise<ReceiptClaims> => Promise.reject(new Error("Receipts can't be checked here: run the game server in Zaisma rooms or with the Node runner (node packages/game-server/bin/node.js), or call verifyReceipt with the keys from https://rooms.zaisma.com/.well-known/receipt-jwks.json and issuer https://rooms.zaisma.com/receipts."));
+export const NO_RECEIPT_CHECK = (): Promise<ReceiptClaims> => Promise.reject(new Error("Receipts can't be checked here: run the game server in Zaisma rooms or with the Node runner (npx @zaisma/game-server), or call verifyReceipt with the keys from https://rooms.zaisma.com/.well-known/receipt-jwks.json and issuer https://rooms.zaisma.com/receipts."));
 
 /** room.database where the room has no database: every call fails, saying so. */
 const NO_DATABASE: GameDatabase = {
-  query: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database <file>, or pass database to startServer.")),
-  batch: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database <file>, or pass database to startServer.")),
-  erasePlayer: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database <file>, or pass database to startServer.")),
+  query: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database-file <file>, or pass database to startServer.")),
+  batch: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database-file <file>, or pass database to startServer.")),
+  erasePlayer: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database-file <file>, or pass database to startServer.")),
 };
 
 /**
@@ -1066,15 +1097,7 @@ const NO_DATABASE: GameDatabase = {
  * Nothing (undefined or null) is null. Players' data that fails this is refused.
  */
 export function checkRoomData(given: unknown, maximumSizeBytes: number): { isValid: true; checkedData: unknown } | { isValid: false } {
-  if (given === undefined || given === null) return { isValid: true, checkedData: null };
-  let text: string | undefined;
-  try {
-    text = JSON.stringify(given);
-  } catch {
-    return { isValid: false };
-  }
-  if (text === undefined || new TextEncoder().encode(text).length > maximumSizeBytes) return { isValid: false };
-  return { isValid: true, checkedData: JSON.parse(text) };
+  return checks.checkRoomData(given, maximumSizeBytes);
 }
 
 /**
@@ -1127,6 +1150,9 @@ export const QUEUES_INPUT = Symbol("queuesInput");
  * between the room's players may have changed, so the sandbox is sent the pairs again only then.
  */
 export const PAIR_CHANGE_COUNT = Symbol("pairChangeCount");
+
+/** A room's method for a game server in a sandbox to reserve a room with the room code it already told the game. Zaisma's own: not on Room's type. */
+export const RESERVE_WITH_ROOM_CODE = Symbol("reserveWithRoomCode");
 
 /**
  * Marks a game server that runs state sync itself, like Zaisma's sandboxed ones, whose state lives in the
@@ -1309,6 +1335,9 @@ export class RoomCore<S = any> {
   readonly maximumPlayerCount: number;
   readonly maximumSpectatorCount: number;
   private readonly api: Room;
+  /** The room as canJoin and stateView see it: reading works, and any call that changes or sends throws room_call_unavailable. */
+  private readonly canJoinRoom: Room;
+  private readonly stateViewRoom: Room;
   readonly server: GameServer<S>;
   private readonly transport: Transport;
   /**
@@ -1421,7 +1450,7 @@ export class RoomCore<S = any> {
       const first = server.setup(this.setupData) as S | Promise<S>;
       if (isPromise(first)) {
         this.state = undefined as S;
-        this.run(() => first);
+        this.run(() => first, "setup");
       } else this.state = first;
     }
     const core = this;
@@ -1434,28 +1463,27 @@ export class RoomCore<S = any> {
         return [...core.spectators.values()];
       },
       broadcast: (message, broadcastOptions) => {
-        const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "audience", "delivery", "latestKey", "fromPlayerId"], "room.broadcast");
-        const delivery = readDelivery(given, "room.broadcast");
+        const checked = checks.checkBroadcast(message, broadcastOptions);
         this.deliver(
-          this.audienceOf(given.audience, "room.broadcast").filter((id) => id !== given.exceptPlayerId),
-          { text: JSON.stringify({ type: "message", data: message, fromPlayerId: readFromPlayerId(given, "room.broadcast") } satisfies ServerMessage), messageType: messageTypeOf(message) },
-          delivery,
+          this.audienceOf(checked.audience).filter((id) => id !== checked.exceptPlayerId),
+          { text: JSON.stringify({ type: "message", data: message, fromPlayerId: checked.fromPlayerId } satisfies ServerMessage), messageType: messageTypeOf(message) },
+          checked.delivery,
         );
       },
       send: (playerId, message, sendOptions) => {
-        const given = closed(sendOptions ?? {}, ["delivery", "latestKey", "fromPlayerId"], "room.send");
-        const delivery = readDelivery(given, "room.send");
-        const text = JSON.stringify({ type: "message", data: message, fromPlayerId: readFromPlayerId(given, "room.send") } satisfies ServerMessage);
-        if (this.isViewer(playerId)) this.deliver([playerId], { text, messageType: messageTypeOf(message) }, delivery);
+        const checked = checks.checkSend(playerId, message, sendOptions);
+        const text = JSON.stringify({ type: "message", data: message, fromPlayerId: checked.fromPlayerId } satisfies ServerMessage);
+        if (this.isViewer(checked.playerId)) this.deliver([checked.playerId], { text, messageType: messageTypeOf(message) }, checked.delivery);
       },
-      broadcastBytes: (bytes, broadcastOptions) => this.broadcastBytes(bytes, broadcastOptions),
+      broadcastBytes: (bytes, broadcastOptions) => {
+        const checked = checks.checkBroadcastBytes(bytes, broadcastOptions);
+        this.deliver(this.audienceOf(checked.audience).filter((id) => id !== checked.exceptPlayerId), { frame: bytesFrame(checked.bytes, checked.fromPlayerId), messageType: BYTES_MESSAGE_TYPE }, checked.delivery);
+      },
       sendBytes: (playerId, bytes, sendOptions) => {
-        const given = closed(sendOptions ?? {}, ["delivery", "latestKey", "fromPlayerId"], "room.sendBytes");
-        const delivery = readDelivery(given, "room.sendBytes");
-        const frame = bytesFrame(readBytes(bytes, "room.sendBytes"), readFromPlayerId(given, "room.sendBytes"));
-        if (this.isViewer(playerId)) this.deliver([playerId], { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
+        const checked = checks.checkSendBytes(playerId, bytes, sendOptions);
+        if (this.isViewer(checked.playerId)) this.deliver([checked.playerId], { frame: bytesFrame(checked.bytes, checked.fromPlayerId), messageType: BYTES_MESSAGE_TYPE }, checked.delivery);
       },
-      end: (message) => this.end(message ?? "The match is over.", "game"),
+      end: (message) => this.end(checks.checkEnd(message) ?? "The match is over.", "game"),
       get endsAt() {
         return core.endsAt;
       },
@@ -1481,9 +1509,12 @@ export class RoomCore<S = any> {
       get labels() {
         return { ...core.labels };
       },
-      setInfo: (nameAndLabels) => this.settle(tidyRoomInfo(closed(nameAndLabels, ["name", "labels"], "room.setInfo"))),
-      reserve: (reserveOptions) => this.reserve(reserveOptions),
-      kick: (playerId, kickOptions) => this.kick(playerId, kickOptions),
+      setInfo: (nameAndLabels) => this.settle(checks.checkSetInfo(nameAndLabels)),
+      reserve: (reserveOptions) => this.reserve(reserveOptions, null),
+      kick: (playerId, kickOptions) => {
+        const checked = checks.checkKick(playerId, kickOptions);
+        this.kick(checked.playerId, { message: checked.message, keepOut: checked.isKeptOut });
+      },
       moveTo: (toRoomCode, moveOptions) => this.moveTo(toRoomCode, moveOptions),
       database: transport.database ?? NO_DATABASE,
       secrets: transport.secrets ?? NO_SECRETS,
@@ -1497,8 +1528,12 @@ export class RoomCore<S = any> {
         if (this.versionUpdate) this.soon(() => this.transport.applyVersionUpdate?.());
       },
     };
+    // A game server in a sandbox picks the room code itself, since it tells the game at once.
+    Object.defineProperty(this.api, RESERVE_WITH_ROOM_CODE, { value: (reserveOptions: ReserveOptions, newRoomCode: string) => this.reserve(reserveOptions, newRoomCode) });
     Object.defineProperty(this.api, PAIR_CHANGE_COUNT, { get: () => this.pairChangeCount });
     Object.defineProperty(this.api, STATE_SYNC, { value: { viewers: () => this.stateViewers(), send: (playerIds, frame) => this.sendStateFrom(playerIds, frame) } satisfies StateSyncHooks });
+    this.canJoinRoom = readOnlyRoom(this.api, "canJoin");
+    this.stateViewRoom = readOnlyRoom(this.api, "stateView");
     if (restoreInfo) this.restored(restoreInfo, lostPlayers);
   }
 
@@ -1514,11 +1549,11 @@ export class RoomCore<S = any> {
         this.reconnectUntilMs.set(player.id, this.now() + reconnectTimeoutSec * 1000);
       }
     }
-    this.run(() => this.server.onRestored?.(this.state, restoreInfo, this.api));
+    this.run(() => this.server.onRestored?.(this.state, restoreInfo, this.api), "onRestored");
     for (const player of lostPlayers) {
       // With reconnectTimeoutSec 0, they leave at once, as a dropped connection does.
       if (reconnectTimeoutSec === 0) this.leave(player.id, "lost");
-      else if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, "lost"));
+      else if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, { reason: "lost" }), "onAway");
     }
     this.listingChanged = true;
     this.dirty = true;
@@ -1695,18 +1730,18 @@ export class RoomCore<S = any> {
     await this.settled();
     let answer: unknown;
     try {
-      answer = await this.server.canJoin(this.state, player, this.api, joinData, joinInfo);
+      answer = await this.server.canJoin(this.state, player, this.canJoinRoom, joinData, joinInfo);
     } catch (error) {
       console.error("Game server error:", error);
       return { isAllowed: false, code: "refused" };
     }
     const read = readJoinAnswer(answer);
     if ("mistake" in read) {
-      console.error(`Game server error: ${read.mistake}`);
+      console.error("Game server error:", read.mistake);
       return { isAllowed: false, code: "refused" };
     }
     if (!read.isAllowed) {
-      const message = tidy(read.refusalMessage, ROOM_LIMITS.maximumRefusalMessageCharacterCount);
+      const message = checks.tidy(read.refusalMessage, ROOM_LIMITS.maximumRefusalMessageCharacterCount);
       return { isAllowed: false, code: "refused", ...(message ? { message } : {}) };
     }
     return door() ?? { isAllowed: true };
@@ -1854,7 +1889,7 @@ export class RoomCore<S = any> {
     this.tellBlocks();
     if (!isRejoin) {
       this.listingChanged = true;
-      this.run(() => this.server.onJoin?.(this.state, player, this.api, joinData, joinInfo));
+      this.run(() => this.server.onJoin?.(this.state, player, this.api, joinData, joinInfo), "onJoin");
       this.broadcastPlayers();
     } else if (isReconnect) this.cameBack(player);
     else if (this.kept.has(player.id)) this.back(player.id);
@@ -1886,7 +1921,7 @@ export class RoomCore<S = any> {
     }
     if (!isRejoin) {
       this.listingChanged = true;
-      this.run(() => this.server.onSpectatorJoin?.(this.state, spectator, this.api));
+      this.run(() => this.server.onSpectatorJoin?.(this.state, spectator, this.api), "onSpectatorJoin");
       this.tellRoom();
     }
     // A turn-based room has no tick to bring them their copy of the state, nor a handler that did.
@@ -1907,7 +1942,7 @@ export class RoomCore<S = any> {
     this.listingChanged = true;
     this.soon(() => {
       if (this.ended) return;
-      this.run(() => this.server.onSpectatorLeave?.(this.state, spectator, this.api));
+      this.run(() => this.server.onSpectatorLeave?.(this.state, spectator, this.api), "onSpectatorLeave");
       this.tellRoom();
     });
   }
@@ -1939,14 +1974,14 @@ export class RoomCore<S = any> {
       this.presence.get(playerId)?.unansweredProbes.clear();
       this.listingChanged = true;
       this.dirty = true;
-      if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, "lost"));
+      if (this.server.onAway) this.run(() => this.server.onAway!(this.state, player, this.api, { reason: "lost" }), "onAway");
       this.broadcastPlayers();
       return;
     }
     this.out(playerId);
     if (this.ended) return;
     if (reason === "lost") this.hold(player, "lost");
-    this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }));
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }), "onLeave");
     this.broadcastPlayers();
   }
 
@@ -2003,13 +2038,13 @@ export class RoomCore<S = any> {
       this.kept.set(playerId, reason);
       this.listingChanged = true;
       this.dirty = true;
-      this.run(() => this.server.onAway!(this.state, player, this.api, reason));
+      this.run(() => this.server.onAway!(this.state, player, this.api, { reason }), "onAway");
       return;
     }
     this.out(playerId);
     const seatHoldDurationSec = this.hold(player, reason);
     this.sendText(playerId, JSON.stringify({ type: "away", awayReason: reason, seatHoldDurationSec } satisfies ServerMessage));
-    this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }));
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason }), "onLeave");
     this.broadcastPlayers();
     if (this.server.awayMode === "lobby" && this.lobbyRoomCode && this.transport.moveTo) {
       this.sentAway.add(playerId);
@@ -2037,7 +2072,7 @@ export class RoomCore<S = any> {
   private cameBack(player: Player): void {
     this.listingChanged = true;
     this.dirty = true;
-    this.run(() => this.server.onBack?.(this.state, player, this.api));
+    this.run(() => this.server.onBack?.(this.state, player, this.api), "onBack");
     this.broadcastPlayers();
   }
 
@@ -2052,7 +2087,7 @@ export class RoomCore<S = any> {
       if (!player) continue;
       this.out(id);
       this.hold(player, "lost");
-      this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason: "lost" }));
+      this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason: "lost" }), "onLeave");
       this.broadcastPlayers();
     }
   }
@@ -2149,7 +2184,7 @@ export class RoomCore<S = any> {
       case "back":
         return this.back(playerId);
       case "message":
-        this.input(() => this.server.onMessage?.(this.state, player!, message.data, this.api));
+        this.input(() => this.server.onMessage?.(this.state, player!, this.api, message.data), "onMessage");
         return null;
       case "block":
         return this.sessionBlock(playerId, message, true);
@@ -2177,7 +2212,7 @@ export class RoomCore<S = any> {
     if (!this.server.onBytes) return "bad_message";
     const presence = this.presence.get(playerId);
     if (presence) presence.seenAtMs = this.now();
-    this.input(() => this.server.onBytes!(this.state, player!, bytes, this.api));
+    this.input(() => this.server.onBytes!(this.state, player!, this.api, bytes), "onBytes");
     return null;
   }
 
@@ -2202,8 +2237,8 @@ export class RoomCore<S = any> {
    * A player's message or bytes for the game server: through the queue of handlers, or at once for a
    * game server that only queues them for its next call (QUEUES_INPUT).
    */
-  private input(handler: () => HandlerResult<S>): void {
-    if (!(this.server as { [QUEUES_INPUT]?: boolean })[QUEUES_INPUT]) return this.run(handler);
+  private input(handler: () => HandlerResult<S>, handlerName: string): void {
+    if (!(this.server as { [QUEUES_INPUT]?: boolean })[QUEUES_INPUT]) return this.run(handler, handlerName);
     try {
       handler();
     } catch (error) {
@@ -2310,12 +2345,11 @@ export class RoomCore<S = any> {
     return this.players.has(playerId) || this.spectators.has(playerId);
   }
 
-  /** Who a broadcast reaches (BroadcastOptions.audience). Anything else is a mistake in the game's call. */
-  private audienceOf(audience: unknown, call: string): string[] {
-    if (audience === undefined || audience === "everyone") return this.everyone();
+  /** Who a broadcast reaches (BroadcastOptions.audience, already checked). */
+  private audienceOf(audience: Audience): string[] {
     if (audience === "players") return [...this.players.keys()];
     if (audience === "spectators") return [...this.spectators.keys()];
-    throw new Error(`${call}'s audience is ${typeof audience === "string" ? JSON.stringify(audience.slice(0, 40)) : typeof audience}. Give "everyone", "players" or "spectators", or leave it out for everyone.`);
+    return this.everyone();
   }
 
   /**
@@ -2329,27 +2363,20 @@ export class RoomCore<S = any> {
     this.dirty = true;
   }
 
-  /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
-  private reserve(reserveOptions: ReserveOptions & { roomCode?: unknown }): string {
-    if (!this.transport.reserve) throw new Error("Reserved rooms aren't available here");
-    if (this.ended) throw new Error("This room has ended");
-    // A game server in a sandbox picks the code itself (roomCode), since it tells the game at once.
-    const given = closed(reserveOptions, ["playerIds", "setupData", "isListed", "friendJoinsEnabled", "isKept", "name", "labels", "roomCode"], "room.reserve");
-    const playerIds = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].filter((id) => this.players.has(id));
-    if (!playerIds.length) throw new Error("room.reserve needs playerIds of players who are in this room");
-    const checked = checkRoomData(given.setupData, ROOM_LIMITS.maximumSetupDataSizeBytes);
-    if (!checked.isValid) throw new Error(`room.reserve's setupData must be plain JSON up to ${ROOM_LIMITS.maximumSetupDataSizeBytes / 1024} KB`);
-    this.limit();
-    const nameAndLabels = tidyRoomInfo({ name: given.name ?? null, labels: given.labels ?? {} });
-    const newRoomCode = typeof given.roomCode === "string" && isRoomCode(given.roomCode) ? given.roomCode : roomCode();
-    this.transport.reserve(newRoomCode, {
-      playerIds,
-      setupData: checked.checkedData,
-      isListed: given.isListed === true,
-      ...(given.friendJoinsEnabled === false ? { friendJoinsEnabled: false } : {}),
-      ...(given.isKept === true ? { isKept: true } : {}),
-      name: nameAndLabels.name ?? null,
-      labels: nameAndLabels.labels ?? {},
+  /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. newRoomCode is the one a game server in a sandbox chose. */
+  private reserve(reserveOptions: ReserveOptions, chosenRoomCode: string | null): string {
+    this.requireCall("room.reserve", this.transport.reserve !== undefined);
+    const checked = checks.checkReserve(reserveOptions, [...this.players.keys()]);
+    this.limit("room.reserve");
+    const newRoomCode = chosenRoomCode !== null && isRoomCode(chosenRoomCode) ? chosenRoomCode : roomCode();
+    this.transport.reserve!(newRoomCode, {
+      playerIds: checked.playerIds,
+      setupData: checked.setupData,
+      isListed: checked.isListed,
+      ...(checked.friendJoinsEnabled ? {} : { friendJoinsEnabled: false }),
+      ...(checked.isKept ? { isKept: true } : {}),
+      name: checked.name,
+      labels: checked.labels,
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
     });
     return newRoomCode;
@@ -2357,16 +2384,17 @@ export class RoomCore<S = any> {
 
   /** Send players to another room of the game (room.moveTo). Mistakes in the game's call throw. */
   private moveTo(toRoomCode: string, moveOptions: MoveOptions): void {
-    if (!this.transport.moveTo) throw new Error("Moving players isn't available here");
-    if (this.ended) throw new Error("This room has ended");
-    if (typeof toRoomCode !== "string" || !isRoomCode(toRoomCode)) throw new Error("room.moveTo needs a room code");
-    const given = closed(moveOptions, ["playerIds", "joinData"], "room.moveTo");
-    const players = [...new Set(Array.isArray(given.playerIds) ? given.playerIds : [])].map((id) => this.players.get(id)).filter((player): player is Player => Boolean(player));
-    if (!players.length) throw new Error("room.moveTo needs playerIds of players who are in this room");
-    const checked = checkRoomData(given.joinData, ROOM_LIMITS.maximumJoinDataSizeBytes);
-    if (!checked.isValid) throw new Error(`room.moveTo's joinData must be plain JSON up to ${ROOM_LIMITS.maximumJoinDataSizeBytes / 1024} KB`);
-    this.limit();
-    this.transport.moveTo(toRoomCode, { players, joinData: checked.checkedData });
+    this.requireCall("room.moveTo", this.transport.moveTo !== undefined);
+    const checked = checks.checkMoveTo(toRoomCode, moveOptions, [...this.players.keys()]);
+    this.limit("room.moveTo");
+    const players = checked.playerIds.map((id) => this.players.get(id)!);
+    this.transport.moveTo!(checked.toRoomCode, { players, joinData: checked.joinData });
+  }
+
+  /** A call that needs the transport to offer it and the room to be going: otherwise it throws room_call_unavailable. */
+  private requireCall(call: string, isOffered: boolean): void {
+    if (!isOffered) throw new GameServerError("room_call_unavailable", call, `${call} isn't available here.`, "Reserving rooms and moving players need Zaisma's rooms or the Node runner.");
+    if (this.ended) throw new GameServerError("room_call_unavailable", call, `${call} was called after this room ended.`, "Check room.endsAt, and stop making room calls once you've called room.end().");
   }
 
   /**
@@ -2388,26 +2416,25 @@ export class RoomCore<S = any> {
       movedPlayers: answer.movedPlayerIds.map((id) => who.get(id)).filter((player): player is Player => Boolean(player)),
       refusals: answer.refusals.filter((refusal) => who.has(refusal.playerId)).map((refusal) => ({ player: who.get(refusal.playerId)!, code: refusal.code, message: refusal.message })),
     };
-    this.run(() => this.server.onMoved!(this.state, moveResult, this.api));
+    this.run(() => this.server.onMoved!(this.state, moveResult, this.api), "onMoved");
   }
 
   /** Reserving rooms and moving players share one limit a minute. */
-  private limit(): void {
+  private limit(call: string): void {
     const nowMs = this.now();
     this.reservedAtMs = this.reservedAtMs.filter((reservedAtMs) => nowMs - reservedAtMs < 60_000);
-    if (this.reservedAtMs.length >= ROOM_LIMITS.maximumReservesPerMin) throw new Error(`A room can reserve rooms or move players up to ${ROOM_LIMITS.maximumReservesPerMin} times a minute`);
+    if (this.reservedAtMs.length >= ROOM_LIMITS.maximumReservesPerMin) throw new GameServerError("room_call_limit", call, `A room can reserve rooms or move players up to ${ROOM_LIMITS.maximumReservesPerMin} times a minute.`, "Reserve one room for a whole group, or wait a minute.");
     this.reservedAtMs.push(nowMs);
   }
 
   /** Remove a player (room.kick). Their onLeave runs once the handler that kicked them is done. */
   kick(playerId: string, kickOptions?: KickOptions): void {
-    const given = closed(kickOptions ?? {}, ["message", "keepOut"], "room.kick");
     const player = this.players.get(playerId);
     const held = this.held.get(playerId);
     const isSpectator = this.spectators.has(playerId);
     if ((!player && !held && !isSpectator) || this.ended) return;
-    const message = tidy(given.message, ROOM_LIMITS.maximumKickMessageCharacterCount) || ERROR_TEXT.kept_out;
-    const isKeptOut = given.keepOut === true;
+    const message = kickOptions?.message || ERROR_TEXT.kept_out;
+    const isKeptOut = kickOptions?.keepOut === true;
     if (isSpectator) {
       if (isKeptOut) this.keepOut({ [playerId]: message });
       this.sendText(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
@@ -2428,7 +2455,7 @@ export class RoomCore<S = any> {
     if (!player) return;
     this.soon(() => {
       if (this.ended) return;
-      this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason: "kicked" }));
+      this.run(() => this.server.onLeave?.(this.state, player, this.api, { reason: "kicked" }), "onLeave");
       this.broadcastPlayers();
     });
   }
@@ -2477,7 +2504,7 @@ export class RoomCore<S = any> {
     if (!this.server.onTick) return this.syncState();
     // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waitingCount > 1) return;
-    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api), true);
+    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api), "onTick", true);
   }
 
   /**
@@ -2538,7 +2565,7 @@ export class RoomCore<S = any> {
     const viewerIds = this.stateViewerIds();
     const stateView = this.server.stateView;
     const state = this.state;
-    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, (this.players.get(viewerId) ?? this.spectators.get(viewerId))!, this.api) : null, this.backedUpViewers(viewerIds));
+    const round = tracker.round(state, viewerIds, stateView ? (viewerId) => stateView(state, (this.players.get(viewerId) ?? this.spectators.get(viewerId))!, this.stateViewRoom) : null, this.backedUpViewers(viewerIds));
     for (const problem of round.problems) console.error(`Game server error: ${problem}`);
     for (const { playerIds, frame } of round.frames) this.sendState(playerIds, frame);
   }
@@ -2547,7 +2574,7 @@ export class RoomCore<S = any> {
   private syncSoon(): void {
     if (!this.server.stateSyncEnabled || this.ended) return;
     const syncs = (this.server as { [SYNCS_STATE]?: (state: S, room: Room) => HandlerResult<S> })[SYNCS_STATE];
-    if (syncs) return this.run(() => syncs(this.state, this.api));
+    if (syncs) return this.run(() => syncs(this.state, this.api), "stateSync");
     if (this.queue) this.queue = this.queue.then(() => this.syncState());
     else this.soon(() => this.syncState());
   }
@@ -2580,7 +2607,7 @@ export class RoomCore<S = any> {
    * A game's message or bytes for some players. Reliable ones go to all of them, counting those that went to
    * a backed-up player; latest-only ones wait in a slot for each backed-up player, replacing an older one there.
    */
-  private deliver(playerIds: string[], outgoing: Outgoing, delivery: ReadDelivery): void {
+  private deliver(playerIds: string[], outgoing: Outgoing, delivery: CheckedDelivery): void {
     const ids = playerIds.filter((id) => !this.isLost(id));
     if (!delivery.isLatestOnly) return this.sendOut(ids, outgoing, ids.filter((id) => this.isBackedUp(id)).length);
     const ready: string[] = [];
@@ -2621,7 +2648,7 @@ export class RoomCore<S = any> {
     if (this.ended || this.versionUpdate?.versionId === versionUpdate.versionId) return;
     this.versionUpdate = versionUpdate;
     this.sendEach(this.everyone(), JSON.stringify({ type: "version_update", step: "coming", ...versionUpdate } satisfies ServerMessage));
-    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { ...versionUpdate }, this.api));
+    if (isHeld && this.server.onVersionUpdate) this.run(() => this.server.onVersionUpdate!(this.state, { ...versionUpdate }, this.api), "onVersionUpdate");
   }
 
   /** The switch is happening: every player hears it just before the room closes their connections. */
@@ -2639,7 +2666,7 @@ export class RoomCore<S = any> {
     this.endsAt = endsAt;
     this.dirty = true;
     this.sendEach(this.everyone(), JSON.stringify({ type: "ending", endsAt } satisfies ServerMessage));
-    if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api));
+    if (this.server.onEnding) this.run(() => this.server.onEnding!(this.state, this.api), "onEnding");
   }
 
   /** End the match: everyone hears message and why (endReason), and their connections close. */
@@ -2666,14 +2693,6 @@ export class RoomCore<S = any> {
   /** The players as every player's game lists them, with why each isn't playing. */
   private list(): ListedPlayer[] {
     return [...this.players.values()].map((player) => ({ ...shownPlayer(player), awayReason: this.kept.get(player.id) ?? null }));
-  }
-
-  /** room.broadcastBytes: one frame, built once, to the audience (everyone, by default) but exceptPlayerId. */
-  private broadcastBytes(bytes: Uint8Array, broadcastOptions?: BroadcastOptions): void {
-    const given = closed(broadcastOptions ?? {}, ["exceptPlayerId", "fromPlayerId", "audience", "delivery", "latestKey"], "room.broadcastBytes");
-    const delivery = readDelivery(given, "room.broadcastBytes");
-    const frame = bytesFrame(readBytes(bytes, "room.broadcastBytes"), readFromPlayerId(given, "room.broadcastBytes"));
-    this.deliver(this.audienceOf(given.audience, "room.broadcastBytes").filter((id) => id !== given.exceptPlayerId), { frame, messageType: BYTES_MESSAGE_TYPE }, delivery);
   }
 
   /** Send a binary frame to some players, counting it like text: toward each one's backlog, and the room's traffic. */
@@ -2809,11 +2828,18 @@ export class RoomCore<S = any> {
     return true;
   }
 
+  /** A handler's answer becomes the state if it is one (a plain object or an array); nothing keeps the state, and anything else is a mistake that leaves it. */
+  private keepAnswer(handlerName: string, answer: unknown): void {
+    if (answer === undefined) return;
+    if (handlerName === "setup" || isStateAnswer(answer)) this.state = answer as S;
+    else console.error("Game server error:", badHandlerAnswer(handlerName, answer));
+  }
+
   /**
    * Run a game server handler. A crash in game code is logged and never takes the room down. State sync's
    * round follows a turn-based room's handlers and a real-time room's tick (isTick).
    */
-  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>, isTick = false): void {
+  private run(handler: () => HandlerResult<S> | Promise<HandlerResult<S>>, handlerName: string, isTick = false): void {
     const isSyncing = this.stateTracker !== null && (isTick || !this.ticking);
     if (!this.queue) {
       let next: HandlerResult<S> | Promise<HandlerResult<S>>;
@@ -2828,7 +2854,7 @@ export class RoomCore<S = any> {
       }
       this.depth--;
       if (!isPromise(next)) {
-        if (next !== undefined) this.state = next as S;
+        this.keepAnswer(handlerName, next);
         this.dirty = true;
         if (isSyncing) this.syncState();
         this.flush();
@@ -2843,7 +2869,7 @@ export class RoomCore<S = any> {
       this.depth++;
       try {
         const next = await handler();
-        if (next !== undefined) this.state = next as S;
+        this.keepAnswer(handlerName, next);
         this.dirty = true;
         if (isSyncing) this.syncState();
       } catch (error) {
@@ -2855,6 +2881,36 @@ export class RoomCore<S = any> {
       }
     });
   }
+}
+
+/** The calls that change the room or send from it: not for canJoin or stateView, which only decide and answer. */
+const CHANGING_CALLS = ["broadcast", "send", "broadcastBytes", "sendBytes", "end", "setListed", "setOpen", "setFriendJoinsEnabled", "setKept", "setInfo", "reserve", "kick", "moveTo", "applyVersionUpdate"] as const;
+
+/** A room that reads like the room but throws room_call_unavailable for every call that changes it, for the handler named. */
+function readOnlyRoom(room: Room, handlerName: string): Room {
+  const view = Object.create(room) as Room;
+  for (const call of CHANGING_CALLS) {
+    Object.defineProperty(view, call, {
+      value: () => {
+        throw new GameServerError("room_call_unavailable", `room.${call}`, `${handlerName} can't change the room.`, `Only read from room in ${handlerName}; change the room in the handlers that run after it, like onJoin or onMessage.`);
+      },
+    });
+  }
+  return view;
+}
+
+/** Whether a handler's answer can be the state: a plain object (prototype Object.prototype or null) or an array. */
+export function isStateAnswer(given: unknown): boolean {
+  if (Array.isArray(given)) return true;
+  if (typeof given !== "object" || given === null) return false;
+  const prototype = Object.getPrototypeOf(given);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** The mistake of a handler answering something that isn't a state; the state stays as it was. */
+export function badHandlerAnswer(handlerName: string, answer: unknown): GameServerError {
+  const given = typeof answer === "string" ? `the text ${JSON.stringify(answer.slice(0, 60))}` : answer === null ? "null" : typeof answer === "object" ? `a ${(answer as { constructor?: { name?: string } }).constructor?.name ?? "non-plain"} object` : String(answer).slice(0, 60);
+  return new GameServerError("bad_handler_answer", handlerName, `${handlerName} answered ${given}, so the state stayed as it was.`, "Answer the new state as a plain object or an array, or answer nothing to keep the state.");
 }
 
 function isPromise<T>(given: unknown): given is Promise<T> {
@@ -2890,36 +2946,6 @@ function newPresence(seenAtMs: number, clientIdle: ClientIdle): Presence {
 /** A game's message or bytes on their way out: the text or binary frame, and its type for the traffic counts. */
 type Outgoing = { text: string; messageType: string } | { frame: Uint8Array; messageType: string };
 
-/** A send's delivery as the room acts on it: latest-only, with its latestKey, or reliable. */
-type ReadDelivery = { isLatestOnly: false } | { isLatestOnly: true; latestKey: string };
-
-/** A send's delivery and latestKey, checked: mistakes throw, naming what to give. latest_only needs its latestKey. */
-function readDelivery(given: SendOptions, call: string): ReadDelivery {
-  const { delivery, latestKey } = given;
-  if (delivery !== undefined && delivery !== "reliable" && delivery !== "latest_only") throw new Error(`${call}'s delivery is ${JSON.stringify(delivery)}. Give "reliable" (the default) or "latest_only".`);
-  if (latestKey !== undefined && (typeof latestKey !== "string" || latestKey.length > ROOM_LIMITS.maximumLatestKeyCharacterCount)) {
-    throw new Error(`${call}'s latestKey must be text up to ${ROOM_LIMITS.maximumLatestKeyCharacterCount} characters, like "positions".`);
-  }
-  if (delivery !== "latest_only") return { isLatestOnly: false };
-  if (latestKey === undefined) throw new GameServerError("bad_option", "latestKey", `${call}'s delivery is "latest_only" with no latestKey.`, 'latest_only needs a latestKey: the slot this update replaces, like "position".');
-  return { isLatestOnly: true, latestKey };
-}
-
-/** Who a send says it's from (SendOptions.fromPlayerId), or null for the game server. */
-function readFromPlayerId(given: SendOptions, call: string): string | null {
-  if (given.fromPlayerId === undefined) return null;
-  if (typeof given.fromPlayerId !== "string" || !given.fromPlayerId) throw new Error(`${call}'s fromPlayerId must be a player's ID, like player.id.`);
-  return given.fromPlayerId;
-}
-
-/** Bytes a game handed the room, as a Uint8Array: anything else is a mistake in the game's call. */
-function readBytes(given: unknown, call: string): Uint8Array {
-  if (given instanceof Uint8Array) return given;
-  if (given instanceof ArrayBuffer) return new Uint8Array(given);
-  if (ArrayBuffer.isView(given)) return new Uint8Array(given.buffer, given.byteOffset, given.byteLength);
-  throw new Error(`${call} takes bytes: a Uint8Array, another typed array or an ArrayBuffer.`);
-}
-
 /** How many bytes a text takes on the wire. */
 function utf8ByteCount(text: string): number {
   return new TextEncoder().encode(text).length;
@@ -2936,40 +2962,7 @@ export function clientIdle(given: unknown): ClientIdle {
   return out;
 }
 
-/** A game's call options with only the fields it takes: anything else throws, naming the ones it does. */
-function closed<T extends object>(given: T, fields: readonly string[], call: string): Partial<T> {
-  if (given === null || typeof given !== "object") return {};
-  for (const field of Object.keys(given)) {
-    if (!fields.includes(field)) throw new Error(`${call} doesn't take ${field}. It takes: ${fields.filter((name) => name !== "roomCode").join(", ")}.`);
-  }
-  return given;
-}
-
-// Characters that hide text or flip its direction.
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
-const tidy = (given: unknown, maximumCharacterCount: number) =>
-  String(given ?? "")
-    .normalize("NFKC")
-    .replace(HIDDEN, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maximumCharacterCount)
-    .trim();
-
 /** A name and labels within the limits, with hidden characters dropped. Fields left out stay out. */
 export function tidyRoomInfo(nameAndLabels: RoomInfo): Partial<Pick<RoomSettings, "name" | "labels">> {
-  const out: Partial<Pick<RoomSettings, "name" | "labels">> = {};
-  if (nameAndLabels.name !== undefined) out.name = nameAndLabels.name === null ? null : tidy(nameAndLabels.name, ROOM_LIMITS.maximumNameCharacterCount) || null;
-  if (nameAndLabels.labels !== undefined) {
-    const labels: Record<string, string> = {};
-    if (nameAndLabels.labels && typeof nameAndLabels.labels === "object") {
-      for (const [labelName, labelValue] of Object.entries(nameAndLabels.labels)) {
-        const key = tidy(labelName, ROOM_LIMITS.maximumLabelNameCharacterCount);
-        const shown = typeof labelValue === "string" || typeof labelValue === "number" ? tidy(labelValue, ROOM_LIMITS.maximumLabelValueCharacterCount) : "";
-        if (key && shown && Object.keys(labels).length < ROOM_LIMITS.maximumLabelCount) labels[key] = shown;
-      }
-    }
-    out.labels = labels;
-  }
-  return out;
+  return checks.tidyRoomInfo(nameAndLabels);
 }

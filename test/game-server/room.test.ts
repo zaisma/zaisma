@@ -24,7 +24,7 @@ const counter = defineGameServer({
   setup: () => ({ count: 0, joined: [] as string[], left: [] as string[] }),
   onJoin: (s, p) => void s.joined.push(p.id),
   onLeave: (s, p) => void s.left.push(p.id),
-  onMessage(s, p, message, room) {
+  onMessage(s, p, room, message) {
     if (message === "boom") throw new Error("game bug");
     if (message === "end") return room.end("Someone won");
     s.count++;
@@ -189,7 +189,7 @@ describe("RoomCore", () => {
     const lobby = defineGameServer({
       maximumPlayerCount: 4,
       setup: () => ({}),
-      onMessage: (_s, _p, message, room) => room.setOpen(message !== "start"),
+      onMessage: (_s, _p, room, message) => room.setOpen(message !== "start"),
     });
     const { t, sent } = transport();
     const room = new RoomCore(lobby, t);
@@ -243,7 +243,7 @@ describe("RoomCore", () => {
   });
 
   it("names and labels a room within the limits, from the game server, its maker or the relay's first player", () => {
-    const named = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, room) => room.setInfo(message as never) });
+    const named = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, room, message) => room.setInfo(message as never) });
     const { t, sent } = transport();
     const room = new RoomCore(named, t);
     room.join({ id: "a", name: "A", kind: "guest" }, { name: "  Ana​'s   castle ", labels: { Mode: "Classic", Map: 3, Bad: { x: 1 } as never } });
@@ -288,7 +288,7 @@ describe("RoomCore", () => {
     t.reserve = (code, start) => void reserved.push([code, start]);
     const lobby = defineGameServer({
       setup: (setupData: unknown) => ({ setupData, code: "" }),
-      onMessage(s, _p, message, room) {
+      onMessage(s, _p, room, message) {
         if (message === "big") room.reserve({ playerIds: ["a"], setupData: "x".repeat(ROOM_LIMITS.maximumSetupDataSizeBytes) });
         if (message === "nobody") room.reserve({ playerIds: ["zed"] });
         if (message === "old") room.reserve({ players: ["a"] } as never);
@@ -336,7 +336,7 @@ describe("RoomCore", () => {
     });
     const room = new RoomCore(server, transport().t);
     room.join({ id: "a", name: "A", kind: "guest" });
-    expect(room.state.error).toBe("Reserved rooms aren't available here");
+    expect(room.state.error).toBe("room.reserve isn't available here. Reserving rooms and moving players need Zaisma's rooms or the Node runner. (room_call_unavailable)");
   });
 
   it("checks game server settings, and refuses options it doesn't take with the ones it does", () => {
@@ -362,7 +362,7 @@ describe("RoomCore", () => {
   it("takes bytes from players for onBytes, under the same limits as messages", () => {
     const got: number[][] = [];
     const { t, frames } = transport();
-    const room = new RoomCore(defineGameServer({ setup: () => ({}), onBytes: (_s, player, bytes, api) => {
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onBytes: (_s, player, api, bytes) => {
       got.push([...bytes]);
       api.sendBytes(player.id, new Uint8Array([9]));
       api.broadcastBytes(new Uint8Array(new Uint16Array([258]).buffer), { exceptPlayerId: player.id });
@@ -400,7 +400,7 @@ describe("RoomCore", () => {
 
   it("counts the room's traffic by message type, each way", () => {
     const { t } = transport();
-    const room = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, api) => api.broadcast(message), onBytes: () => {} }), t);
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: (_s, _p, api, message) => api.broadcast(message), onBytes: () => {} }), t);
     for (const id of "abcdefgh") room.join({ id, name: id, kind: "guest" });
     room.takeTraffic();
     room.receive("a", msg({ type: "move", x: 1 }));
@@ -456,7 +456,7 @@ describe("kicking and turning players away", () => {
       return (joinData as { password?: string } | null)?.password === "docks" || { refusalMessage: "Wrong password." };
     },
     onLeave: (s, p) => void s.left.push(p.id),
-    onMessage(s, _p, message, room) {
+    onMessage(s, _p, room, message) {
       const [word, id, keep] = String(message).split(" ");
       if (word === "kick") room.kick(id!, { message: "Too rough.", keepOut: keep === "out" });
       if (word === "oldkick") room.kick(id!, { reason: "Too rough." } as never);
@@ -475,7 +475,8 @@ describe("kicking and turning players away", () => {
     // So does an answer canJoin doesn't take, like a string, logged for the developer with what to answer instead.
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await room.admit({ id: "texter", name: "T", kind: "guest" }, pw)).toEqual({ isAllowed: false, code: "refused" });
-    expect(String(logged.mock.calls.at(-1)?.[0])).toContain('canJoin answered the text "Wrong password.", so the player was turned away. Answer true (or nothing) to let them in');
+    expect(logged.mock.calls.at(-1)?.map(String).join(" ")).toContain('canJoin answered the text "Wrong password.", so the player was turned away.');
+    expect(logged.mock.calls.at(-1)?.map(String).join(" ")).toContain("bad_handler_answer");
     logged.mockRestore();
     room.join({ id: "a", name: "A", kind: "guest" }, { joinData: pw });
     // A player already in the room (a reconnect) isn't asked again.
@@ -593,7 +594,7 @@ describe("moving players to a room that's already running", () => {
     setup: () => ({ locked: false, arrived: [] as unknown[], results: [] as unknown[] }),
     canJoin: (s, _p, _room, _joinData, joinInfo) => !(s.locked && joinInfo.fromRoomCode) || { refusalMessage: "This area is locked." },
     onJoin: (s, p, _room, joinData, joinInfo) => void s.arrived.push({ id: p.id, joinData, fromRoomCode: joinInfo.fromRoomCode }),
-    onMessage(s, p, message, room) {
+    onMessage(s, p, room, message) {
       if (message === "lock") s.locked = true;
       const [word, code, ...ids] = String(message).split(" ");
       if (word === "go") room.moveTo(code!, { playerIds: ids.length ? ids : [p.id], joinData: { door: "north" } });
@@ -853,7 +854,7 @@ describe("players who walk away", () => {
       hosted({
         ticksPerSec: 10,
         setup: () => ({ joined: [] as any[], left: [] as any[], away: [] as any[], back: [] as string[], ticks: 0 }),
-        onAway: (s, p, _room, reason) => void s.away.push([p.id, reason]),
+        onAway: (s, p, _room, awayInfo) => void s.away.push([p.id, awayInfo.reason]),
         onBack: (s, p) => void s.back.push(p.id),
         onTick: (s) => void s.ticks++,
       }),
@@ -915,19 +916,20 @@ describe("players who walk away", () => {
 });
 
 describe("canJoin's answer", () => {
-  it("lets in on true or nothing, turns away on false or { refusalMessage }, and calls anything else a mistake", () => {
+  it("lets in on true, turns away on false or { refusalMessage }, and calls anything else, nothing included, a mistake", () => {
     expect(readJoinAnswer(true)).toEqual({ isAllowed: true });
-    expect(readJoinAnswer(undefined)).toEqual({ isAllowed: true });
-    expect(readJoinAnswer(null)).toEqual({ isAllowed: true });
+    for (const nothing of [undefined, null]) {
+      expect(readJoinAnswer(nothing)).toEqual({ mistake: expect.objectContaining({ code: "bad_handler_answer", field: "canJoin", message: expect.stringContaining("canJoin answered nothing, so the player was turned away") }) });
+    }
     expect(readJoinAnswer(false)).toEqual({ isAllowed: false, refusalMessage: null });
     expect(readJoinAnswer({ refusalMessage: "Wrong room password." })).toEqual({ isAllowed: false, refusalMessage: "Wrong room password." });
     // A truthy string used to mean "no, with this reason"; now it's a mistake, never a yes.
     for (const wrong of ["Wrong password.", "ok", 1, {}, { refusalMessage: 7 }, { refusalMessage: "No.", isAllowed: false }, ["no"]]) {
-      expect(readJoinAnswer(wrong)).toEqual({ mistake: expect.stringContaining("so the player was turned away") });
+      expect(readJoinAnswer(wrong)).toEqual({ mistake: expect.objectContaining({ code: "bad_handler_answer", message: expect.stringContaining("so the player was turned away") }) });
     }
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    expect(readJoinAnswer(circular)).toEqual({ mistake: expect.stringContaining("canJoin answered an object") });
+    expect(readJoinAnswer(circular)).toEqual({ mistake: expect.objectContaining({ message: expect.stringContaining("canJoin answered an object") }) });
   });
 
   it("shows the player the refusalMessage, tidied and cut to 200 characters", async () => {
@@ -1172,7 +1174,7 @@ describe("ping and the room's clock", () => {
   it("probes every ROOM_TUNING.probeSentSizeBytes sent, and drops a player ROOM_TUNING.maximumUnansweredSentSizeBytes behind", () => {
     const now = 1_000_000;
     const big = "x".repeat(100 * 1024);
-    const pushing = game({ onMessage: (_s: any, _p: any, data: any, room: any) => room.broadcast(data === "big" ? big : data) });
+    const pushing = game({ onMessage: (_s: any, _p: any, room: any, data: any) => room.broadcast(data === "big" ? big : data) });
     const { t, sent, closed } = recording();
     const room = new RoomCore(pushing, t, { now: () => now });
     room.join(player("a"));
@@ -1227,7 +1229,7 @@ describe("dropped players stay in the match", () => {
       setup: () => ({ joined: [] as any[], left: [] as any[], away: [] as any[], back: [] as string[], score: 0 }),
       onJoin: (s, p, _room, _joinData, joinInfo) => void s.joined.push([p.id, joinInfo.isReturning]),
       onLeave: (s, p, _room, leaveInfo) => void s.left.push([p.id, leaveInfo.reason]),
-      onAway: (s, p, room, reason) => void s.away.push([p.id, reason, room.awayReason(p.id)]),
+      onAway: (s, p, room, awayInfo) => void s.away.push([p.id, awayInfo.reason, room.awayReason(p.id)]),
       onBack: (s, p, room) => {
         s.back.push(p.id);
         room.send(p.id, { score: s.score });
@@ -1434,7 +1436,7 @@ describe("A real-time room restarted with its saved state", () => {
       setup: () => ({ laps: 0, setUp: true, restored: [] as unknown[], away: [] as string[][], back: [] as string[], left: [] as string[][] }),
       onTick: (s) => void s.laps++,
       onRestored: (s, restoreInfo, room) => void s.restored.push({ ...restoreInfo, awayReasons: room.players.map((p) => room.awayReason(p.id)) }),
-      onAway: (s, p, _room, reason) => void s.away.push([p.id, reason]),
+      onAway: (s, p, _room, awayInfo) => void s.away.push([p.id, awayInfo.reason]),
       onBack: (s, p) => void s.back.push(p.id),
       onLeave: (s, p, _room, leaveInfo) => void s.left.push([p.id, leaveInfo.reason]),
     });
@@ -1501,7 +1503,7 @@ describe("A match moving to a version published now", () => {
     let switchCount = 0;
     const heard: unknown[] = [];
     const room = new RoomCore(
-      defineGameServer({ setup: () => ({}), onVersionUpdate: (_state, versionUpdate) => void heard.push(versionUpdate), onMessage: (_state, _player, message, api) => (message === "round over" ? api.applyVersionUpdate() : undefined) }),
+      defineGameServer({ setup: () => ({}), onVersionUpdate: (_state, versionUpdate) => void heard.push(versionUpdate), onMessage: (_state, _player, api, message) => (message === "round over" ? api.applyVersionUpdate() : undefined) }),
       { ...t, applyVersionUpdate: () => switchCount++ },
     );
     room.join({ id: "a", name: "A", kind: "guest" });
@@ -1542,7 +1544,7 @@ describe("spectators", () => {
       setup: () => ({ watched: [] as string[], left: [] as string[], asked: [] as boolean[] }),
       onSpectatorJoin: (s, spectator) => void s.watched.push(spectator.id),
       onSpectatorLeave: (s, spectator) => void s.left.push(spectator.id),
-      onMessage(_s, _p, message, room) {
+      onMessage(_s, _p, room, message) {
         if (message === "all") room.broadcast({ to: "everyone" });
         if (message === "players") room.broadcast({ to: "players" }, { audience: "players" });
         if (message === "spectators") room.broadcast({ to: "spectators" }, { audience: "spectators" });
@@ -1603,7 +1605,7 @@ describe("spectators", () => {
   it("refuses an audience it doesn't know, as a mistake in the game's call", () => {
     const { t } = transport();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const room = new RoomCore(arena({ onMessage: (_s, _p, _message, room) => room.broadcast("x", { audience: "crowd" as never }) }), t);
+    const room = new RoomCore(arena({ onMessage: (_s, _p, room, _message) => room.broadcast("x", { audience: "crowd" as never }) }), t);
     room.join(PLAYER_A);
     room.receive("a", msg("go"));
     expect(String(errors.mock.calls.at(-1)?.[1])).toContain('Give "everyone", "players" or "spectators"');
@@ -1734,7 +1736,7 @@ describe("state sync", () => {
     stateSyncEnabled: true,
     setup: () => ({ turn: 0, hands: {} as Record<string, string[]> }),
     onJoin: (s, p) => void (s.hands[p.id] = ["A", "K"]),
-    onMessage(s, p, message) {
+    onMessage(s, p, _room, message) {
       if (message === "draw") s.hands[p.id]!.push("Q");
       if (message === "pass") s.turn++;
     },
@@ -1832,7 +1834,7 @@ describe("state sync", () => {
   it("in Zaisma rooms, counts a player backed up when a probe is late past their ping with 64 KB sent since their last answer", () => {
     let now = 1_000_000;
     const big = "x".repeat(40 * 1024);
-    const pushing = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, message, room) => room.broadcast(message === "big" ? big : message) });
+    const pushing = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, room, message) => room.broadcast(message === "big" ? big : message) });
     const sent: Record<string, any[]> = {};
     const room = new RoomCore(pushing, { roomCode: "K7Q2MX", send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: () => {} }, { now: () => now });
     room.join(player("ana"));
@@ -1902,7 +1904,7 @@ describe("latest-only messages", () => {
   /** Whatever a player's message says to send, the game server sends: { send, options }. */
   const echo = defineGameServer({
     setup: () => ({}),
-    onMessage(_s, _p, message: any, room) {
+    onMessage(_s, _p, room, message: any) {
       if (message.bytes) room.broadcastBytes(new Uint8Array(message.bytes), message.options);
       else if (message.to) room.send(message.to, message.send, message.options);
       else room.broadcast(message.send, message.options);
@@ -1966,8 +1968,8 @@ describe("latest-only messages", () => {
     expect(() => api.broadcast({}, { delivery: "lossy" })).toThrow('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
     expect(() => api.send("ana", {}, { latestKey: "x".repeat(41) })).toThrow("room.send's latestKey must be text up to 40 characters");
     expect(() => api.send("ana", {}, { priority: 1 })).toThrow("room.send doesn't take priority. It takes: delivery, latestKey, fromPlayerId.");
-    expect(() => api.send("ana", {}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_option", field: "latestKey" }));
-    expect(() => api.broadcast({}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_option", field: "latestKey" }));
+    expect(() => api.send("ana", {}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_room_call", field: "room.send" }));
+    expect(() => api.broadcast({}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_room_call", field: "room.broadcast" }));
     expect(() => api.sendBytes("ana", new Uint8Array([1]), { delivery: 1 })).toThrow("room.sendBytes's delivery is 1.");
   });
 
@@ -2103,8 +2105,8 @@ describe("Kept rooms", () => {
 describe("room.verifyReceipt", () => {
   it("rejects with a plain Error, not a ReceiptError, where the runtime has no receipt keys", async () => {
     const { t } = transport();
-    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[3] | null = null;
-    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, message, handlerRoom) => void (givenRoom = handlerRoom) }), t);
+    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[2] | null = null;
+    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, handlerRoom, message) => void (givenRoom = handlerRoom) }), t);
     room.join({ id: "a", name: "A", kind: "guest" });
     room.receive("a", msg("hello"));
     const failure = await givenRoom!.verifyReceipt("x").catch((thrown: unknown) => thrown);
@@ -2115,10 +2117,118 @@ describe("room.verifyReceipt", () => {
 
   it("uses the transport's check where it has one", async () => {
     const { t } = transport();
-    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[3] | null = null;
-    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, message, handlerRoom) => void (givenRoom = handlerRoom) }), { ...t, verifyReceipt: async (receipt) => ({ purchase_id: receipt }) as never });
+    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[2] | null = null;
+    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, handlerRoom, message) => void (givenRoom = handlerRoom) }), { ...t, verifyReceipt: async (receipt) => ({ purchase_id: receipt }) as never });
     room.join({ id: "a", name: "A", kind: "guest" });
     room.receive("a", msg("hello"));
     expect(await givenRoom!.verifyReceipt("purchase_1")).toEqual({ purchase_id: "purchase_1" });
+  });
+});
+
+describe("mistakes in a game server's code are coded errors", () => {
+  /** What a call threw, as the game's code would catch it. */
+  const thrownBy = (call: () => unknown): GameServerError => {
+    try {
+      call();
+    } catch (error) {
+      return error as GameServerError;
+    }
+    throw new Error("The call didn't throw");
+  };
+  const player = (id: string) => ({ id, name: id.toUpperCase(), kind: "guest" as const });
+
+  /** A transport whose host makes rooms and moves players, as Zaisma's rooms and the Node runner do. */
+  const hostingTransport = () => ({ ...transport().t, reserve: () => {}, moveTo: () => {} }) as Transport;
+
+  it("name the call as the field, in a bad_room_call", () => {
+    const room = new RoomCore(relay, hostingTransport());
+    room.join(player("ana"));
+    const api = (room as any).api;
+    expect(thrownBy(() => api.broadcast({}, { delivery: "lossy" }))).toMatchObject({ name: "GameServerError", code: "bad_room_call", field: "room.broadcast" });
+    expect(thrownBy(() => api.send("ana", {}, { priority: 1 }))).toMatchObject({ code: "bad_room_call", field: "room.send" });
+    expect(thrownBy(() => api.reserve({ playerIds: ["ana"], roomCode: "ABCDEF" }))).toMatchObject({ code: "bad_room_call", field: "room.reserve" });
+    expect(thrownBy(() => api.reserve({ playerIds: ["nobody"] }))).toMatchObject({ code: "bad_room_call", field: "room.reserve" });
+    expect(thrownBy(() => api.kick("ana", { nope: 1 }))).toMatchObject({ code: "bad_room_call", field: "room.kick" });
+    expect(thrownBy(() => api.moveTo("not a room code", { playerIds: ["ana"] }))).toMatchObject({ code: "bad_room_call", field: "room.moveTo" });
+    // The message reads: what, what to do, (code).
+    expect(thrownBy(() => api.broadcast({}, { delivery: "lossy" })).message).toMatch(/Give "reliable".* \(bad_room_call\)$/);
+  });
+
+  it("are a room_call_limit when a bug reserves over and over", () => {
+    const room = new RoomCore(relay, hostingTransport());
+    room.join(player("ana"));
+    const api = (room as any).api;
+    const results = Array.from({ length: ROOM_LIMITS.maximumReservesPerMin + 1 }, () => {
+      try {
+        api.reserve({ playerIds: ["ana"] });
+        return null;
+      } catch (error) {
+        return error as GameServerError;
+      }
+    });
+    expect(results.slice(0, ROOM_LIMITS.maximumReservesPerMin).every((result) => result === null)).toBe(true);
+    expect(results.at(-1)).toMatchObject({ code: "room_call_limit", field: "room.reserve" });
+  });
+
+  it("are a bad_handler_answer when a handler answers something that isn't a state, and the state stays", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const game = defineGameServer({
+      setup: () => ({ count: 0 }),
+      onMessage(state, _player, room, message) {
+        if (message === "five") return 5 as never;
+        if (message === "text") return "done" as never;
+        if (message === "null") return null as never;
+        if (message === "instance") return new Date() as never;
+        room.broadcast({ count: state.count });
+        return { count: state.count + 1 };
+      },
+    });
+    const { t, sent } = transport();
+    const room = new RoomCore(game, t);
+    room.join(player("ana"));
+    room.receive("ana", msg("up"));
+    for (const wrong of ["five", "text", "null", "instance"]) room.receive("ana", msg(wrong));
+    room.receive("ana", msg("up"));
+    expect(sent.ana!.filter((message) => message.type === "message").map((message) => message.data)).toEqual([{ count: 0 }, { count: 1 }]);
+    const errors = logged.mock.calls.flatMap((call) => call.filter((each): each is GameServerError => each instanceof GameServerError));
+    expect(errors.map((error) => [error.code, error.field])).toEqual([["bad_handler_answer", "onMessage"], ["bad_handler_answer", "onMessage"], ["bad_handler_answer", "onMessage"], ["bad_handler_answer", "onMessage"]]);
+    logged.mockRestore();
+  });
+
+  it("keep canJoin's and stateView's room to reading: any call that changes or sends is a room_call_unavailable", async () => {
+    const seen: Record<string, GameServerError | string> = {};
+    const tryCalls = (name: string, room: any) => {
+      for (const [call, run] of Object.entries({ broadcast: () => room.broadcast("x"), send: () => room.send("ana", "x"), kick: () => room.kick("ana"), end: () => room.end("bye"), reserve: () => room.reserve({ playerIds: ["ana"] }), setOpen: () => room.setOpen(false) } as Record<string, () => unknown>)) {
+        seen[`${name}.${call}`] = thrownBy(run);
+      }
+      seen[`${name}.roomCode`] = room.roomCode;
+      seen[`${name}.players`] = String(room.players.length);
+    };
+    const game = defineGameServer({
+      setup: () => ({}),
+      stateSyncEnabled: true,
+      canJoin: (_state, _player, room) => (tryCalls("canJoin", room), true),
+      stateView: (_state, _viewer, room) => (tryCalls("stateView", room), {}),
+    });
+    const { t } = transport();
+    const room = new RoomCore(game, t);
+    expect(await room.admit(player("ana"))).toEqual({ isAllowed: true });
+    room.join(player("ana"));
+    (room as any).sendStateFrames?.();
+    for (const handler of ["canJoin"]) {
+      for (const call of ["broadcast", "send", "kick", "end", "reserve", "setOpen"]) {
+        expect(seen[`${handler}.${call}`], `${handler}.${call}`).toMatchObject({ code: "room_call_unavailable", field: `room.${call}`, message: expect.stringContaining(`${handler} can't change the room.`) });
+      }
+      expect(seen[`${handler}.roomCode`]).toBe("K7Q2MX");
+      expect(seen[`${handler}.players`]).toBe("0");
+    }
+  });
+
+  it("cut room.end's message to the kick message limit", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: (_state, _player, room) => room.end("x".repeat(500)) }), t);
+    room.join(player("ana"));
+    room.receive("ana", msg("end"));
+    expect(sent.ana!.at(-1)).toMatchObject({ type: "ended", message: "x".repeat(ROOM_LIMITS.maximumKickMessageCharacterCount) });
   });
 });

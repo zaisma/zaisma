@@ -58,7 +58,7 @@ export default {
     await room.database.query("CREATE TABLE IF NOT EXISTS scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL)");
     room.send(player.id, "ready");
   },
-  async onMessage(state, player, message, room) {
+  async onMessage(state, player, room, message) {
     if (message.score !== undefined) await say(room, player, () => room.database.query("INSERT INTO scores VALUES (?, ?) ON CONFLICT (player_id) DO UPDATE SET best_score = max(best_score, excluded.best_score) RETURNING best_score", [message.id ?? player.id, message.score]));
     if (message.sql !== undefined) await say(room, player, () => room.database.query(message.sql, message.values));
     if (message.batch !== undefined) await say(room, player, () => room.database.batch(message.batch));

@@ -175,7 +175,7 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(text: string): Uint8Array {
+function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
   const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
@@ -243,7 +243,7 @@ async function signedToken(
   const jwk = keys.find((publicKey) => publicKey.kid === header.kid);
   if (!jwk) throw refuse("unknown_key");
   const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, ED25519, false, ["verify"]);
-  let signature: Uint8Array;
+  let signature: Uint8Array<ArrayBuffer>;
   try {
     signature = fromBase64Url(parts[2]!);
   } catch {

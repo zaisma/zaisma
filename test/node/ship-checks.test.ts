@@ -10,7 +10,7 @@ import {
   bucketAccessProblems,
   bucketNames,
   checkBuckets,
-  checkCliOnNpm,
+  checkPackageOnNpm,
   checkSecurityAddresses,
   checkUrl,
   gameHeaderProblems,
@@ -244,19 +244,35 @@ describe("checkSecurityAddresses", () => {
   });
 });
 
-describe("checkCliOnNpm", () => {
-  it("passes when the registry has the version", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(200)));
-    expect(await checkCliOnNpm("0.9.1")).toMatchObject({ isPass: true, note: "CLI 0.9.1 on npm" });
+describe("checkPackageOnNpm", () => {
+  const cliWorkflow = "https://github.com/zaisma/zaisma/actions/workflows/publish-cli.yml";
+  const serverWorkflow = "https://github.com/zaisma/zaisma/actions/workflows/publish-game-server.yml";
+  it("passes when the registry has the version, asking for the scoped package's own address", async () => {
+    const fetched = vi.fn().mockResolvedValue(answer(200));
+    vi.stubGlobal("fetch", fetched);
+    expect(await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow)).toMatchObject({ isPass: true, note: "@zaisma/cli 0.9.1 on npm" });
+    expect(fetched.mock.calls[0]![0]).toBe("https://registry.npmjs.org/@zaisma%2fcli/0.9.1");
   });
-  it("fails naming the workflow when it isn't there and waitSec is 0", async () => {
+  it("checks the game server package at its own address", async () => {
+    const fetched = vi.fn().mockResolvedValue(answer(200));
+    vi.stubGlobal("fetch", fetched);
+    expect(await checkPackageOnNpm("@zaisma/game-server", "1.0.0", serverWorkflow)).toMatchObject({ isPass: true, name: "@zaisma/game-server on npm", note: "@zaisma/game-server 1.0.0 on npm" });
+    expect(fetched.mock.calls[0]![0]).toBe("https://registry.npmjs.org/@zaisma%2fgame-server/1.0.0");
+  });
+  it("fails when it isn't there and waitSec is 0", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
-    const result = await checkCliOnNpm("0.9.1", { waitSec: 0 });
+    const result = await checkPackageOnNpm("@zaisma/game-server", "1.0.0", serverWorkflow, { waitSec: 0 });
     expect(result.isPass).toBe(false);
-    expect(result.note).toContain("Publish CLI workflow");
+    expect(result.note).toContain("@zaisma/game-server 1.0.0 not on npm yet");
+  });
+  it("names the workflow when it waited and the version never came", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
+    const result = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.01, pollSec: 0 });
+    expect(result.isPass).toBe(false);
+    expect(result.note).toContain(cliWorkflow);
   });
   it("waits for it", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(answer(404)).mockResolvedValueOnce(answer(200)));
-    expect((await checkCliOnNpm("0.9.1", { waitSec: 1, pollSec: 0 })).isPass).toBe(true);
+    expect((await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 1, pollSec: 0 })).isPass).toBe(true);
   });
 });

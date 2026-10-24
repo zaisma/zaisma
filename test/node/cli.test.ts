@@ -377,7 +377,7 @@ describe("database export and import", () => {
 
     const sqlite = await zaisma(["database", "export", "sky-hopper", join(folder, "game.sqlite")]);
     expect(sqlite.exitCode).toBe(0);
-    expect(sqlite.stdout).toContain(`--database ${join(folder, "game.sqlite")}`);
+    expect(sqlite.stdout).toContain(`--database-file ${join(folder, "game.sqlite")}`);
     expect(dumpParts(new DatabaseSync(join(folder, "game.sqlite"))).join("")).toBe(whole);
     expect(existsSync(join(folder, `game.sqlite.partial`))).toBe(false);
 

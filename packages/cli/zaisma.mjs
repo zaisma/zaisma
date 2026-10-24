@@ -1465,7 +1465,7 @@ async function exportDatabase({ slug, file }) {
   if (partCount > 1 && file && !isJson) process.stdout.write("\n");
   if (isJson) return printJson({ dump_sql: file ? null : dumpParts.join(""), file: file ?? null, part_count: partCount, read_row_count: readRowCount });
   if (!file) return process.stdout.write(dumpParts.join(""));
-  console.log(`Saved ${slug}'s database to ${file} (${partCount} part${partCount === 1 ? "" : "s"}, ${readRowCount.toLocaleString("en-US")} rows read).${sqlite ? ` Run your game server on it with: node bin/node.js <server> --game ${slug} --database ${file}` : ""}`);
+  console.log(`Saved ${slug}'s database to ${file} (${partCount} part${partCount === 1 ? "" : "s"}, ${readRowCount.toLocaleString("en-US")} rows read).${sqlite ? ` Run your game server on it with: npx @zaisma/game-server <server.ts> --game ${slug} --database-file ${file}` : ""}`);
 }
 
 /** The biggest database.sql export turns into a .sqlite file itself; past it, sqlite3 does it (Node's text tops out near this). */
@@ -1473,7 +1473,7 @@ const MAXIMUM_SQLITE_DUMP_SIZE_BYTES = 400 * 1024 * 1024;
 
 /**
  * export: the .zip of everything about a game (GET …/export/download), downloaded and saved as a folder,
- * with database.sql also made into database.sqlite, ready for the Node runner's --database.
+ * with database.sql also made into database.sqlite, ready for the Node runner's --database-file.
  */
 async function exportGame({ slug }, flags) {
   const folder = flags.folder ?? `${slug}-export`;
@@ -1527,7 +1527,7 @@ async function exportGame({ slug }, flags) {
       return EXIT_CODES.done;
     }
     console.log(`Saved everything about ${slug} in ${folder}: ${entries.length.toLocaleString("en-US")} files, ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. README.txt says what's where.`);
-    if (databaseFile) console.log(`Run your game server on its database with: node bin/node.js <server> --game ${slug} --database ${databaseFile}`);
+    if (databaseFile) console.log(`Run your game server on its database with: npx @zaisma/game-server <server.ts> --game ${slug} --database-file ${databaseFile}`);
     else if (dumpSizeBytes) console.log(`Make its database a .sqlite file with: sqlite3 ${join(folder, "database.sqlite")} < ${dumpFile}`);
     return EXIT_CODES.done;
   } finally {

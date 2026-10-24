@@ -112,7 +112,7 @@ export function sourceFiles(root: string): string[] {
   const walk = (dir: string, isCode: (name: string) => boolean) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
-      if (entry.isDirectory() && entry.name !== "node_modules") walk(full, isCode);
+      if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== "dist") walk(full, isCode);
       else if (entry.isFile() && isCode(entry.name)) out.push(full);
     }
   };

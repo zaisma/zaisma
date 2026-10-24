@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { ZAISMA_DOMAINS, allowedHostsOf, isHostAllowed, unreachableHostReason } from "@zaisma/core";
-import { OUTSIDE_CALL_LIMITS, OUTSIDE_CALL_REFUSAL_HEADER, type OutsideCallErrorCode, type OutsideCallRefusal } from "@zaisma/game-server";
+import { OUTSIDE_CALL_LIMITS, OUTSIDE_CALL_REFUSAL_HEADER, type OutsideCallErrorCode, type OutsideCallRefusal } from "@zaisma/game-server/internal";
 import type { Env } from "./index.ts";
 
 /**
@@ -36,7 +36,7 @@ export class GameServerOutbound extends WorkerEntrypoint<Env, { gameId: string }
       );
     }
     if (this.env.OUTSIDE_CALL_LIMIT && !(await this.env.OUTSIDE_CALL_LIMIT.limit({ key: gameId })).success) {
-      return refuse("outside_call_limit", `This game made over ${OUTSIDE_CALL_LIMITS.callsPerMin} calls to other servers in a minute.`, "Make fewer, like one per match or per batch of scores rather than per message; calls work again within a minute.");
+      return refuse("outside_call_limit", `This game made over ${OUTSIDE_CALL_LIMITS.maximumCallsPerMin} calls to other servers in a minute.`, "Make fewer, like one per match or per batch of scores rather than per message; calls work again within a minute.");
     }
     const body = await cappedBody(request);
     if (body === "too_big") return refuse("too_big", `The call sends over ${OUTSIDE_CALL_LIMITS.maximumBodySizeBytes / 1024 / 1024} MB.`, `Send up to ${OUTSIDE_CALL_LIMITS.maximumBodySizeBytes / 1024 / 1024} MB a call.`);

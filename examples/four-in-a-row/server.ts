@@ -132,7 +132,7 @@ const fourInARow: GameServer<State> = {
     share(state, room);
   },
 
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     const sent = (message ?? {}) as PlayerMessage;
     if (room.labels.Room === LOBBY) return;
     const seatIndex = state.seatPlayerIds.indexOf(player.id);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-// @ts-expect-error plain JavaScript runner without type declarations
-import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
+import { startServer } from "../../packages/game-server/bin/node.js";
+// @ts-expect-error plain JavaScript without type declarations
+import { localDatabase } from "../../packages/game-server/bin/node-parts.js";
 import { GameServerError, defineGameServer, generateSigningKey, loadSigningKey, nextRunAtMs, readCron, startSchedules, type ScheduledRun, type Server } from "../../packages/game-server/src/internal.ts";
 
 // Schedules: the cron times both runtimes share, the checks on a game server's schedules, and the
@@ -133,18 +134,18 @@ describe("schedules on the developer's own server", () => {
     const signing = await loadSigningKey(await generateSigningKey());
     const database = localDatabase(":memory:");
     const own = startServer({
-      server: {
+      gameServer: {
         schedules: [{ name: "world-turn", cron: "* * * * *" }],
         async onSchedule(run: ScheduledRun, server: Server) {
           await server.database.query("CREATE TABLE IF NOT EXISTS turns (scheduled_at TEXT PRIMARY KEY)");
           await server.database.query("INSERT INTO turns VALUES (?)", [run.scheduledAt]);
         },
       },
-      game: "world",
+      gameSlug: "world",
       port: 0,
       origins: [],
-      issuer: "https://rooms.zaisma.test",
-      keys: async () => [signing.publicKey],
+      issuerUrl: "https://rooms.zaisma.test",
+      loadPassKeys: async () => [signing.publicKey],
       database,
     });
     await vi.advanceTimersByTimeAsync(2 * 60_000);
