@@ -360,7 +360,9 @@ describe("the game domain's saves script, past the save limit", () => {
     await playing(page, { level: "3" });
     page.fromGame({ step: "over_limit" });
     expect(page.told("pause")).toHaveLength(1);
-    expect(page.elements["save-status"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
+    // The Keep card isn't showing, so the word comes as a card over the game that stays until the next one.
+    expect(page.elements["save-toast"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
+    expect((page.elements["save-toast"] as { hidden: boolean }).hidden).toBe(false);
     // Paused: a later save isn't sent to the account.
     page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
