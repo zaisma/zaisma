@@ -1,0 +1,459 @@
+{
+  "JoinOptions": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": "?: string | undefined",
+      "serverUrl": "?: string | undefined",
+      "isListed": "?: boolean | undefined",
+      "friendJoinsEnabled": "?: boolean | undefined",
+      "name": "?: string | undefined",
+      "labels": "?: Record<string, string> | undefined",
+      "joinData": "?: unknown",
+      "idleTimeoutSec": "?: number | undefined",
+      "idleCheckEnabled": "?: boolean | undefined",
+      "isSpectator": "?: boolean | undefined"
+    }
+  },
+  "QuickJoinOptions": {
+    "kind": "fields",
+    "fields": {
+      "region": "?: Region | undefined",
+      "labels": "?: Record<string, string> | undefined",
+      "isListed": "?: boolean | undefined",
+      "friendJoinsEnabled": "?: boolean | undefined",
+      "name": "?: string | undefined",
+      "joinData": "?: unknown",
+      "idleTimeoutSec": "?: number | undefined",
+      "idleCheckEnabled": "?: boolean | undefined"
+    }
+  },
+  "ListOptions": {
+    "kind": "fields",
+    "fields": {
+      "region": "?: Region | undefined",
+      "labels": "?: Record<string, string> | undefined"
+    }
+  },
+  "MoveJoinOptions": {
+    "kind": "fields",
+    "fields": {
+      "isListed": "?: boolean | undefined",
+      "friendJoinsEnabled": "?: boolean | undefined",
+      "name": "?: string | undefined",
+      "labels": "?: Record<string, string> | undefined",
+      "joinData": "?: unknown",
+      "idleTimeoutSec": "?: number | undefined",
+      "idleCheckEnabled": "?: boolean | undefined"
+    }
+  },
+  "KickOptions": {
+    "kind": "fields",
+    "fields": {
+      "keepOut": "?: boolean | undefined"
+    }
+  },
+  "RoomInfo": {
+    "kind": "fields",
+    "fields": {
+      "name": "?: string | null | undefined",
+      "labels": "?: Record<string, string> | null | undefined"
+    }
+  },
+  "SendOptions": {
+    "kind": "fields",
+    "fields": {
+      "delivery": "?: \"reliable\" | \"latest_only\" | undefined",
+      "latestKey": "?: string | undefined"
+    }
+  },
+  "SmoothingOptions": {
+    "kind": "fields",
+    "fields": {
+      "delayMs": "?: number | undefined"
+    }
+  },
+  "Room": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "me": ": Player",
+      "players": ": ReadonlyArray<ListedPlayer>",
+      "hostPlayerId": ": string | null",
+      "isSpectator": ": boolean",
+      "spectatorCount": ": number",
+      "connectionStatus": ": ConnectionStatus",
+      "awayReason": ": \"idle\" | \"hidden\" | null",
+      "inviteUrl": ": string | null",
+      "isListed": ": boolean",
+      "isOpen": ": boolean",
+      "friendJoinsEnabled": ": boolean",
+      "name": ": string | null",
+      "labels": ": Readonly<Record<string, string>>",
+      "endsAt": ": string | null",
+      "pingDurationMs": ": number | null",
+      "state": ": unknown",
+      "smoothedState": ": (smoothingOptions?: SmoothingOptions | undefined) => unknown",
+      "serverTimeMs": ": () => number",
+      "send": ": (message: unknown, sendOptions?: SendOptions | undefined) => boolean",
+      "sendBytes": ": (bytes: ArrayBuffer | ArrayBufferView<ArrayBufferLike>, sendOptions?: SendOptions | undefined) => boolean",
+      "leave": ": () => void",
+      "setListed": ": (isListed: boolean) => void",
+      "setOpen": ": (isOpen: boolean) => void",
+      "setFriendJoinsEnabled": ": (isEnabled: boolean) => void",
+      "setInfo": ": (nameAndLabels: RoomInfo) => void",
+      "kick": ": (playerId: string, kickOptions?: KickOptions | undefined) => void",
+      "isMuted": ": (playerId: string) => boolean",
+      "mute": ": (playerId: string) => void",
+      "unmute": ": (playerId: string) => void",
+      "unblock": ": (playerId: string) => void",
+      "block": ": (playerId: string) => Promise<boolean>",
+      "report": ": (playerId: string, reason: ReportReason, details?: string | undefined) => Promise<ReportAnswer>",
+      "on": ": <EventName extends keyof RoomEvents>(event: EventName, listener: RoomEvents[EventName]) => Room",
+      "off": ": <EventName extends keyof RoomEvents>(event: EventName, listener: RoomEvents[EventName]) => Room"
+    }
+  },
+  "RoomEvents": {
+    "kind": "fields",
+    "fields": {
+      "message": ": (message: any, fromPlayerId: string | null) => void",
+      "bytes": ": (bytes: Uint8Array<ArrayBufferLike>, fromPlayerId: string | null) => void",
+      "state": ": (state: any, changes: Array<StateChange> | null) => void",
+      "players": ": (players: ReadonlyArray<ListedPlayer>) => void",
+      "connectionStatus": ": (connectionStatus: ConnectionStatus) => void",
+      "ended": ": (ended: Ended) => void",
+      "ending": ": (ending: Ending) => void",
+      "kicked": ": (kicked: Kicked) => void",
+      "settings": ": (settings: RoomSettingsChange) => void",
+      "move": ": (move: Move) => void",
+      "moved": ": (moved: Moved) => void",
+      "idle": ": (idle: Idle) => void",
+      "away": ": (away: Away) => void",
+      "back": ": (back: Back) => void",
+      "muted": ": (playerIds: Array<string>) => void",
+      "error": ": (error: RoomError) => void",
+      "versionUpdate": ": (versionUpdate: VersionUpdate) => void"
+    }
+  },
+  "Player": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "name": ": string",
+      "kind": ": PlayerKind"
+    }
+  },
+  "ListedPlayer": {
+    "kind": "fields",
+    "fields": {
+      "awayReason": ": \"idle\" | \"hidden\" | \"lost\" | null",
+      "id": ": string",
+      "name": ": string",
+      "kind": ": PlayerKind"
+    }
+  },
+  "RoomSettings": {
+    "kind": "fields",
+    "fields": {
+      "isListed": ": boolean",
+      "isOpen": ": boolean",
+      "friendJoinsEnabled": ": boolean",
+      "name": ": string | null",
+      "labels": ": Record<string, string>"
+    }
+  },
+  "RoomSettingsChange": {
+    "kind": "fields",
+    "fields": {
+      "spectatorCount": ": number",
+      "isListed": ": boolean",
+      "isOpen": ": boolean",
+      "friendJoinsEnabled": ": boolean",
+      "name": ": string | null",
+      "labels": ": Record<string, string>"
+    }
+  },
+  "Ended": {
+    "kind": "fields",
+    "fields": {
+      "message": ": string",
+      "endReason": ": EndReason"
+    }
+  },
+  "Ending": {
+    "kind": "fields",
+    "fields": {
+      "endsAt": ": string"
+    }
+  },
+  "Moved": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "fromRoomCode": ": string"
+    }
+  },
+  "Idle": {
+    "kind": "fields",
+    "fields": {
+      "idleStatus": ": \"asking\" | \"answered\" | \"timed_out\"",
+      "answerTimeoutSec": ": number"
+    }
+  },
+  "Away": {
+    "kind": "fields",
+    "fields": {
+      "awayReason": ": \"idle\" | \"hidden\"",
+      "seatHoldDurationSec": ": number"
+    }
+  },
+  "Back": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "isSeatHeld": ": boolean",
+      "rejoin": ": () => void"
+    }
+  },
+  "Kicked": {
+    "kind": "fields",
+    "fields": {
+      "message": ": string",
+      "isKeptOut": ": boolean"
+    }
+  },
+  "Move": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "follow": ": () => void",
+      "join": ": (moveJoinOptions?: MoveJoinOptions | undefined) => Promise<Room>"
+    }
+  },
+  "RoomError": {
+    "kind": "fields",
+    "fields": {
+      "code": ": RoomErrorCode",
+      "message": ": string"
+    }
+  },
+  "VersionUpdate": {
+    "kind": "fields",
+    "fields": {
+      "versionId": ": string",
+      "appliesAt": ": string",
+      "isReloading": ": boolean"
+    }
+  },
+  "RoomList": {
+    "kind": "fields",
+    "fields": {
+      "rooms": ": Array<ListedRoom>",
+      "playingPlayerCount": ": number",
+      "playingRoomCount": ": number",
+      "listedClosedRoomCount": ": number",
+      "listedJoinableRoomCount": ": number",
+      "matchingOpenRoomCount": ": number",
+      "regions": ": Array<{ region: Region; regionName: string; roomCount: number; playerCount: number; }>",
+      "region": ": Region | null",
+      "moreOpenRoomCount": ": number",
+      "filters": ": Array<{ label: string; values: Array<string>; }>"
+    }
+  },
+  "ListedRoom": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "playerCount": ": number",
+      "heldSeatCount": ": number",
+      "maximumPlayerCount": ": number",
+      "spectatorCount": ": number",
+      "maximumSpectatorCount": ": number",
+      "isOpen": ": boolean",
+      "location": ": { countryCode: string; countryName: string; region: Region | null; } | null",
+      "isNear": ": boolean",
+      "name": ": string | null",
+      "labels": ": Record<string, string>",
+      "isKept": ": boolean",
+      "inviteUrl": ": string"
+    }
+  },
+  "ConnectionStatus": {
+    "kind": "values",
+    "values": [
+      "closed",
+      "connecting",
+      "open",
+      "reconnecting"
+    ]
+  },
+  "RoomErrorCode": {
+    "kind": "values",
+    "values": [
+      "account_needed",
+      "already_playing",
+      "bad_message",
+      "bad_origin",
+      "bad_pass",
+      "blocked_player_here",
+      "busy",
+      "ended",
+      "game_not_open_to_player",
+      "game_unavailable",
+      "hosting_paused",
+      "kept_out",
+      "no_hello",
+      "not_allowed",
+      "other_version",
+      "refused",
+      "room_closed",
+      "room_full",
+      "room_not_running",
+      "send_queue_full",
+      "spectator_cannot_send",
+      "spectators_full",
+      "too_big",
+      "too_fast"
+    ]
+  },
+  "EndReason": {
+    "kind": "values",
+    "values": [
+      "game",
+      "game_server_stopped",
+      "game_unavailable",
+      "hosting_paused",
+      "kept_room_deleted",
+      "no_players"
+    ]
+  },
+  "FriendJoinRefusal": {
+    "kind": "values",
+    "values": [
+      "friend_not_in_room",
+      "friend_not_taking_joins",
+      "game_not_taking_joins",
+      "private_room",
+      "room_closed",
+      "room_full",
+      "spectators_full"
+    ]
+  },
+  "Region": {
+    "kind": "values",
+    "values": [
+      "AF",
+      "AN",
+      "AS",
+      "EU",
+      "NA",
+      "OC",
+      "SA"
+    ]
+  },
+  "ROOM_EVENTS": {
+    "kind": "values",
+    "values": [
+      "away",
+      "back",
+      "bytes",
+      "connectionStatus",
+      "ended",
+      "ending",
+      "error",
+      "idle",
+      "kicked",
+      "message",
+      "move",
+      "moved",
+      "muted",
+      "players",
+      "settings",
+      "state",
+      "versionUpdate"
+    ]
+  },
+  "JOIN_OPTIONS": {
+    "kind": "values",
+    "values": [
+      "friendJoinsEnabled",
+      "idleCheckEnabled",
+      "idleTimeoutSec",
+      "isListed",
+      "isSpectator",
+      "joinData",
+      "labels",
+      "name",
+      "roomCode",
+      "serverUrl"
+    ]
+  },
+  "QUICK_JOIN_OPTIONS": {
+    "kind": "values",
+    "values": [
+      "friendJoinsEnabled",
+      "idleCheckEnabled",
+      "idleTimeoutSec",
+      "isListed",
+      "joinData",
+      "labels",
+      "name",
+      "region"
+    ]
+  },
+  "LIST_OPTIONS": {
+    "kind": "values",
+    "values": [
+      "labels",
+      "region"
+    ]
+  },
+  "SEND_OPTIONS": {
+    "kind": "values",
+    "values": [
+      "delivery",
+      "latestKey"
+    ]
+  },
+  "SMOOTHING_OPTIONS": {
+    "kind": "values",
+    "values": [
+      "delayMs"
+    ]
+  },
+  "REGIONS": {
+    "kind": "values",
+    "values": [
+      "AF",
+      "AN",
+      "AS",
+      "EU",
+      "NA",
+      "OC",
+      "SA"
+    ]
+  },
+  "PROTOCOL_VERSION_NUMBER": {
+    "kind": "constant",
+    "value": 1
+  },
+  "MAXIMUM_QUEUED_SEND_COUNT": {
+    "kind": "constant",
+    "value": 60
+  },
+  "MAXIMUM_SEND_SIZE_BYTES": {
+    "kind": "constant",
+    "value": 16384
+  },
+  "MINIMUM_IDLE_TIMEOUT_SEC": {
+    "kind": "constant",
+    "value": 30
+  },
+  "MAXIMUM_IDLE_TIMEOUT_SEC": {
+    "kind": "constant",
+    "value": 86400
+  },
+  "IDLE_ANSWER_TIMEOUT_SEC": {
+    "kind": "constant",
+    "value": 30
+  }
+}

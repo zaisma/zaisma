@@ -1,7 +1,7 @@
 import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, listRooms } from "@zaisma/core";
-import { REFUSED_CLOSE_CODE } from "@zaisma/game-server";
+import { REMOVED_CLOSE_CODE } from "@zaisma/game-server";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
 import { gameDatabaseObject, type GameDatabaseObject } from "../../apps/rooms/src/database.ts";
@@ -67,7 +67,7 @@ async function join(game: string, code: string) {
     }
   };
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
-  ws.send(JSON.stringify({ type: "hello", pass }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: true } }));
   expect((await next()).type).toBe("welcome");
   return { ws, player, say, next: fromGame, closed };
 }
@@ -177,7 +177,7 @@ describe("kept rooms", () => {
     const ws = up.webSocket!;
     ws.accept();
     const refused = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
-    ws.send(JSON.stringify({ type: "hello", pass }));
+    ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     expect(await refused).toMatchObject({ type: "error", message: "Join the main world." });
     expect(await e.DB.prepare("SELECT room_code FROM kept_rooms WHERE game_id = ?").bind(gameIdOf("one-world")).all()).toMatchObject({ results: [{ room_code: "WRLD22" }] });
     a.ws.close(1000);
@@ -198,7 +198,7 @@ describe("kept rooms", () => {
     const b = await join("thawing", "ENDZZZ");
     await until(() => keptRow("thawing", "ENDZZZ"));
     b.say("end");
-    expect(await b.next()).toMatchObject({ type: "ended", message: "The world ended." });
+    expect(await b.next()).toEqual({ type: "ended", message: "The world ended.", endReason: "game" });
     await until(async () => !(await keptRow("thawing", "ENDZZZ")));
     expect(await liveRow("thawing", "ENDZZZ")).toBeNull();
   });
@@ -224,7 +224,7 @@ describe("kept rooms", () => {
     // Another game's ID never reaches it.
     expect((await stub.fetch("https://room/delete", { method: "POST", headers: { "x-game-id": "gsomeoneelse" } })).status).toBe(404);
     expect((await stub.fetch("https://room/delete", { method: "POST", headers: { "x-game-id": gameIdOf("deleted-world") } })).status).toBe(204);
-    expect(await a.next()).toMatchObject({ type: "ended", message: "This world was deleted." });
+    expect(await a.next()).toEqual({ type: "ended", message: "This world was deleted.", endReason: "kept_room_deleted" });
     expect(await keptRow("deleted-world", "GNEXXX")).toBeNull();
     expect(await liveRow("deleted-world", "GNEXXX")).toBeNull();
     await runInDurableObject(stub, async (_room: Room, state) => {
@@ -268,7 +268,7 @@ describe("kept rooms", () => {
     });
     a.say("chop");
     expect(await a.next()).toMatchObject({ type: "error", code: "game_unavailable" });
-    expect(await a.closed).toBe(REFUSED_CLOSE_CODE);
+    expect(await a.closed).toBe(REMOVED_CLOSE_CODE);
     expect(await keptRow("held-world", "HELDXX")).not.toBeNull();
     expect(await liveRow("held-world", "HELDXX")).toBeNull();
 

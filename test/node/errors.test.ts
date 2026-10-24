@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ERROR_TEXT } from "../../packages/game-server/src/room.ts";
 import { ADMIN_ERROR_CODES, ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { ALLOWED_CONTENT, CONTENT_RULES, INTERNAL_FINDING_CODES, NOTICE_CODES, REVIEW_CODES } from "../../packages/core/src/review.ts";
 import { JUDGE_FINDING_CODES } from "../../apps/site/src/review-judge.ts";
@@ -97,5 +98,17 @@ describe("hold and takedown codes", () => {
     const noticeCodes: string[] = Object.values(NOTICE_CODES).map((notice) => notice.code);
     const isUsed = (reviewCode: string) => code.includes(`"${reviewCode}"`) || (JUDGE_FINDING_CODES as string[]).includes(reviewCode) || noticeCodes.includes(reviewCode);
     expect(reviewCodes.filter((reviewCode) => !isUsed(reviewCode))).toEqual([]);
+  });
+});
+
+describe("room error codes", () => {
+  // The SDK's own room codes (packages/sdk/zaisma.d.ts, ErrorCode), beside the ones the room sends.
+  const sdkRoomCodes = ["bad_region", "bad_idle_timeout", "zaisma_rooms_not_used"];
+
+  it("are all listed in docs/DEVELOPER-API.md's room connections section, each with a meaning", () => {
+    const doc = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
+    const section = doc.slice(doc.indexOf("\n## Room connections\n"), doc.indexOf("\n## Kept rooms\n"));
+    const rows = new Map([...section.matchAll(/^\| `([a-z0-9_]+)` \| (.+) \|$/gm)].map((row) => [row[1]!, row[2]!]));
+    for (const code of [...Object.keys(ERROR_TEXT), ...sdkRoomCodes]) expect(rows.get(code)?.length, `${code} needs a row in Room connections`).toBeGreaterThan(10);
   });
 });

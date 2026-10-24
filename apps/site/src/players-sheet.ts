@@ -67,7 +67,7 @@ function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGa
   if (!friends.length) return html`<p class="pl-note">None of your friends are playing this right now.</p>`;
   return html`<ul class="pl-list">${friends.map(
     (friend) => html`<li class="pl-row"><a class="face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${accountPicture(friend.username, "sm")}</a><a class="pl-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${
-      friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal)
+      friend.join_refusal === "friend_not_in_room" || (!friend.room_code && !friend.join_refusal)
         ? ""
         : joinButton(slug, { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] })
     }${friend.watch ? watchButton(slug, { room_code: friend.watch.room_code ?? "", server_url: null, refusal: friend.watch.refusal, refusing_friend_names: [friend.username] }) : ""}</li>`,
