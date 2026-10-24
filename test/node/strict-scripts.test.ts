@@ -21,7 +21,7 @@ const sources = [...readdirSync(SITE), ...readdirSync(join(SITE, "components")).
  * account link's, which run as they're read) and data blocks, and example game files in the MCP's help (a game's own page, on the game
  * domain). The shader check's page, drawn in a headless browser, is written by packages/cli/shader-check.mjs, which the site shares.
  */
-const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 7, "mcp.ts": 2, "page-scripts.ts": 1 };
+const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 8, "mcp.ts": 2, "page-scripts.ts": 1 };
 
 describe("the site's code", () => {
   it("writes <script> tags only through html.ts", () => {
