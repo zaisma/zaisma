@@ -27,6 +27,10 @@ export interface StartServerOptions {
   webhookSigningSecret?: string;
   /** Where rooms save their states, so a restart brings matches back. Default zaisma-room-states.sqlite; null keeps none. */
   roomStateFile?: string | null;
+  /** An API key with purchase_access write for this game, which onPurchase and onRefund need. Default: the ZAISMA_KEY environment variable. */
+  zaismaKey?: string;
+  /** Zaisma's developer API, which marks purchases handled. Default: https://zaisma.com/api/dev. */
+  developerApiUrl?: string;
 }
 
 export interface RunningServer {

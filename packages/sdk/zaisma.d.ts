@@ -360,6 +360,75 @@ declare namespace Zaisma {
      * for (const item of await Zaisma.items.list()) addShopRow(item.title, item.priceText, item.isOwned);
      */
     list(): Promise<ItemForSale[]>;
+    /**
+     * Listen for a purchase on its way to the game (the {@link ItemsEvents}), when the game's purchase
+     * settings say purchase_delivery "game": the game calls {@link Items.markHandled} first, then hands it
+     * over, so a second tab, which gets "already_handled", skips it and it comes once. Each one waiting comes once the game listens, and each new one after the
+     * buy sheet completes it. A wrong name fails with error.code "unknown_event". With "game_server",
+     * the game server's onPurchase takes purchases instead, and these never fire.
+     *
+     * @example
+     * Zaisma.items.on("purchase", async (purchase) => {
+     *   await Zaisma.items.markHandled(purchase.id); // already_handled: another tab took it
+     *   if (purchase.itemName === "revive") addRevives(purchase.itemCount);
+     * });
+     */
+    on<EventName extends keyof ItemsEvents>(event: EventName, listener: ItemsEvents[EventName]): this;
+    /** Stop listening. */
+    off<EventName extends keyof ItemsEvents>(event: EventName, listener: ItemsEvents[EventName]): this;
+    /**
+     * The player's purchases the game hasn't marked handled, oldest first: each
+     * completed one, and each taken back (purchaseStatus "refunded" or "charged_back") after it was
+     * handled; at most 50 purchases and 50 refunds at a time. [] for guests, who buy nothing. Fails as {@link Items.owns} does, and with "slow_down".
+     */
+    unhandled(): Promise<Purchase[]>;
+    /**
+     * Mark a purchase handed over, so it doesn't come again (or, for one taken back, its refund). Fails
+     * with error.code "bad_purchase_id", "no_purchase" (not this player's, or not paid), "already_handled"
+     * (another tab or device took it first: don't hand it over twice), "handled_by_server" (purchase_delivery
+     * isn't "game": the game server or the developer's own server marks it), "slow_down", and as
+     * {@link Items.owns} does.
+     *
+     * @example
+     * await Zaisma.items.markHandled(purchase.id);
+     */
+    markHandled(purchaseId: string): Promise<void>;
+  }
+
+  /** The events of {@link items}, each with what its listener gets. */
+  interface ItemsEvents {
+    /** A completed purchase the game hasn't handled yet: mark it handled, then add what it bought. */
+    purchase: (purchase: Purchase) => void;
+    /**
+     * A purchase taken back (refunded or charged back) after the game handled it: the game decides what to
+     * take back, after marking it handled. A permanent item leaves {@link Items.owned} by itself.
+     */
+    refund: (purchase: Purchase) => void;
+  }
+
+  /** A purchase on its way to the game ({@link ItemsEvents}), as the API's purchase in camelCase. */
+  interface Purchase {
+    /** Like "purchase_8f2k1x". */
+    id: string;
+    itemName: string;
+    itemKind: "permanent" | "consumable";
+    /** How many of the item: 1 for permanent items. */
+    itemCount: number;
+    /** sale: bought on the buy sheet. grant: given by the developer (grant_item). */
+    purchaseSource: "sale" | "grant";
+    purchaseStatus: "completed" | "refunded" | "charged_back";
+    /** The game's own account ID for the player, when the game gave one to buy or grant_item; else null. */
+    gameAccountId: string | null;
+    /** What it paid, in the currency's minor units (cents); null for a grant. */
+    paidMinorUnits: number | null;
+    /** Like "EUR"; null for a grant. */
+    currencyCode: string | null;
+    /** When it was bought or granted, an ISO time. */
+    purchasedAt: string | null;
+    /** When it was refunded or charged back, an ISO time; null for "purchase". */
+    refundedAt: string | null;
+    /** The signed receipt, for a server of the game's own to check (verifyReceipt in @zaisma/game-server). */
+    receipt: string;
   }
 
   /** One item the game sells, for this player ({@link Items.list}). */
@@ -1455,6 +1524,10 @@ declare namespace Zaisma {
     | "unknown_link"
     | "bad_link_path"
     | "bad_item_name"
+    | "bad_purchase_id"
+    | "no_purchase"
+    | "already_handled"
+    | "handled_by_server"
     | "bad_link_query"
     | "bad_own_site_url"
     | "needs_player_tap"

@@ -8,5 +8,15 @@
     "price_minor_units": 299,
     "currency_code": "usd",
     "local_prices": [{ "currency_code": "eur", "price_minor_units": 279 }]
+  },
+  {
+    "item_name": "golden_seeds",
+    "title": "Golden Seeds",
+    "description": "A bag of golden seeds: ten carrots at once.",
+    "item_kind": "consumable",
+    "item_category": "gameplay",
+    "price_minor_units": 99,
+    "currency_code": "usd",
+    "local_prices": []
   }
 ]

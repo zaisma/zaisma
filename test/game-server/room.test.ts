@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GameServerError, ReceiptError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, restoreInfoOf, ROOM_LIMITS, ROOM_TUNING, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/internal.ts";
+import { GameServerError, ReceiptError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, restoreInfoOf, ROOM_LIMITS, ROOM_TUNING, type GameServer, type MoveAnswer, type Purchase, type PurchaseHandling, type RoomStart, type Transport } from "../../packages/game-server/src/internal.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -355,7 +355,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook. (unknown_option)",
     );
   });
 
@@ -2122,6 +2122,285 @@ describe("room.verifyReceipt", () => {
     room.join({ id: "a", name: "A", kind: "guest" });
     room.receive("a", msg("hello"));
     expect(await givenRoom!.verifyReceipt("purchase_1")).toEqual({ purchase_id: "purchase_1" });
+  });
+});
+
+/** Zaisma's record of purchases as a transport sees it: what each player still has to be handed, and who holds what. */
+function purchaseRecord(isReceiptNeeded = false) {
+  const unhandled: Record<string, Purchase[]> = {};
+  const held = new Set<string>();
+  const calls: string[] = [];
+  const handling: PurchaseHandling = {
+    isReceiptNeeded,
+    async unhandledFor(playerId) {
+      calls.push(`unhandledFor ${playerId}`);
+      return (unhandled[playerId] ?? []).filter((purchase) => !held.has(purchase.id));
+    },
+    async startHandling(playerId, purchase) {
+      calls.push(`startHandling ${purchase.id}`);
+      if (held.has(purchase.id)) return false;
+      held.add(purchase.id);
+      return true;
+    },
+    async finishHandling(playerId, purchase) {
+      calls.push(`finishHandling ${purchase.id}`);
+      unhandled[playerId] = (unhandled[playerId] ?? []).filter((other) => other.id !== purchase.id);
+    },
+    async releaseHandling(playerId, purchase) {
+      calls.push(`releaseHandling ${purchase.id}`);
+      held.delete(purchase.id);
+    },
+  };
+  return { unhandled, held, calls, handling };
+}
+
+function purchaseOf(id: string, fields: Partial<Purchase> = {}): Purchase {
+  return { id, itemName: "revive", itemKind: "consumable", itemCount: 1, purchaseSource: "sale", purchaseStatus: "completed", gameAccountId: null, paidMinorUnits: 199, currencyCode: "usd", purchasedAt: "2026-10-24T10:00:00.000Z", refundedAt: null, receipt: `receipt_${id}`, ...fields };
+}
+
+const purchaseMessage = (purchaseId: string, receipt?: string) => JSON.stringify({ type: "zaisma:purchase", purchaseId, ...(receipt === undefined ? {} : { receipt }) });
+const ANA = { id: "ana", name: "Ana", kind: "account" as const };
+
+describe("onPurchase and onRefund", () => {
+  const taker = (hooks: Partial<GameServer<{ got: string[]; refunded: string[] }>> = {}) =>
+    defineGameServer<{ got: string[]; refunded: string[] }>({
+      setup: () => ({ got: [], refunded: [] }),
+      onPurchase: (state, player, room, purchase) => void state.got.push(`${player.id} ${purchase.id} ${purchase.itemName}`),
+      onRefund: (state, player, room, purchase) => void state.refunded.push(`${player.id} ${purchase.id} ${purchase.purchaseStatus}`),
+      ...hooks,
+    });
+
+  it("hands a purchase over once even when two zaisma:purchase messages arrive", async () => {
+    const record = purchaseRecord();
+    const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    room.join(ANA);
+    await room.settled();
+    expect(room.state.got).toEqual([]);
+
+    record.unhandled.ana = [purchaseOf("purchase_1")];
+    expect(room.receive("ana", purchaseMessage("purchase_1"))).toBeNull();
+    expect(room.receive("ana", purchaseMessage("purchase_1"))).toBeNull();
+    await room.settled();
+    expect(room.state.got).toEqual(["ana purchase_1 revive"]);
+    expect(record.calls.filter((call) => call.startsWith("startHandling"))).toEqual(["startHandling purchase_1"]);
+    expect(record.calls.filter((call) => call.startsWith("finishHandling"))).toEqual(["finishHandling purchase_1"]);
+    expect(record.unhandled.ana).toEqual([]);
+
+    // Told again after it was handled: the same purchase ID counts once per player, so Zaisma isn't asked again.
+    const askedCount = record.calls.length;
+    room.receive("ana", purchaseMessage("purchase_1"));
+    await room.settled();
+    expect(record.calls).toHaveLength(askedCount);
+    expect(room.state.got).toHaveLength(1);
+  });
+
+  it("hands over what was bought while away on the next join, and the purchase itself", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1"), purchaseOf("purchase_2", { itemName: "coins", itemCount: 500 })];
+    const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    room.join(ANA);
+    await room.settled();
+    expect(room.state.got).toEqual(["ana purchase_1 revive", "ana purchase_2 coins"]);
+    expect(record.calls.filter((call) => call.startsWith("finishHandling"))).toEqual(["finishHandling purchase_1", "finishHandling purchase_2"]);
+    // A rejoin looks again and finds nothing new.
+    room.join(ANA);
+    await room.settled();
+    expect(room.state.got).toHaveLength(2);
+  });
+
+  it("gives the hook the player, the room and the purchase, and keeps what it changes in the state", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1", { itemName: "coins", itemCount: 500, paidMinorUnits: null, currencyCode: null, purchaseSource: "grant" })];
+    let seen: { roomCode: string; purchase: Purchase } | null = null;
+    const room = new RoomCore(
+      defineGameServer({
+        setup: () => ({ coins: 0 }),
+        onPurchase(state, player, hookRoom, purchase) {
+          seen = { roomCode: hookRoom.roomCode, purchase };
+          return { coins: state.coins + purchase.itemCount };
+        },
+      }),
+      { ...transport().t, purchaseHandling: record.handling },
+    );
+    room.join(ANA);
+    await room.settled();
+    expect(room.state.coins).toBe(500);
+    expect(seen).toMatchObject({ roomCode: "K7Q2MX", purchase: { id: "purchase_1", purchaseSource: "grant", paidMinorUnits: null } });
+  });
+
+  it("lets go of a purchase whose hook threw, reports the error, and tries again on the next join", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1")];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let isBroken = true;
+      const room = new RoomCore(taker({ onPurchase: (state, player, hookRoom, purchase) => {
+        if (isBroken) throw new Error("revive bug");
+        state.got.push(purchase.id);
+      } }), { ...transport().t, purchaseHandling: record.handling });
+      room.join(ANA);
+      await room.settled();
+      expect(room.state.got).toEqual([]);
+      expect(record.calls).toContain("releaseHandling purchase_1");
+      expect(record.calls).not.toContain("finishHandling purchase_1");
+      expect(record.held.size).toBe(0);
+      expect(errors.mock.calls.some(([line, error]) => line === "Game server error:" && String(error).includes("revive bug"))).toBe(true);
+
+      isBroken = false;
+      room.join(ANA);
+      await room.settled();
+      expect(room.state.got).toEqual(["purchase_1"]);
+      expect(record.calls).toContain("finishHandling purchase_1");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("lets go of a purchase whose async hook rejected", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1")];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const room = new RoomCore(taker({ onPurchase: async () => { throw new Error("late bug"); } }), { ...transport().t, purchaseHandling: record.handling });
+      room.join(ANA);
+      await room.settled();
+      expect(record.calls).toContain("releaseHandling purchase_1");
+      expect(record.calls).not.toContain("finishHandling purchase_1");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("hands a refund or a charge back to onRefund once, and not to onPurchase", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1", { purchaseStatus: "refunded", refundedAt: "2026-10-24T11:00:00.000Z" }), purchaseOf("purchase_2", { purchaseStatus: "charged_back", refundedAt: "2026-10-24T11:00:00.000Z" })];
+    const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    room.join(ANA);
+    await room.settled();
+    room.join(ANA);
+    room.receive("ana", purchaseMessage("purchase_1"));
+    await room.settled();
+    expect(room.state.refunded).toEqual(["ana purchase_1 refunded", "ana purchase_2 charged_back"]);
+    expect(room.state.got).toEqual([]);
+  });
+
+  it("takes nothing when the game server has no onPurchase (or no onRefund for a refund)", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1"), purchaseOf("purchase_2", { purchaseStatus: "refunded" })];
+    const neither = new RoomCore(defineGameServer({ setup: () => ({}), onMessage: () => undefined }), { ...transport().t, purchaseHandling: record.handling });
+    neither.join(ANA);
+    neither.receive("ana", purchaseMessage("purchase_1"));
+    await neither.settled();
+    expect(record.calls).toEqual([]);
+
+    const onlyRefunds = new RoomCore(defineGameServer({ setup: () => ({ refunded: [] as string[] }), onRefund: (state, player, room, purchase) => void state.refunded.push(purchase.id) }), { ...transport().t, purchaseHandling: record.handling });
+    onlyRefunds.join(ANA);
+    await onlyRefunds.settled();
+    expect(onlyRefunds.state.refunded).toEqual(["purchase_2"]);
+    expect(record.calls).not.toContain("startHandling purchase_1");
+    expect(record.held.has("purchase_1")).toBe(false);
+  });
+
+  it("does nothing on a transport without purchaseHandling", async () => {
+    const room = new RoomCore(taker(), transport().t);
+    room.join(ANA);
+    expect(room.receive("ana", purchaseMessage("purchase_1"))).toBeNull();
+    await room.settled();
+    expect(room.state.got).toEqual([]);
+  });
+
+  it("hands a purchase to only one of two rooms that share the record", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1")];
+    const first = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    const second = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    first.join(ANA);
+    second.join(ANA);
+    await Promise.all([first.settled(), second.settled()]);
+    expect(first.state.got.length + second.state.got.length).toBe(1);
+    expect(record.calls.filter((call) => call.startsWith("finishHandling"))).toEqual(["finishHandling purchase_1"]);
+  });
+
+  it("hands guests nothing", async () => {
+    const record = purchaseRecord();
+    record.unhandled.guest_1 = [purchaseOf("purchase_1")];
+    const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    room.join({ id: "guest_1", name: "Guest", kind: "guest" });
+    room.receive("guest_1", purchaseMessage("purchase_1"));
+    await room.settled();
+    expect(record.calls).toEqual([]);
+    expect(room.state.got).toEqual([]);
+  });
+
+  it("ignores zaisma:purchase messages without a purchase ID or with an oversized one", async () => {
+    const record = purchaseRecord();
+    const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling });
+    room.join(ANA);
+    await room.settled();
+    const askedCount = record.calls.length;
+    expect(room.receive("ana", JSON.stringify({ type: "zaisma:purchase" }))).toBeNull();
+    expect(room.receive("ana", JSON.stringify({ type: "zaisma:purchase", purchaseId: 7 }))).toBeNull();
+    expect(room.receive("ana", purchaseMessage(""))).toBeNull();
+    expect(room.receive("ana", purchaseMessage("p".repeat(81)))).toBeNull();
+    await room.settled();
+    expect(record.calls).toHaveLength(askedCount);
+  });
+
+  it("settled() waits for a hand-over that is still running", async () => {
+    const record = purchaseRecord();
+    record.unhandled.ana = [purchaseOf("purchase_1")];
+    let finishHook!: () => void;
+    const room = new RoomCore(taker({ onPurchase: (state, player, hookRoom, purchase) => new Promise<void>((resolve) => { finishHook = () => { state.got.push(purchase.id); resolve(); }; }) }), { ...transport().t, purchaseHandling: record.handling });
+    room.join(ANA);
+    let isSettled = false;
+    void room.settled().then(() => (isSettled = true));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(isSettled).toBe(false);
+    finishHook();
+    await room.settled();
+    expect(room.state.got).toEqual(["purchase_1"]);
+    expect(record.calls).toContain("finishHandling purchase_1");
+  });
+
+  describe("on your own server (isReceiptNeeded)", () => {
+    const claims = (fields: Record<string, unknown>) => ({ sub: "ana", purchase_id: "purchase_1", ...fields }) as never;
+
+    it("hands a purchase over after its receipt checks out", async () => {
+      const record = purchaseRecord(true);
+      const checked: string[] = [];
+      const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling, verifyReceipt: async (receipt) => (checked.push(receipt), claims({})) });
+      room.join(ANA);
+      await room.settled();
+      record.unhandled.ana = [purchaseOf("purchase_1")];
+      room.receive("ana", purchaseMessage("purchase_1", "signed.receipt"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await room.settled();
+      expect(checked).toEqual(["signed.receipt"]);
+      expect(room.state.got).toEqual(["ana purchase_1 revive"]);
+    });
+
+    it("refuses a forged receipt, one for another player or purchase, and a message without one", async () => {
+      const record = purchaseRecord(true);
+      const verify = async (receipt: string) => {
+        if (receipt === "forged") throw new ReceiptError("bad_signature");
+        if (receipt === "someone_elses") return claims({ sub: "ben" });
+        if (receipt === "another_purchase") return claims({ purchase_id: "purchase_2" });
+        return claims({});
+      };
+      const room = new RoomCore(taker(), { ...transport().t, purchaseHandling: record.handling, verifyReceipt: verify });
+      room.join(ANA);
+      await room.settled();
+      const askedCount = record.calls.length;
+      record.unhandled.ana = [purchaseOf("purchase_1")];
+      for (const receipt of ["forged", "someone_elses", "another_purchase"]) {
+        room.receive("ana", purchaseMessage("purchase_1", receipt));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      room.receive("ana", purchaseMessage("purchase_1"));
+      await room.settled();
+      expect(record.calls).toHaveLength(askedCount);
+      expect(room.state.got).toEqual([]);
+    });
   });
 });
 

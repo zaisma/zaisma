@@ -29,6 +29,7 @@ export {
   type MoveOptions,
   type MoveResult,
   type Player,
+  type Purchase,
   type Refusal,
   type ReserveOptions,
   type RestoreInfo,

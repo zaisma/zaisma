@@ -9,8 +9,11 @@ import {
   checkItem,
   checkItemName,
   checkPurchaseSettings,
+  finishHandling,
+  finishRefundHandling,
   iso,
   isIdOf,
+  ownServerUrlsOf,
   itemByName,
   itemsOf,
   newGrant,
@@ -23,6 +26,7 @@ import {
   receiptClaimsFor,
   recordGrant,
   takeBack,
+  unhandledFor,
   type Game,
   type GameItem,
   type Purchase,
@@ -32,6 +36,7 @@ import {
 import type { Caller, CheckedCall, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { logCallerEvent } from "./security-log.ts";
+import { tellPurchase } from "./webhooks.ts";
 
 /**
  * A game's items and purchases through the developer API (packages/core/src/items.ts): what it sells or
@@ -41,12 +46,15 @@ import { logCallerEvent } from "./security-log.ts";
  *   GET    /api/dev/games/:slug/items                       the items, purchase settings and the label they make
  *   PUT    /api/dev/games/:slug/items/:item_name            set one item, whole: { title, description, item_kind, item_category, price_minor_units, currency_code, local_prices }
  *   DELETE /api/dev/games/:slug/items/:item_name            remove one nobody bought or was granted
- *   PATCH  /api/dev/games/:slug/purchase-settings           refund_policy, refund_policy_text, own_payment_categories
+ *   PATCH  /api/dev/games/:slug/purchase-settings           refund_policy, refund_policy_text, own_payment_categories, purchase_delivery
  *   POST   /api/dev/games/:slug/purchases                   grant an item: { player_id, item_name, item_count, game_account_id }
  *   GET    /api/dev/games/:slug/purchases                   purchases and grants, newest first: ?player_id=&item_name=&purchase_source=&purchase_status=&cursor=
  *   GET    /api/dev/games/:slug/purchases/:purchase_id      one, with its receipt
  *   POST   /api/dev/games/:slug/purchases/:purchase_id/refund   take a grant back (a sale refunds through Stripe, with the buy sheet)
- *   GET    /api/dev/games/:slug/players/:player_id/items    the permanent items a player owns
+ *   POST   /api/dev/games/:slug/purchases/:purchase_id/handled  your own server took it: a completed one handled, a taken-back one's refund told
+ *   GET    /api/dev/games/:slug/players/:player_id/items    the permanent items a player owns, and their purchases still to hand over
+ *
+ * Every grant and take-back also goes to the developer's webhooks (purchase_completed, purchase_refunded).
  */
 
 const PURCHASE_PAGE_COUNT = 100;
@@ -79,6 +87,8 @@ const purchaseJson = (purchase: Purchase, receipt: string | null) => ({
   refunded_minor_units: purchase.refunded_minor_units,
   purchased_at: purchase.purchased_at_ms === null ? null : iso(purchase.purchased_at_ms),
   refunded_at: purchase.refunded_at_ms === null ? null : iso(purchase.refunded_at_ms),
+  handled_at: purchase.handled_at_ms === null ? null : iso(purchase.handled_at_ms),
+  refund_handled_at: purchase.refund_handled_at_ms === null ? null : iso(purchase.refund_handled_at_ms),
   receipt,
 });
 
@@ -167,11 +177,19 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
 export async function purchaseSettingsRoute(env: Env, game: Game, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
   const sold = await env.DB.prepare("SELECT 1 AS is_sold FROM game_items WHERE game_id = ? AND price_minor_units IS NOT NULL LIMIT 1").bind(game.id).first();
   const settings = checkPurchaseSettings(checked.body, purchaseSettingsOf(game), sold !== null);
+  // game_server needs one to run onPurchase: the sandbox or a built-in one on Zaisma, or the Node runner on the developer's own servers. The relay runs no game code.
+  if ("purchase_delivery" in checked.body && settings.purchase_delivery === "game_server" && game.multiplayer_mode !== "own" && game.multiplayer_mode !== "built-in" && !ownServerUrlsOf(game).length) {
+    throw new ApiError("no_game_server", {
+      message: `${game.slug} has no game server to run onPurchase.`,
+      field: "purchase_delivery",
+      fix: "Add a game server first (zaisma-server.js with multiplayer_mode own, or your own server's address in own_server_urls), or use game: the game hears Zaisma.items.on(\"purchase\") itself.",
+    });
+  }
   // A game left with no policy must still sell nothing when it's written, so an item put on sale at the same moment can't get past it.
   const changed = await env.DB.prepare(
-    "UPDATE games SET refund_policy = ?1, refund_policy_text = ?2, own_payment_categories = ?3, updated_at_ms = ?4 WHERE id = ?5 AND (?1 IS NOT NULL OR NOT EXISTS (SELECT 1 FROM game_items WHERE game_id = ?5 AND price_minor_units IS NOT NULL))",
+    "UPDATE games SET refund_policy = ?1, refund_policy_text = ?2, own_payment_categories = ?3, purchase_delivery = ?6, updated_at_ms = ?4 WHERE id = ?5 AND (?1 IS NOT NULL OR NOT EXISTS (SELECT 1 FROM game_items WHERE game_id = ?5 AND price_minor_units IS NOT NULL))",
   )
-    .bind(settings.refund_policy, settings.refund_policy_text, JSON.stringify(settings.own_payment_categories), Date.now(), game.id)
+    .bind(settings.refund_policy, settings.refund_policy_text, JSON.stringify(settings.own_payment_categories), Date.now(), game.id, settings.purchase_delivery)
     .run();
   // An item went on sale since: checked again as a game that sells, it answers refund_policy_needed.
   if (!changed.meta.changes) checkPurchaseSettings(checked.body, purchaseSettingsOf(game), true);
@@ -201,7 +219,7 @@ async function accountPlayerId(env: Env, given: unknown, field: string): Promise
 }
 
 /** Purchases and grants: list, get one, grant, refund. */
-export async function purchasesRoute(request: Request, env: Env, game: Game, purchaseId: string | undefined, isRefund: boolean, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
+export async function purchasesRoute(request: Request, env: Env, game: Game, purchaseId: string | undefined, purchaseAction: "refund" | "handled" | null, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
   const method = request.method;
   const nowMs = Date.now();
 
@@ -259,6 +277,7 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
     // Another grant of this permanent item was recorded first: it's the one that owns it.
     if (granted.isAlreadyOwned) return alreadyOwned(granted.purchase);
     await logCallerEvent(env, caller, "purchase_granted", { gameId: game.id, subjectName: itemName });
+    await tellPurchase(env, game, purchase!, "purchase_completed", caller.waitUntil);
     return [{ purchase, is_already_owned: false, next_steps: [] satisfies NextStep[] }, 201];
   }
 
@@ -267,12 +286,12 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
   const purchase = isIdOf("purchase", purchaseId) ? await purchaseById(env.DB, game.id, purchaseId) : null;
   if (!purchase) throw new ApiError("no_purchase", { message: `${game.slug} has no purchase with the ID ${purchaseId}.`, field: "purchase_id", fix: purchaseFix });
 
-  if (!isRefund && method === "GET") {
+  if (purchaseAction === null && method === "GET") {
     const [answered] = await withReceipts(env, game, [purchase]);
     return [{ purchase: answered }];
   }
 
-  if (isRefund && method === "POST") {
+  if (purchaseAction === "refund" && method === "POST") {
     const alreadyRefunded = (takenBack: Purchase) =>
       new ApiError("already_refunded", { message: `${takenBack.id} was ${takenBack.purchase_status === "charged_back" ? "charged back" : "refunded"} already.`, field: "purchase_id", fix: "Nothing to do: the player no longer owns it." });
     if (purchase.purchase_status === "refunded" || purchase.purchase_status === "charged_back") throw alreadyRefunded(purchase);
@@ -283,15 +302,29 @@ export async function purchasesRoute(request: Request, env: Env, game: Game, pur
     if (!(await takeBack(env.DB, purchase.id, "refunded", nowMs))) throw alreadyRefunded((await purchaseById(env.DB, game.id, purchase.id))!);
     await logCallerEvent(env, caller, "purchase_refunded", { gameId: game.id, subjectName: purchase.item_name });
     const [answered] = await withReceipts(env, game, [(await purchaseById(env.DB, game.id, purchase.id))!]);
+    await tellPurchase(env, game, answered!, "purchase_refunded", caller.waitUntil);
     return [{ purchase: answered, next_steps: [] satisfies NextStep[] }];
   }
 
-  throw new ApiError("bad_method", { message: `${method} isn't a call at /games/${game.slug}/purchases/${purchaseId}${isRefund ? "/refund" : ""}.`, fix: "GET gets a purchase; POST …/refund takes a grant back." });
+  // Your own server or script took it: a completed purchase is handled, a taken-back one's refund told. Not the lease rooms use: it marks at once.
+  if (purchaseAction === "handled" && method === "POST") {
+    if (purchase.purchase_status === "pending" || purchase.purchase_status === "failed") {
+      throw new ApiError("no_purchase", { message: `${purchase.id} wasn't bought: it's ${purchase.purchase_status}, so there's nothing to hand over.`, field: "purchase_id", fix: "Only completed, refunded and charged-back purchases are handled: list_purchases with purchase_status completed lists them." });
+    }
+    const isRefund = purchase.purchase_status !== "completed";
+    if (!(await (isRefund ? finishRefundHandling : finishHandling)(env.DB, purchase.id, nowMs))) {
+      throw new ApiError("already_handled", { message: `${purchase.id} was ${isRefund ? "told it was refunded" : "marked handled"} already.`, field: "purchase_id", fix: "Nothing to do: deliver once per purchase_id, so skip one you've had." });
+    }
+    const [answered] = await withReceipts(env, game, [(await purchaseById(env.DB, game.id, purchase.id))!]);
+    return [{ purchase: answered, next_steps: [] satisfies NextStep[] }];
+  }
+
+  throw new ApiError("bad_method", { message: `${method} isn't a call at /games/${game.slug}/purchases/${purchaseId}${purchaseAction ? `/${purchaseAction}` : ""}.`, fix: "GET gets a purchase; POST …/refund takes a grant back; POST …/handled marks it handled." });
 }
 
-/** The permanent items a player owns in the game, as their next pass will list them. */
+/** The permanent items a player owns in the game, as their next pass will list them, and their purchases and refunds still to hand over, oldest first, at most 50. */
 export async function playerItemsRoute(env: Env, game: Game, playerId: string): Promise<[unknown, number?]> {
   checkIdKind("player", playerId, "player_id", PLAYER_ID_FIX);
   if (!isIdOf("player", playerId)) throw new ApiError("bad_player_id", { message: `player_id ${JSON.stringify(String(playerId).slice(0, 50))} isn't a player ID.`, field: "player_id", fix: PLAYER_ID_FIX });
-  return [{ player_id: playerId, owned_item_names: await ownedItemNames(env.DB, game.id, playerId) }];
+  return [{ player_id: playerId, owned_item_names: await ownedItemNames(env.DB, game.id, playerId), unhandled_purchases: await withReceipts(env, game, await unhandledFor(env.DB, game.id, playerId)) }];
 }

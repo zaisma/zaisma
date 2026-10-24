@@ -273,7 +273,7 @@ export function secretsFromEnvironment() {
   return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
 
-const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile"];
+const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl"];
 
 /**
  * Check what startServer was given: unknown options and options of the wrong kind are a GameServerError,
@@ -307,5 +307,7 @@ export function checkedStartServerOptions(given, issuerUrlDefault) {
   if (options.secrets !== undefined && (options.secrets === null || typeof options.secrets !== "object" || Array.isArray(options.secrets))) throw bad("secrets", "an object of secrets", "Give an object of text values by name, like { STRIPE_KEY: \"…\" }.");
   if (options.webhookSigningSecret !== undefined && typeof options.webhookSigningSecret !== "string") throw bad("webhookSigningSecret", "text", "Give the signing_secret of the webhook whose events come to /v1/webhooks, as text.");
   if (options.roomStateFile !== undefined && options.roomStateFile !== null && !isText(options.roomStateFile)) throw bad("roomStateFile", "a file path", "Give a file path as text, like \"zaisma-room-states.sqlite\", or null to keep no states.");
+  if (options.zaismaKey !== undefined && !isText(options.zaismaKey)) throw bad("zaismaKey", "an API key", "Give an API key with purchase_access write for this game as text, or leave it out to use ZAISMA_KEY.");
+  if (options.developerApiUrl !== undefined && (!isText(options.developerApiUrl) || !URL.canParse(options.developerApiUrl))) throw bad("developerApiUrl", "a URL", 'Give the address of Zaisma\'s developer API, like "https://zaisma.com/api/dev".');
   return options;
 }

@@ -29,7 +29,7 @@ function valuesInSource(file: string, name: string): string[] {
 /** The names a refusal lists after "It takes:" or "Rooms have:", sorted. */
 function listed(error: unknown): string[] {
   const message = (error as Error).message;
-  const list = message.match(/(?:It takes|Rooms have|Zaisma\.saves has): (.*)\.$/);
+  const list = message.match(/(?:It takes|Rooms have|Zaisma\.saves has|Zaisma\.items has): (.*)\.$/);
   if (!list) throw new Error(`Not a refusal that lists names: ${message}`);
   return list[1]!.split(", ").sort();
 }
@@ -602,6 +602,57 @@ describe("the SDK's types say what the SDK does", () => {
     expect(profile.playedGames).toEqual([{ slug: "arena", title: "Arena", pageUrl: "https://zaisma.test/g/arena", playedPeriod: "this_week" }]);
     expect(profile.playingNow).toEqual({ slug: "arena", title: "Arena", pageUrl: "https://zaisma.test/g/arena" });
     expect(asked).toEqual(["https://rooms.zaisma.test/v1/players/player_bo"]);
+  });
+
+  it("hands purchases to a game whose purchases come to it once it listens, once each, and marks them handled", async () => {
+    const asked: { url: string; body: Record<string, unknown> }[] = [];
+    const bought = { id: "purchase_k2v9q4", itemName: "revive", itemKind: "consumable", itemCount: 3, purchaseSource: "sale", purchaseStatus: "completed", gameAccountId: null, paidMinorUnits: 199, currencyCode: "EUR", purchasedAt: "2026-10-24T09:00:00.000Z", refundedAt: null, receipt: "receipt" };
+    const takenBack = { ...bought, id: "purchase_m7x1p3", purchaseStatus: "refunded", refundedAt: "2026-10-24T10:00:00.000Z" };
+    const answers: Record<string, unknown> = {
+      "/v1/pass": { pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" },
+      "/v1/items/unhandled": { purchases: [bought, takenBack] },
+      "/v1/items/handled": { isHandled: true },
+    };
+    const fetchAnswer = ((url: string, init: { body: string }) => {
+      const path = url.replace(ON_ZAISMA.rooms, "");
+      asked.push({ url: path, body: JSON.parse(init.body) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(answers[path]) });
+    }) as () => Promise<unknown>;
+    const sdk = loadSdk({ ...ON_ZAISMA, purchaseDelivery: "game" } as typeof ON_ZAISMA, fetchAnswer, "account");
+    expect(listed(await refusal(() => sdk.Zaisma.items.on("notAnEvent", () => {})))).toEqual(fieldsOf("ItemsEvents"));
+    const heard: [string, Record<string, unknown>][] = [];
+    expect(sdk.Zaisma.items.on("purchase", (purchase: Record<string, unknown>) => heard.push(["purchase", purchase]))).toBe(sdk.Zaisma.items);
+    sdk.Zaisma.items.on("refund", (purchase: Record<string, unknown>) => heard.push(["refund", purchase]));
+    await vi.waitFor(() => expect(heard).toHaveLength(2));
+    expect(heard).toEqual([["purchase", bought], ["refund", takenBack]]);
+    expect(Object.keys(bought).sort()).toEqual(fieldsOf("Purchase"));
+    expect(asked.filter((call) => call.url === "/v1/items/unhandled")).toEqual([{ url: "/v1/items/unhandled", body: { gameSlug: "test-game", pass: "account-pass" } }]);
+
+    // Listening again looks again, but a purchase already handed over in this page doesn't come twice.
+    sdk.Zaisma.items.on("purchase", () => {});
+    await vi.waitFor(() => expect(asked.filter((call) => call.url === "/v1/items/unhandled")).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toHaveLength(2);
+
+    expect(await sdk.Zaisma.items.unhandled()).toEqual([bought, takenBack]);
+    expect(await sdk.Zaisma.items.markHandled("purchase_k2v9q4")).toBeUndefined();
+    expect(asked.at(-1)).toEqual({ url: "/v1/items/handled", body: { gameSlug: "test-game", pass: "account-pass", purchaseId: "purchase_k2v9q4" } });
+    expect(await failureCode(() => sdk.Zaisma.items.markHandled("revive"))).toBe("bad_purchase_id");
+  });
+
+  it("leaves purchases to the game server when they're delivered there, and passes on a refusal to mark one", async () => {
+    const asked: string[] = [];
+    const fetchAnswer = ((url: string) => {
+      const path = url.replace(ON_ZAISMA.rooms, "");
+      asked.push(path);
+      if (path === "/v1/pass") return Promise.resolve({ ok: true, json: () => Promise.resolve({ pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" }) });
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({ error: { code: "handled_by_server", message: "The game server marks it." } }) });
+    }) as () => Promise<unknown>;
+    const sdk = loadSdk({ ...ON_ZAISMA, purchaseDelivery: "game_server" } as typeof ON_ZAISMA, fetchAnswer, "account");
+    sdk.Zaisma.items.on("purchase", () => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toEqual([]);
+    expect(await failureCode(() => sdk.Zaisma.items.markHandled("purchase_k2v9q4"))).toBe("handled_by_server");
   });
 
   it("lists a signed-in player's friends playing the game, as FriendInGame says, and keeps the answer 10 seconds", async () => {

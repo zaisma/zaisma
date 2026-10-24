@@ -31,6 +31,48 @@ export interface Player {
   ownedItemNames?: string[];
 }
 
+/**
+ * A purchase or grant as onPurchase and onRefund get it: the developer API's purchase, in camelCase.
+ * purchaseStatus is "completed" in onPurchase, and "refunded" or "charged_back" in onRefund.
+ * receipt is its signed receipt (room.verifyReceipt checks one), for your own records.
+ */
+export interface Purchase {
+  id: string;
+  itemName: string;
+  itemKind: "permanent" | "consumable";
+  /** How many: 1 for a permanent item. */
+  itemCount: number;
+  purchaseSource: "sale" | "grant";
+  purchaseStatus: "completed" | "refunded" | "charged_back";
+  /** Your game's own account ID for the player, when the game gave one to buy or grant_item; else null. */
+  gameAccountId: string | null;
+  /** What it paid, in the currency's minor units (cents); null for a grant. */
+  paidMinorUnits: number | null;
+  currencyCode: string | null;
+  /** When it was bought or granted, an ISO time. */
+  purchasedAt: string | null;
+  /** When it was refunded or charged back, an ISO time; null in onPurchase. */
+  refundedAt: string | null;
+  receipt: string;
+}
+
+/**
+ * How a room hands purchases over (onPurchase, onRefund), from Zaisma's record of them: Zaisma rooms read
+ * it themselves, and the Node runner through the developer API with ZAISMA_KEY. Exactly once: a room hands
+ * a purchase over only after winning it (startHandling), and marks it handled after the hook, or lets go
+ * of it when the hook threw, so the player's next join tries again.
+ */
+export interface PurchaseHandling {
+  /** The player's purchases and refunds still to hand over, oldest first. */
+  unhandledFor(playerId: string): Promise<Purchase[]>;
+  /** Wins the purchase (or its refund) for this room; false when another room has it, or it was handled. */
+  startHandling(playerId: string, purchase: Purchase): Promise<boolean>;
+  finishHandling(playerId: string, purchase: Purchase): Promise<void>;
+  releaseHandling(playerId: string, purchase: Purchase): Promise<void>;
+  /** Whether a zaisma:purchase message must carry the purchase's receipt, checked before anything is asked (your own server). */
+  isReceiptNeeded?: boolean;
+}
+
 export interface Room {
   /**
    * This room's code, like K7Q2MX: the code players join it by. Use it to treat rooms differently, like
@@ -479,6 +521,21 @@ export interface GameServer<S = any> {
   onBack?(state: S, player: Player, room: Room): HandlerResult<S>;
   onMessage?(state: S, player: Player, room: Room, message: unknown): HandlerResult<S>;
   /**
+   * A player bought or was granted an item: add it to their state, like a revive or 500 coins. It comes
+   * exactly once, within a second when the player is in a room (their game tells it, after Zaisma.items.buy),
+   * or the next time they join. Only with purchase_delivery "game_server" (set_purchase_settings). If it
+   * throws, it isn't handled: it comes again on the player's next join, and you see the error with the
+   * game server's others. Without onPurchase, a room never takes a purchase. On your own server, the Node
+   * runner needs ZAISMA_KEY for it.
+   */
+  onPurchase?(state: S, player: Player, room: Room, purchase: Purchase): HandlerResult<S>;
+  /**
+   * A purchase onPurchase got was refunded or charged back (purchase.purchaseStatus says which): take back
+   * what your refund policy says, like a revive not used yet. Permanent items leave player.ownedItemNames by
+   * themselves. Comes once, on the player's next join (and to webhooks at once, as purchase_refunded).
+   */
+  onRefund?(state: S, player: Player, room: Room, purchase: Purchase): HandlerResult<S>;
+  /**
    * Bytes a player's game sent (room.sendBytes), like a compact input, under the same limits as
    * messages: up to 16 KB each, 30 a second. Read them with a DataView; they're a copy, yours to keep.
    */
@@ -601,6 +658,8 @@ export const GAME_SERVER_OPTIONS = [
   "onBack",
   "onMessage",
   "onBytes",
+  "onPurchase",
+  "onRefund",
   "onTick",
   "onEnding",
   "onRestored",
@@ -842,6 +901,11 @@ export interface RoomSettings {
  * of the match with their seat held gets {type: "away"}, and once the seat is no longer held, their
  * connection closes with SEAT_GONE_CLOSE_CODE.
  *
+ * Purchases: after Zaisma.items.buy, a game whose purchases go to its game server sends {type:
+ * "zaisma:purchase", purchaseId, receipt?} on each room it's in. It only says "look now": the room reads
+ * Zaisma's record itself and hands the player's unhandled purchases to onPurchase, as it does on every
+ * join. Each purchase ID counts once per player per room; on your own server, receipt is checked first.
+ *
  * Ping and the room's clock (docs/DECISIONS.md, "Rooms under lag"): the room sends {type: "probe",
  * probeNumber, serverTimeMs, pingDurationMs} right after welcome and again once it's answered (so the
  * client hears its first ping), every welcome.probeIntervalSec while
@@ -914,6 +978,7 @@ export type ClientMessage =
       avoidBlockedPlayers?: boolean;
     }
   | { type: "message"; data: unknown }
+  | { type: "zaisma:purchase"; purchaseId: string; receipt?: string }
   | { type: "room"; room: Partial<RoomSettings> }
   | { type: "kick"; playerId: string; keepOut?: boolean }
   | { type: "block"; playerId: string }
@@ -1049,6 +1114,11 @@ export interface ClientIdle {
   idleCheckEnabled?: boolean;
 }
 
+/** A zaisma:purchase message's purchaseId, at most: longer is no purchase's. */
+const MAXIMUM_PURCHASE_ID_CHARACTER_COUNT = 80;
+/** The purchase IDs one player's zaisma:purchase messages count in one room; past that they're ignored, and joins still bring purchases. */
+const MAXIMUM_TOLD_PURCHASE_COUNT = 200;
+
 /** How long a room holds a seat for a player another room is sending. */
 const SEAT_MS = 60_000;
 
@@ -1077,6 +1147,8 @@ export interface Transport {
   applyVersionUpdate?(): void;
   /** Whether a player's connection holds ROOM_TUNING.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
   isBackedUp?(playerId: string): boolean;
+  /** Where the room hands purchases over (onPurchase, onRefund). Without it, purchases never reach the room. */
+  purchaseHandling?: PurchaseHandling;
 }
 
 /** room.secrets and server.secrets where a game has none. */
@@ -1350,6 +1422,13 @@ export class RoomCore<S = any> {
   /** Handlers running right now, and what waits for them to finish (a kicked player's onLeave). */
   private depth = 0;
   private afterHandler: (() => void)[] = [];
+  /** Players whose purchases are being handed over now, and those to look at again once that's done. */
+  private readonly purchasePlayerIds = new Set<string>();
+  private readonly purchaseAgainPlayerIds = new Set<string>();
+  /** The purchase IDs each player's zaisma:purchase messages named, so a client can't spin the room on one. */
+  private readonly toldPurchaseIds = new Map<string, Set<string>>();
+  /** Hand-overs running now, for settled(). */
+  private purchaseDeliveries = new Set<Promise<void>>();
 
   /**
    * startOptions.start makes a reserved room: closed, open only to the players it was made for, and
@@ -1687,10 +1766,12 @@ export class RoomCore<S = any> {
 
   /** Resolves once every handler started so far has finished (at once for game servers that answer at once). */
   async settled(): Promise<void> {
-    while (this.queue) {
+    while (this.queue || this.purchaseDeliveries.size) {
+      if (this.purchaseDeliveries.size) await Promise.all([...this.purchaseDeliveries]);
       const queued = this.queue;
+      if (!queued) continue;
       await queued;
-      if (this.queue === queued) return;
+      if (this.queue === queued && !this.purchaseDeliveries.size) return;
     }
   }
 
@@ -1895,6 +1976,8 @@ export class RoomCore<S = any> {
     else if (this.kept.has(player.id)) this.back(player.id);
     // A turn-based room has no tick to bring a returning connection its copy of the state.
     if (isRejoin && !this.ticking) this.syncSoon();
+    // Every join looks for purchases the player hasn't had yet: ones bought while away, or whose hand-over failed.
+    this.deliverPurchases(player.id);
     return { isAllowed: true, isRejoin };
   }
 
@@ -2185,6 +2268,9 @@ export class RoomCore<S = any> {
         return this.back(playerId);
       case "message":
         this.input(() => this.server.onMessage?.(this.state, player!, this.api, message.data), "onMessage");
+        return null;
+      case "zaisma:purchase":
+        this.purchaseTold(playerId, message);
         return null;
       case "block":
         return this.sessionBlock(playerId, message, true);
@@ -2834,6 +2920,104 @@ export class RoomCore<S = any> {
     if (answer === undefined || answer === this.state) return;
     if (handlerName === "setup" || isStateAnswer(answer)) this.state = answer as S;
     else console.error("Game server error:", badHandlerAnswer(handlerName, answer));
+  }
+
+  /**
+   * A player's game says it bought something (after Zaisma.items.buy). The message only says "look now":
+   * the room reads Zaisma's record itself, and each purchase ID counts once per player per room. On your
+   * own server (isReceiptNeeded), the purchase's receipt must check out first, so a lying client can't
+   * make the server spend calls to Zaisma.
+   */
+  private purchaseTold(playerId: string, message: Record<string, unknown>): void {
+    const handling = this.transport.purchaseHandling;
+    if (!handling || (!this.server.onPurchase && !this.server.onRefund)) return;
+    const purchaseId = message.purchaseId;
+    if (typeof purchaseId !== "string" || !purchaseId || purchaseId.length > MAXIMUM_PURCHASE_ID_CHARACTER_COUNT) return;
+    const told = this.toldPurchaseIds.get(playerId) ?? new Set<string>();
+    if (told.has(purchaseId) || told.size >= MAXIMUM_TOLD_PURCHASE_COUNT) return;
+    // Counted as told only once it's believed, so a forged receipt can't use up a real purchase's ID.
+    const believed = () => {
+      told.add(purchaseId);
+      this.toldPurchaseIds.set(playerId, told);
+      this.deliverPurchases(playerId);
+    };
+    if (!handling.isReceiptNeeded) return believed();
+    const receipt = message.receipt;
+    if (typeof receipt !== "string" || !this.transport.verifyReceipt) return;
+    this.transport.verifyReceipt(receipt).then(
+      (claims) => {
+        if (claims.sub === playerId && claims.purchase_id === purchaseId && !told.has(purchaseId)) believed();
+      },
+      () => undefined,
+    );
+  }
+
+  /**
+   * Hands a player's unhandled purchases to onPurchase and their refunds to onRefund, exactly once: each
+   * only after this room wins it, marked handled after the hook, and let go when the hook threw, so their
+   * next join tries again. One hand-over per player at a time; a call meanwhile looks again after it.
+   */
+  private deliverPurchases(playerId: string): void {
+    const handling = this.transport.purchaseHandling;
+    if (!handling || (!this.server.onPurchase && !this.server.onRefund)) return;
+    // Guests own nothing: their IDs last only for their pass.
+    if (this.players.get(playerId)?.kind !== "account") return;
+    if (this.purchasePlayerIds.has(playerId)) {
+      this.purchaseAgainPlayerIds.add(playerId);
+      return;
+    }
+    this.purchasePlayerIds.add(playerId);
+    const delivery = (async () => {
+      do {
+        this.purchaseAgainPlayerIds.delete(playerId);
+        for (const purchase of await handling.unhandledFor(playerId)) {
+          const hookName = purchase.purchaseStatus === "completed" ? "onPurchase" : "onRefund";
+          const hook = this.server[hookName];
+          if (!hook) continue;
+          if (!this.players.has(playerId) || this.ended) return;
+          if (!(await handling.startHandling(playerId, purchase))) continue;
+          const player = this.players.get(playerId);
+          const isHandled = player && !this.ended ? await this.runPurchaseHook(() => hook.call(this.server, this.state, player, this.api, purchase), hookName) : false;
+          await (isHandled ? handling.finishHandling(playerId, purchase) : handling.releaseHandling(playerId, purchase));
+        }
+      } while (this.purchaseAgainPlayerIds.has(playerId));
+    })()
+      .catch((error: unknown) => console.error("Couldn't hand purchases over:", error))
+      .finally(() => {
+        this.purchasePlayerIds.delete(playerId);
+        this.purchaseDeliveries.delete(delivery);
+      });
+    this.purchaseDeliveries.add(delivery);
+  }
+
+  /** Runs onPurchase or onRefund like any handler, answering whether it finished without throwing. */
+  private runPurchaseHook(hook: () => HandlerResult<S>, hookName: "onPurchase" | "onRefund"): Promise<boolean> {
+    // A hook that answers at once runs at once, so a game server that never returns a promise doesn't start queueing.
+    return new Promise((resolve) => {
+      this.run(() => {
+        let next: HandlerResult<S>;
+        try {
+          next = hook();
+        } catch (error) {
+          resolve(false);
+          throw error;
+        }
+        if (!isPromise<void | S>(next)) {
+          resolve(true);
+          return next;
+        }
+        return next.then(
+          (answered) => {
+            resolve(true);
+            return answered;
+          },
+          (error: unknown) => {
+            resolve(false);
+            throw error;
+          },
+        );
+      }, hookName);
+    });
   }
 
   /**

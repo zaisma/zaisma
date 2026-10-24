@@ -372,12 +372,15 @@ export interface PurchaseSettings {
   /** The policy in the developer's own words, with own_words only. */
   refund_policy_text: string | null;
   own_payment_categories: ItemCategory[];
+  /** Where its purchases are delivered (PURCHASE_DELIVERIES). */
+  purchase_delivery: PurchaseDelivery;
 }
 
-export const purchaseSettingsOf = (game: { refund_policy: string | null; refund_policy_text: string | null; own_payment_categories: string }): PurchaseSettings => ({
+export const purchaseSettingsOf = (game: { refund_policy: string | null; refund_policy_text: string | null; own_payment_categories: string; purchase_delivery?: string }): PurchaseSettings => ({
   refund_policy: game.refund_policy as RefundPolicy | null,
   refund_policy_text: game.refund_policy_text,
   own_payment_categories: JSON.parse(game.own_payment_categories || "[]") as ItemCategory[],
+  purchase_delivery: (game.purchase_delivery ?? "game") as PurchaseDelivery,
 });
 
 /**
@@ -415,6 +418,16 @@ export function checkPurchaseSettings(input: Record<string, unknown>, current: P
       throw new ApiError("bad_own_payment_categories", { message: "own_payment_categories isn't a list of item categories.", field: "own_payment_categories", fix: `Send [] when the game sells nothing through its own payments, or a list of ${ITEM_CATEGORIES.join(", ")}.` });
     }
     next.own_payment_categories = ITEM_CATEGORIES.filter((category) => given.includes(category));
+  }
+  if ("purchase_delivery" in input) {
+    if (!(PURCHASE_DELIVERIES as readonly unknown[]).includes(input.purchase_delivery)) {
+      throw new ApiError("bad_purchase_delivery", {
+        message: `purchase_delivery ${JSON.stringify(input.purchase_delivery)} isn't one of ${PURCHASE_DELIVERIES.join(", ")}.`,
+        field: "purchase_delivery",
+        fix: "game: the game hears Zaisma.items.on(\"purchase\") and marks it handled. game_server: its game server's onPurchase gets it. own_server: your own backend checks the receipt and calls mark_purchase_handled.",
+      });
+    }
+    next.purchase_delivery = input.purchase_delivery as PurchaseDelivery;
   }
   if (next.refund_policy === "own_words" && !next.refund_policy_text) {
     throw new ApiError("bad_refund_policy_text", { message: "own_words needs the policy in refund_policy_text.", field: "refund_policy_text", fix: "Send refund_policy_text with the policy in your own words, up to 600 characters." });
@@ -468,9 +481,13 @@ export interface Purchase {
   created_at_ms: number;
   purchased_at_ms: number | null;
   refunded_at_ms: number | null;
+  /** When the game, its game server or the developer's own server took the purchase (startHandling); null until then. */
+  handled_at_ms: number | null;
+  /** When it was told the purchase was refunded or charged back; null until then. */
+  refund_handled_at_ms: number | null;
 }
 
-const PURCHASE_COLUMNS = "id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, paid_minor_units, currency_code, refunded_minor_units, stripe_payment_intent_id, created_at_ms, purchased_at_ms, refunded_at_ms";
+const PURCHASE_COLUMNS = "id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, paid_minor_units, currency_code, refunded_minor_units, stripe_payment_intent_id, created_at_ms, purchased_at_ms, refunded_at_ms, handled_at_ms, refund_handled_at_ms";
 
 export async function purchaseById(database: D1Database, gameId: string, purchaseId: string): Promise<Purchase | null> {
   return database.prepare(`SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE id = ? AND game_id = ?`).bind(purchaseId, gameId).first<Purchase>();
@@ -540,6 +557,8 @@ export function newGrant(
     created_at_ms: grant.nowMs,
     purchased_at_ms: grant.nowMs,
     refunded_at_ms: null,
+    handled_at_ms: null,
+    refund_handled_at_ms: null,
   };
 }
 
@@ -566,4 +585,88 @@ export async function takeBack(database: D1Database, purchaseId: string, purchas
     .bind(purchaseStatus, nowMs, purchaseId)
     .run();
   return changed.meta.changes > 0;
+}
+
+/**
+ * Where a game's purchases are delivered: the game itself through the SDK (game), its game server's onPurchase,
+ * on Zaisma or on the developer's own server with the package (game_server), or the developer's own stack, which
+ * checks the receipt and marks it handled through the API (own_server).
+ */
+export const PURCHASE_DELIVERIES = ["game", "game_server", "own_server"] as const;
+export type PurchaseDelivery = (typeof PURCHASE_DELIVERIES)[number];
+
+/** How long one caller holds a purchase while it hands it over; after that, the next join can win it again. */
+export const HANDLING_LEASE_MS = 60_000;
+
+/**
+ * Wins the right to hand a completed purchase over: one conditional update, so of two rooms (or a room and a
+ * page) trying at once, exactly one wins. Only the player's own purchase in this game, completed, not handled
+ * and not held by another caller's lease. The winner calls finishHandling, or releaseHandling when it failed.
+ */
+export async function startHandling(database: D1Database, purchaseId: string, playerId: string, gameId: string, nowMs: number): Promise<boolean> {
+  const changed = await database
+    .prepare("UPDATE purchases SET handling_until_ms = ? WHERE id = ? AND player_id = ? AND game_id = ? AND purchase_status = 'completed' AND handled_at_ms IS NULL AND (handling_until_ms IS NULL OR handling_until_ms <= ?)")
+    .bind(nowMs + HANDLING_LEASE_MS, purchaseId, playerId, gameId, nowMs)
+    .run();
+  return changed.meta.changes > 0;
+}
+
+/** Marks a purchase handled. False when it already was. */
+export async function finishHandling(database: D1Database, purchaseId: string, nowMs: number): Promise<boolean> {
+  const changed = await database.prepare("UPDATE purchases SET handled_at_ms = ?, handling_until_ms = NULL WHERE id = ? AND handled_at_ms IS NULL").bind(nowMs, purchaseId).run();
+  return changed.meta.changes > 0;
+}
+
+/** Lets go of a purchase whose handing over failed, so the next join tries it again. */
+export async function releaseHandling(database: D1Database, purchaseId: string): Promise<void> {
+  await database.prepare("UPDATE purchases SET handling_until_ms = NULL WHERE id = ? AND handled_at_ms IS NULL").bind(purchaseId).run();
+}
+
+/**
+ * startHandling for a refund or chargeback: a purchase taken back after it was handed over, not told yet. One
+ * taken back before it was ever handed over has nothing to take back in the game, so it's never told.
+ */
+export async function startRefundHandling(database: D1Database, purchaseId: string, playerId: string, gameId: string, nowMs: number): Promise<boolean> {
+  const changed = await database
+    .prepare("UPDATE purchases SET refund_handling_until_ms = ? WHERE id = ? AND player_id = ? AND game_id = ? AND purchase_status IN ('refunded', 'charged_back') AND handled_at_ms IS NOT NULL AND refund_handled_at_ms IS NULL AND (refund_handling_until_ms IS NULL OR refund_handling_until_ms <= ?)")
+    .bind(nowMs + HANDLING_LEASE_MS, purchaseId, playerId, gameId, nowMs)
+    .run();
+  return changed.meta.changes > 0;
+}
+
+/** Marks a refund or chargeback told. False when it already was, or the purchase wasn't taken back. */
+export async function finishRefundHandling(database: D1Database, purchaseId: string, nowMs: number): Promise<boolean> {
+  const changed = await database
+    .prepare("UPDATE purchases SET refund_handled_at_ms = ?, refund_handling_until_ms = NULL WHERE id = ? AND purchase_status IN ('refunded', 'charged_back') AND refund_handled_at_ms IS NULL")
+    .bind(nowMs, purchaseId)
+    .run();
+  return changed.meta.changes > 0;
+}
+
+export async function releaseRefundHandling(database: D1Database, purchaseId: string): Promise<void> {
+  await database.prepare("UPDATE purchases SET refund_handling_until_ms = NULL WHERE id = ? AND refund_handled_at_ms IS NULL").bind(purchaseId).run();
+}
+
+/**
+ * The most purchases, and separately the most refunds, handed over in one join; the rest come on the next.
+ * Apart, so refunds a game never takes (no onRefund, no "refund" listener) never hold back new purchases.
+ */
+export const UNHANDLED_PAGE_COUNT = 50;
+
+/**
+ * A player's purchases in a game still to hand over, oldest first: at most UNHANDLED_PAGE_COUNT completed and
+ * not handled, and at most as many taken back after being handled but not told. Leases aren't checked here:
+ * startHandling is.
+ */
+export async function unhandledFor(database: D1Database, gameId: string, playerId: string): Promise<Purchase[]> {
+  const { results } = await database
+    .prepare(
+      `SELECT * FROM (SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE game_id = ?1 AND player_id = ?2 AND purchase_status = 'completed' AND handled_at_ms IS NULL ORDER BY created_at_ms, id LIMIT ?3)
+       UNION ALL
+       SELECT * FROM (SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE game_id = ?1 AND player_id = ?2 AND purchase_status IN ('refunded', 'charged_back') AND handled_at_ms IS NOT NULL AND refund_handled_at_ms IS NULL ORDER BY created_at_ms, id LIMIT ?3)
+       ORDER BY created_at_ms, id`,
+    )
+    .bind(gameId, playerId, UNHANDLED_PAGE_COUNT)
+    .all<Purchase>();
+  return results;
 }

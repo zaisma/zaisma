@@ -26,6 +26,8 @@ export type WebhookEventKind =
   | "alert_raised"
   | "account_deleted"
   | "security_alert"
+  | "purchase_completed"
+  | "purchase_refunded"
   | "test";
 
 /** Who deleted their Zaisma account, on an account_deleted event. */
@@ -66,6 +68,8 @@ export interface WebhookEvent {
   sign_in_app: Record<string, unknown> | null;
   /** The developer's own account event as get_activity lists it; null unless kind is security_alert. */
   security_event: Record<string, unknown> | null;
+  /** The purchase as get_purchase answers it, with its receipt and game_account_id; null unless kind is purchase_completed or purchase_refunded. */
+  purchase: Record<string, unknown> | null;
 }
 
 export const WEBHOOK_LIMITS = {
