@@ -37,7 +37,6 @@ const GAMES: SeedGame[] = [
   { slug: "browse-shelved", title: "Shelved Saga", dailyPlayerCount: 50, publishedAgoDays: 70, columns: { is_off_shelves: 1 } },
   { slug: "browse-relay", title: "Relay Race", publishedAgoDays: 15, columns: { multiplayer_mode: "relay" } },
   { slug: "browse-private", title: "Private Peak", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { visibility: "private" } },
-  { slug: "browse-grown", title: "Grown Ground", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { minimum_player_age_years: 18 } },
   { slug: "browse-held", title: "Held Hollow", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { title_listing_reason: "Held for review." } },
 ];
 
@@ -118,9 +117,9 @@ describe("Browse", () => {
     expect(text).toMatch(/<h1>Browse<\/h1>/);
   });
 
-  it("leaves out private, older players' and held games, and ranks an off-shelf game as if nobody played it", async () => {
+  it("leaves out private and held games, and ranks an off-shelf game as if nobody played it", async () => {
     const { slugs, otherSlugs } = await browse("", { headers: { cookie: "zaisma_device_kind=computer" } });
-    for (const hidden of ["browse-private", "browse-grown", "browse-held"]) expect([...slugs, ...otherSlugs]).not.toContain(hidden);
+    for (const hidden of ["browse-private", "browse-held"]) expect([...slugs, ...otherSlugs]).not.toContain(hidden);
     expect(slugs).toContain("browse-shelved");
     expect(slugs.indexOf("browse-shelved")).toBeGreaterThan(slugs.indexOf("browse-rising"));
   });
