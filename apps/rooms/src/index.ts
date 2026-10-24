@@ -1,5 +1,5 @@
 import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
+import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { publishedReceiptKeys, signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
@@ -188,7 +188,20 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request";
+type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request";
+
+/**
+ * A room connection turned away before it reaches a room: accepted, told why ({type: "error", code}) and
+ * closed, since a browser never sees an HTTP status on a WebSocket and would only reconnect.
+ * REMOVED_CLOSE_CODE stops the SDK; BUSY_CLOSE_CODE has it try again.
+ */
+function refusedSocket(code: RoomErrorCode, closeCode: number, message?: string): Response {
+  const { 0: client, 1: socket } = new WebSocketPair();
+  socket.accept();
+  socket.send(errorMessage(code, message));
+  socket.close(closeCode, code);
+  return new Response(null, { status: 101, webSocket: client });
+}
 
 function failure(code: CallErrorCode, message: string, httpStatus: number, origin?: string, field?: string): Response {
   return json({ error: { code, message, ...(field ? { field } : {}) } }, httpStatus, origin);
@@ -526,7 +539,7 @@ export default {
         return json({ isReported: true }, 200, cors);
       }
 
-      if (!usesRooms(gameServerOf(game))) return failure("no_rooms", "This game doesn't use Zaisma rooms.", 404, cors);
+      if (!usesRooms(gameServerOf(game))) return failure("zaisma_rooms_not_used", "This game doesn't use Zaisma rooms.", 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
       if ((await isHostingPaused(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
       return json({ roomCode: roomCode() }, 200, cors);
@@ -542,7 +555,7 @@ export default {
       const from = await gameOrigin(env, slug, origin, url.searchParams.get("tester"));
       if (!from) return failure("bad_origin", "Not allowed from here.", 403);
       const game = await playableGame(env.DB, slug);
-      if (!game || !usesRooms(gameServerOf(game))) return failure("no_rooms", "This game doesn't use Zaisma rooms.", 404, origin!);
+      if (!game || !usesRooms(gameServerOf(game))) return failure("zaisma_rooms_not_used", "This game doesn't use Zaisma rooms.", 404, origin!);
       const inviteUrl = (code: string) => `${env.SITE_ORIGIN}${from.page}?room=${code}`;
       if (game.room_browsing === "off") {
         const nothing = { rooms: [], playing: { playerCount: 0, roomCount: 0, closedRoomCount: 0 }, joinableRoomCount: 0, openRoomCount: 0, regions: [], region: null, moreOpenRoomCount: 0, filters: [] };
@@ -583,11 +596,11 @@ export default {
       const [, slug, code] = roomMatch as unknown as [string, string, string];
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
       // Checked first: a script claiming to be the game's page can't keep waking rooms.
-      if (await limited(env.CONNECT_LIMIT, request)) return new Response("Too many connections. Try again in a minute.", { status: 429 });
+      if (await limited(env.CONNECT_LIMIT, request)) return refusedSocket("busy", BUSY_CLOSE_CODE, "Too many connections. Try again in a minute.");
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin, url.searchParams.get("tester")) : null;
-      if (!from) return new Response("Not allowed from here", { status: 403 });
+      if (!from) return refusedSocket("bad_origin", REMOVED_CLOSE_CODE);
       const game = await playableGame(env.DB, slug, requestCountryCode(request));
-      if (!game || !usesRooms(gameServerOf(game))) return new Response("This game isn't available right now", { status: 404 });
+      if (!game || !usesRooms(gameServerOf(game))) return refusedSocket("game_unavailable", REMOVED_CLOSE_CODE);
 
       const headers = new Headers(request.headers);
       headers.set("x-game-id", game.id);
@@ -602,11 +615,14 @@ export default {
       headers.set("x-room-country", String(request.cf?.country ?? ""));
       headers.set("x-room-continent", String(request.cf?.continent ?? ""));
       try {
-        return await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
+        const answer = await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
+        if (answer.status === 101) return answer;
+        // The room turned the socket away (full, or its game is gone): said on a socket, which the SDK can read.
+        return answer.status === 409 ? refusedSocket("room_full", REMOVED_CLOSE_CODE) : answer.status === 404 ? refusedSocket("game_unavailable", REMOVED_CLOSE_CODE) : refusedSocket("busy", BUSY_CLOSE_CODE);
       } catch (error) {
         // Past the free plan's daily Durable Object limit, say so instead of failing silently.
         console.error("Room unavailable:", error);
-        return new Response("Rooms are busy. Try again soon.", { status: 503 });
+        return refusedSocket("busy", BUSY_CLOSE_CODE);
       }
     }
 

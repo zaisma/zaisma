@@ -5,7 +5,7 @@ import fourInARow from "../../examples/four-in-a-row/server.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
-  const t: Transport = { send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: () => {} };
+  const t: Transport = { roomCode: "K7Q2MX", send: (id, text) => (sent[id] ??= []).push(JSON.parse(text)), close: () => {} };
   return { t, sent, last: (id: string) => sent[id]!.filter((message) => message.type === "message").at(-1)?.data };
 }
 const msg = (data: unknown) => JSON.stringify({ type: "message", data });

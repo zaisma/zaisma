@@ -34,4 +34,27 @@ describe("the v1 locks", () => {
       "check is gone",
     ]);
   });
+
+  describe("on constants", () => {
+    const limits = (value: Record<string, unknown>): Record<string, Surface> => ({ LIMITS: { kind: "constant", value } });
+    const base = { maximumPlayerCount: 100, minimumIdleTimeoutSec: 30, defaultIdleTimeoutSec: 600, hiddenTimeoutSec: 60, nested: { maximumSizeBytes: 10 } };
+
+    it("let a maximum rise, a minimum fall, and a key be added", () => {
+      expect(lostSince(limits(base), limits({ ...base, maximumPlayerCount: 200, minimumIdleTimeoutSec: 10, added: 1 }))).toEqual([]);
+      expect(lostSince(limits(base), limits({ ...base, nested: { maximumSizeBytes: 20 } }))).toEqual([]);
+      expect(lostSince(limits(base), limits(base))).toEqual([]);
+    });
+
+    it("lose a maximum that falls, a minimum that rises, a default that changes, a plain key that changes and a key that goes", () => {
+      const lostWith = (changed: Record<string, unknown>) => lostSince(limits(base), limits({ ...base, ...changed }));
+      expect(lostWith({ maximumPlayerCount: 50 })).toHaveLength(1);
+      expect(lostWith({ minimumIdleTimeoutSec: 60 })).toHaveLength(1);
+      expect(lostWith({ defaultIdleTimeoutSec: 300 })).toHaveLength(1);
+      expect(lostWith({ defaultIdleTimeoutSec: 900 })).toHaveLength(1);
+      expect(lostWith({ hiddenTimeoutSec: 90 })).toHaveLength(1);
+      expect(lostWith({ nested: { maximumSizeBytes: 5 } })).toHaveLength(1);
+      const { hiddenTimeoutSec: _removed, ...withoutKey } = base;
+      expect(lostSince(limits(base), limits(withoutKey))).toHaveLength(1);
+    });
+  });
 });

@@ -1216,7 +1216,9 @@ addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
-    history.replaceState(null, "", location.pathname + "?room=" + d.code);
+    // A room on the game's own server keeps its server in the link, so Share brings friends to it.
+    const server = typeof d.serverUrl === "string" && /^(wss|https):\/\/[^/]/.test(d.serverUrl) ? "&server=" + encodeURIComponent(d.serverUrl) : "";
+    history.replaceState(null, "", location.pathname + "?room=" + d.code + server);
     // The code comes first, for Share; joined once the room let the player in.
     if (d.joined === true) {
       inRoom = { code: d.code, at: Date.now() };

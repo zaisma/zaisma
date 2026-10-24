@@ -205,11 +205,14 @@ async function start(roomCode) {
     if (body) flashes.push({ x: body.x, y: body.y, startedAtMs: performance.now() });
   });
   // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
+  room.on("away", () => { statusElement.textContent = "You stepped away. Press any key to jump back in."; });
+  // Listening for "back" leaves rejoining to the game: rejoin does nothing when the seat was still held.
+  room.on("back", (back) => { statusElement.textContent = ""; back.rejoin(); });
   room.on("connectionStatus", (connectionStatus) => {
-    statusElement.textContent =
-      connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "away" ? "You stepped away. Press any key to jump back in." : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
+    if (room && room.awayReason) return;
+    statusElement.textContent = connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
   });
-  room.on("ended", (message) => { statusElement.textContent = message; });
+  room.on("ended", ({ message }) => { statusElement.textContent = message; });
   sendInput();
 }
 
