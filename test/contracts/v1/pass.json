@@ -13,7 +13,7 @@
       "player_tag_id": "?: string | undefined",
       "friend_player_tag_ids": "?: Array<string> | undefined",
       "block_player_tag_ids": "?: Array<string> | undefined",
-      "owned_item_names": "?: Array<string> | undefined",
+      "owned_item_names": ": Array<string>",
       "iat": ": number",
       "exp": ": number"
     }
