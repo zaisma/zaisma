@@ -598,7 +598,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it. Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (where a closed dialog leaves the screen at once, as in WebKit, it waits open while it leaves). Its title, Close and its buttons stay in view while the rest scrolls.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
