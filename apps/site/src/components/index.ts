@@ -7,8 +7,9 @@ import { BUSY_SCRIPT, RUNNER_SCRIPT } from "./actions.ts";
 import { BIRTHDAY_SCRIPT, COPY_SCRIPT, DATE_TIME_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT } from "./inputs.ts";
 import { COMPACT_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, ROW_SCRIPT, SCROLL_FADE_SCRIPT } from "./navigation.ts";
 import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
-import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, SHEET_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
+import { DROPDOWN_SCRIPT, NOTICE_SCRIPT, PLACE_SCRIPT, SHEET_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { CHART_SCRIPT } from "./data.ts";
+import { PLAYING_CARD_SCRIPT } from "./playing.ts";
 // The layout components register in layout-gallery.ts, whose examples use every other group.
 import "./layout-gallery.ts";
 // Components pages still to build need: words to read and the ways through them, and people and what they write.
@@ -34,7 +35,7 @@ export { columns, grid, paneParts, row, stack, track, type LayoutControl, type L
 export const COMPONENT_STYLES = (): string => TOKEN_STYLES + COMPONENTS().map((each) => each.styles).join("");
 
 /** The components' script, readable: what scripts/minify-components.mjs minifies. */
-export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + BACKDROP_SCRIPT + COLOR_PICKER_SCRIPT + FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + BIRTHDAY_SCRIPT + DATE_TIME_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + SELECT_SCRIPT + DROPDOWN_SCRIPT + SHEET_SCRIPT + STARTED_LOW_SCRIPT + NOTICE_SCRIPT + STEP_FLOW_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = WATCH_SCRIPT + GLASS_SCRIPT + BACKDROP_SCRIPT + COLOR_PICKER_SCRIPT + FIELD_SCRIPT + SWITCH_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + BIRTHDAY_SCRIPT + DATE_TIME_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + PLACE_SCRIPT + SELECT_SCRIPT + DROPDOWN_SCRIPT + SHEET_SCRIPT + STARTED_LOW_SCRIPT + NOTICE_SCRIPT + STEP_FLOW_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + SCROLL_FADE_SCRIPT + COMPACT_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT;
 
 /**
  * The script pages load: the minified one, unless it was made from an older source (a script changed and npm run components:minify wasn't

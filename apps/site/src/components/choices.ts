@@ -176,19 +176,21 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
 }
 
 /**
- * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) just under its field, or above it when
- * there's no room below, as wide as the field. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
+ * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) attached to its field, as wide as it:
+ * under it, or above it where zaismaPlace (panes.ts's PLACE_SCRIPT) puts it, and following it as the page scrolls. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
  * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
-  var GAP_PX = 6;
+  var GAP_PX = 6, EDGE_PX = 8, owners = new WeakMap();
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     if (!list.hasAttribute("popover")) return;
     // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
-    // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes.
-    document.querySelectorAll("body > .select-list").forEach(function (left) { if (!document.querySelector('[popovertarget="' + left.id + '"]')) left.remove(); });
+    // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes,
+    // even when its field's replacement (a panel the page refreshed) has the same id: a button opens the first list of its id, so a left one must never stay.
+    document.querySelectorAll("body > .select-list").forEach(function (left) { var owner = owners.get(left); if (owner && !owner.isConnected) left.remove(); });
     if (root.closest(".smoke")) list.classList.add("smoke");
+    owners.set(list, root);
     document.body.appendChild(list);
     var options = Array.prototype.slice.call(box.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
     function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
@@ -198,12 +200,15 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       box.setAttribute("aria-activedescendant", options[active].id);
       var o = options[active], top = o.offsetTop; if (top < box.scrollTop) box.scrollTop = top; else if (top + o.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + o.offsetHeight - box.clientHeight;
     }
-    // Under the field, or above it when there's more room there and not enough below; it slides in from the field's side.
+    // Attached to the field, as wide as it: under it or above it where zaismaPlace puts it, inside the window, following the field as the page
+    // scrolls or the window changes, and gone once the field has left the window.
     function place() {
-      var r = field.getBoundingClientRect(), height = list.offsetHeight, below = window.innerHeight - r.bottom - GAP_PX, isAbove = below < height && below < r.top;
-      list.style.width = r.width + "px"; list.style.left = r.left + "px";
-      list.style.top = (isAbove ? r.top - GAP_PX - height : r.bottom + GAP_PX) + "px";
-      list.classList.toggle("is-above", isAbove);
+      var r = field.getBoundingClientRect();
+      if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
+      list.style.width = r.width + "px";
+      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
+      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
+      list.classList.toggle("is-above", spot.isAbove);
     }
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
@@ -216,6 +221,7 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     list.addEventListener("toggle", function (event) {
       var isOpen = event.newState === "open";
       button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
+      if (isOpen && !root.isConnected) { list.hidePopover(); list.remove(); return; }
       if (isOpen) {
         // The page's own light or dark, and the hue of the glass where the field is, which the list no longer inherits.
         var themed = root.closest("[data-theme-choice]");

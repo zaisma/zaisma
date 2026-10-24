@@ -106,8 +106,16 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
   const { roomOrder, isHidingFullRooms } = list;
   if (list.rooms.length > 1 || roomOrder !== "best_to_join" || isHidingFullRooms) {
     items.push(
-      { kind: "block", markup: row({ widths: "fit", items: [{ kind: "control", markup: selectField({ id: "rooms-order", name: "room_order", label: "Sort by", choices: ROOM_ORDER_CHOICES, pickedValue: roomOrder }) }] }) },
-      { kind: "block", markup: checkField({ id: "rooms-hide-full", name: "is_hiding_full_rooms", checkValue: "true", label: "Hide full rooms", isChecked: isHidingFullRooms }) },
+      {
+        kind: "block",
+        markup: row({
+          widths: "fit",
+          items: [
+            { kind: "control", markup: selectField({ id: "rooms-order", name: "room_order", label: "Sort by", choices: ROOM_ORDER_CHOICES, pickedValue: roomOrder }) },
+            { kind: "block", markup: checkField({ id: "rooms-hide-full", name: "is_hiding_full_rooms", checkValue: "true", label: "Hide full rooms", isChecked: isHidingFullRooms }) },
+          ],
+        }),
+      },
     );
   }
   const filtered = Object.keys(picked).length > 0;

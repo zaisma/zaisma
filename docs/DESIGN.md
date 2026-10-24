@@ -23,6 +23,7 @@ Each rule says what holds it. A rule a check can measure has one, so it holds on
 - **Zaisma is the glass over the game.** Everything of Zaisma's is glass, cut and rimmed the same way; what's behind it is a backdrop, never a flat color. *Held by* `test/site/design.test.ts` (one glass, the edge rule).
 - **Orange only on what you act on.** The runner button (the one main action), the line under the tab, the step or the pick you're on, keyboard focus. Never on words, headings, charts or decoration; a warning, and a field marked wrong, is amber (`--warning`), a yellower hue. *Held by* `npm run layout:check` ("orange words on what you don't act on"); the rest is judged in the preview.
 - **A focus ring is only for the keyboard.** Every focus style in the components is `:focus-visible` (or `:has(:focus-visible)`), never plain `:focus` or `:focus-within`. Focus still moves into a sheet as it opens, for screen readers and keyboards, but a sheet opened by a press (a mouse, a touch) takes the focus itself, with no ring, and only one opened from the keyboard focuses its first control (`zaismaInput` in `glass-script.ts`, `focusSheet` in `SHEET_SCRIPT`). *Held by* `test/node/components-script.test.ts`; the rest is judged in the preview.
+- **A pane that hangs from a button opens toward the middle of the screen.** A sheet, a select's list or a menu lines its right edge with a button in the screen's right half and its left edge with one in the left half; it sits under the button, or above it (bottom edges together) when the button is in the lower half and there's room, or when there's no room below. Always kept inside the screen, and it follows the button as the page scrolls (`zaismaPlace`, `PLACE_SCRIPT` in `panes.ts`). *Judged in the preview.*
 - **Nothing waits on an animation.** A click does its thing at once; motion only shows what already happened. *Judged in the preview.*
 - **No decoration.** No "Live now" lights, sale banners, badges for their own sake or glows that mean nothing. *Judged in the preview.*
 - **Buttons move only when pointed at or pressed.** They lift and lean toward the pointer and sink when pressed; at rest they're still. A scene behind the glass may move on its own. *Held by* `test/site/design.test.ts` (what you point at never moves).
@@ -125,7 +126,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--gap-control-stack` | Two controls stacked (the passkey, Google and Discord buttons) | 8px |
 | `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
-| `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
+| `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row or grid of game cards | 24px |
 | `--pad-pane` | A pane's edge and its words (its margin); also the page's edge | 24px, 20px on a phone |
 | `--pad-frame` | A pane's edge and anything with an edge of its own in it (a control, a field, a table, a cover, an inner pane): the frame gap, also the gap kept from a cut corner | 8px |
 | `--pad-words` | How much further in than the frame gap words sit, so they keep the pane's margin: `--pad-pane` less `--pad-frame` (0 inside a slab) | 16px, 12px on a phone |
@@ -149,7 +150,7 @@ A page is components put together by the layout components (`apps/site/src/compo
 
 **The words margin is one rule, set once on the surface.** Every surface of glass that holds words (a pane, a sheet, a banner, a tray, a playing card) takes the margin from the same place, `tokens.ts`: it pads its inside to the frame gap and sets `--pad-words`, and every heading and paragraph in it takes `--pad-words` at its sides. A component never pads its own words; a new surface is added to the list there and its top and bottom edges to `layout.ts`. `npm run layout:check` enforces it: a text box closer to its glass surface's edge than the margin (`--pad-pane`, a tray's `--pad-tray`) fails with the element named. A notice is one centered line and is held to the margin at its sides. The check opens what starts hidden (the Players sheet, the sign-in ask and the save toast over a game) so they are measured too (`setUp` in `checked-pages.ts`).
 
-**Words under something with an edge keep the margin only where they meet the surface's edge.** The title and players now under a game card's cover, in a row or a grid of them: the first card of a line at the surface's start has its title the margin in, the last at its end has its count the margin in, and every card between lines its words up flush with its cover, with nothing to account for. It's one rule in the components, not a page's: the edge rule (`GLASS_SCRIPT`, `placeWords`) reads how far each card is from its surface's edge (a row that scrolls sideways counts its whole length, a grid wraps by what's on each line) and sets `data-words-flush` on the sides that aren't near it; `.cover-meta` pads the rest. A person's picture lines up with the words and rows' icons round it, `--pad-words` in from the frame gap, not at it. The check fails words inset where the surface's edge is far.
+**Bare groups keep the margin as one unit.** A component whose words sit bare, with no edge of their own, is a bare group: a game card (its cover, its title and players now under it) and a person (their picture, name and line). The whole unit keeps the words margin from the surface's edge on every side where it meets it, top and bottom included, and its parts line up with each other inside it: a card's title flush with its cover's left edge and its count with the right, a person's picture, name and line one row. Nothing is placed apart, so a title is never inset on its own: at a pane's corner the whole card moves in, image, title and count together. A row, a grid or a track of cards is inset at its start, end and foot by the margin as one (`BARE_GROUPS` in `tokens.ts`; the gap between cards stays `--gap-block-block`), a track still scrolling out to the frame gap at its box's edges, and a lone group pads itself; the foot and top come from the same edge rules as words (`layout.ts`). A picture with no words beneath (a screenshot) has an edge all round and keeps the frame gap, and screenshots lie `--gap-control-stack` apart. Any new component whose words are bare is added to `BARE_GROUPS`, never given a rule of its own. `npm run layout:check` measures each group's box against the margin and fails with the element named (a bare group closer to the pane's edge than the words margin, a bare group's parts off each other).
 
 **Words beside a control sit on its center line.** In a row, and beside a pane's corner control, the words' first line is centered on the control (their last line, where the row is held down: on a field's boxes, at a pane's foot), so a heading beside a button lines up with it however many lines it runs to. At a pane's top edge that puts the heading a little higher than the margin, level with the control that takes the corner's cut. A pane's head sets its heading beside its corner control and its other words under both, at the pane's whole width.
 
@@ -331,12 +332,12 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `label: string`, `tabs: SectionTab[]`
 - **Load more** (`loadMore(options: LoadMoreOptions)`, `navigation.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.
   - `options`: `href?: string`, `label: string`, `listId: string`, `moreListIds?: string[]`, `isLoadedOnScroll?: boolean`, `endText?: string`, `isFailed?: boolean`
+- **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
+  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
 - **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
   - `options`: `trail: { label: string; href: string }[]`, `current: string`
 - **Pager** (`pager(options: PagerOptions)`, `reading.ts`): Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.
   - `options`: `label: string`, `newerHref?: string`, `olderHref?: string`
-- **Playing bar** (`playingBar(options: PlayingBarOptions)`, `playing.ts`): The one slim bar beside a running game: Zaisma's mark back to every game, the game's name, and its small buttons. Everything else on the page steps aside while a game plays; on a landscape phone the bar runs down the left edge.
-  - `options`: `title: string`, `controls: ControlMarkup[]`, `isShown?: boolean`
 
 ### Panes
 
@@ -358,12 +359,12 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href?: string; formAction?: string }`, `closeLabel?: string`, `tone?: "plain" | "warning"`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`, `paneWidth?: "full" | "fit"`
+- **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
+- **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One with nothing to press in it goes on a tap or a swipe.
+  - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
 - **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
   - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
 - **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
-- **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
-- **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view.
-  - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
 
 ### Data
 
@@ -392,6 +393,8 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `label: string`, `points: ChartPoint[]`, `unit: string`, `chartKind?: "line" | "bars" | "ring"`, `pointedIndex?: number`
 - **Usage meter** (`usageMeter(options: UsageMeterOptions)`, `data.ts`): How much of an allowance is used: player-hours, requests, storage. A carved track fills in ink, turns amber from 80%, and says so when it's all used, or over.
   - `options`: `label: string`, `usedNumber: number`, `limitNumber: number`, `unit: string`, `resetDate?: string`
+- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
+  - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 - **Reading text** (`readingText(options: ReadingTextOptions)`, `reading.ts`): Words to read: a forum post, the rules, a game's description, its patch notes. Paragraphs in the system's own face, each line at most a reading width long, with headings, lists, quotes, code and tables spaced by what's on each side.
   - `options`: `markup: Raw`, `label?: string`
 - **Facts** (`facts(options: FactsOptions)`, `reading.ts`): What something is, in a few short facts, each a quiet label with its words: who a game is for and what it runs on (side by side), or a version's or a key's details (one a line).
@@ -402,8 +405,6 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
 - **Post** (`post(options: PostOptions)`, `people.ts`): What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.
   - `options`: `author: { username: string; href: string }`, `postedAtMs: number`, `body: Raw`, `marks?: Raw`, `actions?: ControlMarkup[]`
-- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
-  - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 
 <!-- catalog:end -->
 
@@ -422,7 +423,7 @@ How the larger ones behave:
 
 - Slabs slide on the spring, `cubic-bezier(.3, 1.2, .4, 1)`, in 0.55s; a size change (the header slimming) takes 0.45s; anything leaving goes faster than it came.
 - Moving between pages crossfades, and the header's slab slides from the last page's tab to this one's.
-- A playing card comes in and goes out with a short fade and an 8px slide down from the top (0.25s opacity, 0.3s slide, on `display` too so it can leave), a notice the same; under reduced motion it is a fade only.
+- A playing card comes in and goes out with a short fade and an 8px slide down from the top (0.25s opacity, 0.3s slide, on `display` too so it can leave), a notice the same; under reduced motion it is a fade only. A card with nothing to press in it (a notification: Saved, a save that didn't go through) also goes on a tap or a click, or a swipe sideways (56px) or up (32px): it follows the finger, fading, and leaves with the same exit, carrying on the way it was going; under reduced motion it doesn't follow. A press on a button or link in a card is never a dismissal, and the timed hide stays (`PLAYING_CARD_SCRIPT`, `playing.ts`).
 - Under reduced motion nothing moves; the glass still changes color.
 
 ## Backgrounds

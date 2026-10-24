@@ -320,8 +320,8 @@ component({
    A row may lead with a picture or an icon, take a second line of details, and, when it isn't a link, end in a button. */
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
 .list-rows > li + li { border-top: var(--divider); }
-/* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. */
-.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; overscroll-behavior: contain; }
+/* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. It holds a swipe or a wheel only while it has something to scroll (is-scrollable, tokens.ts): a short list passes it on to the page. */
+.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
 .list-rows.is-capped.shows-rail { padding-right: calc(var(--pad-frame) + 8px); }
 .list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }

@@ -1,3 +1,5 @@
+import { BARE_GROUPS } from "./tokens.ts";
+
 /**
  * The measuring check (docs/DESIGN.md, Layout), run in a page: what's out of line on it, as failures, each { check, element, said }.
  * scripts/layout-check.mjs runs it on every page in Chrome, and Screens (screens.ts) on each page it shows, live. It's a function's
@@ -5,6 +7,8 @@
  * cut by the edge rule (data-cut-line), glass of their own (data-glass), a cover, or a list's rows.
  */
 export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
+  // The bare groups (tokens.ts): a unit whose words sit bare, measured whole.
+  var BARE_GROUPS = ${JSON.stringify(BARE_GROUPS.join(", "))};
   var TOLERANCE_PX = 1.5, LEAST_BEVEL_PX = 4;
   var failures = [];
   var root = getComputedStyle(document.documentElement);
@@ -209,16 +213,23 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       flagged.add(line.el);
       report("words off the pane's margin", line.el, round(d.left) + "px from the start edge, its margin " + round(marginPx) + "px");
     });
-    // Words under something with an edge (a game card's title and players now) keep the margin only where they meet the surface's edge: at the
-    // row's or grid's start and end. Anywhere else they line up with the edge above them, never inset (GLASS_SCRIPT's placeWords). A row that
-    // scrolls sideways counts its whole length.
-    Array.prototype.forEach.call(pane.querySelectorAll(".cover-meta"), function (meta) {
-      if (!isShown(meta) || isScrolledAway(meta, pane)) return;
-      var r = meta.getBoundingClientRect(), d = distances(r), metaCss = getComputedStyle(meta), track = meta.parentElement && meta.parentElement.closest(".layout-track");
-      if (track && pane.contains(track)) { d = { left: d.left + track.scrollLeft, right: d.right + track.scrollWidth - track.clientWidth - track.scrollLeft }; }
-      var neededPx = gap.left + words;
-      if (d.left >= neededPx + TOLERANCE_PX && parseFloat(metaCss.paddingLeft) > TOLERANCE_PX) report("words inset where the pane's edge is far", meta, "its words are " + round(parseFloat(metaCss.paddingLeft)) + "px in from the start of what they're under, " + round(d.left) + "px from the pane's edge: they line up with it");
-      if (d.right >= neededPx + TOLERANCE_PX && parseFloat(metaCss.paddingRight) > TOLERANCE_PX) report("words inset where the pane's edge is far", meta, "its words are " + round(parseFloat(metaCss.paddingRight)) + "px in from the end of what they're under, " + round(d.right) + "px from the pane's edge: they line up with it");
+    // Bare groups (tokens.ts's BARE_GROUPS: a game card with its title and players now, a person): one unit, whose parts line up with each
+    // other and whose box, as a whole, keeps the words margin from the pane's edge on every side it meets it, top and bottom included. A row
+    // that scrolls sideways counts its whole length.
+    Array.prototype.forEach.call(pane.querySelectorAll(BARE_GROUPS), function (group) {
+      if (!isShown(group) || isScrolledAway(group, pane) || framedIn(group, pane)) return;
+      var parts = Array.prototype.filter.call(group.children, function (part) { var o = part.getBoundingClientRect(); return o.width >= 1 && o.height >= 1 && !part.matches(SKIPPED); });
+      if (!parts.length) return;
+      var unit = parts.reduce(function (all, part) { var o = part.getBoundingClientRect(); return { left: Math.min(all.left, o.left), right: Math.max(all.right, o.right), top: Math.min(all.top, o.top), bottom: Math.max(all.bottom, o.bottom) }; }, { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity });
+      var d = distances(unit), track = group.closest(".layout-track");
+      if (track && pane.contains(track)) { d = { left: d.left + track.scrollLeft, right: d.right + track.scrollWidth - track.clientWidth - track.scrollLeft, top: d.top, bottom: d.bottom }; }
+      var tooClose = ["left", "right", "top", "bottom"].find(function (each) { return d[each] < marginPx - TOLERANCE_PX; });
+      if (tooClose) report("a bare group closer to the pane's edge than the words margin", group, round(d[tooClose]) + "px from the " + tooClose + " edge of " + describe(pane) + ", the words margin is " + round(marginPx) + "px: the whole unit keeps it, not its words alone");
+      var art = group.querySelector(":scope > .cover-art"), meta = group.querySelector(":scope > .cover-meta");
+      if (art && meta && isShown(art) && isShown(meta)) {
+        var a = art.getBoundingClientRect(), m = meta.getBoundingClientRect();
+        if (Math.abs(m.left - a.left) > TOLERANCE_PX || Math.abs(m.right - a.right) > TOLERANCE_PX) report("a bare group's parts off each other", group, "its words span " + round(m.left - a.left) + "px and " + round(m.right - a.right) + "px off the cover's start and end: they line up with it");
+      }
     });
   });
   // Rows: every control one height, on one line.

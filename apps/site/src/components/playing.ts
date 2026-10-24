@@ -71,6 +71,76 @@ export type GameCardOptions = Omit<GameCoverOptions, "isTitleShown" | "isCurrent
  */
 export const gameCard = (options: GameCardOptions): Raw => gameCover({ ...options, isTitleShown: true });
 
+/**
+ * A card with nothing to press in it (a notification) dismisses on a tap or a click, or a swipe sideways or up past a threshold. While it's
+ * swiped it follows the finger and fades (the card's --swipe-x, --swipe-y and --swipe-opacity), and it leaves with the card's own exit,
+ * carrying on the way it was going. A press on a button or link in a card does nothing here; Escape dismisses too. Under reduced motion it
+ * doesn't follow: it only fades out. The page's own timed hide stays: it sets the card's hidden as this does.
+ */
+export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
+  var SIDEWAYS_PX = 56, UP_PX = 32, TAP_PX = 8, drag = null;
+  var isReduced = function () { return matchMedia("(prefers-reduced-motion: reduce)").matches; };
+  var isNotice = function (card) { return !card.classList.contains("in-place") && !card.querySelector("a, button, input, select, textarea"); };
+  function reset(card) {
+    card.classList.remove("is-swiping");
+    ["--swipe-x", "--swipe-y", "--swipe-opacity"].forEach(function (name) { card.style.removeProperty(name); });
+  }
+  function dismiss(card, axis, sign) {
+    card.classList.remove("is-swiping");
+    if (!isReduced() && axis === "x") card.style.setProperty("--swipe-x", sign * card.offsetWidth + "px");
+    if (!isReduced() && axis === "y") card.style.setProperty("--swipe-y", -card.offsetHeight + "px");
+    card.hidden = true;
+  }
+  // When the page shows a card again, it starts from where it belongs, not where it was swiped to.
+  var seen = new WeakSet();
+  function watch(card) {
+    if (seen.has(card)) return;
+    seen.add(card);
+    new MutationObserver(function () { if (!card.hidden) reset(card); }).observe(card, { attributes: true, attributeFilter: ["hidden"] });
+  }
+  document.querySelectorAll(".playing-card").forEach(watch);
+  document.addEventListener("pointerdown", function (event) {
+    var card = event.target.closest && event.target.closest(".playing-card");
+    if (!card || card.hidden || !isNotice(card) || (event.pointerType === "mouse" && event.button !== 0)) return;
+    watch(card);
+    drag = { card: card, id: event.pointerId, x: event.clientX, y: event.clientY, axis: "", dx: 0, dy: 0 };
+  });
+  document.addEventListener("pointermove", function (event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    var dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    if (!drag.axis) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < TAP_PX) return;
+      // Down is nothing; sideways either way, or up, is a swipe.
+      drag.axis = Math.abs(dx) >= Math.abs(dy) ? "x" : dy < 0 ? "y" : "none";
+      if (drag.axis === "none") { drag = null; return; }
+      try { drag.card.setPointerCapture(event.pointerId); } catch (error) { /* the swipe still counts without it */ }
+      if (!isReduced()) drag.card.classList.add("is-swiping");
+    }
+    drag.dx = dx; drag.dy = Math.min(0, dy);
+    if (isReduced()) return;
+    var far = drag.axis === "x" ? Math.abs(drag.dx) / drag.card.offsetWidth : -drag.dy / drag.card.offsetHeight;
+    drag.card.style.setProperty(drag.axis === "x" ? "--swipe-x" : "--swipe-y", (drag.axis === "x" ? drag.dx : drag.dy) + "px");
+    drag.card.style.setProperty("--swipe-opacity", String(Math.max(0, 1 - far)));
+  });
+  document.addEventListener("pointerup", function (event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    var card = drag.card, axis = drag.axis, dx = drag.dx, dy = drag.dy;
+    drag = null;
+    if (!axis || (axis === "x" && Math.abs(dx) >= SIDEWAYS_PX) || (axis === "y" && -dy >= UP_PX)) dismiss(card, axis, dx < 0 ? -1 : 1);
+    else reset(card);
+  });
+  document.addEventListener("pointercancel", function (event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    reset(drag.card);
+    drag = null;
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll(".playing-card:not([hidden])").forEach(function (card) { if (isNotice(card)) dismiss(card, "", 1); });
+  });
+})();
+`;
+
 /** A screenshot large, as a sheet's body: as big as the screen allows, whole. */
 export const screenshotLarge = (imageUrl: string, label: string): Raw => html`<img class="screenshot-large" src="${imageUrl}" alt="${label}" loading="lazy" decoding="async">`;
 
@@ -122,8 +192,14 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
    the fade, so it's still there while it leaves. Under reduced motion it only fades. */
 .playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.25s ease, transform 0.3s cubic-bezier(.2,.8,.2,1), display 0.3s allow-discrete; }
-.playing-card[hidden] { display: none; opacity: 0; transform: translateY(-8px); pointer-events: none; }
+.playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
+.playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
 @starting-style { .playing-card { opacity: 0; transform: translateY(-8px); } }
+/* A card with nothing to press in it (a notification: Saved, a save that didn't go through) goes on a tap or a click, or a swipe sideways
+   or up (PLAYING_CARD_SCRIPT): it follows the finger (is-swiping, no transition then) and leaves with the exit above. A card with a button or
+   a link in it stays until its own button answers, and the gallery's copy stays where it is. */
+.playing-card:not(.in-place):not(:has(a, button, input, select, textarea)) { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.playing-card.is-swiping { transition: var(--glass-transition); }
 .playing-card > :not(.edge) { position: relative; z-index: 1; }
 .playing-card.in-place { position: relative; top: auto; right: auto; }
 .playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
@@ -132,7 +208,7 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 @media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
 @media (prefers-reduced-motion: reduce) {
   .playing-card { transition: var(--glass-transition), opacity 0.2s ease, display 0.2s allow-discrete; }
-  .playing-card[hidden] { transform: none; }
+  .playing-card, .playing-card[hidden] { transform: none; }
   @starting-style { .playing-card { transform: none; } }
   html.is-playing .game-frame { animation: none; }
 }
@@ -213,7 +289,7 @@ component({
   name: "Playing card",
   slug: "playing-card",
   group: "panes",
-  summary: "A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view.",
+  summary: "A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view. One with nothing to press in it goes on a tap or a swipe.",
   styles: "",
   render: playingCard,
   examples: [

@@ -128,6 +128,30 @@ export function gameCover(options: GameCoverOptions): Raw {
 }
 
 /**
+ * Where a pane that hangs from a button goes (window.zaismaPlace(buttonRect, paneSize, options)): one rule for a sheet, a select's list and a menu.
+ * It opens toward the middle of the room it has, as dropdowns do: a button in the right half has the pane's right edge on its right edge, one in
+ * the left half the left edges together; under the button, or above it (bottom edges together) when the button is in the lower half and the pane
+ * fits there, or when it doesn't fit below and there's more room above. Kept inside the room, edgePx from its edges. Returns { leftPx, topPx,
+ * isAtEnd, isAbove }, in the coordinates the rect and the room are given in. options: roomRect (the window by default), gapPx, edgePx and
+ * isAlwaysBelow (a menu hanging from the header's slab never flips).
+ */
+export const PLACE_SCRIPT = `/* place */(function () {
+  window.zaismaPlace = function (buttonRect, paneSize, options) {
+    var room = options.roomRect || { left: 0, top: 0, right: document.documentElement.clientWidth, bottom: window.innerHeight };
+    var gapPx = options.gapPx, edgePx = options.edgePx;
+    var isAtEnd = (buttonRect.left + buttonRect.right) / 2 > (room.left + room.right) / 2;
+    var leftPx = Math.max(room.left + edgePx, Math.min(isAtEnd ? buttonRect.right - paneSize.width : buttonRect.left, room.right - edgePx - paneSize.width));
+    var roomBelowPx = room.bottom - edgePx - buttonRect.bottom - gapPx, roomAbovePx = buttonRect.top - gapPx - edgePx - room.top;
+    var fitsBelow = paneSize.height <= roomBelowPx, fitsAbove = paneSize.height <= roomAbovePx;
+    var isLower = (buttonRect.top + buttonRect.bottom) / 2 > (room.top + room.bottom) / 2;
+    var isAbove = !options.isAlwaysBelow && (fitsBelow && fitsAbove ? isLower : !fitsBelow && roomAbovePx > roomBelowPx);
+    var topPx = isAbove ? buttonRect.top - gapPx - paneSize.height : buttonRect.bottom + gapPx;
+    return { leftPx: leftPx, topPx: Math.max(room.top + edgePx, Math.min(topPx, room.bottom - edgePx - paneSize.height)), isAtEnd: isAtEnd, isAbove: isAbove };
+  };
+})();
+`;
+
+/**
  * Menus: a button with aria-controls and aria-expanded opens the menu it names. It hangs just under the header slab when the button is in
  * the header, otherwise just under the button: from the button's end, or from its start where that would run off the screen's start, and
  * kept on the screen either way. Escape, a press elsewhere or choosing an item closes it; the arrow keys move through it.
@@ -152,11 +176,11 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     var origin = fixedOrigin(menu), r = button.getBoundingClientRect(), slab = button.closest(".top"), below = slab ? slab.getBoundingClientRect().bottom : r.bottom;
     // The room it keeps to: the screen, or what holds it where that holds fixed things (a gallery frame stands in for a screen).
     var start = origin.width ? origin.left : 0, end = origin.width ? origin.right : document.documentElement.clientWidth;
-    var width = menu.offsetWidth, isFromStart = r.right - width < start + edgePx, left = isFromStart ? r.left : r.right - width;
-    left = Math.max(start + edgePx, Math.min(end - edgePx - width, left));
-    menu.classList.toggle("from-start", isFromStart);
-    menu.style.top = (below - origin.top + gapPx) + "px";
-    menu.style.left = (left - origin.left) + "px";
+    var top = origin.height ? origin.top : 0, foot = origin.height ? origin.bottom : window.innerHeight;
+    var spot = window.zaismaPlace(slab ? { left: r.left, right: r.right, top: below - 1, bottom: below } : r, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: { left: start, right: end, top: top, bottom: foot }, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
+    menu.classList.toggle("from-start", !spot.isAtEnd); menu.classList.toggle("is-above", spot.isAbove);
+    menu.style.top = (spot.topPx - origin.top) + "px";
+    menu.style.left = (spot.leftPx - origin.left) + "px";
   }
   function toggle(menu, open, focusFirst) {
     var button = buttonOf(menu);
@@ -194,13 +218,16 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
 `;
 
 const DROPDOWN_STYLES = `
-/* A dropdown: a pane of the glass hanging just under its button, as wide as what's in it (never wider than the screen), holding a short
-   list of choices. It grows from the button's end, or from its start when it hangs from there (from-start). */
+/* A dropdown: a pane of the glass hanging just under its button (above it, is-above, where PLACE_SCRIPT puts it there), as wide as what's in it
+   (never wider than the screen), holding a short list of choices. It grows from the button's end, or from its start when it hangs from there (from-start). */
 .dropdown { position: fixed; z-index: 11; width: max-content; max-width: calc(100vw - 2 * var(--pad-frame)); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .dropdown.from-start { transform-origin: top left; }
 .dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
+.dropdown.is-above { transform-origin: bottom right; }
+.dropdown.is-above.from-start { transform-origin: bottom left; }
+.dropdown.is-above.shut { transform: translateY(6px) scale(0.98); }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
 .dropdown-head { display: flex; flex-direction: column; padding: var(--pad-words) var(--pad-words) var(--gap-words-control); margin-bottom: var(--gap-control-stack); border-bottom: var(--divider); }
@@ -294,13 +321,10 @@ const COVER_STYLES = `
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
-/* What's under a cover is words, so where it meets the pane's edge it keeps the pane's words margin (--pad-words) in from the art's edge. The
-   edge rule (GLASS_SCRIPT, placeWords) says which sides don't meet it (data-words-flush), the covers between the first and the last of a row
-   or a grid's lines, and there the words line up with the art. With a title it belongs to the cover above it: just under the orange line,
-   with more room after it before the next row. */
-.cover-meta { padding-inline: var(--pad-words); }
-.cover-meta[data-words-flush~="start"] { padding-inline-start: 0; }
-.cover-meta[data-words-flush~="end"] { padding-inline-end: 0; }
+/* What's under a cover is words, so a cover with them is a bare group (tokens.ts's BARE_GROUPS): the cover, its title and players now are one
+   unit, flush with each other (the title at the art's left edge, the count at its right), and the whole unit keeps the pane's words margin
+   (--pad-words past the frame gap) from the surface's edge, at its start, end and foot, with nothing placed apart. With a title it belongs
+   to the cover above it: just under the orange line, with more room after it before the next row. */
 .cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
@@ -544,7 +568,7 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
     sheet.addEventListener("transitionend", end);
   }
-  // On a wide screen a sheet opened by a button hangs from it like a dropdown: under it (above it when there's no room), at its start edge,
+  // On a wide screen a sheet opened by a button hangs from it like a dropdown (zaismaPlace): toward the middle of the window, under it or above it,
   // kept inside the window, and following it as the page scrolls or the window changes; a phone keeps its sheet at the foot (the CSS).
   var wide = window.matchMedia("(min-width: 761px)"), anchors = new Map(), GAP_PX = 8, EDGE_PX = 16;
   // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
@@ -578,13 +602,10 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
     if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) { sheet.close(); return; }
     sheet.style.setProperty("--sheet-max-height", (windowHeight - 2 * EDGE_PX) + "px");
-    var width = sheet.offsetWidth, height = sheet.offsetHeight;
-    var isAbove = height > windowHeight - rect.bottom - GAP_PX - EDGE_PX && height <= rect.top - GAP_PX - EDGE_PX;
-    var top = isAbove ? rect.top - GAP_PX - height : Math.max(EDGE_PX, Math.min(rect.bottom + GAP_PX, windowHeight - height - EDGE_PX));
-    var left = getComputedStyle(held.opener).direction === "rtl" ? rect.right - width : rect.left;
-    sheet.style.setProperty("--sheet-left", Math.max(EDGE_PX, Math.min(left, windowWidth - width - EDGE_PX)) + "px");
-    sheet.style.setProperty("--sheet-top", Math.round(top) + "px");
-    sheet.classList.toggle("is-above", isAbove);
+    var spot = window.zaismaPlace(rect, { width: sheet.offsetWidth, height: sheet.offsetHeight }, { roomRect: { left: 0, top: 0, right: windowWidth, bottom: windowHeight }, gapPx: GAP_PX, edgePx: EDGE_PX });
+    sheet.style.setProperty("--sheet-left", Math.round(spot.leftPx) + "px");
+    sheet.style.setProperty("--sheet-top", Math.round(spot.topPx) + "px");
+    sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
   }
   function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
   window.addEventListener("resize", placeAll);
@@ -593,7 +614,7 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     var sheet = event.target;
     if (!anchors.has(sheet)) return;
     anchors.delete(sheet);
-    sheet.classList.remove("is-anchored", "is-above");
+    sheet.classList.remove("is-anchored", "is-above", "is-at-end");
     sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
   }, true);
   HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
@@ -672,7 +693,9 @@ ${touchReach(".sheet")}
   /* Opened by a button on a wide screen (SHEET_SCRIPT sets where): it hangs from the button like a dropdown, under it or above it where there's no
      room, and comes in from the button's side. The page behind it is dimmed only a little, and not at all over a running game (at the foot). */
   .sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); margin: 0; max-height: var(--sheet-max-height); transform-origin: 0 0; }
+  .sheet.is-anchored.is-at-end:not(.in-place) { transform-origin: 100% 0; }
   .sheet.is-anchored.is-above:not(.in-place) { transform-origin: 0 100%; }
+  .sheet.is-anchored.is-above.is-at-end:not(.in-place) { transform-origin: 100% 100%; }
   .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
   .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
   @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
