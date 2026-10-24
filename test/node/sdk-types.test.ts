@@ -524,8 +524,8 @@ describe("the SDK's types say what the SDK does", () => {
     const sheets: string[] = [];
     sdk.Zaisma.items.on("sheetOpen", (sheet: { itemName: string }) => sheets.push(`open ${sheet.itemName}`));
     sdk.Zaisma.items.on("sheetClose", (sheet: { itemName: string }) => sheets.push(`close ${sheet.itemName}`));
-    const buying = sdk.Zaisma.items.buy("revive", { quantity: 3, gameAccountId: "farmer-42" });
-    expect(buyMessages()).toEqual([{ type: "zaisma:buy", requestNumber: 1, itemName: "revive", quantity: 3, gameAccountId: "farmer-42" }]);
+    const buying = sdk.Zaisma.items.buy("revive", { itemCount: 3, gameAccountId: "farmer-42" });
+    expect(buyMessages()).toEqual([{ type: "zaisma:buy", requestNumber: 1, itemName: "revive", itemCount: 3, gameAccountId: "farmer-42" }]);
     sdk.page.say({ type: "zaisma:buy", requestNumber: 1, status: "open" });
     // An answer for another request isn't this one's.
     sdk.page.say({ type: "zaisma:buy", requestNumber: 9, status: "cancelled" });
@@ -552,7 +552,7 @@ describe("the SDK's types say what the SDK does", () => {
   it("opens the buy sheet only right after the player's tap, and checks what the game sends", async () => {
     const sdk = loadSdk();
     expect(await failureCode(() => sdk.Zaisma.items.buy(""))).toBe("no_item");
-    expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { quantity: 1.5 }))).toBe("bad_item_count");
+    expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { itemCount: 1.5 }))).toBe("bad_item_count");
     expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { gameAccountId: 42 as unknown as string }))).toBe("bad_game_account_id");
     sdk.navigator.userActivation = { isActive: false };
     expect(await failureCode(() => sdk.Zaisma.items.buy("revive"))).toBe("needs_player_tap");

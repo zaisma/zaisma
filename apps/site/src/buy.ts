@@ -46,7 +46,7 @@ import type { Env } from "./env.ts";
  * card and purchase PIN. Signed-in players only, by the session cookie, from zaisma.com's own pages; never the
  * developer API. Every answer that refuses is { error: { code, message } }.
  *
- *   POST   /api/buy/:slug/start                           { item_name, quantity, game_account_id, tester_token } → the sheet
+ *   POST   /api/buy/:slug/start                           { item_name, item_count, game_account_id, tester_token } → the sheet
  *   POST   /api/buy/confirm                               { passkey_tap | purchase_pin | password }: 15 minutes of one-tap buys here
  *   POST   /api/buy/purchases/:purchase_id/pay-with-saved-card  → completed, or action_needed (3-D Secure)
  *   POST   /api/buy/purchases/:purchase_id/wallet-intent  → what Apple Pay or Google Pay pays
@@ -180,9 +180,9 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
   const itemName = body.item_name;
   const gameItem = typeof itemName === "string" ? await itemByName(env.DB, game.id, itemName) : null;
   if (!gameItem) return refuse(404, "no_item", `${game.title} has no item named ${JSON.stringify(itemName)}.`);
-  const quantity = body.quantity ?? 1;
-  if (!Number.isInteger(quantity) || (quantity as number) < 1 || (quantity as number) > ITEM_LIMITS.maximumGrantItemCount || (gameItem.item_kind === "permanent" && quantity !== 1)) {
-    return refuse(400, "bad_item_count", `quantity is a whole number from 1 to ${ITEM_LIMITS.maximumGrantItemCount}, and 1 for a permanent item.`);
+  const requestedItemCount = body.item_count ?? 1;
+  if (!Number.isInteger(requestedItemCount) || (requestedItemCount as number) < 1 || (requestedItemCount as number) > ITEM_LIMITS.maximumGrantItemCount || (gameItem.item_kind === "permanent" && requestedItemCount !== 1)) {
+    return refuse(400, "bad_item_count", `item_count is a whole number from 1 to ${ITEM_LIMITS.maximumGrantItemCount}, and 1 for a permanent item.`);
   }
   const gameAccountId = body.game_account_id ?? null;
   if (gameAccountId !== null && (typeof gameAccountId !== "string" || gameAccountId.length > 200)) return refuse(400, "bad_game_account_id", "game_account_id is text of up to 200 characters, or null.");
@@ -198,7 +198,7 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
   if (env.PURCHASE_LIMIT && !(await env.PURCHASE_LIMIT.limit({ key: account.id })).success) return refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
 
   const isEuWithdrawalLineShown = isWithdrawalLineShownFor(countryCode);
-  const itemCount = quantity as number;
+  const itemCount = requestedItemCount as number;
   const purchaseId = await recordPendingSale(
     env,
     { gameId: game.id, playerId: account.player_id, gameItem, itemCount, gameAccountId: gameAccountId as string | null, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, stripeAccountId: seller.stripe_account_id, isEuWithdrawalLineShown },
@@ -209,7 +209,7 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
   return {
     purchase_id: purchaseId,
     item: { item_name: gameItem.item_name, title: gameItem.title, description: gameItem.description, item_kind: gameItem.item_kind, item_category: gameItem.item_category },
-    quantity: itemCount,
+    item_count: itemCount,
     price: { currency_code: price.currencyCode, price_minor_units: totalMinorUnits, price_text: priceText(price.currencyCode, totalMinorUnits) },
     seller: { business_name: seller.stripe_business_name ?? game.title, support_email: seller.stripe_support_email },
     refund_policy: purchaseSettingsOf(game).refund_policy,
@@ -253,8 +253,8 @@ async function confirmBuying(request: Request, env: Env, session: Session, accou
     if (pin.purchase_pin_failed_count >= PURCHASE_PIN_LIMITS.maximumFailedTryCount) return refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
     if (typeof body.purchase_pin !== "string" || !(await isPurchasePin(body.purchase_pin, pin.purchase_pin_hash))) {
       const counted = await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = purchase_pin_failed_count + 1 WHERE id = ? RETURNING purchase_pin_failed_count").bind(account.id).first<{ purchase_pin_failed_count: number }>();
-      const left = PURCHASE_PIN_LIMITS.maximumFailedTryCount - (counted?.purchase_pin_failed_count ?? PURCHASE_PIN_LIMITS.maximumFailedTryCount);
-      return left > 0 ? refuse(403, "wrong_purchase_pin", `That PIN isn't right. ${left} ${left === 1 ? "try" : "tries"} left.`) : refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
+      const triesLeftCount = PURCHASE_PIN_LIMITS.maximumFailedTryCount - (counted?.purchase_pin_failed_count ?? PURCHASE_PIN_LIMITS.maximumFailedTryCount);
+      return triesLeftCount > 0 ? refuse(403, "wrong_purchase_pin", `That PIN isn't right. ${triesLeftCount} ${triesLeftCount === 1 ? "try" : "tries"} left.`) : refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
     }
     await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = 0 WHERE id = ?").bind(account.id).run();
     method = "purchase_pin";

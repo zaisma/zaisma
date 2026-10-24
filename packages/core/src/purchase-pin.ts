@@ -12,9 +12,9 @@ const HASH_BIT_COUNT = 256;
 /** Why a PIN can't be set, or null when it can: 6 or more digits, or any passphrase of 6 or more characters, up to 64. */
 export function purchasePinProblem(pin: unknown): string | null {
   if (typeof pin !== "string") return "purchase_pin must be text: 6 or more digits, or a passphrase of 6 or more characters.";
-  const length = [...pin].length;
-  if (length < PURCHASE_PIN_LIMITS.minimumPinLength) return `purchase_pin must be at least ${PURCHASE_PIN_LIMITS.minimumPinLength} characters, like 482913 or a short passphrase.`;
-  if (length > PURCHASE_PIN_LIMITS.maximumPinLength) return `purchase_pin can be at most ${PURCHASE_PIN_LIMITS.maximumPinLength} characters.`;
+  const pinCharacterCount = [...pin].length;
+  if (pinCharacterCount < PURCHASE_PIN_LIMITS.minimumPinLength) return `purchase_pin must be at least ${PURCHASE_PIN_LIMITS.minimumPinLength} characters, like 482913 or a short passphrase.`;
+  if (pinCharacterCount > PURCHASE_PIN_LIMITS.maximumPinLength) return `purchase_pin can be at most ${PURCHASE_PIN_LIMITS.maximumPinLength} characters.`;
   if (pin.trim() !== pin) return "purchase_pin can't start or end with a space.";
   return null;
 }
@@ -34,9 +34,9 @@ export async function isPurchasePin(pin: string, storedHash: string): Promise<bo
   const expected = fromBase64Url(hashText);
   const actual = await derive(pin, fromBase64Url(saltText), iterationCount);
   if (actual.length !== expected.length) return false;
-  let difference = 0;
-  for (let i = 0; i < actual.length; i++) difference |= actual[i]! ^ expected[i]!;
-  return difference === 0;
+  let differenceBits = 0;
+  for (let i = 0; i < actual.length; i++) differenceBits |= actual[i]! ^ expected[i]!;
+  return differenceBits === 0;
 }
 
 async function derive(pin: string, salt: Uint8Array, iterationCount: number): Promise<Uint8Array> {

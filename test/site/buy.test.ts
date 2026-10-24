@@ -231,7 +231,7 @@ describe("opening the sheet", () => {
     expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } })).answer.error.code).toBe("stripe_cannot_take_payments");
     await env.DB.prepare("UPDATE owners SET can_take_stripe_payments = 1").run();
     expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, accountId: null })).answer.error.code).toBe("account_needed");
-    expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", quantity: 0 } })).answer.error.code).toBe("bad_item_count");
+    expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", item_count: 0 } })).answer.error.code).toBe("bad_item_count");
     // Another site can't buy with the player's cookie.
     expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, origin: "https://elsewhere.example" })).status).toBe(403);
   });
@@ -239,11 +239,11 @@ describe("opening the sheet", () => {
   it("makes a pending purchase at the player's price, and answers what the sheet shows", async () => {
     await connect();
     await setItem("revive", revive);
-    const { status, answer } = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", quantity: 3, game_account_id: "farmer-42" } });
+    const { status, answer } = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", item_count: 3, game_account_id: "farmer-42" } });
     expect(status).toBe(200);
     expect(answer).toMatchObject({
       item: { item_name: "revive", title: "Revive", item_kind: "consumable" },
-      quantity: 3,
+      item_count: 3,
       price: { currency_code: "eur", price_minor_units: 597 },
       seller: { business_name: "Pixel Smith Games", support_email: "help@pixelsmith.example" },
       refund_policy: "unused_within_14_days",

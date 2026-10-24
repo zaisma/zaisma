@@ -30,7 +30,7 @@
   var SAVES_EVENTS = ["conflict", "developerChange"];
   var VERSIONS_EVENTS = ["update"];
   var ITEMS_EVENTS = ["sheetOpen", "sheetClose"];
-  var BUY_OPTIONS = ["quantity", "gameAccountId"];
+  var BUY_OPTIONS = ["itemCount", "gameAccountId"];
   /** The room closes connections with this as its match switches to a version published "now". */
   var VERSION_UPDATE_CLOSE_CODE = 4004;
   /** A real-time room's ping from this on shows as a weak connection beside the game. */
@@ -1533,15 +1533,15 @@
     if (refused) return Promise.reject(refused);
     buyOptions = buyOptions || {};
     if (typeof itemName !== "string" || !itemName) return Promise.reject(codedError("no_item", "itemName isn't an item's name, like \"revive\": list_items names the game's items."));
-    var quantity = buyOptions.quantity === undefined ? 1 : buyOptions.quantity;
-    if (typeof quantity !== "number" || quantity % 1 !== 0 || quantity < 1) return Promise.reject(codedError("bad_item_count", "quantity is a whole number from 1, and 1 for a permanent item."));
+    var itemCount = buyOptions.itemCount === undefined ? 1 : buyOptions.itemCount;
+    if (typeof itemCount !== "number" || itemCount % 1 !== 0 || itemCount < 1) return Promise.reject(codedError("bad_item_count", "itemCount is a whole number from 1, and 1 for a permanent item."));
     var gameAccountId = buyOptions.gameAccountId === undefined ? null : buyOptions.gameAccountId;
     if (gameAccountId !== null && (typeof gameAccountId !== "string" || gameAccountId.length > 200)) return Promise.reject(codedError("bad_game_account_id", "gameAccountId is your game's own account ID for the player, text of up to 200 characters, or null."));
     // Only right after the player tapped or pressed a key in the game, so a sheet never opens by itself.
     if (navigator.userActivation && !navigator.userActivation.isActive) return Promise.reject(codedError("needs_player_tap", "The buy sheet opens only right after the player taps or presses a key in the game: call Zaisma.items.buy from that tap's handler."));
     if (!config.game) return Promise.reject(notOnZaisma("Buying goes through Zaisma's buy sheet, so the game needs its Zaisma link name."));
     var requestNumber = ++buyRequestCount;
-    var message = { type: "zaisma:buy", requestNumber: requestNumber, itemName: itemName, quantity: quantity, gameAccountId: gameAccountId };
+    var message = { type: "zaisma:buy", requestNumber: requestNumber, itemName: itemName, itemCount: itemCount, gameAccountId: gameAccountId };
     return new Promise(function (resolve, reject) {
       var waiter = { resolve: resolve, reject: reject, isOpen: false, itemName: itemName };
       if (config.site && window.parent !== window) {
@@ -1559,7 +1559,7 @@
       }
       // On the developer's own site: a zaisma.com window, which answers this page if its address is one the developer registered.
       var site = config.site || "https://zaisma.com";
-      var query = "?quantity=" + quantity + "&request_number=" + requestNumber + (gameAccountId === null ? "" : "&game_account_id=" + encodeURIComponent(gameAccountId));
+      var query = "?item_count=" + itemCount + "&request_number=" + requestNumber + (gameAccountId === null ? "" : "&game_account_id=" + encodeURIComponent(gameAccountId));
       var opened = window.open(site + "/buy/" + encodeURIComponent(config.game) + "/" + encodeURIComponent(itemName) + query, "zaisma-buy", "popup,width=" + BUY_WINDOW_WIDTH_PX + ",height=" + BUY_WINDOW_HEIGHT_PX);
       if (!opened) return reject(codedError("needs_player_tap", "The browser didn't open the buy window: call Zaisma.items.buy from the tap's handler itself."));
       waiter.origin = new URL(site).origin;

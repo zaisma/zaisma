@@ -336,14 +336,14 @@ export function purchaseReceiptEmail(
   const help = details.sellerSupportEmail ? `Questions or a refund: write to ${details.sellerSupportEmail} with your purchase ID.` : `Questions or a refund: ask ${seller} with your purchase ID.`;
   return {
     subject,
-    text: `You bought ${what} in ${details.gameTitle}.\n\n${lines.map(([label, value]) => `${label}: ${value}`).join("\n")}\n\n${[...notes, help].join("\n\n")}\n\nSold through Zaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    text: `You bought ${what} in ${details.gameTitle}.\n\n${lines.map(([lineLabel, lineText]) => `${lineLabel}: ${lineText}`).join("\n")}\n\n${[...notes, help].join("\n\n")}\n\nSold through Zaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
     html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
 <body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
 <tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
 <tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">You bought ${esc(what)} in ${esc(details.gameTitle)}.</td></tr>
-${lines.map(([label, value]) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:0 0 4px">${esc(label)}: <span style="color:#eceef0">${esc(value)}</span></td></tr>`).join("\n")}
+${lines.map(([lineLabel, lineText]) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:0 0 4px">${esc(lineLabel)}: <span style="color:#eceef0">${esc(lineText)}</span></td></tr>`).join("\n")}
 ${[...notes, help].map((note) => `<tr><td style="font-size:14px;line-height:1.5;color:#969ba4;padding:12px 0 0">${esc(note)}</td></tr>`).join("\n")}
 </table></td></tr></table>
 </body></html>`,

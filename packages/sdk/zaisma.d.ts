@@ -380,7 +380,7 @@ declare namespace Zaisma {
   /** How {@link Items.buy} buys. */
   interface BuyOptions {
     /** How many of a consumable item, from 1 (1 unless you say). A permanent item is always 1. */
-    quantity?: number;
+    itemCount?: number;
     /** Your game's own account ID for the player, kept on the purchase and its receipt; null unless you say. */
     gameAccountId?: string | null;
   }

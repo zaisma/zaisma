@@ -1,12 +1,14 @@
 import { detailsOf, isSignedByStripe, paymentIntentOnAccount, type StripeObject } from "./stripe.ts";
 import { forgetStripeAccount, saveAccountDetails } from "./stripe-account-api.ts";
 import { completePurchase, failPurchase, noteLostDispute, noteRefund, saleOfPayment } from "./sales.ts";
+import type { StripeEvent } from "./stripe-events.ts";
 import type { Env } from "./env.ts";
 
 /** Stripe's events are small; anything bigger isn't one. */
 const MAXIMUM_EVENT_SIZE_BYTES = 256 * 1024;
 
-type ConnectEvent = { id: string; type: string; account?: string; data: { object: Record<string, unknown> & { id: string } } };
+/** An event on a connected account: Stripe's event, with the account it happened on. */
+type ConnectEvent = StripeEvent & { account?: string };
 
 /**
  * POST /stripe/connect-events: Stripe tells Zaisma what happened on developers' connected accounts (the buy sheet's
