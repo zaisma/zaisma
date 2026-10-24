@@ -3,6 +3,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
+import { joinedRoom, loadSdk, me, ON_ZAISMA, say, settings, type StandInSocket } from "../sdk-stand-in.ts";
 
 /**
  * packages/sdk/zaisma.d.ts is the SDK's reference, so it has to say exactly what zaisma.js does. The SDK
@@ -66,93 +67,6 @@ function valuesInSource(file: string, name: string): string[] {
   const alias = source.statements.find((statement): statement is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(statement) && statement.name.text === name);
   if (!alias || !ts.isUnionTypeNode(alias.type)) throw new Error(`${file} declares no union ${name}`);
   return alias.type.types.map((part) => ((part as ts.LiteralTypeNode).literal as ts.StringLiteral).text).sort();
-}
-
-interface StandInSocket {
-  url: string;
-  sent: string[];
-  readyState: number;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data: string }) => void) | null;
-  onclose: ((event: { code: number; reason: string }) => void) | null;
-}
-
-const ON_ZAISMA = { rooms: "https://rooms.zaisma.test", game: "test-game", site: "https://zaisma.test" };
-
-/**
- * zaisma.js as on a game's page on Zaisma, in a stand-in browser: the tab already has a guest pass and
- * the page hands over a guest's room key, the test answers for the room's WebSocket and for fetch (no
- * connection, unless it gives an answer), and the page's event listeners are kept for the test to
- * call. null for zaismaConfig: a game hosted somewhere else, which has no __ZAISMA__.
- */
-function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest", search = "") {
-  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
-  const sockets: StandInSocket[] = [];
-  // What the SDK runs on a timer (its checks every second), for the test to run when it likes.
-  const intervals: (() => void)[] = [];
-  const listeners: Record<string, ((event?: unknown) => void)[]> = {};
-  const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
-  // The Zaisma page around the game: it hands over its room key, whose kind changes when the player signs in.
-  const page = {
-    playerKind,
-    posted: [] as unknown[],
-    postMessage(message: { type?: string }) {
-      page.posted.push(message);
-      const answer = { origin: ON_ZAISMA.site, source: page, data: { type: "zaisma:room-key", key: "room_key_test", playerKind: page.playerKind } };
-      if (message?.type === "zaisma:room-key") queueMicrotask(() => (listeners.message ?? []).slice().forEach((listener) => listener(answer)));
-    },
-    /** A message from the page to the game. */
-    say(data: unknown) {
-      (listeners.message ?? []).slice().forEach((listener) => listener({ origin: ON_ZAISMA.site, source: page, data }));
-    },
-  };
-  const window: Record<string, unknown> = { parent: page, addEventListener: listen };
-  const browser = {
-    __ZAISMA__: zaismaConfig,
-    fetch: fetchAnswer,
-    window,
-    document: { hidden: false, addEventListener: listen },
-    location: { search, href: `https://test-game.games.zaisma.test/${search}` },
-    sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
-    WebSocket: class {
-      sent: string[] = [];
-      readyState = 1;
-      onopen = null;
-      onmessage = null;
-      onclose = null;
-      constructor(public url: string) {
-        sockets.push(this);
-      }
-      send(text: string) {
-        this.sent.push(text);
-      }
-      close() {}
-    },
-    addEventListener: listen,
-    removeEventListener() {},
-    setInterval: (work: () => void) => (intervals.push(work), 0),
-    clearInterval() {},
-    navigator: {},
-  };
-  new Function(...Object.keys(browser), SDK)(...Object.values(browser));
-  return { Zaisma: window.Zaisma as any, sockets, intervals, listeners, page, window, navigator: browser.navigator as Record<string, unknown> };
-}
-
-const me = { id: "player_ana", name: "Ana", kind: "guest" };
-const settings = { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} };
-
-/** Join a room the test plays the server of. */
-async function joinedRoom(sdk: ReturnType<typeof loadSdk>) {
-  const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const socket = sdk.sockets.at(-1)!;
-  socket.onopen!();
-  say(socket, { type: "welcome", me, players: [me, { id: "player_bo", name: "Bo", kind: "account" }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } });
-  return { room: await joining, socket };
-}
-
-function say(socket: StandInSocket, message: unknown) {
-  socket.onmessage!({ data: JSON.stringify(message) });
 }
 
 /** The names a refusal lists after "It takes:" or "Rooms have:", sorted. */
@@ -240,7 +154,7 @@ describe("the SDK's types say what the SDK does", () => {
     const { room, socket } = await joinedRoom(sdk);
     expect(room.endsAt).toBeNull();
     const endsAt = new Date(Date.now() + 3_600_000).toISOString();
-    expect(heard(room, "ending", () => say(socket, { type: "ending", endsAt }))).toBe(endsAt);
+    expect(heard(room, "ending", () => say(socket, { type: "ending", endsAt }))).toEqual({ endsAt });
     expect(room.endsAt).toBe(endsAt);
   });
 
@@ -259,9 +173,9 @@ describe("the SDK's types say what the SDK does", () => {
     const { room, socket } = await joinedRoom(sdk);
     const fields = (value: Record<string, unknown>) => Object.keys(value).sort();
     expect(fields(heard(room, "move", () => say(socket, { type: "move", roomCode: "M2X7Q3" })))).toEqual(fieldsOf("Move"));
-    expect(fields(heard(room, "room", () => say(socket, { type: "room", room: settings })))).toEqual(fieldsOf("RoomSettings"));
+    expect(fields(heard(room, "settings", () => say(socket, { type: "room", room: settings })))).toEqual(fieldsOf("RoomSettingsChange"));
     expect(fields(heard(room, "error", () => say(socket, { type: "error", code: "too_fast", message: "Slow down." })))).toEqual(fieldsOf("RoomError"));
-    expect(fields(heard(room, "away", () => say(socket, { type: "away", reason: "idle", seatHoldDurationSec: 300 })))).toEqual(fieldsOf("Away"));
+    expect(fields(heard(room, "away", () => say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 300 })))).toEqual(fieldsOf("Away"));
     // The player list, as rooms send it: each player with why they aren't playing, the same in room.players.
     const listedPlayers = [{ ...me, awayReason: null }, { id: "player_bo", name: "Bo", kind: "account", awayReason: "lost" }];
     const players = heard(room, "players", () => say(socket, { type: "players", players: listedPlayers, hostPlayerId: null })) as unknown as Record<string, unknown>[];
@@ -317,8 +231,9 @@ describe("the SDK's types say what the SDK does", () => {
     const { room } = await joinedRoom(sdk);
     expect(await failureCode(() => room.send({}, { delivery: "lossy" }))).toBe("bad_send_option");
     expect(await failureCode(() => room.sendBytes(new Uint8Array([1]), { latestKey: "x".repeat(41) }))).toBe("bad_send_option");
-    expect(await failureCode(() => room.smoothedState(-5))).toBe("bad_delay");
-    expect(await failureCode(() => room.smoothedState("100"))).toBe("bad_delay");
+    expect(await failureCode(() => room.smoothedState({ delayMs: -5 }))).toBe("bad_delay");
+    expect(await failureCode(() => room.smoothedState({ delayMs: "100" }))).toBe("bad_delay");
+    expect(await failureCode(() => room.smoothedState(100))).toBe("unknown_option");
   });
 
   it("keeps a pass for the tab until the player signs in or out", async () => {
@@ -548,8 +463,8 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await blocking).toBe(true);
     expect(sent().at(-1)).toEqual({ type: "block", playerId: "player_bo" });
     expect(room.isMuted("player_bo")).toBe(true);
-    // Unmute lifts a session block, telling the room and the page.
-    room.unmute("player_bo");
+    // Unblock lifts a session block, telling the room and the page.
+    room.unblock("player_bo");
     expect(sent().at(-1)).toEqual({ type: "unblock", playerId: "player_bo" });
     expect(sdk.page.posted).toContainEqual({ type: "zaisma:unblock", playerId: "player_bo" });
     expect(room.isMuted("player_bo")).toBe(false);
@@ -651,7 +566,7 @@ describe("the SDK's types say what the SDK does", () => {
     say(first.socket, { type: "error", code: "blocked_player_here", message: "Someone you blocked is in this room." });
     const second = await tryRoom();
     expect(second).toMatchObject({ roomCode: "BBBBBB", hello: { avoidBlockedPlayers: true } });
-    say(second.socket, { type: "error", code: "full", message: "This room is full." });
+    say(second.socket, { type: "error", code: "room_full", message: "This room is full." });
     // Nothing else fits: back to the first room, with the wall still up.
     const last = await tryRoom();
     expect(last.roomCode).toBe("AAAAAA");
@@ -785,7 +700,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await failureCode(() => room.sendBytes(new Uint8Array([1])))).toBe("spectator_cannot_send");
     expect(socket.sent.length).toBe(sentCount);
     // The count follows the room; the Players plate hears it, and that this player watches.
-    expect(heard(room, "room", () => say(socket, { type: "room", room: settings, spectatorCount: 4 }))).toEqual(settings);
+    expect(heard(room, "settings", () => say(socket, { type: "room", room: settings, spectatorCount: 4 }))).toEqual({ ...settings, spectatorCount: 4 });
     expect(room.spectatorCount).toBe(4);
     expect(sdk.page.posted.filter((message: any) => message?.type === "zaisma:players").at(-1)).toMatchObject({ isSpectator: true, spectatorCount: 4 });
     // A player joins to play, and quickJoin and move.join take no isSpectator.
@@ -897,7 +812,9 @@ describe("the SDK's types say what the SDK does", () => {
     expect(valuesOf("ReportReason")).toEqual(valuesOf("PlayerReportReason", CORE_TYPES));
     expect(fieldsOf("ListedRoom")).toEqual([...fieldsOf("ListedRoom", CORE_ROOMS), "inviteUrl"].sort());
     // changedAtMs is the site's own; the rooms Worker leaves it out for games.
-    expect(fieldsOf("RoomList")).toEqual(fieldsOf("RoomList", CORE_ROOMS).filter((name) => name !== "changedAtMs"));
+    // The SDK reads the rooms Worker's list into the game's own names (readRoomList in zaisma.js).
+    expect(fieldsOf("RoomList")).toEqual(["filters", "listedClosedRoomCount", "listedJoinableRoomCount", "matchingOpenRoomCount", "moreOpenRoomCount", "playingPlayerCount", "playingRoomCount", "region", "regions", "rooms"]);
+    expect(fieldsOf("RoomList", CORE_ROOMS)).toEqual(expect.arrayContaining(["filters", "joinableRoomCount", "moreOpenRoomCount", "openRoomCount", "playing", "region", "regions", "rooms"]));
   });
 });
 
@@ -907,10 +824,10 @@ describe("versions published now, and the connection beside the game", () => {
     const { room, socket } = await joinedRoom(sdk);
     const heard: unknown[] = [];
     room.on("versionUpdate", (versionUpdate: unknown) => heard.push(versionUpdate));
-    say(socket, { type: "versionUpdate", step: "coming", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
+    say(socket, { type: "version_update", step: "coming", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
     expect(heard).toEqual([{ versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true }]);
     expect(sdk.page.posted).toContainEqual({ type: "zaisma:version-update", code: "K7Q2MX", step: "coming", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
-    say(socket, { type: "versionUpdate", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
+    say(socket, { type: "version_update", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: true });
     const socketCount = sdk.sockets.length;
     socket.onclose!({ code: 4004, reason: "Updating" });
     // The page reloads the game into this room; this tab doesn't reconnect by itself.
@@ -923,7 +840,7 @@ describe("versions published now, and the connection beside the game", () => {
   it("reconnects by itself when only the game server changed", async () => {
     const sdk = loadSdk();
     const { socket } = await joinedRoom(sdk);
-    say(socket, { type: "versionUpdate", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: false });
+    say(socket, { type: "version_update", step: "now", versionId: "version_two", appliesAt: "2026-10-21T12:00:10.000Z", isReloading: false });
     const socketCount = sdk.sockets.length;
     socket.onclose!({ code: 4004, reason: "Updating" });
     await new Promise((resolve) => setTimeout(resolve, 600));
@@ -1040,7 +957,7 @@ describe("state sync and latest-only sends in the SDK", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
       // 250 ms behind: halfway between the first two updates.
-      const smoothed = room.smoothedState(250);
+      const smoothed = room.smoothedState({ delayMs: 250 });
       expect(smoothed.bodies.ana.x).toBeCloseTo(50, 0);
       expect(smoothed.bodies.ana).toMatchObject({ y: 10, name: "Ana", isOut: false });
       // Bo is only in the newer one: as he is there.
@@ -1048,12 +965,12 @@ describe("state sync and latest-only sends in the SDK", () => {
       expect(smoothed.list).toEqual([5, 5, 10]);
       // A copy, the game's to keep.
       smoothed.bodies.ana.x = -1;
-      expect(room.smoothedState(250).bodies.ana.x).toBeCloseTo(50, 0);
+      expect(room.smoothedState({ delayMs: 250 }).bodies.ana.x).toBeCloseTo(50, 0);
       // 150 ms behind by default 100: between the last two.
-      expect(room.smoothedState(150).bodies.ana.x).toBeCloseTo(200, 0);
+      expect(room.smoothedState({ delayMs: 150 }).bodies.ana.x).toBeCloseTo(200, 0);
       // Past the newest, the newest; before the oldest, the oldest.
-      expect(room.smoothedState(0).bodies.ana.x).toBe(300);
-      expect(room.smoothedState(1000).bodies.ana.x).toBe(0);
+      expect(room.smoothedState({ delayMs: 0 }).bodies.ana.x).toBe(300);
+      expect(room.smoothedState({ delayMs: 1000 }).bodies.ana.x).toBe(0);
     } finally {
       clock.mockRestore();
     }
@@ -1064,11 +981,11 @@ describe("state sync and latest-only sends in the SDK", () => {
     const { room, socket } = await joinedRoom(sdk);
     const buffered = socket as unknown as { bufferedAmount: number };
     socket.sent.length = 0;
-    room.send({ type: "aim", angle: 1 }, { delivery: "latest_only" });
+    room.send({ type: "aim", angle: 1 }, { delivery: "latest_only", latestKey: "aim" });
     expect(socket.sent.map((text) => JSON.parse(text))).toEqual([{ type: "message", data: { type: "aim", angle: 1 } }]);
     buffered.bufferedAmount = 100 * 1024;
-    room.send({ type: "aim", angle: 2 }, { delivery: "latest_only" });
-    room.send({ type: "aim", angle: 3 }, { delivery: "latest_only" });
+    room.send({ type: "aim", angle: 2 }, { delivery: "latest_only", latestKey: "aim" });
+    room.send({ type: "aim", angle: 3 }, { delivery: "latest_only", latestKey: "aim" });
     room.send({ type: "fire" });
     room.sendBytes(new Uint8Array([1]), { delivery: "latest_only", latestKey: "pose" });
     room.sendBytes(new Uint8Array([2]), { delivery: "latest_only", latestKey: "pose" });
@@ -1080,5 +997,228 @@ describe("state sync and latest-only sends in the SDK", () => {
     buffered.bufferedAmount = 0;
     check();
     expect(socket.sent.slice(2).map((sent) => (typeof sent === "string" ? JSON.parse(sent) : [...new Uint8Array(sent as unknown as ArrayBuffer)]))).toEqual([{ type: "message", data: { type: "aim", angle: 3 } }, [2]]);
+  });
+});
+
+describe("v1 room messages in the SDK", () => {
+  /** The socket drops the way a browser's does: closed first, then its close event. */
+  function drop(socket: StandInSocket, code = 1006) {
+    socket.readyState = 3;
+    socket.onclose!({ code, reason: "" });
+  }
+  /** The room's side lets the player back in on a new socket. */
+  function welcome(socket: StandInSocket, extra: Record<string, unknown> = {}) {
+    socket.onopen!();
+    say(socket, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1, ...extra });
+  }
+  const messagesOn = (socket: StandInSocket) => socket.sent.map((text) => JSON.parse(text)).filter((message) => message.type === "message");
+
+  it("says its protocol and always a boolean isListed, and reads the welcome field by field", async () => {
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const socket = sdk.sockets.at(-1)!;
+    socket.onopen!();
+    const hello = JSON.parse(socket.sent[0]!);
+    expect(hello.protocolVersionNumber).toBe(1);
+    expect(hello.room.isListed).toBe(false);
+    say(socket, { type: "welcome", me: { ...me, secret: 1 }, isSpectator: true, players: [{ ...me, awayReason: null, extra: true }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: null, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
+    const room = await joining;
+    expect(room.me).toEqual(me);
+    expect(room.players).toEqual([{ ...me, awayReason: null }]);
+    expect(room.isSpectator).toBe(true);
+    expect(room._protocolVersionNumber).toBe(1);
+  });
+
+  it("keeps reliable sends while reconnecting and sends them in order after the welcome", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    drop(socket);
+    expect(room.connectionStatus).toBe("reconnecting");
+    expect(room.send({ type: "one" })).toBe(true);
+    room.send({ type: "aim", angle: 1 }, { delivery: "latest_only", latestKey: "aim" });
+    expect(room.send({ type: "two" })).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const next = sdk.sockets.at(-1)!;
+    expect(next).not.toBe(socket);
+    welcome(next);
+    expect(messagesOn(next).map((message) => message.data.type)).toEqual(["one", "two", "aim"]);
+  });
+
+  it("keeps up to 60, drops the oldest past that and says send_queue_full once", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    drop(socket);
+    const errors: unknown[] = [];
+    room.on("error", (error: unknown) => errors.push(error));
+    for (let i = 0; i < 62; i++) room.send({ type: "move", i });
+    expect(errors).toEqual([{ code: "send_queue_full", message: "Up to 60 sends wait while reconnecting; older ones were dropped." }]);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const next = sdk.sockets.at(-1)!;
+    welcome(next);
+    const sent = messagesOn(next).map((message) => message.data.i);
+    expect(sent).toHaveLength(60);
+    expect(sent[0]).toBe(2);
+  });
+
+  it("answers false only once the room is gone, and a move clears what waited", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    drop(socket);
+    room.send({ type: "stale" });
+    say(socket, { type: "move", roomCode: "M2X7Q3" });
+    const moved = sdk.sockets.at(-1)!;
+    welcome(moved);
+    expect(messagesOn(moved)).toEqual([]);
+    say(moved, { type: "ended", message: "Good game.", endReason: "game" });
+    expect(room.send({ type: "late" })).toBe(false);
+    expect(room.sendBytes(new Uint8Array([1]))).toBe(false);
+  });
+
+  it("throws too_big before sending over 16 KB, and latest_only needs a latestKey", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    const before = socket.sent.length;
+    expect(await failureCode(() => room.send({ text: "é".repeat(9000) }))).toBe("too_big");
+    expect(await failureCode(() => room.sendBytes(new Uint8Array(16 * 1024 + 1)))).toBe("too_big");
+    expect(await failureCode(() => room.send({ type: "aim" }, { delivery: "latest_only" }))).toBe("bad_send_option");
+    expect(socket.sent.length).toBe(before);
+    // Just under, in characters that take three bytes each, still goes.
+    expect(room.send("x".repeat(16 * 1024 - 40))).toBe(true);
+  });
+
+  it("away keeps the socket open, the seat running out closes it, and back says which", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    const away = heard(room, "away", () => say(socket, { type: "away", awayReason: "hidden", seatHoldDurationSec: 300 }));
+    expect(away).toEqual({ awayReason: "hidden", seatHoldDurationSec: 300 });
+    expect(room.connectionStatus).toBe("open");
+    expect(room.awayReason).toBe("hidden");
+    // The page still hears "away".
+    expect(sdk.page.posted.filter((message: any) => message.type === "zaisma:connection").at(-1)).toMatchObject({ connectionStatus: "away" });
+    // Back to the held seat: the room's new welcome, then back with isSeatHeld.
+    const held = heard(room, "back", () => {
+      sdk.listeners.keydown![0]!();
+      say(socket, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
+    });
+    expect(held.isSeatHeld).toBe(true);
+    expect(room.awayReason).toBeNull();
+    // Away again, and the seat runs out: closed until the player is back, then back with the seat gone.
+    say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 300 });
+    socket.onclose!({ code: 4002, reason: "" });
+    expect(room.connectionStatus).toBe("closed");
+    const gone = heard(room, "back", () => sdk.listeners.keydown![0]!());
+    expect(gone.isSeatHeld).toBe(false);
+    expect(sdk.sockets.at(-1)).toBe(socket);
+    (gone.rejoin as () => void)();
+    expect(room.connectionStatus).toBe("connecting");
+    expect(sdk.sockets.at(-1)).not.toBe(socket);
+  });
+
+  it("idle hands asking, then answered or timed_out", async () => {
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX", idleTimeoutSec: 30 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const socket = sdk.sockets.at(-1)!;
+    welcome(socket);
+    const room = await joining;
+    const statuses: unknown[] = [];
+    room.on("idle", (idle: unknown) => statuses.push(idle));
+    // The room answers each ping, so only the idle check is at work.
+    const check = () => {
+      sdk.intervals.forEach((work) => work());
+      socket.onmessage!({ data: "pong" });
+    };
+    const startMs = Date.now();
+    const clock = vi.spyOn(Date, "now");
+    try {
+      clock.mockReturnValue(startMs + 31_000);
+      check();
+      sdk.listeners.keydown![0]!();
+      clock.mockReturnValue(startMs + 62_000);
+      check();
+      clock.mockReturnValue(startMs + 93_000);
+      check();
+    } finally {
+      clock.mockRestore();
+    }
+    expect(statuses).toEqual([
+      { idleStatus: "asking", answerTimeoutSec: 30 },
+      { idleStatus: "answered", answerTimeoutSec: 30 },
+      { idleStatus: "asking", answerTimeoutSec: 30 },
+      { idleStatus: "timed_out", answerTimeoutSec: 30 },
+    ]);
+  });
+
+  it("unmute lifts a mute and unblock a session block, and the page's Unmute does both", async () => {
+    const sdk = loadSdk();
+    const { room } = await joinedRoom(sdk);
+    room.mute("player_bo");
+    await room.block("player_bo");
+    room.unmute("player_bo");
+    expect(room.isMuted("player_bo")).toBe(true);
+    room.unblock("player_bo");
+    expect(room.isMuted("player_bo")).toBe(false);
+    room.mute("player_bo");
+    await room.block("player_bo");
+    sdk.page.say({ type: "zaisma:player-action", action: "unmute", playerId: "player_bo" });
+    expect(room.isMuted("player_bo")).toBe(false);
+  });
+
+  it("message, settings, ended and moved hand what the d.ts says", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    let from: unknown;
+    room.on("message", (message: unknown, fromPlayerId: unknown) => (from = [message, fromPlayerId]));
+    say(socket, { type: "message", data: { type: "hi" }, fromPlayerId: "player_bo" });
+    expect(from).toEqual([{ type: "hi" }, "player_bo"]);
+    say(socket, { type: "message", data: { type: "tick" }, fromPlayerId: null });
+    expect(from).toEqual([{ type: "tick" }, null]);
+    expect(heard(room, "settings", () => say(socket, { type: "room", room: { ...settings, name: "Docks" }, spectatorCount: 2 }))).toEqual({ ...settings, name: "Docks", spectatorCount: 2 });
+    expect(heard(room, "moved", () => say(socket, { type: "move", roomCode: "M2X7Q3" }))).toEqual({ roomCode: "M2X7Q3", fromRoomCode: "K7Q2MX" });
+    const moved = sdk.sockets.at(-1)!;
+    welcome(moved);
+    expect(heard(room, "ended", () => say(moved, { type: "ended", message: "", endReason: "no_players" }))).toEqual({ message: "", endReason: "no_players" });
+  });
+
+  it("maps room lists into the SDK's names and refuses a region that isn't a continent", async () => {
+    const answer = {
+      rooms: [{ roomCode: "K7Q2MX", playerCount: 2, heldSeatCount: 0, maximumPlayerCount: 8, spectatorCount: 0, maximumSpectatorCount: 0, isOpen: true, location: { countryCode: "DE", countryName: "Germany", region: "EU" }, isNear: true, name: null, labels: {}, isKept: false, inviteUrl: "https://zaisma.test/g/test-game?room=K7Q2MX", changedAtMs: 1 }],
+      playing: { playerCount: 9, roomCount: 3, closedRoomCount: 1 },
+      joinableRoomCount: 2,
+      openRoomCount: 2,
+      regions: [{ region: "EU", name: "Europe", roomCount: 2, playerCount: 7 }],
+      region: null,
+      moreOpenRoomCount: 0,
+      filters: [],
+    };
+    const sdk = loadSdk(ON_ZAISMA, () => Promise.resolve({ ok: true, json: () => Promise.resolve(answer) }));
+    const list = await sdk.Zaisma.rooms.list();
+    expect(Object.keys(list).sort()).toEqual(fieldsOf("RoomList"));
+    expect(list).toMatchObject({ playingPlayerCount: 9, playingRoomCount: 3, listedClosedRoomCount: 1, listedJoinableRoomCount: 2, matchingOpenRoomCount: 2, moreOpenRoomCount: 0, region: null });
+    expect(list.regions).toEqual([{ region: "EU", regionName: "Europe", roomCount: 2, playerCount: 7 }]);
+    expect(Object.keys(list.rooms[0]).sort()).toEqual(fieldsOf("ListedRoom"));
+    expect(valuesOf("Region")).toEqual(["AF", "AN", "AS", "EU", "NA", "OC", "SA"]);
+    expect(await failureCode(() => sdk.Zaisma.rooms.list({ region: "Europe" }))).toBe("bad_region");
+    expect(await failureCode(() => sdk.Zaisma.rooms.quickJoin({ region: "eu" }))).toBe("bad_region");
+  });
+
+  it("refuses an idleTimeoutSec out of range, and quickJoin's serverUrl", async () => {
+    const sdk = loadSdk();
+    expect(await failureCode(() => sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX", idleTimeoutSec: 10 }))).toBe("bad_idle_timeout");
+    expect(await failureCode(() => sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX", idleTimeoutSec: "600" }))).toBe("bad_idle_timeout");
+    expect(await failureCode(() => sdk.Zaisma.rooms.quickJoin({ idleTimeoutSec: 90000 }))).toBe("bad_idle_timeout");
+    expect(await failureCode(() => sdk.Zaisma.rooms.quickJoin({ serverUrl: "wss://play.example.com" }))).toBe("unknown_option");
+    expect(await failureCode(() => loadSdk(null).Zaisma.joinRoom())).toBe("not_on_zaisma");
+  });
+
+  it("links a room on the game's own server with &server=, and tells the page its server", async () => {
+    const sdk = loadSdk();
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX", serverUrl: "wss://play.example.com" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    welcome(sdk.sockets.at(-1)!);
+    const room = await joining;
+    expect(room.inviteUrl).toBe("https://zaisma.test/g/test-game?room=K7Q2MX&server=" + encodeURIComponent("wss://play.example.com"));
+    expect(sdk.page.posted.filter((message: any) => message.type === "zaisma:room").at(-1)).toMatchObject({ code: "K7Q2MX", serverUrl: "wss://play.example.com" });
   });
 });

@@ -108,7 +108,7 @@ export default {
 // In the game: requestAnimationFrame(function draw() { drawPlayers(room.smoothedState()?.players ?? {}); requestAnimationFrame(draw); });
 ```
 
-**Messages that can be dropped:** `{ delivery: "latest_only" }` on any send, from the game server or the game, marks a message only the newest of matters, like positions every tick or where a player aims: while a player's connection is backed up, a newer one with the same `latestKey` (by default its `type`) replaces it, and the newest goes once they catch up. Zaisma's rooms carry them over the WebSocket today, and the same call moves to real datagrams once Cloudflare carries them. `get_stats` says which of your message types would gain from it (`latest_only_available`).
+**Messages that can be dropped:** `{ delivery: "latest_only" }` on any send, from the game server or the game, marks a message only the newest of matters, like positions every tick or where a player aims: while a player's connection is backed up, a newer one with the same `latestKey` (which it needs, like `"position"`) replaces it, and the newest goes once they catch up. Zaisma's rooms carry them over the WebSocket today, and the same call moves to real datagrams once Cloudflare carries them. `get_stats` says which of your message types would gain from it (`latest_only_available`).
 
 Games without server code can use the built-in `relay` (up to 16 players), which passes each message to everyone else as `{ fromPlayerId, data }`, and bytes with their `fromPlayerId`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
@@ -166,10 +166,10 @@ async onMessage(state, player, message, room) {
 Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:
 
 ```js
-const { rooms, playing, regions } = await Zaisma.rooms.list();   // how full each room is and where it runs, never who's in it
+const { rooms, playingPlayerCount, regions } = await Zaisma.rooms.list();   // how full each room is and where it runs, never who's in it
 Zaisma.rooms.list({ region: "EU", labels: { Mode: "Classic" } }); // one region, or rooms with these labels
 const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
-Zaisma.joinRoom({ isListed: false });         // a new room that's never listed: a private match
+Zaisma.joinRoom({ isListed: true });          // a new room others find in room lists (by default only its code and link reach it)
 Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
 await Zaisma.filterText(typed);              // { isAllowed, reason, message, hasSwearing, text }: Zaisma's chat filter
 ```
@@ -278,17 +278,17 @@ export default {
 In the game, all of it is optional:
 
 ```js
-room.on("connectionStatus", (connectionStatus) => {});        // "away" while out of the match
-room.on("away", ({ reason, seatHoldDurationSec }) => {});     // reason: "idle" or "hidden"; the seat is held that long
-room.on("idle", (isAsking) => {});            // ask "Still there?" your way: true to show it, false when answered or over
-room.on("back", (back) => back.rejoin());     // back after the seat ran out: listening turns off rejoining by itself
+room.on("connectionStatus", (connectionStatus) => {});        // the socket: "connecting", "open", "reconnecting" or "closed"
+room.on("away", ({ awayReason, seatHoldDurationSec }) => {}); // awayReason: "idle" or "hidden" (also room.awayReason); the seat is held that long
+room.on("idle", ({ idleStatus }) => {});      // ask "Still there?" your way: "asking", then "answered" or "timed_out"
+room.on("back", (back) => back.rejoin());     // back: isSeatHeld true, already in; false, the seat ran out and listening turns off rejoining by itself
 room.on("players", (players) => {});          // each player's awayReason: "lost" while their connection dropped, "idle" or "hidden" if onAway kept them, else null
 Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game (where idleCheck is "client", as with the relay, the room follows this)
 ```
 
 Every number behind this (pings, timeouts, reconnecting, held seats, message limits, close codes) is in [Room connections](docs/DEVELOPER-API.md#room-connections).
 
-Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Errors from the room are `{"type":"error","code":"full","message":"This room is full."}`, with codes in lowercase snake_case: `full`, `closed`, `ended`, `kept_out`, `refused`, `month_limit`, `bad_pass`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `no_room`.
+Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Their hello carries `"protocolVersionNumber":1`. Errors from the room are `{"type":"error","code":"room_full","message":"This room is full."}`, with codes in lowercase snake_case, like `room_full`, `room_closed`, `ended`, `kept_out`, `refused`, `hosting_paused`, `bad_pass`, `bad_origin`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `room_not_running` (the whole list is `RoomErrorCode` in the SDK's types); codes only grow within v1.
 
 #### Requests to your game server
 
