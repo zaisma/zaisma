@@ -1440,11 +1440,11 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
      upward and the city settles: a pulse of light sent, about a second at full, never a sustained beam. Starts are FIRE_GAPS_SEC apart
      (cycled), each held for up to FIRE_FRAMING_WAIT_SEC until the capstone will be in the clear part of the frame at its release, and
      never while the camera is on a close pass; a tap on the Relay fires it early. The page opens at rest (OPENING_EVENT_SEC -1) and the
-     first firing comes about 7 s after the city shows; a value of 0 or more would open part way into one. relayStateInto() is the
+     first firing comes about 2 s after the city shows; a value of 0 or more would open part way into one. relayStateInto() is the
      whole event as a pure function of its seconds. */
   var GATHER_SEC = 2.0, CHARGE_FROM_SEC = 1.2, NEEDLE_AT_SEC = 2.6, BOOM_AT_SEC = 2.8, LET_GO_AT_SEC = 3.9, LET_GO_SEC = 0.8, EVENT_SEC = 8;
   var OPENING_EVENT_SEC = -1, FIRST_FIRE_GAP_SEC = 11, FIRE_GAPS_SEC = [19, 14, 23, 16, 21], FIRE_FRAMING_WAIT_SEC = 4, FIRE_TAP_GAP_SEC = 8, HEAVY_EVENT_SEC = 3.1;
-  var eventSec = OPENING_EVENT_SEC >= 0 ? OPENING_EVENT_SEC : -7, isOpeningEvent = OPENING_EVENT_SEC >= 0, nextFireGapSec = OPENING_EVENT_SEC >= 0 ? FIRST_FIRE_GAP_SEC : 0, fireGapIndex = 0;
+  var eventSec = OPENING_EVENT_SEC >= 0 ? OPENING_EVENT_SEC : -2, isOpeningEvent = OPENING_EVENT_SEC >= 0, nextFireGapSec = OPENING_EVENT_SEC >= 0 ? FIRST_FIRE_GAP_SEC : 0, fireGapIndex = 0;
   // Where the running event started (a tap starts it at its charge, so its gather runs in from there).
   var eventFromSec = 0;
   // The event's seconds held for the tool (beamSec pins them; a held camera holds them where they started), or for the hidden heavy frames.
