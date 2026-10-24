@@ -216,6 +216,7 @@ export const ERROR_CODES = {
   bad_indexeddb_databases: { httpStatus: 400, meaning: "indexeddb_databases isn't a list of databases, each { name, version, stores } as get_save answers them." },
   save_too_big: { httpStatus: 413, meaning: "The save would be over 5 MB." },
   cloud_saves_off: { httpStatus: 409, meaning: "The game has cloud saves off, so it doesn't read saves from players' accounts." },
+  cloud_saves_not_here: { httpStatus: 409, meaning: "Cloud saves don't work here: this is a tester link, or this Zaisma has no accounts. The game page answers it to `Zaisma.saves` and `Zaisma.player.offerAccount()`; no API or MCP call returns it." },
   save_busy: { httpStatus: 409, meaning: "The player's game kept saving at the same moment, so the change didn't go through." },
 
   // The developer forum

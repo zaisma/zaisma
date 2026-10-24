@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { pageScripts } from "../../apps/site/src/page-scripts.ts";
 import { SAVES_SCRIPT } from "../../apps/site/src/saves-client.ts";
-import { canonicalSave, saveHash } from "../../packages/core/src/saves.ts";
+import { canonicalSave, EMPTY_SAVE_TEXT, saveHash } from "../../packages/core/src/saves.ts";
 
 /**
  * Cloud saves in the browser, in stand-in browsers: the game page's script (apps/site/src/saves-client.ts)
@@ -117,20 +118,25 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
   return page;
 }
 
-async function cloudSave(saveData: Record<string, string>, versionNumber: number, changedByKind = "player", updatedAt = new Date(Date.now() - 60_000).toISOString()) {
-  return { tag: "0123456789abcdef", version_number: versionNumber, sha256: await saveHash(canonicalSave(saveData)), updated_at: updatedAt, changed_by_kind: changedByKind, save_data: saveData };
+/** A v1 save of localStorage items alone, as the account answers it. */
+const envelope = (localStorageItems: Record<string, string>, indexeddbDatabases: unknown[] = []) => ({ save_format_version_number: 1 as const, local_storage_items: localStorageItems, indexeddb_databases: indexeddbDatabases });
+/** That save's text, as the game domain's script sends it. */
+const saveTextOf = (localStorageItems: Record<string, string>) => canonicalSave(envelope(localStorageItems));
+
+async function cloudSave(saveData: Record<string, string>, versionNumber: number, changedByKind = "player", savedAt = new Date(Date.now() - 60_000).toISOString()) {
+  return { tag: "0123456789abcdef", version_number: versionNumber, sha256: await saveHash(saveTextOf(saveData)), saved_at: savedAt, changed_by_kind: changedByKind, save_data: envelope(saveData) };
 }
 
-const copy = (id: string, copyReason: string) => ({ id, saved_at: "2026-10-18T09:00:00.000Z", copy_reason: copyReason, size_bytes: 12, is_current_save: false });
+const copy = (id: string, copyReason: string) => ({ id, saved_at: "2026-10-18T09:00:00.000Z", copy_reason: copyReason, size_bytes: 12, is_current_save: false, version_id: null });
 
 /** The game opens through the restore page with the account's save, and starts saving. */
-async function playing(page: ReturnType<typeof loadGamePage>, saveData: Record<string, string>) {
+async function playing(page: ReturnType<typeof loadGamePage>, saveData: Record<string, string>, versionId: string | null = null) {
   page.answer("GET", API, await cloudSave(saveData, 2));
   page.play();
-  page.fromGame({ step: "hello", phase: "restore", text: canonicalSave(saveData) });
+  page.fromGame({ step: "hello", phase: "restore", text: saveTextOf(saveData), versionId });
   await vi.waitFor(() => expect(page.told("restore")).toHaveLength(1));
   page.fromGame({ step: "restored", ok: true });
-  page.fromGame({ step: "hello", phase: "game" });
+  page.fromGame({ step: "hello", phase: "game", versionId });
   await vi.waitFor(() => expect(page.told("sync")).toHaveLength(1));
 }
 
@@ -139,12 +145,13 @@ describe("the game page's saves script, for the game's own save screens", () => 
     const page = loadGamePage();
     page.answer("GET", API, await cloudSave({ level: "9" }, 2));
     page.answer("PUT", API, { is_kept: true, save_copy_id: "save_copy_phone" });
-    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_phone", "device"), copy("save_copy_old", "hourly")] });
+    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_phone", "device_lost"), copy("save_copy_old", "hourly")] });
     page.play();
     // This device played on too, but the account's progress was played more recently: it wins, this device's is kept.
-    page.fromGame({ step: "hello", phase: "restore", text: canonicalSave({ level: "3" }) });
-    await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: { level: "9" } }]));
-    expect(page.asked.find((each) => each.method === "PUT")!.body).toEqual({ keep: true, save_json: canonicalSave({ level: "3" }) });
+    page.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "3" }), versionId: "version_k2v9q4x7m1p3w8r5t6y0" });
+    await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "9" }) }]));
+    // Kept with the version the game was served from; this device never played while this page watched, so no time.
+    expect(page.asked.find((each) => each.method === "PUT")!.body).toEqual({ keep: true, save_json: saveTextOf({ level: "3" }), version_id: "version_k2v9q4x7m1p3w8r5t6y0", played_at: null });
     page.fromGame({ step: "restored", ok: true });
     page.fromGame({ step: "hello", phase: "game" });
     await vi.waitFor(() => expect(page.asked.filter((each) => each.path === `${API}/copies`)).toHaveLength(1));
@@ -152,7 +159,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     expect(page.events("conflict")).toEqual([]);
     // The game listens as it starts.
     await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
-    expect(page.events("conflict")).toEqual([{ winningProgress: "other_device", keptSaveCopy: { id: "save_copy_phone", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device", sizeBytes: 12, isCurrentSave: false } }]);
+    expect(page.events("conflict")).toEqual([{ winnerKind: "account", keptSaveCopy: { id: "save_copy_phone", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 12, isCurrentSave: false, versionId: null } }]);
     // Once only.
     await page.window.savesRequest({ requestNumber: 2, request: "listen", eventNames: ["conflict"] });
     expect(page.events("conflict")).toHaveLength(1);
@@ -160,51 +167,54 @@ describe("the game page's saves script, for the game's own save screens", () => 
 
   it("tells a listening game when its own progress replaced the account's", async () => {
     const page = loadGamePage();
-    await playing(page, { level: "3" });
+    await playing(page, { level: "3" }, "version_k2v9q4x7m1p3w8r5t6y0");
     await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
     // Another device saved meanwhile, but this device's progress was played just now: it replaces the account's.
-    page.answer("PUT", API, { error: "Played on another device.", version_number: 3, updated_at: new Date(Date.now() - 3600_000).toISOString(), changed_by_kind: "player" }, 409);
-    page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    page.answer("PUT", API, { error: "Played on another device.", version_number: 3, saved_at: new Date(Date.now() - 3600_000).toISOString(), changed_by_kind: "player" }, 409);
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(page.told("sync")).toHaveLength(2));
-    page.answer("PUT", API, { version_number: 4, sha256: "x", updated_at: new Date().toISOString(), kept_save_copy_id: "save_copy_laptop" });
-    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_laptop", "replaced")] });
-    page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
-    await vi.waitFor(() => expect(page.events("conflict")).toEqual([{ winningProgress: "this_device", keptSaveCopy: expect.objectContaining({ id: "save_copy_laptop", copyReason: "replaced" }) }]));
+    page.answer("PUT", API, { version_number: 4, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: "save_copy_laptop" });
+    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_laptop", "account_lost")] });
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }), versionId: "version_k2v9q4x7m1p3w8r5t6y0" });
+    await vi.waitFor(() => expect(page.events("conflict")).toEqual([{ winnerKind: "this_device", keptSaveCopy: expect.objectContaining({ id: "save_copy_laptop", copyReason: "account_lost" }) }]));
+    // Every save names the version the game was served from.
+    expect(page.asked.filter((each) => each.method === "PUT").map((each) => (each.body as { version_id: unknown }).version_id)).toEqual(["version_k2v9q4x7m1p3w8r5t6y0", "version_k2v9q4x7m1p3w8r5t6y0"]);
     expect(page.asked.filter((each) => each.method === "PUT").at(-1)!.body).toMatchObject({ base_version_number: 3, replace: true });
     expect(page.opened).toHaveLength(1);
   });
 
   it("puts a developer's change in place under a game that listens, and reloads one that doesn't or can't take it", async () => {
     const developerSave = await cloudSave({ level: "10" }, 3, "developer", new Date().toISOString());
-    const changedByDeveloper = { error: "Played on another device.", version_number: 3, updated_at: developerSave.updated_at, changed_by_kind: "developer" };
+    const changedByDeveloper = { error: "Played on another device.", version_number: 3, saved_at: developerSave.saved_at, changed_by_kind: "developer" };
 
     // Listening: no reload. The device's progress since its last save is kept, and the game hears the change.
     const page = loadGamePage();
     await playing(page, { level: "3" });
     await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["developerChange"] });
     page.answer("PUT", API, changedByDeveloper, 409);
-    page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(page.asked.filter((each) => each.method === "PUT")).toHaveLength(1));
     page.answer("PUT", API, { is_kept: true, save_copy_id: "save_copy_since" });
     page.answer("GET", API, developerSave);
-    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_since", "device")] });
-    await vi.waitFor(() => expect(page.told("apply")).toEqual([{ type: "zaisma:saves", step: "apply", data: { level: "10" } }]));
+    page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_since", "device_lost")] });
+    await vi.waitFor(() => expect(page.told("apply")).toEqual([{ type: "zaisma:saves", step: "apply", data: envelope({ level: "10" }) }]));
     expect(page.told("pause")).toHaveLength(1);
     page.fromGame({ step: "applied", ok: true });
-    await vi.waitFor(() => expect(page.events("developerChange")).toEqual([{ changedAt: developerSave.updated_at, keptSaveCopy: expect.objectContaining({ id: "save_copy_since", copyReason: "device" }) }]));
-    expect(page.asked.filter((each) => each.method === "PUT")[1]!.body).toEqual({ keep: true, save_json: canonicalSave({ level: "4" }) });
+    await vi.waitFor(() => expect(page.events("developerChange")).toEqual([{ savedAt: developerSave.saved_at, keptSaveCopy: expect.objectContaining({ id: "save_copy_since", copyReason: "device_lost" }) }]));
+    // Kept dated when this device last played it, from its played record.
+    expect(page.asked.filter((each) => each.method === "PUT")[1]!.body).toEqual({ keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/) });
     // Saving goes on from the developer's version, and the game was never reloaded.
-    expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: canonicalSave({ level: "10" }) });
+    expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: saveTextOf({ level: "10" }) });
     expect(page.opened).toHaveLength(1);
-    page.answer("PUT", API, { version_number: 4, sha256: "x", updated_at: new Date().toISOString(), kept_save_copy_id: null });
-    page.fromGame({ step: "save", text: canonicalSave({ level: "11" }) });
+    page.answer("PUT", API, { version_number: 4, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: null });
+    page.fromGame({ step: "save", text: saveTextOf({ level: "11" }) });
     await vi.waitFor(() => expect(page.asked.filter((each) => each.method === "PUT").at(-1)!.body).toMatchObject({ base_version_number: 3 }));
 
     // Not listening: today's reload, through the restore page with the account's save.
     const notListening = loadGamePage();
     await playing(notListening, { level: "3" });
     notListening.answer("PUT", API, changedByDeveloper, 409);
-    notListening.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    notListening.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(notListening.opened).toHaveLength(2));
     expect(notListening.told("apply")).toEqual([]);
     expect(notListening.opened[1]).toContain("_zaisma/restore");
@@ -214,7 +224,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     await playing(cantTake, { level: "3" });
     await cantTake.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["developerChange"] });
     cantTake.answer("PUT", API, changedByDeveloper, 409);
-    cantTake.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    cantTake.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await vi.waitFor(() => expect(cantTake.asked.filter((each) => each.method === "PUT")).toHaveLength(1));
     cantTake.answer("GET", API, developerSave);
     await vi.waitFor(() => expect(cantTake.told("apply")).toHaveLength(1));
@@ -228,12 +238,12 @@ describe("the game page's saves script, for the game's own save screens", () => 
     await playing(page, { level: "3" });
     await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["developerChange"] });
     const developerSave = await cloudSave({ level: "10" }, 3, "developer", new Date().toISOString());
-    page.answer("GET", `${API}?version`, { version_number: 3, updated_at: developerSave.updated_at, changed_by_kind: "developer" });
+    page.answer("GET", `${API}?version`, { version_number: 3, saved_at: developerSave.saved_at, changed_by_kind: "developer" });
     page.answer("GET", API, developerSave);
     page.showTab();
     await vi.waitFor(() => expect(page.told("apply")).toHaveLength(1));
     page.fromGame({ step: "applied", ok: true });
-    await vi.waitFor(() => expect(page.events("developerChange")).toEqual([{ changedAt: developerSave.updated_at, keptSaveCopy: null }]));
+    await vi.waitFor(() => expect(page.events("developerChange")).toEqual([{ savedAt: developerSave.saved_at, keptSaveCopy: null }]));
     expect(page.asked.filter((each) => each.method === "PUT")).toEqual([]);
     expect(page.opened).toHaveLength(1);
   });
@@ -251,7 +261,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     await playing(page, { level: "3" });
     page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_old", "hourly")] });
     await page.window.savesRequest({ requestNumber: 1, request: "list_copies" });
-    expect(page.toGame.at(-1)).toEqual({ type: "zaisma:saves-answer", requestNumber: 1, answer: [{ id: "save_copy_old", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "hourly", sizeBytes: 12, isCurrentSave: false }] });
+    expect(page.toGame.at(-1)).toEqual({ type: "zaisma:saves-answer", requestNumber: 1, answer: [{ id: "save_copy_old", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "hourly", sizeBytes: 12, isCurrentSave: false, versionId: null }] });
     page.answer("GET", `${API}/copies/save_copy_old`, { save_copy: { ...copy("save_copy_old", "hourly"), local_storage_items: { level: "1" }, missing_keys: [], indexeddb_databases: [] } });
     await page.window.savesRequest({ requestNumber: 2, request: "get_copy", saveCopyId: "save_copy_old" });
     expect(page.toGame.at(-1)).toMatchObject({ requestNumber: 2, answer: { id: "save_copy_old", localStorageItems: { level: "1" }, indexeddbDatabases: [] } });
@@ -265,19 +275,81 @@ describe("the game page's saves script, for the game's own save screens", () => 
     page.answer("POST", `${API}/copies/save_copy_old/restore`, { error: "Saving too often." }, 429);
     await page.window.savesRequest({ requestNumber: 5, request: "restore_copy", saveCopyId: "save_copy_old" });
     expect(page.toGame.at(-1)).toMatchObject({ requestNumber: 5, error: { code: "slow_down" } });
-    expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: canonicalSave({ level: "3" }) });
+    expect(page.told("sync").at(-1)).toEqual({ type: "zaisma:saves", step: "sync", text: saveTextOf({ level: "3" }) });
     expect(page.opened).toHaveLength(1);
     // Restored: the game hears so, then reloads with the account's save, which is the copy now.
-    page.answer("POST", `${API}/copies/save_copy_old/restore`, { version_number: 3, sha256: "x", updated_at: new Date().toISOString(), kept_save_copy_id: "save_copy_before" });
+    page.answer("POST", `${API}/copies/save_copy_old/restore`, { version_number: 3, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: "save_copy_before" });
     page.answer("GET", API, await cloudSave({ level: "1" }, 3));
     await page.window.savesRequest({ requestNumber: 6, request: "restore_copy", saveCopyId: "save_copy_old" });
     expect(page.toGame.at(-1)).toEqual({ type: "zaisma:saves-answer", requestNumber: 6, answer: null });
     expect(page.opened).toHaveLength(2);
     expect(page.opened[1]).toContain("_zaisma/restore");
     // This device's progress was the save the restore replaced: nothing more is kept.
-    page.fromGame({ step: "hello", phase: "restore", text: canonicalSave({ level: "3" }) });
-    await vi.waitFor(() => expect(page.told("restore").at(-1)).toEqual({ type: "zaisma:saves", step: "restore", action: "use-cloud", data: { level: "1" } }));
+    page.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "3" }) });
+    await vi.waitFor(() => expect(page.told("restore").at(-1)).toEqual({ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "1" }) }));
     expect(page.asked.filter((each) => each.method === "PUT")).toEqual([]);
+  });
+
+  it("writes the account's save as the same v1 text as the server, and treats the empty save as nothing to keep", async () => {
+    expect(SAVES_SCRIPT.sourceText).toContain(`const EMPTY_SAVE_TEXT = ${JSON.stringify(EMPTY_SAVE_TEXT)};`);
+    // Keys out of order and a database: the page's text is canonicalSave's, byte for byte.
+    const databases = [{ name: "/idbfs", version: 21, stores: [{ name: "FILE_DATA", keyPath: null, autoIncrement: false, indexes: [], records: [["/idbfs/save", { $z: ["bytes", "Bw=="] }]] }] }];
+    const save = envelope({ zebra: "1", apple: "2" }, databases);
+    const page = loadGamePage();
+    page.answer("GET", API, { ...(await cloudSave({}, 2)), sha256: await saveHash(canonicalSave(save)), save_data: save });
+    page.play();
+    // Nothing on this device: the account's, and nothing is kept.
+    page.fromGame({ step: "hello", phase: "restore", text: EMPTY_SAVE_TEXT });
+    await vi.waitFor(() => expect(page.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: save }]));
+    page.fromGame({ step: "restored", ok: true });
+    page.fromGame({ step: "hello", phase: "game" });
+    await vi.waitFor(() => expect(page.told("sync")).toEqual([{ type: "zaisma:saves", step: "sync", text: canonicalSave(save) }]));
+    expect(canonicalSave(save).startsWith('{"save_format_version_number":1,"local_storage_items":{"apple":"2","zebra":"1"},"indexeddb_databases":[')).toBe(true);
+    expect(page.asked.filter((each) => each.method === "PUT")).toEqual([]);
+    // A guest whose save is empty has no progress to offer to keep.
+    const guest = loadGamePage({ isSignedIn: false });
+    guest.play();
+    guest.fromGame({ step: "save", text: EMPTY_SAVE_TEXT });
+    expect(guest.elements["keep-bar"]!.hidden).toBe(true);
+    guest.fromGame({ step: "save", text: saveTextOf({ level: "2" }) });
+    expect(guest.elements["keep-bar"]!.hidden).toBe(false);
+  });
+
+  it("loses nothing when this device remembers a save from before v1: whichever progress wins, the other is kept", async () => {
+    // Saved before v1: the played record and the marker hold the hash of the older text, which no v1 text matches.
+    const legacyHash = await saveHash(JSON.stringify({ level: "3" }));
+    const remembered = (playedAtMs: number) => ({
+      "zaisma:played:owl-game": JSON.stringify({ sha256: legacyHash, played_at_ms: playedAtMs }),
+      "zaisma:save:0123456789abcdef": JSON.stringify({ version_number: 1, sha256: legacyHash }),
+    });
+    const accountSavedAt = new Date(Date.now() - 3600_000).toISOString();
+
+    // The account's progress was played more recently: it wins, and this device's is kept, dated when it was played.
+    const older = Date.now() - 2 * 3600_000;
+    const accountWins = loadGamePage({ localItems: remembered(older) });
+    accountWins.answer("GET", API, await cloudSave({ level: "9" }, 2, "player", accountSavedAt));
+    accountWins.answer("PUT", API, { is_kept: true, save_copy_id: "save_copy_phone" });
+    accountWins.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_phone", "device_lost")] });
+    accountWins.play();
+    accountWins.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(accountWins.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "use-cloud", data: envelope({ level: "9" }) }]));
+    expect(accountWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ keep: true, save_json: saveTextOf({ level: "4" }), version_id: null, played_at: new Date(older).toISOString() }]);
+    await accountWins.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
+    await vi.waitFor(() => expect(accountWins.events("conflict")).toEqual([{ winnerKind: "account", keptSaveCopy: expect.objectContaining({ id: "save_copy_phone" }) }]));
+
+    // This device's progress was played more recently: it replaces the account's, which the account keeps.
+    const deviceWins = loadGamePage({ localItems: remembered(Date.now() - 60_000) });
+    deviceWins.answer("GET", API, await cloudSave({ level: "9" }, 2, "player", accountSavedAt));
+    deviceWins.play();
+    deviceWins.fromGame({ step: "hello", phase: "restore", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(deviceWins.told("restore")).toEqual([{ type: "zaisma:saves", step: "restore", action: "keep" }]));
+    deviceWins.answer("PUT", API, { version_number: 3, sha256: "x", saved_at: new Date().toISOString(), kept_save_copy_id: "save_copy_account" });
+    deviceWins.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_account", "account_lost")] });
+    deviceWins.fromGame({ step: "hello", phase: "game" });
+    await deviceWins.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
+    deviceWins.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
+    await vi.waitFor(() => expect(deviceWins.events("conflict")).toEqual([{ winnerKind: "this_device", keptSaveCopy: expect.objectContaining({ id: "save_copy_account" }) }]));
+    expect(deviceWins.asked.filter((each) => each.method === "PUT").map((each) => each.body)).toEqual([{ base_version_number: 2, save_json: saveTextOf({ level: "4" }), version_id: null, replace: true }]);
   });
 
   it("shows the \"Keep your progress\" card when the game asks, at most once a visit and not for 3 days after Not now", () => {
@@ -309,7 +381,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
 });
 
 /** The game domain's saves script on a game page, in a stand-in browser that answers for the Zaisma page. */
-function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = undefined as unknown, saveLimitBytes = 5 * 1024 * 1024 } = {}) {
+function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = undefined as unknown, saveLimitBytes = 5 * 1024 * 1024, versionId = null as string | null } = {}) {
   const source = readFileSync(join(import.meta.dirname, "../../packages/sdk/saves.js"), "utf8");
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const documentListeners: Record<string, (() => void)[]> = {};
@@ -318,7 +390,7 @@ function loadGameFrame({ localItems = {} as Record<string, string>, indexedDB = 
   const localStorage = storage(localItems);
   const window = { parent, indexedDB };
   const browser = {
-    __ZAISMA_SAVES__: { site: SITE, saveLimitBytes },
+    __ZAISMA_SAVES__: { site: SITE, saveLimitBytes, versionId },
     window,
     parent,
     indexedDB,
@@ -358,7 +430,7 @@ describe("the game domain's saves script, past the save limit", () => {
     expect(page.told("pause")).toHaveLength(1);
     expect(page.elements["save-status"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
     // Paused: a later save isn't sent to the account.
-    page.fromGame({ step: "save", text: canonicalSave({ level: "4" }) });
+    page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(page.asked.filter((each) => each.method !== "GET")).toEqual([]);
   });
@@ -366,12 +438,12 @@ describe("the game domain's saves script, past the save limit", () => {
 
 describe("the game domain's saves script, putting a save in place while the game runs", () => {
   it("writes the save and says so, and the next check has nothing to send", async () => {
-    const frame = loadGameFrame({ localItems: { level: "3", coins: "10" } });
-    expect(frame.steps("hello")).toEqual([{ type: "zaisma:saves", step: "hello", phase: "game" }]);
-    frame.fromPage({ step: "sync", text: canonicalSave({ level: "3", coins: "10" }) });
+    const frame = loadGameFrame({ localItems: { level: "3", coins: "10" }, versionId: "version_k2v9q4x7m1p3w8r5t6y0" });
+    expect(frame.steps("hello")).toEqual([{ type: "zaisma:saves", step: "hello", phase: "game", versionId: "version_k2v9q4x7m1p3w8r5t6y0" }]);
+    frame.fromPage({ step: "sync", text: saveTextOf({ level: "3", coins: "10" }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(frame.steps("save")).toEqual([]);
-    frame.fromPage({ step: "apply", data: { level: "10" } });
+    frame.fromPage({ step: "apply", data: envelope({ level: "10" }) });
     await vi.waitFor(() => expect(frame.steps("applied")).toEqual([{ type: "zaisma:saves", step: "applied", ok: true }]));
     expect(Object.fromEntries(frame.localStorage.map)).toEqual({ level: "10" });
     frame.hide();
@@ -397,9 +469,81 @@ describe("the game domain's saves script, putting a save in place while the game
       },
     };
     const frame = loadGameFrame({ localItems: { level: "3" }, indexedDB });
-    frame.fromPage({ step: "apply", data: { idb: [{ name: "game", version: 2, stores: [] }], local: { level: "10" } } });
+    frame.fromPage({ step: "apply", data: envelope({ level: "10" }, [{ name: "game", version: 2, stores: [] }]) });
     await vi.waitFor(() => expect(frame.steps("applied")).toEqual([{ type: "zaisma:saves", step: "applied", ok: false }]));
     // localStorage is left as it was.
     expect(Object.fromEntries(frame.localStorage.map)).toEqual({ level: "3" });
+  });
+});
+
+describe("the game page's answer to a game without cloud saves here", async () => {
+  await import("../../apps/site/src/index.ts");
+  const gameScript = pageScripts().find((script) => script.name === "game-page")!.sourceText;
+
+  /** A stand-in for any page element or browser object the script touches but this test doesn't look at. */
+  const anything = (): any =>
+    new Proxy(function () {}, {
+      get: (_, key) => (key === Symbol.iterator ? function* () {} : key === Symbol.toPrimitive ? () => "" : typeof key === "symbol" || key === "then" ? undefined : anything()),
+      set: () => true,
+      apply: () => anything(),
+    });
+
+  /** The game page's own script on a page whose game has cloud saves on or off, with Play pressed and the game's frame open. */
+  function loadGameScript({ isCloudSavesEnabled, hasSavesScript }: { isCloudSavesEnabled: boolean; hasSavesScript: boolean }) {
+    const told: { message: Message; origin: string }[] = [];
+    const frame = { contentWindow: { postMessage: (message: Message, origin: string) => told.push({ message, origin }) }, focus() {}, set src(_address: string) {} };
+    const listeners: Record<string, ((event: unknown) => void)[]> = {};
+    const handedToSavesScript: Message[] = [];
+    let play: (() => void) | null = null;
+    const elements: Record<string, unknown> = {
+      "game-page-data": { textContent: JSON.stringify({ slug: "owl-game", frame_url: `${FRAME_ORIGIN}/`, cloud_saves_enabled: isCloudSavesEnabled, devices: [], controls: [] }) },
+      "game-frame": { content: { firstElementChild: { cloneNode: () => frame } } },
+      play: {
+        set onclick(handler: () => void) {
+          play = handler;
+        },
+      },
+    };
+    const window: Record<string, unknown> = hasSavesScript
+      ? { savesRequest: (request: Message) => handedToSavesScript.push(request), offerAccount: () => handedToSavesScript.push({ type: "offerAccount" }) }
+      : {};
+    const globals: Record<string, unknown> = {
+      window,
+      document: new Proxy({ getElementById: (id: string) => elements[id] ?? anything(), cookie: "" } as Record<string, unknown>, { get: (target, key) => (key in target ? target[key as string] : anything()) }),
+      addEventListener: (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener),
+    };
+    for (const name of ["location", "history", "navigator", "localStorage", "sessionStorage", "matchMedia", "scrollTo", "BroadcastChannel", "requestAnimationFrame", "IntersectionObserver", "screen", "countPlay"]) globals[name] = anything();
+    // The saves script's functions are page globals, so the page script calls them by name.
+    Object.assign(globals, window);
+    globals.fetch = () => Promise.reject(new TypeError("Failed to fetch"));
+    new Function(...Object.keys(globals), gameScript)(...Object.values(globals));
+    play!();
+    return {
+      told,
+      handedToSavesScript,
+      /** The game says something to the page. */
+      fromGame: (data: Message) => (listeners.message ?? []).forEach((listener) => listener({ origin: FRAME_ORIGIN, source: frame.contentWindow, data })),
+    };
+  }
+
+  it("says cloud_saves_not_here when the game has cloud saves on and this page can't, and cloud_saves_off when it has them off", () => {
+    for (const [isCloudSavesEnabled, code] of [[true, "cloud_saves_not_here"], [false, "cloud_saves_off"]] as const) {
+      const page = loadGameScript({ isCloudSavesEnabled, hasSavesScript: false });
+      page.fromGame({ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" });
+      page.fromGame({ type: "zaisma:account-offer" });
+      // The "listen" request gets no answer, and neither does a game that isn't asking.
+      page.fromGame({ type: "zaisma:saves-request", requestNumber: 5, request: "listen", eventNames: ["conflict"] });
+      expect(page.told.map((each) => each.origin)).toEqual([FRAME_ORIGIN, FRAME_ORIGIN]);
+      expect(page.told[0]!.message).toMatchObject({ type: "zaisma:saves-answer", requestNumber: 4, error: { code } });
+      expect(page.told[1]!.message).toEqual({ type: "zaisma:account-offer", status: code });
+    }
+  });
+
+  it("leaves both to the saves script when the page has one", () => {
+    const page = loadGameScript({ isCloudSavesEnabled: true, hasSavesScript: true });
+    page.fromGame({ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" });
+    page.fromGame({ type: "zaisma:account-offer" });
+    expect(page.told).toEqual([]);
+    expect(page.handedToSavesScript).toEqual([{ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" }, { type: "offerAccount" }]);
   });
 });

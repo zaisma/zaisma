@@ -78,7 +78,7 @@ function isReconnecting(playerId) {
 }
 
 // Mute, block and report, from the game's own menu.
-document.getElementById("players-button").onclick = () => room && Zaisma.openSafetyPanel(room);
+document.getElementById("players-button").onclick = () => room && Zaisma.openPlayersPanel(room);
 
 /** @param {Zaisma.Room} next */
 function use(next) {

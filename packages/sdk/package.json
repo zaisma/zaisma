@@ -1,6 +1,6 @@
 {
   "name": "@zaisma/sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "The Zaisma SDK: one script tag gives a browser game guest players and multiplayer rooms.",
   "license": "MIT",
   "type": "module",
@@ -13,11 +13,7 @@
       "types": "./zaisma.d.ts",
       "default": "./zaisma.js"
     },
-    "./zaisma.d.ts": "./zaisma.d.ts",
-    "./saves.js": "./saves.js",
-    "./picture.js": "./picture.js",
-    "./relay.js": "./relay.js",
-    "./warm.js": "./warm.js",
-    "./performance.js": "./performance.js"
-  }
+    "./zaisma.d.ts": "./zaisma.d.ts"
+  },
+  "files": ["zaisma.js", "zaisma.d.ts"]
 }

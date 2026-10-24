@@ -57,6 +57,11 @@ describe("error codes", () => {
       code.includes(`"${errorCode}"`) || (errorCode.startsWith("bad_") && new RegExp(`(oneOf|refuse)\\("${errorCode.slice(4)}"|\\["${errorCode.slice(4)}", |field: "${errorCode.slice(4)}"`).test(code));
     expect(everyCode.filter((errorCode) => !isUsed(errorCode))).toEqual([]);
   });
+
+  it("tell cloud saves that don't work where a game is played from cloud saves the developer turned off", () => {
+    expect(ERROR_CODES.cloud_saves_not_here).toMatchObject({ httpStatus: 409, meaning: expect.stringContaining("no API or MCP call returns it") });
+    expect(ERROR_CODES.cloud_saves_off.httpStatus).toBe(409);
+  });
 });
 
 /**

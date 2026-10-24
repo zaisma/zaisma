@@ -310,7 +310,7 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
     claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
-    return failure("bad_pass", "This player's pass didn't check out. Zaisma.player() gets a new one.", 401, cors);
+    return failure("bad_pass", "This player's pass didn't check out. Zaisma.player.getPass() gets a new one.", 401, cors);
   }
   if (claims.kind !== "account") return failure("account_needed", "Friends are for players signed in to Zaisma. Ask a guest to sign in first (Zaisma.player.signIn).", 403, cors);
   const account = await env.DB.prepare("SELECT id FROM accounts WHERE player_id = ?").bind(claims.sub).first<{ id: string }>();
@@ -451,7 +451,7 @@ export default {
       const game = await playableGame(env.DB, slug, requestCountryCode(request));
       if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
 
-      // Zaisma's text filter, for games that want to check what players type (Zaisma.filterText).
+      // Zaisma's text filter, for games that want to check what players type (Zaisma.checkChat).
       // The chat filter's rules and AI, for the sender's instant answer: nothing is looked up, counted or kept.
       // Zaisma checks again on its side as each message is delivered (chat-filter.ts).
       if (url.pathname === "/v1/filter") {
