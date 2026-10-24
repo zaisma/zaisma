@@ -411,8 +411,9 @@ export interface GameServer<S = any> {
    * An event from one of the developer's webhooks: a webhook whose destination is this game's game
    * server (create_webhook with destination_kind "game_server"), or, on your own server, one whose
    * endpoint_url is this server's /v1/webhooks. event is what any webhook is sent: event.kind, and
-   * event.game, event.version and event.bug_report as the developer API answers them (event.player_id
-   * for account_deleted, whose rows Zaisma already erased unless the game turned that off). Turn it into a
+   * event.game, event.version and event.bug_report as the developer API answers them
+   * (event.account_deletion for account_deleted: Zaisma erases the player's rows itself unless the game
+   * turned that off). Turn it into a
    * Discord post or a GitHub issue with fetch() and the tokens in server.secrets. There's no room, no
    * player and no state. Finishing without an error counts as delivered; throwing (or taking over 10
    * seconds) tries it again later, up to 6 times, so make it safe to repeat: event.id is the same on
@@ -1139,8 +1140,8 @@ function messageTypeOf(messageData: unknown): string {
   return typeof type === "string" && MESSAGE_TYPE_PATTERN.test(type) ? type : NO_MESSAGE_TYPE;
 }
 
-/** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
-const REMEMBERED_PLAYER_COUNT = 64;
+/** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out: at least everyone a full room can hold, so blocks and friends are found among all of them. */
+const REMEMBERED_PLAYER_COUNT = ROOM_LIMITS.maximumPlayerCount;
 
 const NOBODY_JOINED: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: false };
 const WATCHING: JoinInfo = { fromRoomCode: null, isReturning: false, isSpectator: true };
@@ -2366,7 +2367,14 @@ export class RoomCore<S = any> {
   private remember(id: string): void {
     this.known.delete(id);
     this.known.add(id);
-    if (this.known.size > REMEMBERED_PLAYER_COUNT) this.known.delete(this.known.values().next().value!);
+    // Forget the oldest who isn't here or holding a seat, so no player in the match drops out of what the room knows of them.
+    if (this.known.size > REMEMBERED_PLAYER_COUNT) {
+      for (const oldest of this.known) {
+        if (oldest === id || this.players.has(oldest) || this.holding(oldest) !== null) continue;
+        this.known.delete(oldest);
+        break;
+      }
+    }
   }
 
   tick(tickDurationSec: number): void {

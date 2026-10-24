@@ -30,12 +30,19 @@ export interface BackupObjectVersion {
   lastModifiedAtMs: number;
 }
 
+/** How a storage waits before trying a request again: the real wait, unless a test gives one that doesn't. */
+export type BackupWait = (durationMs: number) => Promise<void>;
+const waitFor: BackupWait = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
+
 export class BackupStorageError extends Error {}
 
 const EMPTY_SHA256_HEX = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 export class BackupStorage {
-  constructor(private readonly settings: BackupStorageSettings) {}
+  constructor(
+    private readonly settings: BackupStorageSettings,
+    private readonly wait: BackupWait = waitFor,
+  ) {}
 
   /**
    * Writes the source's bytes as the object's newest version: in one request when they fit in a part,
@@ -100,7 +107,7 @@ export class BackupStorage {
   private async send(method: "GET" | "PUT" | "POST", key: string, query: Record<string, string>, body: Uint8Array | null): Promise<Response> {
     let lastFailure = "";
     for (let tryNumber = 1; tryNumber <= BACKUP_STORAGE_LIMITS.requestTryCount; tryNumber++) {
-      if (tryNumber > 1) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** tryNumber));
+      if (tryNumber > 1) await this.wait(500 * 2 ** tryNumber);
       let response: Response;
       try {
         response = await fetch(await this.signedRequest(method, key, query, body));

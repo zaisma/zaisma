@@ -37,6 +37,9 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   credit_top_up_started: "Started a credit top-up",
   credit_refunded: "Refunded hosting credit",
   automatic_top_up_changed: "Changed automatic top-up",
+  pro_checkout_started: "Started Zaisma Pro",
+  pro_cancelled: "Cancelled Zaisma Pro",
+  pro_resumed: "Took back cancelling Zaisma Pro",
   account_data_downloaded: "Downloaded your data",
   // A game's, in the words its history has always used.
   game_created: "Made the game",
@@ -113,6 +116,9 @@ export const ACCOUNT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "credit_top_up_started",
   "credit_refunded",
   "automatic_top_up_changed",
+  "pro_checkout_started",
+  "pro_cancelled",
+  "pro_resumed",
 ];
 
 /** Belong to the whole account, so they show in every game's history for a key that isn't limited to some games. */
@@ -173,6 +179,9 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "credit_top_up_started",
   "credit_refunded",
   "automatic_top_up_changed",
+  "pro_checkout_started",
+  "pro_cancelled",
+  "pro_resumed",
   "webhook_created",
   "webhook_changed",
   "webhook_deleted",

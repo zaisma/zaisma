@@ -1,5 +1,6 @@
 import {
   IMAGE_TYPES,
+  PLAN_LIMITS,
   REVIEW_CODES,
   REVIEW_LIMITS,
   TEXT_EXTENSIONS,
@@ -7,9 +8,12 @@ import {
   addReviewUsage,
   aiUsage,
   currentMonth,
+  dailyReviewMeaning,
   FIXABLE_FINDING_CODES,
   isSameItem,
   isTweak,
+  limitsFor,
+  planFor,
   apiKeyTokensIn,
   audit,
   decide,
@@ -25,6 +29,7 @@ import {
   versionById,
   type EvidenceItem,
   type Finding,
+  type PlanLimits,
   type ImageMatcher,
   type ReviewAi,
   type ImageMatchResult,
@@ -339,8 +344,9 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   const previous = earlier && { evidence: earlier.evidence, readFileSha256s: earlier.readFileSha256s, texts: await previousTexts(env, earlier.version, input.texts) };
   const pictures = await picturesToRead(env, input.imageFiles);
   const isSmallReview = !input.isRecheck && newReadCount({ texts: input.texts, pictures, previous }) > 0;
-  if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumSmallReviewsPerDay) {
-    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: REVIEW_CODES.daily_small_reviews_used.meaning }], isChildSafety: false };
+  const plan = game.owner_id ? await planFor(env.DB, game.owner_id) : "free";
+  if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumSmallReviewsPerDay) {
+    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: dailyReviewMeaning("daily_small_reviews_used", plan) }], isChildSafety: false };
   }
 
   // (b) Read, and (c) keep only items whose quotes are in the files (gatherEvidence does both).
@@ -373,9 +379,9 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
       }
     }
     // (e) The owner's large reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
-    if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumLargeReviewsPerDay) {
+    if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumLargeReviewsPerDay) {
       await alertReviewBudget(env, budgetCents);
-      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: REVIEW_CODES.daily_large_reviews_used.meaning });
+      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: dailyReviewMeaning("daily_large_reviews_used", plan) });
       return { ai: { ...skipped("Waiting for one of the developer's daily large reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read };
     }
   }
@@ -495,7 +501,7 @@ function hostsOf(ownServerUrls: string): string[] {
 }
 
 /** The owner's large reviews in the last 24 hours (versions the judge ran on), across all their games. */
-async function largeReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
+export async function largeReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
   const row = await env.DB
     .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ? AND versions.is_review_refunded = 0")
     .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
@@ -504,7 +510,7 @@ async function largeReviewCount(env: Env, ownerId: string, nowMs = Date.now()): 
 }
 
 /** The owner's small reviews in the last 24 hours (versions whose reads called the reader model), across all their games. */
-async function smallReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
+export async function smallReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
   const row = await env.DB
     .prepare("SELECT COUNT(*) AS read_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.read_at_ms > ?")
     .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
@@ -582,17 +588,20 @@ export async function rescanWaiting(env: Env, nowMs = Date.now()): Promise<numbe
     )
     .all<{ id: string; owner_id: string | null; waiting_code: "daily_large_reviews_used" | "daily_small_reviews_used" }>();
   const freeByOwnerAndKind = new Map<string, number>();
+  const limitsByOwner = new Map<string, PlanLimits>();
   const queued: string[] = [];
   for (const waiting of results) {
     if (queued.length >= 50) break;
     const isSmall = waiting.waiting_code === "daily_small_reviews_used";
     const key = `${waiting.owner_id ?? ""}\n${isSmall ? "small" : "large"}`;
     if (!freeByOwnerAndKind.has(key)) {
-      const freeReviewCount = !waiting.owner_id
+      if (waiting.owner_id && !limitsByOwner.has(waiting.owner_id)) limitsByOwner.set(waiting.owner_id, await limitsFor(env.DB, waiting.owner_id, nowMs));
+      const limits = waiting.owner_id ? limitsByOwner.get(waiting.owner_id)! : null;
+      const freeReviewCount = !limits
         ? Infinity
         : isSmall
-          ? REVIEW_LIMITS.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id, nowMs))
-          : REVIEW_LIMITS.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id, nowMs));
+          ? limits.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id!, nowMs))
+          : limits.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id!, nowMs));
       freeByOwnerAndKind.set(key, freeReviewCount);
     }
     if (freeByOwnerAndKind.get(key)! <= 0) continue;

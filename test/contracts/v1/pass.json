@@ -1,0 +1,109 @@
+{
+  "PassClaims": {
+    "kind": "fields",
+    "fields": {
+      "sub": ": string",
+      "name": "?: string | undefined",
+      "aud": ": string",
+      "iss": ": string",
+      "pass_version_number": ": number",
+      "kind": ": PlayerKind | (string & {})",
+      "who_can_chat": "?: (string & {}) | WhoCanChat | undefined",
+      "chat_group_id": "?: string | undefined",
+      "player_tag_id": "?: string | undefined",
+      "friend_player_tag_ids": "?: Array<string> | undefined",
+      "block_player_tag_ids": "?: Array<string> | undefined",
+      "owned_item_names": "?: Array<string> | undefined",
+      "iat": ": number",
+      "exp": ": number"
+    }
+  },
+  "PlayerKind": {
+    "kind": "values",
+    "values": [
+      "account",
+      "guest"
+    ]
+  },
+  "WhoCanChat": {
+    "kind": "values",
+    "values": [
+      "anyone",
+      "friends",
+      "nobody"
+    ]
+  },
+  "PassErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_signature",
+      "expired",
+      "malformed",
+      "unknown_key",
+      "wrong_game",
+      "wrong_issuer",
+      "wrong_kind",
+      "wrong_version"
+    ]
+  },
+  "PassExpectations": {
+    "kind": "fields",
+    "fields": {
+      "gameSlug": ": string",
+      "issuerUrl": "?: string | undefined",
+      "nowMs": "?: number | undefined"
+    }
+  },
+  "PublicKey": {
+    "kind": "fields",
+    "fields": {
+      "alg": "?: string | undefined",
+      "crv": "?: string | undefined",
+      "d": "?: string | undefined",
+      "dp": "?: string | undefined",
+      "dq": "?: string | undefined",
+      "e": "?: string | undefined",
+      "ext": "?: boolean | undefined",
+      "k": "?: string | undefined",
+      "key_ops": "?: Array<string> | undefined",
+      "kty": "?: string | undefined",
+      "n": "?: string | undefined",
+      "oth": "?: Array<RsaOtherPrimesInfo> | undefined",
+      "p": "?: string | undefined",
+      "q": "?: string | undefined",
+      "qi": "?: string | undefined",
+      "use": "?: string | undefined",
+      "x": "?: string | undefined",
+      "y": "?: string | undefined",
+      "kid": ": string"
+    }
+  },
+  "PASS_TOKEN_TYPE": {
+    "kind": "constant",
+    "value": "pass+jwt"
+  },
+  "PASS_VERSION_NUMBER": {
+    "kind": "constant",
+    "value": 1
+  },
+  "PASS_ISSUER_URL": {
+    "kind": "constant",
+    "value": "https://rooms.zaisma.com"
+  },
+  "verifyPass": {
+    "kind": "signature",
+    "signature": "(token: string, keys: Array<PublicKey>, expect: PassExpectations): Promise<PassClaims>"
+  },
+  "canChat": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  },
+  "passesAreFriends": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  },
+  "passesHaveBlockBetween": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  }
+}

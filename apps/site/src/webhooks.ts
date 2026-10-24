@@ -34,11 +34,12 @@ import type { Env } from "./env.ts";
  * Webhooks"). An event says what happened with the objects the API answers for it, so a developer's
  * server reads the same JSON as get_game, get_version and get_reports:
  *
- *   { "id": "webhook_event_…", "kind": "scan_status_changed", "happened_at": "…",
+ *   { "id": "webhook_event_…", "kind": "scan_status_changed", "created_at": "…",
  *     "game": { …as get_game }, "version": { …as get_version } | null, "bug_report": { …as get_reports } | null,
  *     "player_report": { …as get_reports } | null,
  *     "game_server_error": { …as get_stats lists it } | null, "alert": { …as the game's alerts list it } | null,
- *     "player_id": "player_…" | null, "sign_in_app": { …as list_sign_in_apps } | null,
+ *     "account_deletion": { "player_id": "player_…", "deleted_account_erase_enabled": true } | null,
+ *     "sign_in_app": { …as list_sign_in_apps } | null,
  *     "security_event": { …as get_activity lists it } | null }
  *
  * Each event is tried straight after it happens (in the background on API calls), then by the cron
@@ -95,14 +96,14 @@ export async function tellWebhooks(
     const eventJson = JSON.stringify({
       id: webhookEventId,
       kind,
-      happened_at: iso(Date.now()),
+      created_at: iso(Date.now()),
       game: await gameJson(env, game),
       version: version ? await versionAnswer(env, game, version) : null,
       bug_report: parts.bugReport ? bugReportJson(parts.bugReport) : null,
       player_report: parts.playerReport ? playerReportJson(parts.playerReport) : null,
       game_server_error: parts.gameServerError ? gameServerErrorJson(parts.gameServerError) : null,
       alert: parts.alert ?? null,
-      player_id: null,
+      account_deletion: null,
       sign_in_app: null,
       security_event: null,
     });
@@ -118,7 +119,7 @@ export async function tellWebhooks(
 /** A test event to one webhook, tried once and answered: the way to check an endpoint and its signature check. */
 export async function sendTestEvent(env: Env, webhook: Webhook): Promise<WebhookDelivery> {
   const webhookEventId = newId("webhook_event");
-  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: null });
+  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: null });
   const delivery = await queueDelivery(env.DB, webhook, webhookEventId, eventJson);
   return (await attemptDelivery(env.DB, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
 }
@@ -138,10 +139,10 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
     if (!webhooksOf.has(ownerId)) webhooksOf.set(ownerId, await webhooksFor(env.DB, ownerId));
     return webhooksOf.get(ownerId)!;
   };
-  const queueEvent = async (webhooks: Webhook[], parts: { game: unknown; signInApp: unknown }) => {
+  const queueEvent = async (webhooks: Webhook[], parts: { game: unknown; signInApp: unknown; isErasing: boolean }) => {
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", happened_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: reach.playerId, sign_in_app: parts.signInApp, security_event: null });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", created_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: { player_id: reach.playerId, deleted_account_erase_enabled: parts.isErasing }, sign_in_app: parts.signInApp, security_event: null });
     for (const webhook of webhooks) {
       sendingWebhooks.push(webhook);
       deliveries.push(await queueDelivery(env.DB, webhook, webhookEventId, eventJson));
@@ -153,7 +154,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
       const game = await gameById(env.DB, gameId);
       if (!game) continue;
       if (game.deleted_account_erase_enabled) await queuePlayerErase(env.DB, game.id, reach.playerId);
-      if (game.owner_id) await queueEvent(webhooksTaking(await ownerWebhooks(game.owner_id), "account_deleted", game.slug), { game: await gameJson(env, game), signInApp: null });
+      if (game.owner_id) await queueEvent(webhooksTaking(await ownerWebhooks(game.owner_id), "account_deleted", game.slug), { game: await gameJson(env, game), signInApp: null, isErasing: Boolean(game.deleted_account_erase_enabled) });
     } catch (error) {
       console.error("Couldn't tell a game an account was deleted", gameId, error);
     }
@@ -161,7 +162,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
   for (const signInAppId of reach.signInAppIds) {
     try {
       const app = await signInAppById(env.DB, signInAppId);
-      if (app) await queueEvent(webhooksTakingSignInAppEvent(await ownerWebhooks(app.owner_id), "account_deleted"), { game: null, signInApp: signInAppJson(env, app) });
+      if (app) await queueEvent(webhooksTakingSignInAppEvent(await ownerWebhooks(app.owner_id), "account_deleted"), { game: null, signInApp: signInAppJson(env, app), isErasing: false });
     } catch (error) {
       console.error("Couldn't tell a sign-in app an account was deleted", signInAppId, error);
     }
@@ -185,7 +186,7 @@ export async function tellSecurityAlert(env: Env, accountId: string, securityEve
     const webhooks = webhooksTakingSignInAppEvent(await webhooksFor(env.DB, owner.id), "security_alert");
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: securityEvent });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: securityEvent });
     const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
     const sending = sendAll(env, webhooks, deliveries);
     if (waitUntil) waitUntil(sending);

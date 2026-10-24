@@ -15,17 +15,19 @@ const turns = globalThis as { zaismaTestTurn?: Promise<{ workerCount: number }> 
 turns.zaismaTestTurn ??= process.argv.includes("list") ? Promise.resolve({ workerCount: 1 }) : waitForTestTurn({ requestedWorkerCount: Number(process.env.TEST_WORKER_COUNT) || (memoryCap().capBytes ? 4 : 2), isNodeOnly: isNodeOnlyRun(process.argv) });
 const { workerCount } = await turns.zaismaTestTurn!;
 
-/** Whether this run names only node files (test/node, test/layout) or only those projects, which take far less memory than Workers files. */
+/** Whether this run names only node files (test/node, test/layout, test/contracts) or only those projects, which take far less memory than Workers files. */
 function isNodeOnlyRun(argv: string[]): boolean {
   const args = argv.slice(Math.max(0, argv.indexOf("run")) + 1);
   const projects = args.flatMap((arg, i) => (arg.startsWith("--project=") ? [arg.slice("--project=".length)] : args[i - 1] === "--project" ? [arg] : []));
   const files = args.filter((arg, i) => !arg.startsWith("-") && args[i - 1] !== "--project");
-  if (projects.length) return projects.every((project) => project === "node" || project === "layout");
-  return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout)\//.test(file));
+  if (projects.length) return projects.every((project) => project === "node" || project === "layout" || project === "contracts");
+  return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout|contracts)\//.test(file));
 }
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
+// A throwaway key for the opaque player tags in passes (32 bytes, base64). The real one is a Worker secret.
+const playerTagKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
 
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
@@ -140,9 +142,6 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
     name,
     include: [`test/${name}/**/*.test.ts`],
     setupFiles: ["test/apply-migrations.ts"],
-    // Four files share a runner's cores, so a test that waits on many round trips (a room's sockets, a Durable Object's alarm) gets
-    // 15 seconds before it counts as hung, not vitest's 5.
-    testTimeout: 15_000,
     // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
     deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
     // Vitest runs projects in groups by this, lowest first: load (1) before everything else (2).
@@ -157,6 +156,7 @@ const roomsBindings = {
   GAME_ORIGIN: "https://games.zaisma.test",
   GAME_DOMAIN: "",
   PASS_SIGNING_KEY: passKey,
+  PLAYER_TAG_KEY: playerTagKey,
   ROOM_LIST_CACHE_SECONDS: "0",
   PLAYING_NOW_CACHE_SECONDS: "0",
   // Cloudflare's relay and its analytics answer from the stand-in above.
@@ -179,6 +179,8 @@ export default defineConfig({
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       // The measuring check in headless Chrome on the preview (scripts/layout-check.mjs): GitHub's check runs it in its own job.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"], sequence: { groupOrder: 2 } } },
+      // The v1 contract locks (test/contracts/surface.ts): v1 only gains things.
+      { extends: true as const, test: { name: "contracts", environment: "node", include: ["test/contracts/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       worker("site", "apps/site/wrangler.jsonc", {
         SITE_ORIGIN: "https://zaisma.test",
         GAME_ORIGIN: "https://games.zaisma.test",
@@ -206,6 +208,7 @@ export default defineConfig({
         // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
+        STRIPE_PRO_PRICE_ID: "price_test_pro",
         // The pass key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
         TEST_PASS_SIGNING_KEY: passKey,
         // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).

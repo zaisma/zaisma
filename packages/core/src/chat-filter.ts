@@ -6,10 +6,11 @@ import type { ChatBlockReason } from "./text-filter.ts";
  * applies them (apps/rooms/src/chat-filter.ts).
  */
 export const CHAT_FILTER_LIMITS = {
-  maximumMessageCharacterCount: 500,
+  /** The longest message checked, in characters: the whole text is checked, and a longer one is refused (too_long), never cut. */
+  maximumMessageCharacterCount: 2000,
   /** The sender's last messages sent along with each one, so pieces of a phone number are caught. */
   recentTextCount: 5,
-  recentTextWindowMs: 120_000,
+  recentTextDurationMs: 120_000,
   /** Contact or personal details stopped toward a teen this often within a day pause the sender's chat. */
   repeatBlockCount: 5,
   repeatBlockWindowMs: 86_400_000,
@@ -18,8 +19,8 @@ export const CHAT_FILTER_LIMITS = {
   reviewKeptMs: 31_536_000_000,
 } as const;
 
-/** Why the filter stopped a message: what checkChatText blocks, a paused sender, or a message the AI couldn't check. */
-export type ChatFilterReason = ChatBlockReason | "chat_paused" | "unchecked";
+/** Why the filter stopped a message: what checkChatText blocks, a paused sender, a message the AI couldn't check, one too long to check, or (own servers' chat check) players who may not chat with each other. */
+export type ChatFilterReason = ChatBlockReason | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
 
 /** The words the sender sees for each reason. None mentions age or the other player. */
 export const CHAT_BLOCK_MESSAGES: Record<ChatFilterReason, string> = {
@@ -29,6 +30,8 @@ export const CHAT_BLOCK_MESSAGES: Record<ChatFilterReason, string> = {
   sexual: "That can't be sent here.",
   chat_paused: "Your chat is paused for now.",
   unchecked: "This message couldn't be checked. Try again in a moment.",
+  too_long: "That message is too long to send.",
+  not_allowed_to_chat: "Chat isn't open for this message.",
 };
 
 /** Why an account's chat is stopped (accounts.chat_stopped_reason). */

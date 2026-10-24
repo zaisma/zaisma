@@ -1,5 +1,6 @@
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
 import { UploadError, cleanPath } from "./zip.ts";
+import { PLAN_LIMITS, withProSize, type PlanKind } from "./plans.ts";
 import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.ts";
 
 /**
@@ -9,13 +10,11 @@ import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.
  */
 
 export const FILE_LIMITS = {
-  maximumGameSizeBytes: 2 * 1024 * 1024 * 1024,
   maximumFileSizeBytes: 500 * 1024 * 1024,
   /** Requests through a Worker top out at 100 MB, so bigger files are sent in parts. */
   maximumDirectSizeBytes: 95 * 1024 * 1024,
   partSizeBytes: 50 * 1024 * 1024,
   maximumFileCount: 20_000,
-  maximumVersionsPerDay: 20,
   maximumPatchNotesCharacterCount: 2000,
 };
 
@@ -65,8 +64,8 @@ export const SHA256 = /^[0-9a-f]{64}$/;
 
 const PATH_FIX = "Give paths relative to the game's folder, like index.html or assets/hero.png: no leading /, no . or .. parts, up to 200 characters.";
 
-/** Check a version's file list against the same rules as zips, with the bigger limits. Throws UploadError with its code, field and fix. */
-export function checkUploadList(input: unknown): UploadFile[] {
+/** Check a version's file list against the same rules as zips, with the bigger limits, and the game size of the developer's plan. Throws UploadError with its code, field and fix. */
+export function checkUploadList(input: unknown, plan: PlanKind = "free"): UploadFile[] {
   if (!Array.isArray(input) || input.length === 0) {
     throw new UploadError("files isn't a list of files.", { code: "bad_files", field: "files", fix: 'Send the game\'s files as a list of { "path", "sha256", "size_bytes" }, with index.html among them.' });
   }
@@ -121,8 +120,8 @@ export function checkUploadList(input: unknown): UploadFile[] {
       fix: "Send the game's start page with the path index.html, not game/index.html: paths are relative to the folder players get.",
     });
   }
-  if (totalSizeBytes > FILE_LIMITS.maximumGameSizeBytes) {
-    throw new UploadError(`The game is ${megabytes(totalSizeBytes)}; the limit is ${megabytes(FILE_LIMITS.maximumGameSizeBytes)}.`, {
+  if (totalSizeBytes > PLAN_LIMITS[plan].maximumGameSizeBytes) {
+    throw new UploadError(`The game is ${megabytes(totalSizeBytes)}; the limit is ${withProSize(plan)}.`, {
       code: "game_too_big",
       field: "files",
       fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more.",

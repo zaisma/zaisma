@@ -36,7 +36,7 @@ export const CHECK_PROBLEM_CODES = {
   duplicate_path: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "Two files share a path (paths don't depend on case)." },
   bad_path: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "A path is absolute, has . or .. or an empty part in it, has control characters or is over 200 characters." },
   file_too_big: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "A file is over 500 MB." },
-  game_too_big: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "The game is over 2 GB." },
+  game_too_big: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "The game is over 2 GB (10 GB with Zaisma Pro)." },
   too_many_files: { problemKind: "refused", isFixedByUploadCommand: false, meaning: "The game has more than 20,000 files." },
   outside_file: { problemKind: "broken", isFixedByUploadCommand: true, meaning: "The page, a stylesheet or a module loads a file from another site; the upload command downloads it into the game." },
   outside_address: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "The code connects to or loads from another site while it runs." },
@@ -370,7 +370,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     add("no_index_html", { message: "There's no index.html at the top of the game.", fix: folder ? `Upload the ${folder} folder instead: index.html has to be at the top of the folder you upload.` : "Add the game's start page as index.html at the top of the folder." });
   }
   if (files.length > UPLOAD_LIMITS.maximumFileCount) add("too_many_files", { message: `The game has ${files.length} files; the limit is 20,000.`, fix: "Leave out files the game doesn't load, or pack small ones together (like sprites into an atlas)." });
-  if (sizeBytes > UPLOAD_LIMITS.maximumGameSizeBytes) add("game_too_big", { message: `The game is ${(sizeBytes / 1024 ** 3).toFixed(1)} GB; the limit is 2 GB.`, fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more." });
+  if (sizeBytes > UPLOAD_LIMITS.maximumGameSizeBytes) add("game_too_big", { message: `The game is ${(sizeBytes / 1024 ** 3).toFixed(1)} GB; the limit is 2 GB (10 GB with Zaisma Pro).`, fix: "Leave out files the game doesn't load. A developer with Zaisma Pro can upload up to 10 GB: Zaisma's answer to the upload is the one that counts." });
 
   const threadsFix = "Threads run in Chrome and Edge on computers and Android. Firefox, Safari and every browser on iPhone and iPad can't start this build, and the game page tells their players it needs Chrome or Edge. To reach every browser, export without threads: in Godot 4.3 or newer, turn Thread Support off in the Web export preset; in Unity, leave Native C/C++ Multithreading off (the default); in Rust, build without the `atomics` target feature and without wasm-bindgen-rayon.";
   const coiServiceWorkerMessage = (path) => `${path} is there to turn on threads (SharedArrayBuffer). Zaisma doesn't need it: the game is already isolated in Chrome and Edge, and it can't turn threads on in other browsers.`;

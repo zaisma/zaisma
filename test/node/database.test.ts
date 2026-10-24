@@ -5,7 +5,7 @@ import { join } from "node:path";
 import WebSocket from "ws";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
-import { checkStatement, defineGameServer, generateSigningKey, loadSigningKey, signPass, type GameDatabase } from "../../packages/game-server/src/index.ts";
+import { checkStatement, defineGameServer, generateSigningKey, loadSigningKey, signPass, type GameDatabase } from "../../packages/game-server/src/internal.ts";
 
 // The game database on the developer's own server: a local SQLite file, with the same calls and checks as in Zaisma rooms (test/rooms/database.test.ts).
 
@@ -114,7 +114,7 @@ describe("room.database on the Node runner", () => {
       }));
       await new Promise((resolve) => ws.on("open", resolve));
       const nowSec = Math.floor(Date.now() / 1000);
-      ws.send(JSON.stringify({ type: "hello", pass: await signPass(signing, { sub, name: sub, aud: "arena", iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 }) }));
+      ws.send(JSON.stringify({ type: "hello", pass: await signPass(signing, { sub, name: sub, aud: "arena", iss: ISS, pass_version_number: 1, kind: "guest", iat: nowSec, exp: nowSec + 60 }) }));
       const data = await got;
       ws.close();
       return data;

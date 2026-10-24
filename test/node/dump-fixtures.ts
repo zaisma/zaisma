@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { dumpPart, type DatabaseRow } from "../../packages/game-server/src/index.ts";
+import { dumpPart, type DatabaseRow } from "../../packages/game-server/src/internal.ts";
 
 // Databases and helpers for the SQL dump's tests (test/node/dump.test.ts, test/node/cli.test.ts).
 

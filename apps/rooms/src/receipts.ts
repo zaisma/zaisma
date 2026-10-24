@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { signPass, type ReceiptClaims } from "@zaisma/game-server";
+import { signPass, type ReceiptClaims } from "@zaisma/game-server/internal";
 import type { Env } from "./index.ts";
 import { signingKey } from "./signing.ts";
 

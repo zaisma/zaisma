@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONTENT_RULES, KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
+import { CONTENT_RULES, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
 import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
@@ -562,7 +562,7 @@ describe("re-uploads checked against their hold", () => {
     const first = await filesVersion(game.id, CLEAN_GAME);
     await scanVersion(testEnv, first, deps);
     expect((await versionById(env.DB, first))!.read_at_ms).toBeGreaterThan(0);
-    for (let index = 1; index < REVIEW_LIMITS.maximumSmallReviewsPerDay; index++) {
+    for (let index = 1; index < PLAN_LIMITS.free.maximumSmallReviewsPerDay; index++) {
       await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, read_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
     }
     const readerCallCount = calls.readerCallCount;
@@ -573,14 +573,62 @@ describe("re-uploads checked against their hold", () => {
     const changed = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
     expect(changed.findings.map((finding) => finding.code)).toEqual(["daily_small_reviews_used"]);
     expect(changed.evidence).toBeUndefined();
+    expect(changed.findings[0]!.message).toContain("Zaisma Pro has 100 small reviews a day.");
     expect(calls.readerCallCount).toBe(readerCallCount);
     expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
+  });
+
+  it("gives a developer with Zaisma Pro 100 small reviews a day, where free has 30", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms, pro_until_ms) VALUES ('owner_pro_small', 'person', 1, ?)").bind(Date.now() + 86_400_000).run();
+    const game = await createGame(env.DB, { slug: "pro-small-reviews", title: "Pro Small Reviews", description: "A test.", ownerId: "owner_pro_small" });
+    const calls = { readerCallCount: 0 };
+    const deps: ScanDeps = { images: connected, readCode: readsFlags(calls), readPictures: seesNothing, judge: judgeSays("pass") };
+    await scanVersion(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
+    const readRows = async (count: number) => {
+      for (let index = 0; index < count; index++) {
+        await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, read_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
+      }
+    };
+    await readRows(PLAN_LIMITS.free.maximumSmallReviewsPerDay);
+    const withinPro = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
+    expect(withinPro.findings.map((finding) => finding.code)).not.toContain("daily_small_reviews_used");
+    await readRows(PLAN_LIMITS.pro.maximumSmallReviewsPerDay);
+    const overPro = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 2;" }), deps);
+    expect(overPro.findings.find((finding) => finding.code === "daily_small_reviews_used")?.message).not.toContain("Zaisma Pro");
+  });
+
+  it("gives a developer with Zaisma Pro 20 large reviews a day, and names Pro only to one without it", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms, pro_until_ms) VALUES ('owner_pro', 'person', 1, ?)").bind(Date.now() + 86_400_000).run();
+    await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_free', 'person', 1)").run();
+    const proGame = await createGame(env.DB, { slug: "pro-reviews", title: "Pro Reviews", description: "A test.", ownerId: "owner_pro" });
+    const freeGame = await createGame(env.DB, { slug: "free-reviews", title: "Free Reviews", description: "A test.", ownerId: "owner_free" });
+    const judgedRows = async (gameId: string, count: number) => {
+      for (let index = 0; index < count; index++) {
+        await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, judged_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), gameId, Date.now()).run();
+      }
+    };
+    const deps: ScanDeps = { images: connected, ...aiSays("pass") };
+
+    await judgedRows(proGame.id, PLAN_LIMITS.free.maximumLargeReviewsPerDay);
+    const withinPro = await scanVersion(testEnv, await filesVersion(proGame.id, CLEAN_GAME), deps);
+    expect(withinPro.findings.map((finding) => finding.code)).not.toContain("daily_large_reviews_used");
+
+    await judgedRows(proGame.id, PLAN_LIMITS.pro.maximumLargeReviewsPerDay);
+    const otherProGame = await createGame(env.DB, { slug: "pro-reviews-two", title: "Pro Reviews Two", description: "A test.", ownerId: "owner_pro" });
+    const overPro = (await scanVersion(testEnv, await filesVersion(otherProGame.id, CLEAN_GAME), deps)).findings.find((finding) => finding.code === "daily_large_reviews_used");
+    expect(overPro?.message).toContain("20 large reviews");
+    expect(overPro?.message).not.toContain("Zaisma Pro");
+
+    await judgedRows(freeGame.id, PLAN_LIMITS.free.maximumLargeReviewsPerDay);
+    const overFree = (await scanVersion(testEnv, await filesVersion(freeGame.id, CLEAN_GAME), deps)).findings.find((finding) => finding.code === "daily_large_reviews_used");
+    expect(overFree?.message).toContain("5 large reviews");
+    expect(overFree?.message).toContain("Zaisma Pro has 20 large reviews a day.");
   });
 
   it("steps a waiting version aside for a newer one, never live over it, but keeps a child-safety hold", async () => {
     await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_wait', 'person', 1)").run();
     const game = await createGame(env.DB, { slug: "step-aside", title: "Step Aside", description: "A test.", ownerId: "owner_wait" });
-    for (let index = 0; index < REVIEW_LIMITS.maximumLargeReviewsPerDay; index++) {
+    for (let index = 0; index < PLAN_LIMITS.free.maximumLargeReviewsPerDay; index++) {
       await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, judged_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
     }
     const deps: ScanDeps = { images: connected, ...aiSays("pass") };

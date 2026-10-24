@@ -102,7 +102,7 @@ import {
 } from "./auth.ts";
 import { protectAccountLine } from "./account-protection.ts";
 import { clearWrongPasswordNotice, isDeviceMarked, isPasswordLockedOut, noteWrongPassword } from "./device-marks.ts";
-import { checkEmailCode, sendEmailCode, waitEndsText } from "./email-codes.ts";
+import { checkEmailCode, deleteEmailCodesOf, sendEmailCode, waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
@@ -305,8 +305,10 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   if (path === "/signin/code" && post) {
     if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
     const email = field("email", 320).toLowerCase();
-    const accountId = await checkEmailCode(env, email, field("code", 20).replace(/\D/g, ""), "sign_in");
+    const codeAccountId = await checkEmailCode(env, email, field("code", 20).replace(/\D/g, ""), "sign_in");
     const kind = field("kind", 20) === "confirm" ? "confirm" : "signin";
+    // The code opens the account only while that address is still its own: one sent before the address changed or came off opens nothing.
+    const accountId = codeAccountId && (await authUserIdByEmail(env, email)) === codeAccountId ? codeAccountId : null;
     if (!accountId) return await codePage(env, email, next, CODE_DIDNT_WORK, kind);
     const signedIn = await sessionForUser(env, accountId, connectionAddress);
     if (!signedIn) return message(env, "Couldn't sign you in", "Something went wrong on our side. Get a new code in a minute and try again.", 502);
@@ -540,6 +542,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const isSet = await setEmail(env, account.id, email);
     if (isSet === "taken") return done(await accountPage(env, session, false, EMAIL_TAKEN));
     if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on our side. Try again in a minute.", 502));
+    await deleteEmailCodesOf(env, account.id);
     // The old address hears about it too.
     const oldEmail = realEmail(session.email);
     await logAccountChange(request, env, account, oldEmail ? "email_changed" : "email_added", { alert: { emails: oldEmail ? [oldEmail] : [] } });
@@ -552,6 +555,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   if (path === "/account/email/remove" && post) {
     if (account.password_changed_at_ms === null) return done(await accountPage(env, session, false, "Add a password first, so you can still sign in without your email."));
     if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on our side. Try again in a minute.", 502));
+    await deleteEmailCodesOf(env, account.id);
     const removedEmail = realEmail(session.email);
     await logAccountChange(request, env, account, "email_removed", { alert: { emails: removedEmail ? [removedEmail] : [] } });
     const fresh = await refreshSession(env, session.refresh, connectionAddress);

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyStateChanges, diffState, newStateTracker, stateSyncModuleSource, type StateChange } from "../../packages/game-server/src/index.ts";
+import { applyStateChanges, diffState, newStateTracker, stateSyncModuleSource, type StateChange } from "../../packages/game-server/src/internal.ts";
 
 // State sync's diff and its two copies of applyStateChanges: the game server's, and the SDK's, which
 // players' games use. One table of cases runs through both, so they can't drift apart.

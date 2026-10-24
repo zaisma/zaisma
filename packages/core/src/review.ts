@@ -1,3 +1,4 @@
+import { PLAN_LIMITS, type PlanKind, type PlanLimits } from "./plans.ts";
 import type { ScanReport } from "./types.ts";
 
 /**
@@ -144,6 +145,17 @@ interface ReviewCode {
   isRulePicked?: true;
 }
 
+
+/** The two daily review findings' message: the developer's own limit, with the Pro number added on the free plan (plans.ts). */
+export function dailyReviewMeaning(code: "daily_large_reviews_used" | "daily_small_reviews_used", plan: PlanKind): string {
+  const [kind, limit, what, waits]: [string, keyof PlanLimits, string, string] =
+    code === "daily_large_reviews_used"
+      ? ["large", "maximumLargeReviewsPerDay", "a new game or a real change, judged", "waits"]
+      : ["small", "maximumSmallReviewsPerDay", "versions read by the AI", "waits unread"];
+  const proNote = plan === "free" ? ` Zaisma Pro has ${PLAN_LIMITS.pro[limit]} ${kind} reviews a day.` : "";
+  return `This developer's ${PLAN_LIMITS[plan][limit]} ${kind} reviews for today (${what}) are used, so this version ${waits} for the next one to free up.${proNote}`;
+}
+
 /**
  * Every code a hold, rejection or takedown can have, by what decided it. Codes are lowercase
  * snake_case, never reused for another problem, and never the same as an error code.
@@ -214,14 +226,14 @@ export const REVIEW_CODES = {
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", contentRule: null, fix: PERSON_LOOKS },
   daily_large_reviews_used: {
-    meaning: "This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up.",
+    meaning: dailyReviewMeaning("daily_large_reviews_used", "free"),
     contentRule: null,
-    fix: "Nothing to do: it's checked by itself within a day, as soon as one of your 5 large reviews frees up. A tweak of a game that already passed (levels, sprites, balance) uses a small review instead.",
+    fix: "Nothing to do: it's checked by itself within a day, as soon as one of your daily large reviews frees up. A tweak of a game that already passed (levels, sprites, balance) uses a small review instead.",
   },
   daily_small_reviews_used: {
-    meaning: "This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up.",
+    meaning: dailyReviewMeaning("daily_small_reviews_used", "free"),
     contentRule: null,
-    fix: "Nothing to do: it's read by itself within a day, as soon as one of your 30 small reviews frees up.",
+    fix: "Nothing to do: it's read by itself within a day, as soon as one of your daily small reviews frees up.",
   },
   version_replaced: {
     meaning: "A newer version of this game came in while this one waited, so this one isn't reviewed.",

@@ -56,6 +56,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   chat_reviews: { file_path: null, reason: "A safety record: messages the chat filter stopped." },
   sign_in_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   email_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
+  passkey_challenges: { file_path: null, reason: "One-time passkey challenges, kept as fingerprints for minutes." },
   connected_app_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   session_proofs: { file_path: null, reason: "How each signed-in session last proved it's the owner, kept a day." },
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CHECK_PROBLEM_CODES, GAME_FILE_EXTENSIONS, MAXIMUM_PROBLEM_COUNT, UPLOAD_LIMITS, buildHasThreads, checkGameFiles, findOutsideReferences, type CheckedFile } from "../../packages/cli/check.mjs";
 import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { CONTENT_TYPES } from "../../packages/core/src/mime.ts";
+import { PLAN_LIMITS } from "../../packages/core/src/plans.ts";
 import { FILE_LIMITS } from "../../packages/core/src/uploads.ts";
 import { ZIP_LIMITS } from "../../packages/core/src/zip.ts";
 
@@ -164,7 +165,7 @@ describe("the game check", () => {
 
   it("holds the file types, limits and codes to the API's", () => {
     expect(GAME_FILE_EXTENSIONS).toEqual(Object.keys(CONTENT_TYPES));
-    expect(UPLOAD_LIMITS).toEqual({ maximumGameSizeBytes: FILE_LIMITS.maximumGameSizeBytes, maximumFileSizeBytes: FILE_LIMITS.maximumFileSizeBytes, maximumFileCount: FILE_LIMITS.maximumFileCount, maximumPathCharacterCount: ZIP_LIMITS.maximumPathCharacterCount });
+    expect(UPLOAD_LIMITS).toEqual({ maximumGameSizeBytes: PLAN_LIMITS.free.maximumGameSizeBytes, maximumFileSizeBytes: FILE_LIMITS.maximumFileSizeBytes, maximumFileCount: FILE_LIMITS.maximumFileCount, maximumPathCharacterCount: ZIP_LIMITS.maximumPathCharacterCount });
     for (const [code, { problemKind }] of Object.entries(CHECK_PROBLEM_CODES)) if (problemKind === "refused") expect(ERROR_CODES, code).toHaveProperty([code]);
   });
 });

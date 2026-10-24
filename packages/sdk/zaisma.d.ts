@@ -163,8 +163,8 @@ declare namespace Zaisma {
    * under-18 account. It stops contact details in any disguise, moving to another app or meeting up,
    * personal details, slurs and sexual content, and answers with the words to show the sender. Swearing
    * is flagged (hasSwearing) but allowed: blocking it is your game's call. Use it to show the sender why
-   * at once; Zaisma checks again when the message is delivered, so it can't be skipped. Checks up to 500
-   * characters.
+   * at once; Zaisma checks again when the message is delivered, so it can't be skipped. Checks the whole
+   * text, up to 2000 characters; a longer one is refused (too_long), never cut.
    *
    * @example
    * const check = await Zaisma.filterText(typedMessage);
@@ -1080,18 +1080,20 @@ declare namespace Zaisma {
   /** This tab's player and their player pass ({@link player}). */
   interface PlayerWithPass extends Player {
     /**
-     * The player pass: a standard EdDSA JWT any server can check against the keys at
-     * https://rooms.zaisma.com/.well-known/jwks.json. It proves only who the player is: its sub is the
-     * player's ID, kind says guest or account, aud is the game. A guest's pass also carries their name;
-     * an account's name comes from its profile (https://rooms.zaisma.com/v1/players/<id>). An account's
-     * pass says who it can chat with, never its age: who_can_chat (nobody, friends or anyone, the
-     * player's own setting), when anyone an opaque chat_group (chat_group_…) that differs in every
-     * game. It carries its friends and blocks, never as a list of players anyone can read: player_tag,
-     * its own opaque tag in this game (player_tag_…), friend_tag_ids, its friends' tags (up to 200), and
-     * block_tag_ids, the tags of the accounts it has a block with, either way (up to 100). Your own server
-     * checks two players with areFriends(first, second), canChat(first, second) before passing chat
-     * between them, and hasBlockBetween(first, second) before matching them together, all from
-     * @zaisma/game-server; guests never chat and are never anyone's friend.
+     * The player pass: a standard EdDSA JWT (header typ "pass+jwt") any server can check against the
+     * keys at https://rooms.zaisma.com/.well-known/jwks.json. It proves only who the player is: its sub
+     * is the player's ID, kind says guest or account, aud is the game, pass_version_number is 1. A
+     * guest's pass also carries their name; an account's name comes from its profile
+     * (https://rooms.zaisma.com/v1/players/<id>). An account's pass says who it can chat with:
+     * who_can_chat (nobody, friends or anyone, the player's own setting) and, when anyone, an opaque
+     * chat_group_id (chat_group_…) that differs in every game. Zaisma never tells a game anyone's age; a
+     * game could guess which chat group is the younger one from its size. It carries its friends and
+     * blocks, never as a list of players anyone can read: player_tag_id, its own opaque tag in this game
+     * (player_tag_…), friend_player_tag_ids, its friends' tags (up to 200), and block_player_tag_ids, the
+     * tags of the accounts it has a block with, either way (up to 100). Your own server checks it with
+     * verifyPass, then two players with passesAreFriends(first, second), canChat(first, second) before
+     * passing chat between them, and passesHaveBlockBetween(first, second) before matching them
+     * together, all from @zaisma/game-server; guests never chat and are never anyone's friend.
      */
     pass: string;
     /** When the pass runs out, as an ISO time in UTC. */
@@ -1300,15 +1302,15 @@ declare namespace Zaisma {
     /**
      * Why not, null when it's allowed: "contact_details" (a link, handle, email, phone number or contact
      * app in any disguise, or moving to another app or meeting up), "personal_details" (where someone
-     * lives, their school, their full name, photos), "slur", "sexual", or "unchecked" (Zaisma couldn't
-     * check it: try again in a moment).
+     * lives, their school, their full name, photos), "slur", "sexual", "unchecked" (Zaisma couldn't
+     * check it: try again in a moment) or "too_long" (over 2000 characters).
      */
-    reason: "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | null;
+    reason: "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | "too_long" | null;
     /** The words to show the sender when it's stopped (never about age or the other player); null when it's allowed. */
     message: string | null;
     /** Whether it swears. Zaisma allows swearing; block it yourself if your game doesn't. */
     hasSwearing: boolean;
-    /** The text tidied up: hidden characters and extra spaces gone. */
+    /** The text tidied up: hidden characters and extra spaces gone, line breaks kept (empty when it's too_long). */
     text: string;
   }
 

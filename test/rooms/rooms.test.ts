@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import roomsWorker, { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import roomsWranglerText from "../../apps/rooms/wrangler.jsonc?raw";
-import { HOSTING_PAUSED_END_MESSAGE, areFriends, canChat, hasBlockBetween, verifyPass } from "@zaisma/game-server";
+import { HOSTING_PAUSED_END_MESSAGE, passesAreFriends, canChat, passesHaveBlockBetween, verifyPass } from "@zaisma/game-server";
 import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -170,8 +170,8 @@ describe("rooms", () => {
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "block_tag_ids", "exp", "friend_tag_ids", "iat", "iss", "kind", "player_tag", "sub", "who_can_chat"]);
-    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", who_can_chat: "friends", friend_tag_ids: [] });
+    expect(Object.keys(claims).sort()).toEqual(["aud", "block_player_tag_ids", "exp", "friend_player_tag_ids", "iat", "iss", "kind", "pass_version_number", "player_tag_id", "sub", "who_can_chat"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", who_can_chat: "friends", friend_player_tag_ids: [] });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
 
@@ -207,7 +207,7 @@ describe("rooms", () => {
     ]);
     const response = await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) });
     const { pass } = await response.json<{ pass: string }>();
-    const claims = await verifyPass(pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: R });
+    const claims = await verifyPass(pass, [(await signingKey(e)).publicKey], { gameSlug: "arena", issuerUrl: R });
     expect(claims.owned_item_names).toEqual(["gold_crown"]);
     // A guest's pass owns nothing.
     const guestClaims = JSON.parse(atob((await getPass("arena")).pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
@@ -255,7 +255,7 @@ describe("rooms", () => {
     const accountFor = (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => createAccount(e.DB, { id, username: id, ageBand, socialMode });
     const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => {
       const { pass } = await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
-      return verifyPass(pass, [(await signingKey(e)).publicKey], { game: gameSlug, issuer: e.ISSUER });
+      return verifyPass(pass, [(await signingKey(e)).publicKey], { gameSlug: gameSlug, issuerUrl: e.ISSUER });
     };
     const teen = await claimsOf(await accountFor("teen-open-1", "16-17", "open_and_social"));
     const teenToo = await claimsOf(await accountFor("teen-open-2", "16-17", "open_and_social"));
@@ -263,20 +263,20 @@ describe("rooms", () => {
     const adultToo = await claimsOf(await accountFor("adult-open-2", "18+", "open_and_social"));
     const friendsOnly = await claimsOf(await accountFor("adult-friends", "18+", "friends_focused"));
     const young = await claimsOf(await accountFor("young-solo", "13-15", "solo_focused"));
-    const guest = await verifyPass((await getPass("arena")).pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: e.ISSUER });
+    const guest = await verifyPass((await getPass("arena")).pass, [(await signingKey(e)).publicKey], { gameSlug: "arena", issuerUrl: e.ISSUER });
 
     // Opaque groups: the same within a band group and a game, never naming an age.
-    expect(teen.chat_group).toMatch(/^chat_group_[a-f0-9]{20}$/);
-    expect(teen.chat_group).toBe(teenToo.chat_group);
-    expect(adult.chat_group).toBe(adultToo.chat_group);
-    expect(teen.chat_group).not.toBe(adult.chat_group);
+    expect(teen.chat_group_id).toMatch(/^chat_group_[a-f0-9]{20}$/);
+    expect(teen.chat_group_id).toBe(teenToo.chat_group_id);
+    expect(adult.chat_group_id).toBe(adultToo.chat_group_id);
+    expect(teen.chat_group_id).not.toBe(adult.chat_group_id);
     expect(JSON.stringify([teen, adult, young])).not.toMatch(/13-15|16-17|18\+/);
     // Another game gets other groups, so groups can't be matched across games.
-    expect((await claimsOf({ id: "teen-open-1" }, "other", other)).chat_group).not.toBe(teen.chat_group);
+    expect((await claimsOf({ id: "teen-open-1" }, "other", other)).chat_group_id).not.toBe(teen.chat_group_id);
     // Only chat with anyone carries a group; guests carry no chat setting at all.
     expect(teen).toMatchObject({ who_can_chat: "anyone" });
     expect(friendsOnly).toMatchObject({ who_can_chat: "friends" });
-    expect(friendsOnly.chat_group).toBeUndefined();
+    expect(friendsOnly.chat_group_id).toBeUndefined();
     expect(young).toMatchObject({ who_can_chat: "nobody" });
     expect(guest.who_can_chat).toBeUndefined();
 
@@ -287,13 +287,13 @@ describe("rooms", () => {
     expect(canChat(young, teen)).toBe(false);
     expect(canChat(guest, adult)).toBe(false);
     expect(canChat(adult, adult)).toBe(false);
-    expect(guest.friend_tag_ids).toBeUndefined();
+    expect(guest.friend_player_tag_ids).toBeUndefined();
 
     // A row past its band's limits (only a bug could write one) still goes out within them.
     await e.DB.prepare("UPDATE accounts SET who_can_chat = 'anyone' WHERE id = 'young-solo'").run();
     const forced = await claimsOf({ id: "young-solo" });
     expect(forced).toMatchObject({ who_can_chat: "friends" });
-    expect(forced.chat_group).toBeUndefined();
+    expect(forced.chat_group_id).toBeUndefined();
   });
 
   it("puts an account's friends in its passes as opaque tags, so friends chat and strangers don't", async () => {
@@ -303,7 +303,7 @@ describe("rooms", () => {
     const stranger = await createAccount(e.DB, { id: "friend-stranger", username: "Cy", ageBand: "18+", socialMode: "friends_focused" });
     const claimsOf = async (account: { id: string }) => {
       const { pass } = await (await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) })).json<{ pass: string }>();
-      return verifyPass(pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: e.ISSUER });
+      return verifyPass(pass, [(await signingKey(e)).publicKey], { gameSlug: "arena", issuerUrl: e.ISSUER });
     };
     const made = await createFriendInvite(e.DB, ana.id);
     if (!("invite" in made)) throw new Error("no invite");
@@ -311,17 +311,17 @@ describe("rooms", () => {
 
     const [anaClaims, benClaims, strangerClaims] = [await claimsOf(ana), await claimsOf(ben), await claimsOf(stranger)];
     // Games see what the public sees: tags that match the friends' own, never their player IDs.
-    expect(anaClaims.friend_tag_ids).toEqual([benClaims.player_tag]);
-    expect(benClaims.friend_tag_ids).toEqual([anaClaims.player_tag]);
+    expect(anaClaims.friend_player_tag_ids).toEqual([benClaims.player_tag_id]);
+    expect(benClaims.friend_player_tag_ids).toEqual([anaClaims.player_tag_id]);
     expect(JSON.stringify(anaClaims)).not.toContain(ben.player_id);
-    expect(areFriends(anaClaims, benClaims)).toBe(true);
-    expect(areFriends(anaClaims, strangerClaims)).toBe(false);
+    expect(passesAreFriends(anaClaims, benClaims)).toBe(true);
+    expect(passesAreFriends(anaClaims, strangerClaims)).toBe(false);
     expect(canChat(anaClaims, benClaims)).toBe(true);
     expect(canChat(anaClaims, strangerClaims)).toBe(false);
 
     // Removed on one side is removed on both, from the next pass on.
     await removeFriend(e.DB, ben.id, ana.player_id);
-    expect((await claimsOf(ana)).friend_tag_ids).toEqual([]);
+    expect((await claimsOf(ana)).friend_player_tag_ids).toEqual([]);
     expect(canChat(await claimsOf(ana), benClaims)).toBe(false);
   });
 
@@ -423,19 +423,19 @@ describe("rooms", () => {
     expect(await friendPlayerIdsOf(e.DB, mia.id)).toEqual([]);
 
     const passOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => (await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>()).pass;
-    const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => verifyPass(await passOf(account, gameSlug, gameId), [(await signingKey(e)).publicKey], { game: gameSlug, issuer: e.ISSUER });
+    const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => verifyPass(await passOf(account, gameSlug, gameId), [(await signingKey(e)).publicKey], { gameSlug: gameSlug, issuerUrl: e.ISSUER });
     const [kitClaims, miaClaims, cyClaims] = [await claimsOf(kit), await claimsOf(mia), await claimsOf(cy)];
-    expect(kitClaims.player_tag).toMatch(/^player_tag_[a-f0-9]{20}$/);
+    expect(kitClaims.player_tag_id).toMatch(/^player_tag_[a-f0-9]{20}$/);
     // Both ways, so neither pass says who made it, and no player IDs in sight.
-    expect(kitClaims.block_tag_ids).toEqual([miaClaims.player_tag]);
-    expect(miaClaims.block_tag_ids).toEqual([kitClaims.player_tag]);
-    expect(cyClaims.block_tag_ids).toEqual([]);
+    expect(kitClaims.block_player_tag_ids).toEqual([miaClaims.player_tag_id]);
+    expect(miaClaims.block_player_tag_ids).toEqual([kitClaims.player_tag_id]);
+    expect(cyClaims.block_player_tag_ids).toEqual([]);
     expect(JSON.stringify(kitClaims)).not.toContain(mia.player_id);
-    expect(hasBlockBetween(kitClaims, miaClaims)).toBe(true);
-    expect(hasBlockBetween(kitClaims, cyClaims)).toBe(false);
+    expect(passesHaveBlockBetween(kitClaims, miaClaims)).toBe(true);
+    expect(passesHaveBlockBetween(kitClaims, cyClaims)).toBe(false);
     expect(canChat(kitClaims, miaClaims)).toBe(false);
     // Another game gets other tags, so they can't be matched across games.
-    expect((await claimsOf(kit, "other", other)).player_tag).not.toBe(kitClaims.player_tag);
+    expect((await claimsOf(kit, "other", other)).player_tag_id).not.toBe(kitClaims.player_tag_id);
 
     const enter = async (account: { id: string }, roomCode: string, hello: Record<string, unknown> = {}) => {
       const c = await connect("arena", roomCode);
@@ -474,7 +474,7 @@ describe("rooms", () => {
     const miaLast = await enter(mia, "WALLED");
     expect(miaLast.first.type).toBe("welcome");
     expect(await until(kitBack, (m) => m.type === "blocks")).toEqual({ type: "blocks", playerIds: [] });
-    expect((await claimsOf(kit)).block_tag_ids).toEqual([]);
+    expect((await claimsOf(kit)).block_player_tag_ids).toEqual([]);
   });
 
   it("gives guests no passes for a game that needs accounts, and rooms turn away guest passes made before", async () => {
@@ -518,7 +518,7 @@ describe("rooms", () => {
     const sixteenAnswer = await (await passFor(sixteen.id)).json<{ pass: string; player: { kind: string } }>();
     expect(sixteenAnswer.player.kind).toBe("account");
     // No age in the pass.
-    expect(JSON.stringify(await verifyPass(sixteenAnswer.pass, [(await signingKey(e)).publicKey], { game: "grown", issuer: e.ISSUER }))).not.toMatch(/age|band/);
+    expect(JSON.stringify(await verifyPass(sixteenAnswer.pass, [(await signingKey(e)).publicKey], { gameSlug: "grown", issuerUrl: e.ISSUER }))).not.toMatch(/age|band/);
 
     // The room checks the game on the next join, and the teen already in it leaves with the same code.
     const sixteenInRoom = await connect("grown", "GRWNPL");
@@ -650,6 +650,20 @@ describe("rooms", () => {
 
     b.ws.close(1000);
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
+  });
+
+  it("lets a player into an empty room while connections with no pass wait to say hello", async () => {
+    await addGame("arena");
+    // More silent connections than the room has places for players and spectators.
+    const silent = [];
+    for (let i = 0; i < 30; i++) silent.push(await connect("arena", "HUSH22"));
+    expect(silent.map((client) => client.res.status)).toEqual(silent.map(() => 101));
+    // The oldest were let go to make way for newer ones, and the room never filled.
+    expect(await silent[0]!.closed).toBe(4001);
+    const a = await join("arena", "HUSH22");
+    expect((await a.next()).players).toHaveLength(1);
+    a.ws.close(1000);
+    for (const client of silent) client.ws.close(1000);
   });
 
   it("relays bytes between players, saying whose they are, and wants a hello as text", async () => {
@@ -1279,6 +1293,12 @@ describe("room browsing", () => {
     expect(await check("where are you [ai sexual]")).toMatchObject({ isAllowed: false, reason: "sexual", message: "That can't be sent here." });
     expect(await check("where are you")).toMatchObject({ isAllowed: true, reason: null });
     expect(await check("where are you [ai down]")).toMatchObject({ isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment." });
+    // Line breaks stay in the text to send, and never join the words on either side for the check.
+    expect(await check("good game\n\n\n\nsee you")).toMatchObject({ isAllowed: true, text: "good game\n\nsee you" });
+    expect(await check("add me on\nsnap")).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    // The whole message is checked, up to 2000 characters; a longer one is refused, never cut.
+    expect(await check(`${"what a match ".repeat(150)}call me 555 123 4567`)).toMatchObject({ isAllowed: false, reason: "contact_details" });
+    expect(await check("a".repeat(2001))).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false, text: "" });
   });
 
   it("checks chat for developers' own servers by their players' passes", async () => {
@@ -1287,8 +1307,10 @@ describe("room browsing", () => {
     const passFor = async (account: { id: string }, slug = "own-chat", gameId = id) => (await (await post("/v1/pass", slug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>()).pass;
     const adult = await createAccount(e.DB, { id: "chat-check-adult", username: "chat_check_adult", ageBand: "18+", socialMode: "open_and_social" });
     const teen = await createAccount(e.DB, { id: "chat-check-teen", username: "chat_check_teen", ageBand: "16-17", socialMode: "open_and_social" });
+    const otherAdult = await createAccount(e.DB, { id: "chat-check-adult2", username: "chat_check_adult2", ageBand: "18+", socialMode: "open_and_social" });
+    const otherTeen = await createAccount(e.DB, { id: "chat-check-teen2", username: "chat_check_teen2", ageBand: "16-17", socialMode: "open_and_social" });
     const chatCheck = (body: Record<string, unknown>) => SELF.fetch(`${R}/v1/chat/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gameSlug: "own-chat", recentTexts: [], ...body }) });
-    const [adultPass, teenPass] = [await passFor(adult), await passFor(teen)];
+    const [adultPass, teenPass, otherAdultPass, otherTeenPass] = [await passFor(adult), await passFor(teen), await passFor(otherAdult), await passFor(otherTeen)];
 
     // A pass for another game is refused, saying which one.
     const otherGame = await chatCheck({ senderPass: adultPass, receiverPasses: [await passFor(teen, "elsewhere-chat", "gelsewherechat")], text: "gg" });
@@ -1298,17 +1320,25 @@ describe("room browsing", () => {
     expect((await (await chatCheck({ senderPass: adultPass, receiverPasses: "everyone", text: "gg" })).json<any>()).error).toMatchObject({ code: "bad_request", field: "receiverPasses" });
 
     // Good passes get the filter's answer, with no CORS: it's server to server.
-    const answer = await chatCheck({ senderPass: teenPass, receiverPasses: [adultPass], text: "add me on snap" });
+    const answer = await chatCheck({ senderPass: otherTeenPass, receiverPasses: [teenPass], text: "add me on snap" });
     expect(answer.headers.get("access-control-allow-origin")).toBeNull();
     expect(await answer.json()).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
-    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [teenPass], text: "nice jump" })).json()).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false });
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual({ isAllowed: true, reason: null, message: null, hasSwearing: false });
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass], text: "a".repeat(2001) })).json()).toMatchObject({ isAllowed: false, reason: "too_long" });
+
+    // canChat's rule, applied by Zaisma too: an adult and a teen who aren't friends never chat, whatever the
+    // text, and one receiver who may not stops the whole message without saying which.
+    const notAllowed = { isAllowed: false, reason: "not_allowed_to_chat", message: "Chat isn't open for this message.", hasSwearing: false };
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
+    expect(await (await chatCheck({ senderPass: adultPass, receiverPasses: [otherAdultPass, teenPass], text: "nice jump" })).json()).toEqual(notAllowed);
 
     // An account whose chat is paused chats with nobody in its next pass, so own servers stop it too.
     await e.DB.prepare("UPDATE accounts SET chat_stopped_reason = 'paused_for_repeats', chat_stopped_until_ms = ? WHERE id = ?").bind(Date.now() + 60_000, adult.id).run();
-    const paused = await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { game: "own-chat", issuer: e.ISSUER });
+    const paused = await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { gameSlug: "own-chat", issuerUrl: e.ISSUER });
     expect(paused.who_can_chat).toBe("nobody");
+    expect(await (await chatCheck({ senderPass: await passFor(adult), receiverPasses: [otherAdultPass], text: "nice jump" })).json()).toEqual(notAllowed);
     await e.DB.prepare("UPDATE accounts SET chat_stopped_until_ms = ? WHERE id = ?").bind(Date.now() - 1, adult.id).run();
-    expect((await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { game: "own-chat", issuer: e.ISSUER })).who_can_chat).toBe("anyone");
+    expect((await verifyPass(await passFor(adult), [(await signingKey(e)).publicKey], { gameSlug: "own-chat", issuerUrl: e.ISSUER })).who_can_chat).toBe("anyone");
   });
 
   it("answers pings without waking the room, and drops a connection that stops answering, holding its seat", async () => {

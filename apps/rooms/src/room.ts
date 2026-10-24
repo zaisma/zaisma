@@ -103,7 +103,7 @@ const RECORDED_MESSAGE_TYPE_COUNT = 10;
 
 /** A player must send their pass this soon after connecting. */
 const HELLO_MS = 5000;
-/** Extra sockets allowed past maximumPlayerCount and maximumSpectatorCount, for people still saying hello. */
+/** Extra sockets allowed past maximumPlayerCount and maximumSpectatorCount, and how many may be still saying hello at once. */
 const SPARE_SOCKET_COUNT = 4;
 /** How often a running room re-checks that its game is still live, so takedowns close rooms. */
 const CHECK_MS = 60_000;
@@ -310,8 +310,17 @@ export class Room extends DurableObject<Env> {
 
     this.dropStaleHellos();
     const maximumSocketCount = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + (server.maximumSpectatorCount ?? 0) + SPARE_SOCKET_COUNT;
-    const open = this.ctx.getWebSockets().filter((existing) => (existing.deserializeAttachment() as Attachment | null)?.stage !== "gone");
-    if (open.length >= maximumSocketCount) return new Response("This room is full", { status: 409 });
+    // Only sockets of players and spectators fill the room. Sockets still saying hello have a few places of their own, and when those are taken the oldest is let go, so connections that never show a pass can't turn real players away.
+    const sayingHello: { socket: WebSocket; connectedAtMs: number }[] = [];
+    let inCount = 0;
+    for (const existing of this.ctx.getWebSockets()) {
+      const attachment = existing.deserializeAttachment() as Attachment | null;
+      if (attachment?.stage === "in") inCount++;
+      else if (attachment?.stage === "hello") sayingHello.push({ socket: existing, connectedAtMs: attachment.connectedAtMs ?? 0 });
+    }
+    if (inCount >= maximumSocketCount) return new Response("This room is full", { status: 409 });
+    sayingHello.sort((first, second) => first.connectedAtMs - second.connectedAtMs);
+    while (sayingHello.length >= SPARE_SOCKET_COUNT) this.refuse(sayingHello.shift()!.socket, "no_hello");
 
     const { 0: client, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
@@ -567,11 +576,11 @@ export class Room extends DurableObject<Env> {
 
     let player: Player;
     try {
-      const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { game: this.meta.slug, issuer: this.env.ISSUER });
+      const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { gameSlug: this.meta.slug, issuerUrl: this.env.ISSUER });
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.env.DB, claims.sub) : claims.name;
       if (!name) return this.refuse(socket, "bad_pass");
-      player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
+      player = { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
     } catch (error) {
       if (!(error instanceof PassError)) throw error;
       return this.refuse(socket, "bad_pass");

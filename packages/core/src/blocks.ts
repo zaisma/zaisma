@@ -7,6 +7,9 @@
  * them, never anyone's list of blocks. Guests' blocks last for their session and never come here.
  */
 
+/** How many other players a room looks up blocks and friends among as one player joins: everyone a full room holds (ROOM_LIMITS.maximumPlayerCount in the game server, which test/node/blocks.test.ts keeps in step). */
+export const MAXIMUM_OTHER_PLAYER_COUNT = 100;
+
 /** Passes carry up to this many of an account's blocks, made and received, newest first (about 3 KB at the most). */
 export const MAXIMUM_PASS_BLOCK_COUNT = 100;
 
@@ -76,7 +79,7 @@ export interface PlayerBlock {
  * Rooms use it to put the walls up as a player joins; it never leaves Zaisma as it is.
  */
 export async function blocksAmong(database: D1Database, playerId: string, otherPlayerIds: readonly string[]): Promise<PlayerBlock[]> {
-  const others = [...new Set(otherPlayerIds)].filter((otherPlayerId) => otherPlayerId !== playerId).slice(0, 64);
+  const others = [...new Set(otherPlayerIds)].filter((otherPlayerId) => otherPlayerId !== playerId).slice(0, MAXIMUM_OTHER_PLAYER_COUNT);
   if (!others.length) return [];
   // The others as one JSON list: D1 takes at most 100 values per query.
   const othersJson = JSON.stringify(others);
@@ -93,7 +96,7 @@ export async function blocksAmong(database: D1Database, playerId: string, otherP
 
 /**
  * The player IDs of the accounts this one has a block with, either way, newest first and at most
- * MAXIMUM_PASS_BLOCK_COUNT: what its passes carry, as opaque tags (block_tag_ids), so a developer's own
+ * MAXIMUM_PASS_BLOCK_COUNT: what its passes carry, as opaque tags (block_player_tag_ids), so a developer's own
  * server can keep the walls up too. Both ways, so a pass never says which side made a block.
  */
 export async function blockPlayerIdsOf(database: D1Database, accountId: string, maximumCount = MAXIMUM_PASS_BLOCK_COUNT): Promise<string[]> {

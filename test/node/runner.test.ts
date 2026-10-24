@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localRoomStates, startServer } from "../../packages/game-server/bin/node.js";
-import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/index.ts";
+import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/internal.ts";
 
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://arena.zaismausercontent.com";
@@ -18,7 +18,7 @@ afterAll(() => server.close());
 
 async function pass(sub: string, aud = "arena") {
   const now = Math.floor(Date.now() / 1000);
-  return signPass(signing, { sub, name: sub.toUpperCase(), aud, iss: ISS, kind: "guest", iat: now, exp: now + 60 });
+  return signPass(signing, { sub, name: sub.toUpperCase(), aud, iss: ISS, pass_version_number: 1, kind: "guest", iat: now, exp: now + 60 });
 }
 
 function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
@@ -165,7 +165,7 @@ describe("Node runner", () => {
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string) => {
       const now = Math.floor(Date.now() / 1000);
-      return signPass(signing, { sub, aud: "arena", iss: ISS, kind: "account", iat: now, exp: now + 60 });
+      return signPass(signing, { sub, aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", iat: now, exp: now + 60 });
     };
     const owl = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
     await owl.open;
@@ -181,6 +181,31 @@ describe("Node runner", () => {
     own.close();
   });
 
+  it("turns an account away as busy, never crashing, when Zaisma can't be reached for its name", async () => {
+    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null, profiles: async () => { throw new Error("Couldn't look up player_owl"); } });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const owl = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await owl.open;
+    owl.say({ type: "hello", pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", iat: now, exp: now + 60 }) });
+    expect(await owl.next()).toMatchObject({ type: "error", code: "busy" });
+    own.close();
+  });
+
+  it("seats a pass of a kind added after v1 as a guest, as Zaisma rooms do", async () => {
+    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], roomStateFile: null });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const now = Math.floor(Date.now() / 1000);
+    const later = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await later.open;
+    later.say({ type: "hello", pass: await signPass(signing, { sub: "player_later", name: "Swift Fox 42", aud: "arena", iss: ISS, pass_version_number: 1, kind: "studio", iat: now, exp: now + 60 }) });
+    expect((await later.next()).me).toEqual({ id: "player_later", name: "Swift Fox 42", kind: "guest" });
+    later.ws.close();
+    own.close();
+  });
+
   it("gives the game server what an account owns from its pass, as Zaisma rooms do, and never players' games", async () => {
     const profiles = async (playerId: string) => ({ id: playerId, name: "Gold_Owl" });
     const wardrobe = defineGameServer({ maximumPlayerCount: 4, setup: () => ({}), onJoin: (_state: unknown, player: { id: string; ownedItemNames?: string[] }, room: { send(playerId: string, data: unknown): void }) => room.send(player.id, { owned: player.ownedItemNames ?? null }) });
@@ -190,7 +215,7 @@ describe("Node runner", () => {
     const now = Math.floor(Date.now() / 1000);
     const owner = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
     await owner.open;
-    owner.say({ type: "hello", pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, kind: "account", owned_item_names: ["gold_crown"], iat: now, exp: now + 60 }) });
+    owner.say({ type: "hello", pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", owned_item_names: ["gold_crown"], iat: now, exp: now + 60 }) });
     const welcome = await owner.next();
     expect(welcome.me).toEqual({ id: "player_owl", name: "Gold_Owl", kind: "account" });
     expect(await until(owner, "message")).toEqual({ type: "message", data: { owned: ["gold_crown"] } });
@@ -206,7 +231,7 @@ describe("Node runner", () => {
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string, playerTag: string, blockTagIds: string[]) => {
       const now = Math.floor(Date.now() / 1000);
-      return signPass(signing, { sub, aud: "arena", iss: ISS, kind: "account", player_tag: playerTag, block_tag_ids: blockTagIds, iat: now, exp: now + 60 });
+      return signPass(signing, { sub, aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", player_tag_id: playerTag, block_player_tag_ids: blockTagIds, iat: now, exp: now + 60 });
     };
     const kit = connect(ORIGIN, "/v1/rooms/arena/WALLED", at);
     await kit.open;
@@ -233,7 +258,7 @@ describe("Node runner", () => {
     const at = (own.wss.address() as { port: number }).port;
     const accountPass = async (sub: string, playerTag: string, friendTagIds: string[]) => {
       const now = Math.floor(Date.now() / 1000);
-      return signPass(signing, { sub, aud: "arena", iss: ISS, kind: "account", player_tag: playerTag, friend_tag_ids: friendTagIds, iat: now, exp: now + 60 });
+      return signPass(signing, { sub, aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", player_tag_id: playerTag, friend_player_tag_ids: friendTagIds, iat: now, exp: now + 60 });
     };
     const enter = async (sub: string, playerTag: string, friendTagIds: string[]) => {
       const c = connect(ORIGIN, "/v1/rooms/arena/FRNDSA", at);
@@ -295,6 +320,12 @@ describe("Node runner", () => {
     await first.own.close();
     const tickCountAtStop = first.own.rooms.get("RSTRTN").core.state.tickCount;
     expect(tickCountAtStop).toBeGreaterThan(0);
+    // The time lost is the clock's between the save and the room's return, so the clock (only) stands 3 seconds after the save:
+    // a restart on a busy machine takes as long as it takes, and the room still says exactly what was lost.
+    const { savedAtMs } = localRoomStates(file).read("RSTRTN");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(savedAtMs + 3000);
+    onTestFinished(() => void vi.useRealTimers());
 
     const second = await start();
     const back = connect(ORIGIN, "/v1/rooms/arena/RSTRTN", second.at);
@@ -304,7 +335,7 @@ describe("Node runner", () => {
     back.say({ type: "message", data: "how" });
     const how = (await until(back, "message")).data;
     expect(how.tickCount).toBeGreaterThanOrEqual(tickCountAtStop);
-    expect(how.restored).toMatchObject({ lostDurationSec: 0, awayReasons: ["lost"] });
+    expect(how.restored).toMatchObject({ lostDurationSec: 3, savedAt: new Date(savedAtMs).toISOString(), awayReasons: ["lost"] });
     back.ws.close();
     await second.own.close();
   });
@@ -548,12 +579,13 @@ describe("The Node runner, for the fullest pass Zaisma makes", () => {
       sub: "player_collector",
       aud: "arena",
       iss: ISS,
+      pass_version_number: 1,
       kind: "account",
       who_can_chat: "anyone",
-      chat_group: "chat_group_0123456789abcdef0123",
-      player_tag: tag(0),
-      friend_tag_ids: Array.from({ length: 200 }, (_, i) => tag(i + 1)),
-      block_tag_ids: Array.from({ length: 100 }, (_, i) => tag(i + 500)),
+      chat_group_id: "chat_group_0123456789abcdef0123",
+      player_tag_id: tag(0),
+      friend_player_tag_ids: Array.from({ length: 200 }, (_, i) => tag(i + 1)),
+      block_player_tag_ids: Array.from({ length: 100 }, (_, i) => tag(i + 500)),
       owned_item_names: Array.from({ length: 1000 }, (_, i) => `skin_${String(i).padStart(4, "0")}_`.padEnd(40, "x")),
       iat: now,
       exp: now + 600,
