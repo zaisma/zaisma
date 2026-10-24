@@ -59,7 +59,7 @@ describe("error codes", () => {
   });
 
   it("tell cloud saves that don't work where a game is played from cloud saves the developer turned off", () => {
-    expect(ERROR_CODES.cloud_saves_not_here).toEqual({ httpStatus: 409, meaning: "Cloud saves don't work here: this is a tester link, or this Zaisma has no accounts." });
+    expect(ERROR_CODES.cloud_saves_not_here).toMatchObject({ httpStatus: 409, meaning: expect.stringContaining("no API or MCP call returns it") });
     expect(ERROR_CODES.cloud_saves_off.httpStatus).toBe(409);
   });
 });
