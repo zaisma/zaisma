@@ -15,32 +15,40 @@ describe("checkChat", () => {
     });
     const sender = passOf({ sub: "player_sender1" });
     const receiver = passOf({ sub: "player_receiver1" });
-    await checkChat({ text: "555", sender, receivers: [receiver] });
-    await checkChat({ text: "123", sender, receivers: [receiver] });
-    const check = await checkChat({ text: "4567", sender, receivers: [receiver] });
+    await checkChat({ text: "555", senderPass: sender, receiverPasses: [receiver] });
+    await checkChat({ text: "123", senderPass: sender, receiverPasses: [receiver] });
+    const check = await checkChat({ text: "4567", senderPass: sender, receiverPasses: [receiver] });
     expect(check).toEqual({ isAllowed: false, reason: "contact_details", message: "Contact details can't be sent here.", hasSwearing: false });
     expect(sent.at(-1)).toEqual({ url: "https://rooms.zaisma.com/v1/chat/check", body: { gameSlug: "own-game", senderPass: sender, receiverPasses: [receiver], text: "4567", recentTexts: ["555", "123"] } });
     // Another sender's messages are their own.
-    await checkChat({ text: "hi", sender: passOf({ sub: "player_sender2" }), receivers: [receiver] });
+    await checkChat({ text: "hi", senderPass: passOf({ sub: "player_sender2" }), receiverPasses: [receiver] });
     expect(sent.at(-1)!.body.recentTexts).toEqual([]);
   });
 
   it("answers unchecked when Zaisma can't be reached, or the pass isn't Zaisma's", async () => {
     const unchecked = { isAllowed: false, reason: "unchecked", message: "This message couldn't be checked. Try again in a moment.", hasSwearing: false };
     vi.stubGlobal("fetch", async () => Promise.reject(new TypeError("fetch failed")));
-    expect(await checkChat({ text: "gg", sender: passOf({ sub: "player_sender3" }), receivers: [] })).toEqual(unchecked);
+    expect(await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender3" }), receiverPasses: [] })).toEqual(unchecked);
     vi.stubGlobal("fetch", async () => new Response("busy", { status: 503 }));
-    expect(await checkChat({ text: "gg", sender: passOf({ sub: "player_sender3" }), receivers: [] })).toEqual(unchecked);
+    expect(await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender3" }), receiverPasses: [] })).toEqual(unchecked);
     // A made-up pass can't send players' messages anywhere else.
     const asked: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => (asked.push(url), Response.json({ isAllowed: true, reason: null, message: null, hasSwearing: false })));
-    expect(await checkChat({ text: "gg", sender: passOf({ sub: "player_sender4", iss: "https://evil.example" }), receivers: [] })).toEqual(unchecked);
+    expect(await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender4", iss: "https://evil.example" }), receiverPasses: [] })).toEqual(unchecked);
     expect(asked).toEqual([]);
+  });
+
+  it("refuses a message over 2000 characters as too_long, without cutting or sending it", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => (asked.push(url), Response.json({ isAllowed: true, reason: null, message: null, hasSwearing: false })));
+    expect(await checkChat({ text: "a".repeat(2001), senderPass: passOf({ sub: "player_sender6" }), receiverPasses: [] })).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false });
+    expect(asked).toEqual([]);
+    expect((await checkChat({ text: "a".repeat(2000), senderPass: passOf({ sub: "player_sender6" }), receiverPasses: [] })).isAllowed).toBe(true);
   });
 
   it("refuses in Zaisma rooms, where the room filters chat itself", async () => {
     vi.stubGlobal("isZaismaRoomsSandbox", true);
-    const refused = await checkChat({ text: "gg", sender: passOf({ sub: "player_sender5" }), receivers: [] }).catch((error: unknown) => error);
+    const refused = await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender5" }), receiverPasses: [] }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ChatCheckError);
     expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("Zaisma.filterText") });
   });

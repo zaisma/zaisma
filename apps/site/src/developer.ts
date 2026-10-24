@@ -2200,7 +2200,7 @@ async function webhookRoute(request: Request, env: Env, sub: "test" | "deliverie
   if (method === "PATCH") {
     const replaceSigningSecret = body.replace_signing_secret;
     if (replaceSigningSecret !== undefined && typeof replaceSigningSecret !== "boolean") {
-      throw new ApiError("bad_replace_signing_secret", { message: "replace_signing_secret isn't true or false.", field: "replace_signing_secret", fix: "Send true to make a new signing secret (the old one stops at once), or leave it out." });
+      throw new ApiError("bad_replace_signing_secret", { message: "replace_signing_secret isn't true or false.", field: "replace_signing_secret", fix: "Send true to make a new signing secret (by default the old one stops at once), or leave it out." });
     }
     // What it would be: a new destination brings its own endpoint_url (or none) and game_slugs to fit.
     const destinationKind = body.destination_kind === undefined ? webhook.destination_kind : destinationKindOrThrow(body.destination_kind);

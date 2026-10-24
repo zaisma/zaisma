@@ -296,7 +296,7 @@ component({
 .select-list.in-place { position: relative; display: flex; width: 100%; }
 /* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
 .select-options { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
-.select-options.own-scroll:has(+ .rail:not([hidden])) { padding-right: 18px; }
+.select-options.own-scroll.shows-rail { padding-right: 18px; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 /* Beside an icon, the field's words start after it, and so do its choices'. */
@@ -550,7 +550,7 @@ component({
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 /* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
-.choice-list-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: 18px; }
+.choice-list-in.own-scroll.shows-rail { padding-right: 18px; }
 .choice-list .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
 .choice-list .choice-words { gap: 2px; }
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }

@@ -14,7 +14,7 @@ const reached = (changedPaths: string[]) => affected(changedPaths).test_files.ma
 
 describe("the graph", () => {
   it("has every test file, in the projects vitest.config.ts runs them in", () => {
-    const testFiles = ["node", "layout", "load", "site", "games", "core", "game-server", "rooms"].flatMap((project) => readdirSync(join(ROOT, "test", project)).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${project}/${name}`));
+    const testFiles = ["node", "layout", "contracts", "load", "site", "games", "core", "game-server", "rooms"].flatMap((project) => readdirSync(join(ROOT, "test", project)).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${project}/${name}`));
     expect([...graph.testFiles].sort()).toEqual(testFiles.sort());
     expect(Object.fromEntries(workerProjects())).toEqual({ site: "site", games: "games", core: "games", "game-server": "games", rooms: "rooms" });
   });
@@ -29,7 +29,7 @@ describe("the graph", () => {
   it("runs a Workers test's whole Worker when the test calls it, and the migrations for every Workers test", () => {
     // Most site tests call the site Worker (SELF), so a change anywhere in its code reaches them.
     expect(reached(["apps/site/src/forum.ts"])).toEqual(expect.arrayContaining(["test/site/forum.test.ts", "test/site/accounts.test.ts"]));
-    const workersTests = graph.testFiles.filter((path: string) => !/^test\/(node|layout)\//.test(path));
+    const workersTests = graph.testFiles.filter((path: string) => !/^test\/(node|layout|contracts)\//.test(path));
     expect(reached(["migrations/0001_init.sql"])).toEqual(expect.arrayContaining(workersTests));
     // The core tests only import what they test: the games Worker's own code isn't theirs.
     expect(reached(["apps/games/src/index.ts"]).some((path) => path.startsWith("test/core/"))).toBe(false);

@@ -240,12 +240,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
     return drawn;
   }
-  // Draws the layer's frame and answers whether it did: not while its program is still compiling.
+  // Draws the layer's frame and answers whether it did: not while its program is still compiling. Its program starts compiling once it's
+  // near the screen (prepare) or first drawn: a page of many backdrops (the gallery's stand-in games) compiles only the ones in reach,
+  // since a phone can take a second or more to compile one and, where it can't compile in the background, holds the page while it does.
   function shaderDrawer(canvas) {
     var source = canvas.getAttribute("data-backdrop-shader") || ZAISMA, context = sharedContext(), picture = null;
     if (!context) return null;
-    programFor(context, source);
-    return function (timeS, colors, layer) {
+    function drawShader(timeS, colors, layer) {
       var context = sharedContext(), built = context && programFor(context, source);
       if (!built || !settle(built) || !settle(context.upscale)) {
         // Neither the shader with the glass pass nor alone built here: the layer is lost, and the CSS gradient under it stays.
@@ -282,9 +283,12 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       // Read straight after the frame is drawn, while it's still in the buffer, then copied out before the next canvas draws over it.
       if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer, width, height); }
       picture.drawImage(board, 0, board.height - height, width, height, 0, 0, width, height);
-      canvas.classList.add("is-drawn");
+      // Marked once: writing the class every frame, even unchanged, is a change to the page its watchers hear 30 times a second.
+      if (!canvas.classList.contains("is-drawn")) canvas.classList.add("is-drawn");
       return true;
-    };
+    }
+    drawShader.prepare = function () { var context = sharedContext(); if (context) programFor(context, source); };
+    return drawShader;
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
   var FADE_MS = 500;
@@ -414,7 +418,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     // at half, its finest details (snowflakes, stars) would be a pixel or two and shimmer as they move. A scene gets the screen's
     // sharpness, up to 2x, and draws itself at its canvas's size.
     var isFramed = canvas.classList.contains("is-framed");
-    var layer = { canvas: canvas, isInView: true, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
+    // In view as it's set up, read once, until its observer says (below): one far down the page isn't drawn, or compiled, for its first frame.
+    var isInView = inViewAtStart && inViewAtStart.has(canvas) ? inViewAtStart.get(canvas) : isInViewNow(canvas);
+    var layer = { canvas: canvas, isInView: isInView, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
@@ -426,19 +432,33 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       if (width === canvas.width && height === canvas.height) return;
       canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
-      if (canvas.backdropLayer && !isFirstPaintDue) draw(layer, performance.now());
+      if (canvas.backdropLayer && !isFirstPaintDue && layer.isInView) draw(layer, performance.now());
     };
     layer.size();
     window.zaismaWatch.size(canvas, layer.size);
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.onView) layer.onView(); if (layer.isInView) wake(); }).observe(canvas);
+    // Its program starts compiling a screen before it's in view, so it's ready by the time it is.
+    if (layer.drawShader && !isInView && window.IntersectionObserver) {
+      var near = new IntersectionObserver(function (entries) { if (!entries[entries.length - 1].isIntersecting) return; near.disconnect(); layer.drawShader.prepare(); }, { rootMargin: "100% 0px" });
+      near.observe(canvas);
+    } else if (layer.drawShader) layer.drawShader.prepare();
     // A page pausing a layer and letting it go again (the home, as a game's background covers Zaisma's) wakes the loop.
     new MutationObserver(wake).observe(canvas, { attributes: true, attributeFilter: ["data-backdrop-paused"] });
     layers.push(layer);
     // The first frame is drawn at once, so the canvas never shows empty while it waits for the next animation frame.
-    if (!isFirstPaintDue) draw(layer, performance.now());
+    if (!isFirstPaintDue && layer.isInView) draw(layer, performance.now());
     wake();
   }
-  document.querySelectorAll("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']").forEach(setUp);
+  function isInViewNow(canvas) {
+    var box = canvas.getBoundingClientRect();
+    return box.bottom > 0 && box.right > 0 && box.top < window.innerHeight && box.left < window.innerWidth;
+  }
+  // Every canvas's place is read before any is set up: setting one up sizes it, and the next read would lay the page out again (a gallery
+  // page has a canvas for each stand-in background).
+  var startingLayers = document.querySelectorAll("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']"), inViewAtStart = new Map();
+  startingLayers.forEach(function (el) { if (el.tagName === "CANVAS") inViewAtStart.set(el, isInViewNow(el)); });
+  startingLayers.forEach(setUp);
+  inViewAtStart.clear();
   /*
    * A page that changes its backdrop (the home, as the game in focus changes) adds and removes layers itself: add(el) sets a new frame or
    * picture up (its glass is measured once its still has loaded), remove(el) forgets one the page took out, and forgetGlass() lets every piece of

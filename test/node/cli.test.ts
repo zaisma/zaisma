@@ -13,7 +13,7 @@ import { SHADER_LIMITS } from "../../packages/cli/shader-check.mjs";
 import { png } from "../site/png-stub.ts";
 import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { FORUM_CATEGORIES, TOPIC_KINDS } from "../../packages/core/src/forum.ts";
-import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/index.ts";
+import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/internal.ts";
 import { dumpParts, nodeRead, trickyDatabase } from "./dump-fixtures.ts";
 import { zipStream, type ZipSource } from "../../apps/site/src/zip-writer.ts";
 

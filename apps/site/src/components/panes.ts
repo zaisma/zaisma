@@ -235,7 +235,7 @@ const PANE_STYLES = `
   --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
-.glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 16px); }
+.glass-pane > .pane-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
@@ -507,12 +507,34 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
   });
 }
 
-/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively. */
+/** Sheets: a button that names one (aria-controls, with no aria-expanded: that's a dropdown) opens it over the page; a press beside it closes it. Esc and its own buttons close it natively.
+ *  A closed dialog leaves the top layer, and unless the browser keeps it there through the exit (CSS \`overlay\`, which iOS can claim
+ *  without doing), it's drawn inside whatever holds it, far from where it was, or not at all. So every close (Esc, a dialog-method
+ *  button, a press beside it, a script's close()) keeps it open while it leaves, in every browser, and only then closes it. */
 export const SHEET_SCRIPT = `/* sheets */(function () {
+  var close = HTMLDialogElement.prototype.close;
+  function isLeaving(sheet) { return sheet.open && sheet.matches(".sheet:not(.in-place)"); }
+  function leave(sheet, closeArguments) {
+    if (sheet.classList.contains("is-leaving")) return;
+    sheet.classList.add("is-leaving");
+    var timer = setTimeout(done, 400);
+    function end(event) { if (event.target === sheet && event.propertyName === "opacity") done(); }
+    function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
+    sheet.addEventListener("transitionend", end);
+  }
+  HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
+  document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
+  document.addEventListener("submit", function (event) {
+    var method = (event.submitter && event.submitter.getAttribute("formmethod")) || event.target.getAttribute("method");
+    var sheet = event.target.closest("dialog");
+    if (!method || method.toLowerCase() !== "dialog" || !sheet || !isLeaving(sheet)) return;
+    event.preventDefault();
+    leave(sheet, event.submitter && event.submitter.hasAttribute("value") ? [event.submitter.value] : []);
+  });
   document.addEventListener("click", function (event) {
     var opener = event.target.closest && event.target.closest("[aria-controls]:not([aria-expanded])");
     var named = opener && document.getElementById(opener.getAttribute("aria-controls"));
-    if (named && named.matches("dialog.sheet")) { event.preventDefault(); if (!named.open) named.showModal(); return; }
+    if (named && named.matches("dialog.sheet")) { event.preventDefault(); named.classList.remove("is-leaving"); if (!named.open) named.showModal(); return; }
     var open = event.target.matches && event.target.matches("dialog.sheet[open]") ? event.target : null;
     if (!open || !event.detail) return;
     var r = open.getBoundingClientRect();
@@ -536,14 +558,14 @@ const SHEET_STYLES = `
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
-.sheet:not([open]) { opacity: 0; transform: translateY(16px) scale(0.98); transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
+.sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
-.sheet:not([open])::backdrop { opacity: 0; }
+.sheet:is(:not([open]), .is-leaving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
 .sheet.placement-foot:not(.in-place) { margin: auto auto var(--pad-pane); }
-.sheet.placement-foot:not([open]) { transform: translateY(40px); }
+.sheet.placement-foot:is(:not([open]), .is-leaving) { transform: translateY(40px); }
 @starting-style { .sheet.placement-foot[open] { transform: translateY(40px); } }
 .sheet.placement-foot::backdrop { background: transparent; }
 /* In place (the gallery's still copy): a pane where it sits, in the page's flow, so it shows whole: there's no window to fit. */
@@ -559,20 +581,20 @@ const SHEET_STYLES = `
 .sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-inline: calc(-1 * var(--pad-frame)); }
 .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding-inline: var(--pad-frame); }
 /* With its rail showing, the body keeps room for it along its right edge. */
-.sheet-body.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
+.sheet-body.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 /* With no buttons under it, the body's last words are at the sheet's foot and keep its margin there. */
 .pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body > :is(p, h3, .stack-cell.is-words):last-child { padding-bottom: var(--pad-words); }
 .sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
-.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
+.sheet-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
   .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
-  .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
+  .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not([open]) { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -584,7 +606,7 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it. Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [

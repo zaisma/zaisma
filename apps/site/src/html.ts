@@ -21,7 +21,18 @@ export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((sc
  * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads. The browser fetches them
  * first, ahead of the page's other scripts, which would otherwise share the line with them as the first paint waits.
  */
-export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
+export const headScriptTags = (...scripts: PageScript[]): Raw =>
+  raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
+
+/**
+ * The head scripts read the page's tokens as they start (the cuts' sizes, the slant), so they must run after its stylesheets apply. Every
+ * browser holds a script that isn't deferred until the stylesheets above it have, but Safari runs deferred ones as soon as the page is read,
+ * ahead of a stylesheet still loading, as it is on a first visit: every cut then read as 0, and every pane and control stayed square. So a
+ * page with headScriptTags ends its body with this one, which does nothing but wait: deferred scripts run only after the page's last
+ * script has. At the body's end, not in the head, so the browser reads the whole page while the stylesheet loads.
+ */
+const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */");
+export const stylesAppliedTag = (): Raw => raw(`<script src="${pageScriptPath(STYLES_APPLIED_SCRIPT)}"></script>`);
 
 /**
  * A script in the page's <head> that runs as it's read, before anything below it: one that sets what the first paint shows (the home's
@@ -635,11 +646,13 @@ ${options.isBare
 <main${options.isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
+${stylesAppliedTag()}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made.
-  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
+  // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made. The
+  // styles-applied script holds the head scripts until it's here, so it comes with the stylesheet, not a trip after it.
+  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(COMPONENT_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(HEADER_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
   // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });

@@ -1,4 +1,5 @@
 import { DataSet, RegExpMatcher, englishDataset, englishRecommendedTransformers } from "obscenity";
+import { CHAT_FILTER_LIMITS } from "./chat-filter.ts";
 
 /**
  * Zaisma's text filter, for words players type that other players see on zaisma.com, like room names
@@ -18,11 +19,19 @@ const HIDDEN = /[\u0000-\u001f\u007f-\u009f­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 export function tidyText(text: unknown, maximumCharacterCount: number): string {
   return String(text ?? "")
     .normalize("NFKC")
+    // A line break or tab is a space, so the words on either side never run together.
+    .replace(/[\t\n\v\f\r\u2028\u2029]/g, " ")
     .replace(HIDDEN, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maximumCharacterCount)
     .trim();
+}
+
+/** Tidy a chat message to show: as tidyText, but its line breaks stay (at most one blank line in a row). */
+export function tidyChatText(text: unknown, maximumCharacterCount: number): string {
+  const lines = String(text ?? "").replace(/\r\n?|\u2028|\u2029/g, "\n").split("\n").map((line) => tidyText(line, maximumCharacterCount));
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, maximumCharacterCount).trim();
 }
 
 // A phone number, however it's spaced.
@@ -140,11 +149,11 @@ const hasWords = (matcher: RegExpMatcher, text: string) => {
  * last 2 minutes, oldest first), so contact details sent in pieces are caught too.
  */
 export function checkChatText(text: string, recentTexts: string[] = []): ChatTextCheck {
-  const clean = tidyText(text, 500);
+  const clean = tidyText(text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
   const hasSwearing = clean !== "" && hasWords(swearing, clean);
   const blocked = (reason: ChatBlockReason): ChatTextCheck => ({ verdict: "blocked", reason, hasSwearing });
   if (!clean) return { verdict: "allowed", reason: null, hasSwearing };
-  const recent = recentTexts.map((recentText) => tidyText(recentText, 500)).filter(Boolean);
+  const recent = recentTexts.map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount)).filter(Boolean);
   // Pieces: the message joined to the ones before it, unless one of those was contact details already (and blocked then).
   const isSplitContact = recent.length > 0 && !recent.some(isContact) && isContact([...recent, clean].join(" "));
   // A number sent a few digits at a time: the run of digit-only messages this one ends.

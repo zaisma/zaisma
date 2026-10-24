@@ -120,16 +120,21 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       });
     });
     // Anything with an edge of its own (a picture, a filled, bordered or shadowed box) at the frame gap in a cut corner of the pane is cut
-    // there too, by itself or by what holds it: nothing square sits against a cut corner. Words, bare icons and thin lines have no edge.
+    // there too, by itself or by what holds it: nothing square sits against a cut corner. Words, bare icons and thin lines have no edge, and
+    // neither has a shadow all in a clear color (a focus ring at rest). Words inline (a link) are never cut, as the edge rule leaves them.
+    function isShadowSeen(shadow) {
+      return shadow !== "none" && (shadow.match(/rgba?\([^)]*\)/g) || [""]).some(function (color) { var parts = color.match(/[\d.]+/g); return !parts || parts.length < 4 || Number(parts[3]) > 0.04; });
+    }
     if (!pane.closest(".frame")) (function walk(el) {
       Array.prototype.forEach.call(el.children, function (child) {
         if (child instanceof SVGElement || child.matches("[data-glass]:not(.frame), .edge, .cut-line") || !isShown(child) || isScrolledAway(child, pane)) return;
         var r = child.getBoundingClientRect(), d = distances(r), css = getComputedStyle(child);
         if (!r.width || !r.height || css.clipPath !== "none") return;
+        if (css.display === "inline" || css.display === "contents") return walk(child);
         var corner = [["top", "left"], ["top", "right"], ["bottom", "right"], ["bottom", "left"]].findIndex(function (sides, i) {
           return paneCuts[i] > 0 && d[sides[0]] <= gap[sides[0]] + TOLERANCE_PX && d[sides[1]] <= gap[sides[1]] + TOLERANCE_PX;
         });
-        var isEdged = /^(IMG|VIDEO|CANVAS|IFRAME)$/.test(child.tagName) || css.backgroundImage !== "none" || css.boxShadow !== "none" ||
+        var isEdged = /^(IMG|VIDEO|CANVAS|IFRAME)$/.test(child.tagName) || css.backgroundImage !== "none" || isShadowSeen(css.boxShadow) ||
           (function (fill) { return fill && (fill.length < 4 || Number(fill[3]) > 0.04); })(css.backgroundColor.match(/[\d.]+/g)) ||
           ["Top", "Right", "Bottom", "Left"].some(function (side) { return parseFloat(css["border" + side + "Width"]) > 0 && !/rgba\(.*, 0\)|transparent/.test(css["border" + side + "Color"]); });
         if (corner >= 0 && isEdged && Math.min(r.width, r.height) >= 6) report("square in a cut corner", child, "an edge in the pane's " + ["top left", "top right", "bottom right", "bottom left"][corner] + " corner with no cut");

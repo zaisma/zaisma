@@ -163,6 +163,20 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     window.zaismaWatch.size(row, function () { lay(row); });
   });
   if (document.fonts) document.fonts.ready.then(function () { document.querySelectorAll(".layout-row").forEach(lay); });
+  // A cell whose only thing is hidden is marked so (holds-only-hidden), for SHOWN to pass it over by its class: a :has() inside
+  // :nth-child(1 of …) makes WebKit check the whole page again on every hidden that changes anywhere, 75 ms each on a page of fields.
+  var CELLS = ".stack-cell, .row-cell";
+  function mark(cell) {
+    var isOnlyHidden = cell.children.length === 1 && cell.firstElementChild.hidden;
+    if (cell.classList.contains("holds-only-hidden") !== isOnlyHidden) cell.classList.toggle("holds-only-hidden", isOnlyHidden);
+  }
+  window.zaismaWatch.each(CELLS, mark);
+  window.zaismaWatch.page(function (changes) {
+    changes.forEach(function (change) {
+      var cell = change.type === "attributes" ? change.target.parentElement : change.target;
+      if (cell && cell.matches && cell.matches(CELLS) && (change.type !== "attributes" || change.attributeName === "hidden")) mark(cell);
+    });
+  });
 })();
 `;
 
@@ -242,8 +256,8 @@ const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-co
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
 const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".text-btn", ".run-wrap > .run", ".cut-field > .field", ".find", ".tab-switch", ".steps"];
 
-/** What shows of a holder's children: not hidden, not a cell whose only thing is hidden, and not a script, a template or a form's hidden field. */
-const SHOWN = ':not([hidden], :has(> [hidden]:only-child), script, template, input[type="hidden"])';
+/** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), and not a script, a template or a form's hidden field. */
+const SHOWN = ':not([hidden], .holds-only-hidden, script, template, input[type="hidden"])';
 
 /**
  * Components whose own words sit at their top (a field's label, a table's caption) or their foot (a field's hint), as [the component,
@@ -295,7 +309,7 @@ export const STACK_STYLES = `
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }
 .stack-cell { display: flex; flex-direction: column; min-width: 0; }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
-.layout-stack > .stack-cell:nth-child(1 of :not([hidden], :has(> [hidden]:only-child))) { margin-top: 0; }
+.layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden)) { margin-top: 0; }
 /* A cell whose only thing is hidden (a page script shows it: a step, an error) takes no room. */
 .stack-cell:has(> [hidden]:only-child) { display: none; }
 /* Words keep the pane's margin: in from the frame gap by --pad-words (a pane sets it), at its sides, and at its top and bottom edges. */

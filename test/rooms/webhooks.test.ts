@@ -44,7 +44,7 @@ async function recordNow(gameId: string) {
   await runDurableObjectAlarm(objectOf(gameId));
 }
 
-const BUG = { id: "webhook_event_8f3k2m9q1x7c4v6b0n5z", kind: "bug_reported", happened_at: "2026-10-17T12:00:00.000Z", game: { slug: "sky-hopper" }, version: null, bug_report: { id: "report_4k2m", player_text: "Stuck on level 2" } };
+const BUG = { id: "webhook_event_8f3k2m9q1x7c4v6b0n5z", kind: "bug_reported", created_at: "2026-10-17T12:00:00.000Z", game: { slug: "sky-hopper" }, version: null, bug_report: { id: "report_4k2m", player_text: "Stuck on level 2" } };
 
 // A bug report becomes a "Discord post" with the game's own token, kept in its database by event.id.
 const DISCORD = `
@@ -86,6 +86,8 @@ describe("webhooks to the game server", () => {
   it("fail, to be tried again, when nothing can take them", async () => {
     const { gameId: withoutHandler } = await addGame("requests-only", "export default { onRequest: () => 1 };");
     expect((await sendEvent(withoutHandler, BUG)).failureMessage).toContain("without onWebhook");
+    // Zaisma erases a deleted account's rows itself, so with no onWebhook there's nothing left to deliver.
+    expect((await sendEvent(withoutHandler, { ...BUG, kind: "account_deleted", bug_report: null, account_deletion: { player_id: "player_mia", deleted_account_erase_enabled: true } })).failureMessage).toBeNull();
     const { gameId: held } = await addGame("held-game", DISCORD, "held");
     expect((await sendEvent(held, BUG)).failureMessage).toContain("isn't playable");
     expect(await gameRows(held, "SELECT name FROM sqlite_master WHERE name = 'posts'")).toEqual([]);
