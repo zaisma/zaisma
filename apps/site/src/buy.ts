@@ -509,9 +509,9 @@ function originOf(address: string | null): string | null {
   }
 }
 
-/** The origins the buy window may answer: the game's own servers on https, and its developer's sign-in apps' redirect addresses. */
+/** The origins the buy window may answer: the game's own servers' hosts on https (wss://play.example.com is https://play.example.com), and its developer's sign-in apps' redirect addresses. */
 async function openerOriginsOf(env: Env, game: { owner_id: string | null; own_server_urls: string }): Promise<string[]> {
-  const servers = ownServerUrlsOf(game).filter((server) => server.startsWith("https://"));
+  const servers = ownServerUrlsOf(game).filter((server) => /^(https|wss):\/\//.test(server)).map((server) => server.replace(/^wss:/, "https:"));
   const apps = game.owner_id ? await signInAppsFor(env.DB, game.owner_id) : [];
   return [...servers, ...apps.flatMap(redirectUrlsOf)].map(originOf).filter((origin): origin is string => origin !== null && origin !== "null");
 }

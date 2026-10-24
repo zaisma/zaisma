@@ -413,3 +413,48 @@ describe("refunding a sale", () => {
     expect((await tool("refund_purchase", { slug: "tiny-farm", purchase_id: purchaseId })).code).toBe("already_refunded");
   });
 });
+
+describe("the sheet's pages", () => {
+  const page = (path: string, headers: Record<string, string> = {}) => SELF.fetch(`${SITE}${path}`, { headers });
+  const sheetData = async (response: Response | string) => JSON.parse((typeof response === "string" ? response : await response.text()).match(/<script type="application\/json" id="buy-sheet-data">(.*?)<\/script>/)![1]!) as Record<string, any>;
+
+  it("puts the sheet on the game page, with Stripe allowed only there", async () => {
+    const gamePage = await page("/g/tiny-farm");
+    const policy = gamePage.headers.get("content-security-policy")!;
+    expect(policy).toMatch(/script-src 'self'[^;]* https:\/\/js\.stripe\.com/);
+    expect(policy).toMatch(/frame-src [^;]*https:\/\/js\.stripe\.com https:\/\/hooks\.stripe\.com/);
+    expect(policy).toContain("connect-src 'self' https://api.stripe.com");
+    expect(gamePage.headers.get("permissions-policy")).toContain('payment=(self "https://js.stripe.com")');
+    expect(await sheetData(gamePage)).toMatchObject({ slug: "tiny-farm", place: "game_page", stripe_mode: "stripe", stripe_publishable_key: env.STRIPE_PUBLISHABLE_KEY, is_preview: false, asked: null });
+    const games = await page("/games");
+    expect(games.headers.get("content-security-policy")).not.toContain("stripe");
+    expect(games.headers.get("permissions-policy")).toContain("payment=()");
+  });
+
+  it("says on the game page what the game sells and its refund policy", async () => {
+    expect(await (await page("/g/tiny-farm")).text()).toContain("No in-game purchases");
+    await setItem("revive", revive);
+    await setItem("barn", barn);
+    const text = await (await page("/g/tiny-farm")).text();
+    expect(text).toContain("Cosmetic items, items that help you play");
+    expect(text).toContain("Refunds for items you haven&#39;t used yet, within 14 days.");
+    await api("/games/tiny-farm/purchase-settings", { method: "PATCH", body: { own_payment_categories: ["currency"] } });
+    expect(await (await page("/g/tiny-farm")).text()).toContain("Cosmetic items, items that help you play, in-game currency; some handled by the developer, not Zaisma");
+  });
+
+  it("opens the window for a game on its own site, answering only an origin the developer registered", async () => {
+    await env.DB.prepare(`UPDATE games SET own_server_urls = '["wss://play.tinyfarm.test"]' WHERE slug = 'tiny-farm'`).run();
+    const registered = await page("/buy/tiny-farm/revive?item_count=2&request_number=7&game_account_id=farmer-9", { referer: "https://play.tinyfarm.test/play" });
+    expect(registered.status).toBe(200);
+    expect(registered.headers.get("content-security-policy")).toContain("https://js.stripe.com");
+    const registeredText = await registered.text();
+    const data = await sheetData(registeredText);
+    expect(data).toMatchObject({ place: "window", asked: { item_name: "revive", item_count: 2, game_account_id: "farmer-9", request_number: 7 }, opener_origin: "https://play.tinyfarm.test" });
+    // A guest's way to an account comes back to the same window, still answering the game's site.
+    expect(registeredText).toContain(encodeURIComponent("opener_origin=https%3A%2F%2Fplay.tinyfarm.test"));
+    expect((await sheetData(await page("/buy/tiny-farm/revive", { referer: "https://evil.test/" }))).opener_origin).toBeNull();
+    expect((await sheetData(await page("/buy/tiny-farm/revive?opener_origin=https%3A%2F%2Fevil.test"))).opener_origin).toBeNull();
+    expect((await sheetData(await page("/buy/tiny-farm/revive?opener_origin=https%3A%2F%2Fplay.tinyfarm.test"))).opener_origin).toBe("https://play.tinyfarm.test");
+    expect((await page("/buy/no-such-game/revive")).status).toBe(404);
+  });
+});
