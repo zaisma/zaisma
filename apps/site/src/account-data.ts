@@ -61,6 +61,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   connected_app_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   session_proofs: { file_path: null, reason: "How each signed-in session last proved it's the owner, kept a day." },
   purchase_confirmations: { file_path: null, reason: "When each signed-in session last confirmed a buy, kept a day." },
+  stripe_connect_states: { file_path: null, reason: "One-time links to connect a Stripe account, kept for minutes." },
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },
   room_keys: { file_path: null, reason: "Counts of room passes, kept a day." },
   player_erases: { file_path: null, reason: "Only exists once an account is deleted." },

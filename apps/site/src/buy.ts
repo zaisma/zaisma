@@ -377,7 +377,7 @@ async function startSavingCard(env: Env, session: Session, account: Account, bod
   const passkeys = await passkeysFor(env.DB, account.id);
   if (!email && !passkeys.length) return refuse(409, "account_protection_needed", "Add a passkey or an email to your account first, so nobody else can spend with your card.");
   const receiptEmail = body.receipt_email ?? email;
-  if (typeof receiptEmail !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail) || receiptEmail.length > 254) return refuse(400, "bad_receipt_email", "receipt_email is the email your receipts go to, like alex@example.com.");
+  if (!isReceiptEmail(receiptEmail)) return refuse(400, "bad_receipt_email", "receipt_email is the email your receipts go to, like alex@example.com.");
   const setup = await setUpCard(env, account.id);
   return { setup_intent_id: setup.setupIntentId, client_secret: setup.clientSecret, receipt_email: receiptEmail };
 }
@@ -451,4 +451,9 @@ export async function failStaleSales(env: Env, nowMs = Date.now()): Promise<void
       console.error(`Couldn't close the pending sale ${sale.id}:`, error);
     }
   }
+}
+
+/** Whether a receipt email is one: an address like alex@example.com, at most 254 characters. */
+export function isReceiptEmail(receiptEmail: unknown): receiptEmail is string {
+  return typeof receiptEmail === "string" && receiptEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail);
 }

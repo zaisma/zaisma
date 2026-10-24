@@ -192,7 +192,7 @@ describe("a developer's Stripe account", () => {
     expect(back.headers.get("location")).toBe(`${SITE}/developer/settings?stripe=connected#payments`);
     expect(stripeCalls.find((call) => call.path === "/v1/payment_method_domains")).toMatchObject({ stripeAccount: ACCOUNT });
     expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: true, stripe_account_id: ACCOUNT, can_take_payments: true, country_code: "DE", default_currency_code: "eur", business_name: "Pixel Smith Games", support_email: "help@pixelsmith.example", is_stripe_tax_used: false });
-    expect(await env.DB.prepare("SELECT event_kind FROM security_events WHERE account_id = 'dev-1' AND event_kind = 'stripe_account_connected'").first()).not.toBeNull();
+    expect(await env.DB.prepare("SELECT kind FROM security_events WHERE account_id = 'dev-1' AND kind = 'stripe_account_connected'").first()).not.toBeNull();
   });
 
   it("turns Stripe Tax on and off, follows Stripe's changes, and disconnects", async () => {
@@ -396,7 +396,7 @@ describe("refunding a sale", () => {
     await setItem("golden_barn", barn);
     purchaseId = (await player("/api/buy/tiny-farm/start", { body: { item_name: "golden_barn" } })).answer.purchase_id;
     await env.DB.prepare("UPDATE purchases SET stripe_payment_intent_id = 'pi_test_barn' WHERE id = ?").bind(purchaseId).run();
-    await connectEvent("payment_intent.succeeded", { id: "pi_test_barn", status: "succeeded", amount: 999, currency: "eur" });
+    await connectEvent("payment_intent.succeeded", { id: "pi_test_barn", status: "succeeded", amount: 999, currency: "eur", latest_charge: { billing_details: { email: "emma@example.com" } } });
   });
 
   it("gives some back as goodwill, then the rest, through the developer's Stripe", async () => {

@@ -654,7 +654,7 @@ export const TOP_UP_CHECKOUT = object({
 /** The developer's own Stripe account, connected for the buy sheet (get_stripe_account). */
 export const STRIPE_ACCOUNT_FIELDS = {
   is_connected: yes("Whether a Stripe account is connected. Until it is, players can't buy priced items."),
-  stripe_account_id: nullable(text("Stripe's ID for the connected account, like acct_1Pq…; null when none is.")),
+  stripe_account_id: nullable(describe({ type: "string", pattern: "^acct_" }, "Stripe's ID for the connected account, like acct_1Pq…; null when none is.")),
   can_take_payments: yes("Whether Stripe lets the account take payments now. A new account may need details on Stripe first."),
   country_code: nullable(text("The account's country, as an ISO 3166 code like DE.")),
   default_currency_code: nullable(text("The account's own currency, lowercase like eur.")),

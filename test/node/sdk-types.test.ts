@@ -158,7 +158,7 @@ function say(socket: StandInSocket, message: unknown) {
 /** The names a refusal lists after "It takes:" or "Rooms have:", sorted. */
 function listed(error: unknown): string[] {
   const message = (error as Error).message;
-  const list = message.match(/(?:It takes|Rooms have|Zaisma\.saves has): (.*)\.$/);
+  const list = message.match(/(?:It takes|Rooms have|Zaisma\.saves has|Zaisma\.items has): (.*)\.$/);
   if (!list) throw new Error(`Not a refusal that lists names: ${message}`);
   return list[1]!.split(", ").sort();
 }
