@@ -56,6 +56,8 @@ export interface RunButtonOptions extends ButtonTarget {
   /** Can't be pressed yet (a step's Next before what it needs is filled in): it's no longer orange, since orange is only what you can act on, but carved flat into the glass with quieter words. */
   isDisabled?: boolean;
   state?: ButtonState;
+  /** Not shown for now: a page script shows it (the buy sheet's Make an account, for a guest). */
+  isHidden?: boolean;
 }
 
 /** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
@@ -63,7 +65,7 @@ export function runButton(label: string, options: RunButtonOptions = {}): Contro
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
-  return controlMarkup(html`${opening(shell, options, options.isBusy, disabledAttribute(options))}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`, options.isBig ? "big" : "regular");
+  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${loader()}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`, options.isBig ? "big" : "regular");
 }
 
 export interface CutButtonOptions extends ButtonTarget {

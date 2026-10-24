@@ -41,15 +41,20 @@ function unavailable(detail: string): ApiError {
   return new ApiError("stripe_unavailable", { message: `Stripe didn't take it: ${detail}`, fix: "Try again in a minute; if it keeps happening, tell Zaisma with message_zaisma." });
 }
 
+/** Whether the site runs as the local preview: on this machine, or opened from a phone on its tailnet (a .ts.net name only its own devices reach). */
+export function isLocalPreview(env: Env): boolean {
+  const siteHost = new URL(env.SITE_ORIGIN).hostname;
+  return siteHost === "localhost" || siteHost === "127.0.0.1" || siteHost.endsWith(".ts.net");
+}
+
 /**
  * Where Stripe's API and its Connect sign-in are. Only the local preview points them at a stand-in
- * (STRIPE_API_ORIGIN, scripts/preview/fake-stripe.mjs), and only while the site itself is on localhost, so a
+ * (STRIPE_API_ORIGIN, scripts/preview/fake-stripe.mjs), and only while the site itself is the local preview, so a
  * deployed Zaisma can never talk to anything but Stripe.
  */
 export function stripeOrigins(env: Env): { apiOrigin: string; connectOrigin: string } {
   if (!env.STRIPE_API_ORIGIN) return { apiOrigin: STRIPE_API_ORIGIN, connectOrigin: STRIPE_CONNECT_ORIGIN };
-  const siteHost = new URL(env.SITE_ORIGIN).hostname;
-  if (siteHost !== "localhost" && siteHost !== "127.0.0.1") throw unavailable("STRIPE_API_ORIGIN only works in the local preview.");
+  if (!isLocalPreview(env)) throw unavailable("STRIPE_API_ORIGIN only works in the local preview.");
   return { apiOrigin: env.STRIPE_API_ORIGIN, connectOrigin: env.STRIPE_API_ORIGIN };
 }
 

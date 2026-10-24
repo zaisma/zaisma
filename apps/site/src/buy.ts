@@ -37,6 +37,7 @@ import {
   cancelPaymentOnAccount,
   chargeOnAccount,
   clonePaymentMethod,
+  isLocalPreview,
   paymentIntentOnAccount,
   playerCustomerFor,
   removeCard,
@@ -153,8 +154,7 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
 
 /** The player's country, from Cloudflare; in the local preview only, preview_country_code stands in for it. */
 function countryOf(request: Request, env: Env, body: Record<string, unknown>): string | null {
-  const isPreview = new URL(env.SITE_ORIGIN).hostname === "localhost";
-  if (isPreview && typeof body.preview_country_code === "string" && /^[A-Z]{2}$/.test(body.preview_country_code)) return body.preview_country_code;
+  if (isLocalPreview(env) && typeof body.preview_country_code === "string" && /^[A-Z]{2}$/.test(body.preview_country_code)) return body.preview_country_code;
   return request.headers.get("cf-ipcountry");
 }
 

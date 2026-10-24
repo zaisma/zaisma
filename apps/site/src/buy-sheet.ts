@@ -4,9 +4,10 @@ import type { Env } from "./env.ts";
 import { cutButton, runButton, textButton } from "./components/actions.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { row, stack } from "./components/layout.ts";
+import { stack } from "./components/layout.ts";
 import { sheet } from "./components/panes.ts";
 import { facts } from "./components/reading.ts";
+import { isLocalPreview } from "./stripe.ts";
 
 /**
  * The buy sheet (docs/DECISIONS.md, "One Zaisma buy sheet; we own the buying experience, not the money."): it rises over the running
@@ -47,8 +48,8 @@ export function buySheet(options: { joinHref: string; signInHref: string }): Raw
         markup: stack({
           items: [
             { kind: "words", markup: html`<p id="buy-confirm-text"></p>` },
-            { kind: "control", id: "buy-pin", isHidden: true, markup: cutField({ name: "purchase_pin", id: "buy-pin-field", label: "Purchase PIN", type: "password", autocomplete: "off" }) },
-            { kind: "control", id: "buy-password", isHidden: true, markup: cutField({ name: "password", id: "buy-password-field", label: "Password", type: "password", autocomplete: "current-password" }) },
+            { kind: "control", id: "buy-pin", isHidden: true, markup: cutField({ name: "purchase_pin", id: "buy-pin-field", label: "Purchase PIN", type: "password", icon: "lock", autocomplete: "off" }) },
+            { kind: "control", id: "buy-password", isHidden: true, markup: cutField({ name: "password", id: "buy-password-field", label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
             { kind: "words", id: "buy-confirm-problem", isHidden: true, markup: html`<p></p>` },
             { kind: "words", id: "buy-switch", isHidden: true, markup: textButton("Use your password instead", { type: "button" }) },
           ],
@@ -60,17 +61,7 @@ export function buySheet(options: { joinHref: string; signInHref: string }): Raw
         isHidden: true,
         markup: stack({
           items: [
-            { kind: "words", markup: html`<p id="buy-guest-text">The game keeps running here while you make one or sign in, and you come back to this.</p>` },
-            {
-              kind: "block",
-              markup: row({
-                widths: "equal",
-                items: [
-                  { kind: "control", markup: runButton("Make an account", { href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" } }) },
-                  { kind: "control", markup: cutButton("Sign in", { href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" } }) },
-                ],
-              }),
-            },
+            { kind: "words", markup: html`<p id="buy-guest-text">Your game keeps running while you make one or sign in, and you come back to this.</p>` },
           ],
         }),
       },
@@ -92,6 +83,8 @@ export function buySheet(options: { joinHref: string; signInHref: string }): Raw
     buttons: [
       cutButton("Cancel", { id: "buy-cancel", type: "submit", formMethod: "dialog" }),
       cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isHidden: true }),
+      cutButton("Sign in", { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" }, isHidden: true }),
+      runButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" }, isHidden: true }),
       runButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying" }),
     ],
   });
@@ -127,6 +120,8 @@ const go = byId("buy-go");
 const goLabel = go.querySelector(".label-idle");
 const cancel = byId("buy-cancel");
 const back = byId("buy-back");
+const signIn = byId("buy-sign-in");
+const join = byId("buy-join");
 const factRows = byId("buy-facts").querySelectorAll(".fact");
 const CELLS = ["buy-loading", "buy-about", "buy-facts", "buy-other-card", "buy-card", "buy-confirm", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-eu"];
 // The developer's mistakes, which the game hears as an error once the player closes the sheet; the player only sees it can't be bought.
@@ -155,6 +150,7 @@ function showButtons(buttons) {
   cancel.hidden = !buttons.includes("cancel");
   back.hidden = !buttons.includes("back");
   go.hidden = !buttons.includes("go");
+  signIn.hidden = join.hidden = !buttons.includes("sign_in");
 }
 function busy(isOn) {
   isBusy = isOn;
@@ -258,9 +254,9 @@ function problem(problemTitle, problemText) {
 function guest() {
   moment = "guest";
   title.textContent = "Make a free account to buy";
-  byId("buy-guest-text").textContent = "The game keeps running here while you make one or sign in, and you come back to this.";
+  byId("buy-guest-text").textContent = "Your game keeps running while you make one or sign in, and you come back to this.";
   showCells(["buy-guest"]);
-  showButtons(["cancel"]);
+  showButtons(["sign_in"]);
 }
 document.querySelectorAll("[data-buy-sign-in]").forEach((link) => link.addEventListener("click", (event) => {
   if (buyData.place !== "game_page") return;
@@ -549,7 +545,7 @@ if (buyData.is_preview) {
 
 /** Which Stripe the sheet uses here: the preview's stand-in only on a local site (stripe.ts refuses it anywhere else too). */
 export function buySheetStripe(env: Env): Pick<BuySheetData, "stripe_mode" | "stripe_publishable_key" | "is_preview"> {
-  const isPreview = new URL(env.SITE_ORIGIN).hostname === "localhost";
+  const isPreview = isLocalPreview(env);
   const stripeMode = env.STRIPE_API_ORIGIN && isPreview ? "stand_in" : env.STRIPE_PUBLISHABLE_KEY ? "stripe" : "off";
   return { stripe_mode: stripeMode, stripe_publishable_key: stripeMode === "stripe" ? env.STRIPE_PUBLISHABLE_KEY ?? null : null, is_preview: isPreview };
 }
