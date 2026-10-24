@@ -428,12 +428,12 @@ const base64ByteCount = (text: string) => (text.length / 4) * 3 - (text.endsWith
  * A record's key or value as the game domain script's decode would give it back (the same table of tags), as far
  * as keys and key paths care: refused when a tag is unknown or its fields aren't that tag's.
  */
-function decodeValue(encoded: unknown, field: string, depth = 0): unknown {
-  if (depth > MAXIMUM_NESTING_LEVEL_COUNT) refuse(field, `is nested more than ${MAXIMUM_NESTING_LEVEL_COUNT} levels deep, more than a browser restores.`);
+function decodeValue(encoded: unknown, field: string, nestingLevel = 0): unknown {
+  if (nestingLevel > MAXIMUM_NESTING_LEVEL_COUNT) refuse(field, `is nested more than ${MAXIMUM_NESTING_LEVEL_COUNT} levels deep, more than a browser restores.`);
   if (encoded === null || typeof encoded !== "object") return encoded;
-  if (Array.isArray(encoded)) return encoded.map((encodedItem, itemIndex) => decodeValue(encodedItem, `${field}[${itemIndex}]`, depth + 1));
+  if (Array.isArray(encoded)) return encoded.map((encodedItem, itemIndex) => decodeValue(encodedItem, `${field}[${itemIndex}]`, nestingLevel + 1));
   const record = encoded as Record<string, unknown>;
-  if (!Object.prototype.hasOwnProperty.call(record, "$z")) return decodePlain(record, field, depth);
+  if (!Object.prototype.hasOwnProperty.call(record, "$z")) return decodePlain(record, field, nestingLevel);
   const tagField = `${field}.$z`;
   const tag = record.$z;
   if (Object.keys(record).length !== 1) refuse(field, 'has more keys than "$z": a tagged value is { "$z": [kind, …] } alone (an object with its own "$z" key is tagged "obj").');
@@ -454,7 +454,7 @@ function decodeValue(encoded: unknown, field: string, depth = 0): unknown {
       return new OtherValue();
     case "date": {
       fields(2, '["date", its time in ms, a number or a "num" tag]', true);
-      const timeMs = decodeValue(tag[1], `${tagField}[1]`, depth + 1);
+      const timeMs = decodeValue(tag[1], `${tagField}[1]`, nestingLevel + 1);
       if (typeof timeMs !== "number") refuse(`${tagField}[1]`, "isn't a time in ms: a number, or a \"num\" tag.");
       return new Date(timeMs);
     }
@@ -485,24 +485,24 @@ function decodeValue(encoded: unknown, field: string, depth = 0): unknown {
       fields(2, '["map", [[key, value], …]]', Array.isArray(tag[1]));
       (tag[1] as unknown[]).forEach((entry, entryIndex) => {
         if (!Array.isArray(entry) || entry.length !== 2) refuse(`${tagField}[1][${entryIndex}]`, "isn't a [key, value] pair.");
-        decodeValue(entry[0], `${tagField}[1][${entryIndex}][0]`, depth + 1);
-        decodeValue(entry[1], `${tagField}[1][${entryIndex}][1]`, depth + 1);
+        decodeValue(entry[0], `${tagField}[1][${entryIndex}][0]`, nestingLevel + 1);
+        decodeValue(entry[1], `${tagField}[1][${entryIndex}][1]`, nestingLevel + 1);
       });
       return new OtherValue();
     case "set":
       fields(2, '["set", [item, …]]', Array.isArray(tag[1]));
-      (tag[1] as unknown[]).forEach((setItem, itemIndex) => decodeValue(setItem, `${tagField}[1][${itemIndex}]`, depth + 1));
+      (tag[1] as unknown[]).forEach((setItem, itemIndex) => decodeValue(setItem, `${tagField}[1][${itemIndex}]`, nestingLevel + 1));
       return new OtherValue();
     case "obj":
       fields(2, '["obj", an object]', isPlainObject(tag[1]));
-      return decodePlain(tag[1] as Record<string, unknown>, `${tagField}[1]`, depth);
+      return decodePlain(tag[1] as Record<string, unknown>, `${tagField}[1]`, nestingLevel);
   }
   refuse(`${tagField}[0]`, `is ${JSON.stringify(tag[0])}, not a tag the game domain script knows: num, undef, bigint, date, regexp, bytes, view, blob, file, map, set or obj.`);
 }
 
 /** A plain object's own keys, each decoded (an "obj" tag's object too, whose own "$z" key is just a key). */
-function decodePlain(record: Record<string, unknown>, field: string, depth: number): Record<string, unknown> {
+function decodePlain(record: Record<string, unknown>, field: string, nestingLevel: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(record)) Object.defineProperty(out, key, { value: decodeValue(record[key], fieldOf(field, key), depth + 1), enumerable: true, writable: true, configurable: true });
+  for (const key of Object.keys(record)) Object.defineProperty(out, key, { value: decodeValue(record[key], fieldOf(field, key), nestingLevel + 1), enumerable: true, writable: true, configurable: true });
   return out;
 }
