@@ -23,8 +23,8 @@ const IRREGULAR_PLURALS = new Set(["people", "media"]);
 const FORMATS = new Set(["base64", "markdown"]);
 /** A pattern that says an ID's kind (docs/NAMING.md, IDs). */
 const ID_PATTERN = new RegExp(`^\\^(${ID_KINDS.join("|")})_`);
-/** IDs that aren't Zaisma's, so they say no kind: the game's own ID for a player's account, given back as the game sent it. */
-const OUTSIDE_IDS = new Set(["game_account_id"]);
+/** IDs that aren't Zaisma's, so they say no kind: the game's own ID for a player's account, given back as the game sent it, and Stripe's ID for a developer's connected account. */
+const OUTSIDE_IDS = new Set(["game_account_id", "stripe_account_id"]);
 /** Objects whose keys are the caller's own, not ours: next steps' arguments, and a game database's rows, by its own columns. */
 const OPEN_OBJECTS = new Set(["arguments", "rows[]", "local_storage_items", "indexeddb_databases[]"]);
 

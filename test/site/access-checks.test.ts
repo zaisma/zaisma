@@ -530,6 +530,11 @@ async function everything(world: World): Promise<string> {
   return parts.join("\n\n");
 }
 
+/** The stand-in Stripe account a developer has connected. */
+const CONNECTED_ACCOUNT_ID = "acct_test_access";
+/** Calls a key can't make alone: connecting Stripe decides where players' money goes, so it needs the owner's passkey on a page first. */
+const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links"]);
+
 const keyFor = async (accountId: string, scope?: KeyScope) => (await createApiKey(env.DB, accountId, `key ${Math.random()}`, scope)).token;
 
 beforeAll(async () => {
@@ -537,6 +542,7 @@ beforeAll(async () => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "api.stripe.com") return Response.json(STRIPE_ANSWERS[url.pathname] ?? {});
+    if (url.hostname === "connect.stripe.com") return Response.json({ stripe_user_id: CONNECTED_ACCOUNT_ID });
     return url.hostname === HOOKS_HOST ? new Response("ok") : realFetch(input, init);
   }) as typeof fetch;
 });
@@ -737,6 +743,16 @@ describe("every call", () => {
     // Cancelling and resuming need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
     if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume") {
       await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, stripe_subscription_id = 'sub_test', is_pro_cancelled = ? WHERE id = ?").bind(Date.now() + 86_400_000, routeName === "POST /pro/resume" ? 1 : 0, world.victimOwnerId).run();
+    }
+    // Changing or disconnecting a Stripe account needs one connected.
+    if (routeName === "PATCH /stripe-account" || routeName === "DELETE /stripe-account") {
+      await env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_connected_at_ms = ? WHERE id = ?").bind(CONNECTED_ACCOUNT_ID, Date.now(), world.victimOwnerId).run();
+    }
+    // A call that needs the owner's passkey on a page first refuses even the developer's full key, with nothing changed.
+    if (CONFIRMED_ON_A_PAGE.has(routeName)) {
+      await refused("the developer's full key, before a passkey on a page", await call(apiRoute, developerKey, asDeveloper), "confirmation_needed");
+      expect(await eventCount()).toBe(eventCountBefore);
+      return;
     }
     const made = await call(apiRoute, developerKey, asDeveloper);
     expect(made.httpStatus, `The developer's own ${routeName} with a full key: ${made.answerText.slice(0, 400)}`).toBeLessThan(300);
