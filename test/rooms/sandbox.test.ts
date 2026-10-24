@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createAccount, issueRoomKey, monthStartDateOf, takeBack } from "@zaisma/core";
 import { loadSigningKey } from "@zaisma/game-server/internal";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
@@ -159,6 +159,179 @@ describe("sandboxed game servers", () => {
     expect(await owner.next()).toEqual({ type: "message", data: { owned: ["supporter_cape"], everyone: [["supporter_cape"]] }, fromPlayerId: null });
     const guest = await join("wardrobe", "WRDRBE");
     expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] }, fromPlayerId: null });
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+  });
+
+  it("runs onPurchase once for an account's purchase when the game's purchases go to its game server, and not when they go to the game", async () => {
+    const PURCHASE_TAKER = `export default {
+  maximumPlayerCount: 4,
+  setup: () => ({}),
+  onPurchase(state, player, room, purchase) { room.send(player.id, { bought: purchase.id, itemName: purchase.itemName, itemCount: purchase.itemCount, purchaseStatus: purchase.purchaseStatus, hasReceipt: typeof purchase.receipt === "string" }); },
+  onMessage(state, player, message, room) { room.send(player.id, "pong"); },
+};`;
+    await addSandboxGame("delivered-here", PURCHASE_TAKER);
+    await addSandboxGame("delivered-to-game", PURCHASE_TAKER);
+    await e.DB.prepare("UPDATE games SET purchase_delivery = 'game_server' WHERE id = 'gdeliveredhere'").run();
+    const account = await createAccount(e.DB, { id: "supabase-user-reviver", username: "Revive_Buyer", ageBand: "18+" });
+    for (const [gameId, purchaseId] of [["gdeliveredhere", "purchase_deliveredhere1"], ["gdeliveredtogame", "purchase_deliveredgame1"]] as const) {
+      await e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', 3, ?, 'grant', 'completed', 0, 0)")
+        .bind(purchaseId, gameId, account.player_id)
+        .run();
+    }
+    const accountPass = async (slug: string, gameId: string) => {
+      const roomKey = await issueRoomKey(e.DB, gameId, account.id);
+      return (await (await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: slug, roomKey }) })).json<{ pass: string }>()).pass;
+    };
+    const handledAt = async (purchaseId: string) => (await e.DB.prepare("SELECT handled_at_ms, handling_until_ms FROM purchases WHERE id = ?").bind(purchaseId).first<{ handled_at_ms: number | null; handling_until_ms: number | null }>())!;
+
+    // purchase_delivery game_server: the join hands the purchase to onPurchase, with its receipt, and marks it handled.
+    const here = await join("delivered-here", "DLVRHR", undefined, await accountPass("delivered-here", "gdeliveredhere"));
+    expect(await here.next()).toEqual({ type: "message", data: { bought: "purchase_deliveredhere1", itemName: "revive", itemCount: 3, purchaseStatus: "completed", hasReceipt: true }, fromPlayerId: null });
+    let handled = await handledAt("purchase_deliveredhere1");
+    for (let i = 0; i < 50 && handled.handled_at_ms === null; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      handled = await handledAt("purchase_deliveredhere1");
+    }
+    expect(handled).toEqual({ handled_at_ms: expect.any(Number), handling_until_ms: null });
+    // A game page's zaisma:purchase message makes the room look again, and it finds nothing to hand over twice.
+    here.ws.send(JSON.stringify({ type: "zaisma:purchase", purchaseId: "purchase_deliveredhere1" }));
+    here.say("ping");
+    expect(await here.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
+
+    // purchase_delivery game (the default): the game's own page takes it, so the room's game server gets nothing.
+    const there = await join("delivered-to-game", "DLVRTG", undefined, await accountPass("delivered-to-game", "gdeliveredtogame"));
+    there.ws.send(JSON.stringify({ type: "zaisma:purchase", purchaseId: "purchase_deliveredgame1" }));
+    there.say("ping");
+    expect(await there.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await handledAt("purchase_deliveredgame1")).toEqual({ handled_at_ms: null, handling_until_ms: null });
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+  });
+
+  /** A pass for an account in a sandbox game, as the game page gets it once the player is signed in. */
+  async function accountPassFor(slug: string, accountId: string) {
+    const roomKey = await issueRoomKey(e.DB, `g${slug.replace(/-/g, "")}`, accountId);
+    return (await (await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: slug, roomKey }) })).json<{ pass: string }>()).pass;
+  }
+  async function addGrantedPurchase(purchaseId: string, slug: string, playerId: string, createdAtMs: number) {
+    await e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', 1, ?, 'grant', 'completed', ?, ?)")
+      .bind(purchaseId, `g${slug.replace(/-/g, "")}`, playerId, createdAtMs, createdAtMs)
+      .run();
+  }
+  const handlingOf = async (purchaseId: string) =>
+    (await e.DB.prepare("SELECT handled_at_ms, handling_until_ms, refund_handled_at_ms, refund_handling_until_ms FROM purchases WHERE id = ?").bind(purchaseId).first<{ handled_at_ms: number | null; handling_until_ms: number | null; refund_handled_at_ms: number | null; refund_handling_until_ms: number | null }>())!;
+  const GAME_ASKING_PURCHASE_HANDLING = `export default {
+  maximumPlayerCount: 4,
+  setup: () => ({ isBroken: false }),
+  onPurchase(state, player, room, purchase) {
+    room.send(player.id, { kind: "purchase", id: purchase.id, purchaseStatus: purchase.purchaseStatus, isBroken: state.isBroken });
+    if (state.isBroken) throw new Error("the shop is down");
+  },
+  onRefund(state, player, room, purchase) { room.send(player.id, { kind: "refund", id: purchase.id, purchaseStatus: purchase.purchaseStatus, hasRefundedAt: typeof purchase.refundedAt === "string" }); },
+  onMessage(state, player, message, room) {
+    if (message === "break") state.isBroken = true;
+    if (message === "mend") state.isBroken = false;
+    room.send(player.id, message === "ping" ? "pong" : "ok");
+    return state;
+  },
+};`;
+
+  it("hands a granted purchase to onPurchase on join and its take-back to onRefund on the next join, each once, and never tells a refund of what the game never got", async () => {
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+    await addSandboxGame("refund-desk", GAME_ASKING_PURCHASE_HANDLING);
+    await e.DB.prepare("UPDATE games SET purchase_delivery = 'game_server' WHERE id = 'grefunddesk'").run();
+    const account = await createAccount(e.DB, { id: "supabase-user-refunder", username: "Refund_Buyer", ageBand: "18+" });
+    await addGrantedPurchase("purchase_refunddesk0001", "refund-desk", account.player_id, 1);
+    await addGrantedPurchase("purchase_refunddesk0002", "refund-desk", account.player_id, 2);
+    // The second was taken back before the game ever got it: there is nothing to take back in the game.
+    expect(await takeBack(e.DB, "purchase_refunddesk0002", "refunded", Date.now())).toBe(true);
+
+    const first = await join("refund-desk", "RFNDDK", undefined, await accountPassFor("refund-desk", account.id));
+    expect(await first.next()).toEqual({ type: "message", data: { kind: "purchase", id: "purchase_refunddesk0001", purchaseStatus: "completed", isBroken: false }, fromPlayerId: null });
+    await vi.waitFor(async () => expect(await handlingOf("purchase_refunddesk0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
+    first.say("ping");
+    expect(await first.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
+    expect(await handlingOf("purchase_refunddesk0002")).toEqual({ handled_at_ms: null, handling_until_ms: null, refund_handled_at_ms: null, refund_handling_until_ms: null });
+
+    // Taken back after the game had it: the next join hears onRefund, with the status and refundedAt, and marks it told.
+    const handledAtMs = (await handlingOf("purchase_refunddesk0001")).handled_at_ms;
+    expect(await takeBack(e.DB, "purchase_refunddesk0001", "refunded", Date.now())).toBe(true);
+    first.ws.close(1000);
+    const second = await join("refund-desk", "RFNDDK", undefined, await accountPassFor("refund-desk", account.id));
+    expect(await second.next()).toEqual({ type: "message", data: { kind: "refund", id: "purchase_refunddesk0001", purchaseStatus: "refunded", hasRefundedAt: true }, fromPlayerId: null });
+    await vi.waitFor(async () => expect(await handlingOf("purchase_refunddesk0001")).toMatchObject({ handled_at_ms: handledAtMs, refund_handled_at_ms: expect.any(Number), refund_handling_until_ms: null }));
+
+    // Joining again hands over nothing: neither the purchase nor its refund twice, and the never-handed one stays untold.
+    second.ws.close(1000);
+    const third = await join("refund-desk", "RFNDDK", undefined, await accountPassFor("refund-desk", account.id));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    third.say("ping");
+    expect(await third.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
+    expect(await handlingOf("purchase_refunddesk0002")).toEqual({ handled_at_ms: null, handling_until_ms: null, refund_handled_at_ms: null, refund_handling_until_ms: null });
+    third.ws.close(1000);
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+  });
+
+  it("lets go of a purchase whose onPurchase threw, leaving it unhandled and unleased, and hands it over again on the player's next join", async () => {
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+    await addSandboxGame("flaky-shop", GAME_ASKING_PURCHASE_HANDLING);
+    await e.DB.prepare("UPDATE games SET purchase_delivery = 'game_server' WHERE id = 'gflakyshop'").run();
+    const account = await createAccount(e.DB, { id: "supabase-user-retrier", username: "Retry_Buyer", ageBand: "18+" });
+    await addGrantedPurchase("purchase_flakyshop0001", "flaky-shop", account.player_id, 1);
+    // A guest keeps the room open and breaks the shop before the buyer joins.
+    const keeper = await join("flaky-shop", "FLAKYS");
+    keeper.say("break");
+    expect(await keeper.next()).toEqual({ type: "message", data: "ok", fromPlayerId: null });
+
+    const failing = await join("flaky-shop", "FLAKYS", undefined, await accountPassFor("flaky-shop", account.id));
+    expect(await failing.next()).toEqual({ type: "message", data: { kind: "purchase", id: "purchase_flakyshop0001", purchaseStatus: "completed", isBroken: true }, fromPlayerId: null });
+    await vi.waitFor(async () => expect((await handlingOf("purchase_flakyshop0001")).handling_until_ms).toBeNull());
+    // Only after it let go does a retry have a chance, so the lease is checked before anything else happens.
+    expect(await handlingOf("purchase_flakyshop0001")).toEqual({ handled_at_ms: null, handling_until_ms: null, refund_handled_at_ms: null, refund_handling_until_ms: null });
+
+    keeper.say("mend");
+    expect(await keeper.next()).toEqual({ type: "message", data: "ok", fromPlayerId: null });
+    failing.ws.close(1000);
+    const retrying = await join("flaky-shop", "FLAKYS", undefined, await accountPassFor("flaky-shop", account.id));
+    expect(await retrying.next()).toEqual({ type: "message", data: { kind: "purchase", id: "purchase_flakyshop0001", purchaseStatus: "completed", isBroken: false }, fromPlayerId: null });
+    await vi.waitFor(async () => expect(await handlingOf("purchase_flakyshop0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
+    keeper.ws.close(1000);
+    retrying.ws.close(1000);
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+  });
+
+  it("runs onPurchase once for a player in two rooms of the game at the same time, and not at all when the game's purchases go to its own server", async () => {
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
+    await addSandboxGame("twin-rooms", GAME_ASKING_PURCHASE_HANDLING);
+    await addSandboxGame("own-backend", GAME_ASKING_PURCHASE_HANDLING);
+    await e.DB.exec("UPDATE games SET purchase_delivery = 'game_server' WHERE id = 'gtwinrooms'; UPDATE games SET purchase_delivery = 'own_server' WHERE id = 'gownbackend'");
+    const account = await createAccount(e.DB, { id: "supabase-user-twin", username: "Twin_Buyer", ageBand: "18+" });
+    await addGrantedPurchase("purchase_twinrooms0001", "twin-rooms", account.player_id, 1);
+    await addGrantedPurchase("purchase_ownbackend001", "own-backend", account.player_id, 1);
+
+    const pass = await accountPassFor("twin-rooms", account.id);
+    const [inFirst, inSecond] = await Promise.all([join("twin-rooms", "TWINAA", undefined, pass), join("twin-rooms", "TWINBB", undefined, pass)]);
+    await vi.waitFor(async () => expect(await handlingOf("purchase_twinrooms0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
+    // Let a second, wrongly started hand-over show itself, then count what each room heard before its pong.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const heardIn = async (room: typeof inFirst) => {
+      room.say("ping");
+      const heard: unknown[] = [];
+      for (let message = await room.next(); message.data !== "pong"; message = await room.next()) heard.push(message.data);
+      return heard;
+    };
+    const heard = [...(await heardIn(inFirst)), ...(await heardIn(inSecond))];
+    expect(heard).toEqual([{ kind: "purchase", id: "purchase_twinrooms0001", purchaseStatus: "completed", isBroken: false }]);
+    inFirst.ws.close(1000);
+    inSecond.ws.close(1000);
+
+    // purchase_delivery own_server: the developer's own backend marks it handled, so the room's game server never gets it.
+    const own = await join("own-backend", "OWNBAK", undefined, await accountPassFor("own-backend", account.id));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    own.say("ping");
+    expect(await own.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
+    expect(await handlingOf("purchase_ownbackend001")).toEqual({ handled_at_ms: null, handling_until_ms: null, refund_handled_at_ms: null, refund_handling_until_ms: null });
+    own.ws.close(1000);
     await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
   });
 
@@ -595,7 +768,7 @@ describe("sandboxed game servers", () => {
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 600 characters, which keeps the whole list of options.
     expect(err!.message).toMatch(
-      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
+      /^Didn't start: tickRate isn't a game server option\. A game server takes: maximumPlayerCount, maximumSpectatorCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, stateSyncEnabled, reconnectTimeoutSec, stateSaveIntervalSec, setup, onJoin, canJoin, onMoved, onLeave, onSpectatorJoin, onSpectatorLeave, onAway, onBack, onMessage, onBytes, onPurchase, onRefund, onTick, onEnding, onRestored, stateView, onVersionUpdate, onRequest, schedules, onSchedule, onWebhook\./,
     );
   });
 

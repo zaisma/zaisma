@@ -187,6 +187,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /games/:slug/purchases": (world) => ({ body: { player_id: world.values.player_id, item_name: "revive", item_count: 2 } }),
   "GET /games/:slug/purchases/:purchase_id": () => ({}),
   "POST /games/:slug/purchases/:purchase_id/refund": () => ({}),
+  "POST /games/:slug/purchases/:purchase_id/handled": () => ({}),
   "GET /games/:slug/players/:player_id/items": () => ({}),
   "DELETE /games/:slug/kept-rooms/:room_code": () => ({}),
   "GET /games/:slug/saves": () => ({}),

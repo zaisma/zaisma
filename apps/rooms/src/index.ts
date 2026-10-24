@@ -1,6 +1,7 @@
-import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
+import { purchasesForGame } from "./purchases.ts";
 import { publishedReceiptKeys, signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
 import type { GameSecretsObject } from "./secrets.ts";
@@ -38,6 +39,8 @@ export interface Env extends RelayEnv {
   RELAY_LIMIT?: RateLimit;
   /** A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends). */
   FRIENDS_LIMIT?: RateLimit;
+  /** A game asking for the player's purchases still to hand over, or marking one handled (Zaisma.items.unhandled, markHandled). */
+  ITEMS_LIMIT?: RateLimit;
   /** Game servers' calls to other servers, per game (outbound.ts). */
   OUTSIDE_CALL_LIMIT?: RateLimit;
   /** Developers' own servers checking chat (POST /v1/chat/check), per game and sender. */
@@ -188,7 +191,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request";
+type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request" | "no_purchase" | "already_handled" | "handled_by_server";
 
 /**
  * A room connection turned away before it reaches a room: accepted, told why ({type: "error", code}) and
@@ -286,6 +289,42 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
     console.error("Game server unavailable for requests:", error);
     return requestFailure("busy", cors);
   }
+}
+
+/**
+ * Zaisma.items' purchases, from inside the game, for a game whose purchases come to it (purchase_delivery
+ * "game"). The player's pass says who's asking, for which game:
+ *   POST /v1/items/unhandled  { gameSlug, pass }: their purchases still to hand over, { purchases }
+ *   POST /v1/items/handled    { gameSlug, pass, purchaseId }: mark one handed over, { isHandled: true }
+ */
+async function answerPurchases(request: Request, env: Env, isMarking: boolean): Promise<Response> {
+  const origin = request.headers.get("origin");
+  const { slug, body } = await readBody(request);
+  if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
+  const cors = origin!;
+  if (await limited(env.ITEMS_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+  const game = await env.DB.prepare("SELECT id, slug, purchase_delivery FROM games WHERE slug = ? AND review_status != 'removed'").bind(slug).first<{ id: string; slug: string; purchase_delivery: PurchaseDelivery }>();
+  if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
+  let claims: PassClaims;
+  try {
+    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
+  } catch (error) {
+    if (!(error instanceof PassError)) throw error;
+    return failure("bad_pass", "This player's pass didn't check out. Zaisma.player() gets a new one.", 401, cors);
+  }
+  // Guests own nothing: their IDs last only for their pass, so they have no purchases.
+  if (!isMarking) return json({ purchases: claims.kind === "account" ? await purchasesForGame(env, game, await unhandledFor(env.DB, game.id, claims.sub)) : [] }, 200, cors);
+  if (game.purchase_delivery !== "game") {
+    return failure("handled_by_server", `This game's purchases go to its ${game.purchase_delivery === "game_server" ? "game server's onPurchase" : "own server, which marks them handled through the developer API"} (purchase_delivery ${game.purchase_delivery}), so the game can't mark them.`, 409, cors);
+  }
+  const purchaseId = typeof body.purchaseId === "string" && isIdOf("purchase", body.purchaseId) ? body.purchaseId : null;
+  const purchase = purchaseId ? await env.DB.prepare("SELECT purchase_status FROM purchases WHERE id = ? AND game_id = ? AND player_id = ?").bind(purchaseId, game.id, claims.sub).first<{ purchase_status: string }>() : null;
+  if (!purchase || purchase.purchase_status === "pending" || purchase.purchase_status === "failed") return failure("no_purchase", "This player has no purchase with that ID in this game: take it from Zaisma.items.on(\"purchase\") or unhandled().", 404, cors, "purchaseId");
+  const nowMs = Date.now();
+  // A completed purchase is marked handled; one taken back, its refund told.
+  const isMarked = purchase.purchase_status === "completed" ? await finishHandling(env.DB, purchaseId!, nowMs) : await finishRefundHandling(env.DB, purchaseId!, nowMs);
+  if (!isMarked) return failure("already_handled", "It was marked handled already.", 409, cors, "purchaseId");
+  return json({ isHandled: true }, 200, cors);
 }
 
 /**
@@ -443,6 +482,8 @@ export default {
     if (request.method === "POST" && (url.pathname === "/v1/friends" || url.pathname === "/v1/friends/room")) return answerFriends(request, env, url.pathname === "/v1/friends/room");
 
     if (request.method === "POST" && url.pathname === "/v1/chat/check") return answerChatCheck(request, env);
+
+    if (request.method === "POST" && (url.pathname === "/v1/items/unhandled" || url.pathname === "/v1/items/handled")) return answerPurchases(request, env, url.pathname === "/v1/items/handled");
 
     if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/relay" || url.pathname === "/v1/rooms" || url.pathname === "/v1/report" || url.pathname === "/v1/filter")) {
       const { slug, body } = await readBody(request);

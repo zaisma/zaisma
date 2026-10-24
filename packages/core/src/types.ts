@@ -95,6 +95,8 @@ export interface Game {
   refund_policy_text: string | null;
   /** What it sells through its own payments, a JSON list of item categories; '[]' for nothing. */
   own_payment_categories: string;
+  /** Where its purchases are delivered (items.ts, PURCHASE_DELIVERIES): the game, its game server, or the developer's own server. */
+  purchase_delivery: "game" | "game_server" | "own_server";
   /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */

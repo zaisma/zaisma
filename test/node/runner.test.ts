@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it, onTestFinished, vi } from "vitest";
+import { createServer } from "node:http";
 import WebSocket from "ws";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +7,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localRoomStates, startServer } from "../../packages/game-server/bin/node.js";
-import { ERROR_TEXT, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/internal.ts";
+import { ERROR_TEXT, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass, type Purchase } from "../../packages/game-server/src/internal.ts";
+import { signTestReceipt } from "../helpers.ts";
 import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
 
 const ISS = "https://rooms.zaisma.test";
@@ -869,5 +871,227 @@ describe("The v1 room contract on the Node runner", () => {
     const { stepCount } = await playTranscript(driver);
     expect(stepCount).toBeGreaterThan(20);
     await own.close();
+  });
+});
+
+describe("onPurchase and onRefund on the developer's own server", () => {
+  const receiptSigning = (async () => loadSigningKey(await generateSigningKey()))();
+  const PLAYER_ID = "player_owl";
+
+  /** The developer API as the runner calls it: the game's purchase_delivery, a player's unhandled purchases, and marking one handled. */
+  async function fakeDeveloperApi(purchaseDelivery: string, purchases: Record<string, unknown>[]) {
+    const calls: string[] = [];
+    const handled = new Set<string>();
+    const api = createServer((request, response) => {
+      const route = `${request.method} ${request.url}`;
+      calls.push(`${route} ${request.headers.authorization}`);
+      const answer = (httpStatus: number, body: unknown) => {
+        response.writeHead(httpStatus, { "content-type": "application/json" });
+        response.end(JSON.stringify(body));
+      };
+      if (route === "GET /games/arena/items") return answer(200, { purchase_delivery: purchaseDelivery });
+      if (route === `GET /games/arena/players/${PLAYER_ID}/items`) return answer(200, { player_id: PLAYER_ID, owned_item_names: [], unhandled_purchases: purchases.filter((purchase) => !handled.has(purchase.id as string)) });
+      const marking = /^POST \/games\/arena\/purchases\/([a-z0-9_]+)\/handled$/.exec(route);
+      if (marking) {
+        if (handled.has(marking[1]!)) return answer(409, { error: { code: "already_handled", message: "It was marked handled already.", fix: "Nothing to do." } });
+        handled.add(marking[1]!);
+        return answer(200, { is_handled: true });
+      }
+      answer(404, { error: { code: "not_found", message: route, fix: "Check the path." } });
+    });
+    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
+    onTestFinished(() => void api.close());
+    return { calls, handled, purchases, developerApiUrl: `http://127.0.0.1:${(api.address() as { port: number }).port}` };
+  }
+
+  const storedPurchase = (id: string, fields: Record<string, unknown> = {}) => ({
+    id, item_name: "revive", item_kind: "consumable", item_count: 3, purchase_source: "sale", purchase_status: "completed", game_account_id: null,
+    paid_minor_units: 199, currency_code: "usd", purchased_at: "2026-10-24T10:00:00.000Z", refunded_at: null, receipt: `receipt_${id}`, ...fields,
+  });
+
+  type TakenState = { got: Purchase[]; refunded: string[] };
+  const taker = (hooks: Record<string, unknown> = {}) =>
+    defineGameServer({
+      maximumPlayerCount: 4,
+      setup: (): TakenState => ({ got: [], refunded: [] }),
+      onPurchase: (state: TakenState, player: { id: string }, room: { send(playerId: string, data: unknown): void }, purchase: Purchase) => {
+        state.got.push(purchase);
+        room.send(player.id, { bought: purchase.id, itemName: purchase.itemName, itemCount: purchase.itemCount });
+      },
+      onRefund: (state: TakenState, player: { id: string }, room: { send(playerId: string, data: unknown): void }, purchase: Purchase) => {
+        state.refunded.push(purchase.id as string);
+        room.send(player.id, { refunded: purchase.id, purchaseStatus: purchase.purchaseStatus });
+      },
+      ...hooks,
+    });
+
+  async function serveWithKey(gameServer: object, developerApiUrl: string, options: Record<string, unknown> = {}) {
+    const own = startServer({ server: gameServer, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], receiptKeys: async () => [(await receiptSigning).publicKey], roomStateFile: null, profiles: async (playerId: string) => ({ id: playerId, name: "Gold_Owl" }), zaismaKey: "zk_test_key", developerApiUrl, ...options });
+    await new Promise((resolve) => own.wss.once("listening", resolve));
+    onTestFinished(() => void own.close());
+    return { own, at: (own.wss.address() as { port: number }).port };
+  }
+
+  async function joinAsAccount(at: number) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const client = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await client.open;
+    client.say({ type: "hello", protocolVersionNumber: 1, pass: await signPass(signing, { sub: PLAYER_ID, aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", iat: nowSec, exp: nowSec + 60 }) });
+    expect((await client.next()).type).toBe("welcome");
+    onTestFinished(() => client.ws.close());
+    return client;
+  }
+
+  const eventually = async (isTrue: () => boolean) => {
+    for (let attempt = 0; attempt < 100 && !isTrue(); attempt++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(isTrue()).toBe(true);
+  };
+
+  it("won't start with onPurchase or onRefund and no ZAISMA_KEY", () => {
+    vi.stubEnv("ZAISMA_KEY", "");
+    onTestFinished(() => void vi.unstubAllEnvs());
+    const options = { game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [], roomStateFile: null };
+    expect(() => startServer({ ...options, server: taker() })).toThrow(/onPurchase needs ZAISMA_KEY/);
+    expect(() => startServer({ ...options, server: defineGameServer({ setup: () => ({}), onRefund: () => undefined }) })).toThrow(/onRefund needs ZAISMA_KEY/);
+    // A game server without them needs no key.
+    const plain = startServer({ ...options, server: relay });
+    plain.close();
+  });
+
+  it("takes the key from the environment too", async () => {
+    vi.stubEnv("ZAISMA_KEY", "zk_from_environment");
+    onTestFinished(() => void vi.unstubAllEnvs());
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1")]);
+    const { at } = await serveWithKey(taker(), api.developerApiUrl, { zaismaKey: undefined });
+    const client = await joinAsAccount(at);
+    expect(await until(client, "message")).toMatchObject({ data: { bought: "purchase_owl1" } });
+    expect(api.calls.every((call) => call.endsWith("Bearer zk_from_environment"))).toBe(true);
+  });
+
+  it("hands an account's purchase to onPurchase once, with the developer API's fields in camelCase, and marks it handled", async () => {
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1")]);
+    const state: TakenState = { got: [], refunded: [] };
+    const { at } = await serveWithKey(taker({ setup: () => state }), api.developerApiUrl);
+    const client = await joinAsAccount(at);
+    expect(await until(client, "message")).toEqual({ type: "message", data: { bought: "purchase_owl1", itemName: "revive", itemCount: 3 }, fromPlayerId: null });
+    await eventually(() => api.handled.has("purchase_owl1"));
+    expect(state.got).toEqual([{ id: "purchase_owl1", itemName: "revive", itemKind: "consumable", itemCount: 3, purchaseSource: "sale", purchaseStatus: "completed", gameAccountId: null, paidMinorUnits: 199, currencyCode: "usd", purchasedAt: "2026-10-24T10:00:00.000Z", refundedAt: null, receipt: "receipt_purchase_owl1" }]);
+    expect(api.calls.filter((call) => call.startsWith("POST ")).map((call) => call.split(" ")[1])).toEqual(["/games/arena/purchases/purchase_owl1/handled"]);
+    expect(api.calls.every((call) => call.endsWith("Bearer zk_test_key"))).toBe(true);
+
+    // A rejoin finds it handled, and the game_server setting is cached, so the server only asks for the player's items again.
+    client.ws.close();
+    await client.closed;
+    const again = await joinAsAccount(at);
+    again.say({ type: "message", data: "ping" });
+    await eventually(() => api.calls.filter((call) => call.startsWith(`GET /games/arena/players/${PLAYER_ID}/items`)).length === 2);
+    expect(state.got).toHaveLength(1);
+    expect(api.calls.filter((call) => call.startsWith("GET /games/arena/items "))).toHaveLength(1);
+    expect(api.calls.filter((call) => call.startsWith("POST "))).toHaveLength(1);
+  });
+
+  it("hands a refund to onRefund, not onPurchase", async () => {
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1", { purchase_status: "refunded", refunded_at: "2026-10-24T11:00:00.000Z" })]);
+    const state: TakenState = { got: [], refunded: [] };
+    const { at } = await serveWithKey(taker({ setup: () => state }), api.developerApiUrl);
+    const client = await joinAsAccount(at);
+    expect(await until(client, "message")).toEqual({ type: "message", data: { refunded: "purchase_owl1", purchaseStatus: "refunded" }, fromPlayerId: null });
+    await eventually(() => api.handled.has("purchase_owl1"));
+    expect(state.got).toEqual([]);
+    expect(state.refunded).toEqual(["purchase_owl1"]);
+  });
+
+  it("marks a purchase handled even when Zaisma answers that it already was", async () => {
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1")]);
+    // Another server of the same game marks it just before this one does.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => void errors.mockRestore());
+    const { at } = await serveWithKey(taker({ onPurchase: (_state: TakenState, player: { id: string }, room: { send(playerId: string, data: unknown): void }, purchase: { id: string }) => {
+      api.handled.add(purchase.id);
+      room.send(player.id, { bought: purchase.id });
+    } }), api.developerApiUrl);
+    const client = await joinAsAccount(at);
+    expect(await until(client, "message")).toMatchObject({ data: { bought: "purchase_owl1" } });
+    await eventually(() => api.calls.some((call) => call.startsWith("POST ")));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(errors.mock.calls.filter(([line]) => String(line).includes("Couldn't hand purchases over"))).toEqual([]);
+  });
+
+  it("lets go of a purchase whose hook threw and hands it over on the player's next join", async () => {
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1")]);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => void errors.mockRestore());
+    let isBroken = true;
+    const { at } = await serveWithKey(taker({ onPurchase: (_state: TakenState, player: { id: string }, room: { send(playerId: string, data: unknown): void }, purchase: { id: string }) => {
+      if (isBroken) throw new Error("revive bug");
+      room.send(player.id, { bought: purchase.id });
+    } }), api.developerApiUrl);
+    const first = await joinAsAccount(at);
+    await eventually(() => errors.mock.calls.some(([line, error]) => line === "Game server error:" && String(error).includes("revive bug")));
+    expect(api.handled.size).toBe(0);
+    expect(api.calls.filter((call) => call.startsWith("POST "))).toEqual([]);
+
+    isBroken = false;
+    first.ws.close();
+    await first.closed;
+    const second = await joinAsAccount(at);
+    expect(await until(second, "message")).toMatchObject({ data: { bought: "purchase_owl1" } });
+    await eventually(() => api.handled.has("purchase_owl1"));
+  });
+
+  it("hands a purchase over once after zaisma:purchase messages with a receipt that checks out, and ignores forged ones", async () => {
+    const api = await fakeDeveloperApi("game_server", []);
+    const state: TakenState = { got: [], refunded: [] };
+    const { at } = await serveWithKey(taker({ setup: () => state }), api.developerApiUrl);
+    const client = await joinAsAccount(at);
+    const askedCount = () => api.calls.filter((call) => call.startsWith(`GET /games/arena/players/${PLAYER_ID}/items`)).length;
+    await eventually(() => askedCount() === 1);
+
+    // The player buys in their game after joining: Zaisma's record gains the purchase.
+    api.purchases.push(storedPurchase("purchase_owl1"));
+    // A receipt signed with another key, one for another player, and none at all: the server asks Zaisma for nothing.
+    const otherKey = await loadSigningKey(await generateSigningKey());
+    client.say({ type: "zaisma:purchase", purchaseId: "purchase_owl2", receipt: await signTestReceipt(otherKey, "arena", ISS, { sub: PLAYER_ID, purchase_id: "purchase_owl2" }) });
+    client.say({ type: "zaisma:purchase", purchaseId: "purchase_owl3", receipt: await signTestReceipt(await receiptSigning, "arena", ISS, { sub: "player_someone_else", purchase_id: "purchase_owl3" }) });
+    client.say({ type: "zaisma:purchase", purchaseId: "purchase_owl4" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(askedCount()).toBe(1);
+    expect(state.got).toEqual([]);
+
+    const receipt = await signTestReceipt(await receiptSigning, "arena", ISS, { sub: PLAYER_ID, purchase_id: "purchase_owl1" });
+    client.say({ type: "zaisma:purchase", purchaseId: "purchase_owl1", receipt });
+    client.say({ type: "zaisma:purchase", purchaseId: "purchase_owl1", receipt });
+    expect(await until(client, "message")).toMatchObject({ data: { bought: "purchase_owl1" } });
+    await eventually(() => api.handled.has("purchase_owl1"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(state.got).toHaveLength(1);
+    expect(api.calls.filter((call) => call.startsWith("POST "))).toHaveLength(1);
+  });
+
+  it("hands nothing over when the game's purchase_delivery is game, and asks for no player's items", async () => {
+    const api = await fakeDeveloperApi("game", [storedPurchase("purchase_owl1")]);
+    const state: TakenState = { got: [], refunded: [] };
+    const { at } = await serveWithKey(taker({ setup: () => state }), api.developerApiUrl);
+    const client = await joinAsAccount(at);
+    await eventually(() => api.calls.some((call) => call.startsWith("GET /games/arena/items ")));
+    client.say({ type: "message", data: "ping" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(state.got).toEqual([]);
+    expect(api.handled.size).toBe(0);
+    expect(api.calls.some((call) => call.includes("/players/"))).toBe(false);
+    expect(api.calls.some((call) => call.startsWith("POST "))).toBe(false);
+  });
+
+  it("hands guests nothing, without asking Zaisma", async () => {
+    const api = await fakeDeveloperApi("game_server", [storedPurchase("purchase_owl1")]);
+    const { at } = await serveWithKey(taker(), api.developerApiUrl);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const guest = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await guest.open;
+    guest.say({ type: "hello", protocolVersionNumber: 1, pass: await signPass(signing, { sub: PLAYER_ID, name: "Swift Fox 42", aud: "arena", iss: ISS, pass_version_number: 1, kind: "guest", iat: nowSec, exp: nowSec + 60 }) });
+    expect((await guest.next()).type).toBe("welcome");
+    onTestFinished(() => guest.ws.close());
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(api.calls).toEqual([]);
   });
 });

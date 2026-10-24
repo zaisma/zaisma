@@ -1,4 +1,4 @@
-import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, GENRES, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_DELIVERIES, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, GENRES, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAN_LIMITS, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
@@ -919,6 +919,14 @@ export const PURCHASE_SETTINGS = object({
   refund_policy: nullable(REFUND_POLICY_CHOICE),
   refund_policy_text: nullable(text("The refund policy in the developer's own words, with own_words.")),
   own_payment_categories: list(ITEM_CATEGORY_CHOICE, "What the game sells through its own payments, outside the buy sheet; [] for nothing."),
+  purchase_delivery: choice(
+    {
+      game: "the game hears each purchase (Zaisma.items.on(\"purchase\")) and marks it handled: a single-player game with no server",
+      game_server: "the game server's onPurchase gets it, exactly once, on Zaisma or on your own server with the Node runner and ZAISMA_KEY: a game whose rooms keep inventory",
+      own_server: "your own backend checks the receipt the game sends and marks it handled (mark_purchase_handled), crediting the account in game_account_id",
+    } satisfies Record<(typeof PURCHASE_DELIVERIES)[number], string>,
+    "Where the game's purchases are delivered. Webhooks get purchase_completed and purchase_refunded either way.",
+  ),
   purchase_label: PURCHASE_LABEL,
 });
 
@@ -942,6 +950,8 @@ export const PURCHASE = object({
   refunded_minor_units: countOf("How much was given back, in the same currency's smallest unit; 0 for a grant."),
   purchased_at: nullable(isoTime("When it was bought or granted; null while paying, or when it failed.")),
   refunded_at: nullable(isoTime()),
+  handled_at: nullable(isoTime("When the game, its game server or your own server took it (purchase_delivery); null until then.")),
+  refund_handled_at: nullable(isoTime("When it was told the purchase was refunded or charged back; null until then, and for one never refunded.")),
   receipt: nullable(
     text(
       "The signed receipt (a JWT, typ receipt+jwt, signed again on each read): a game server checks it with room.verifyReceipt or server.verifyReceipt, any other server with verifyReceipt from @zaisma/game-server and the keys at https://rooms.zaisma.com/.well-known/receipt-jwks.json. It says the purchase's status, so deliver once per purchase_id and only when it's completed. null while paying, or when it failed.",
@@ -1031,7 +1041,9 @@ export const WEBHOOK_EVENT = object({
         "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about account_deletion.player_id (Zaisma erases their rows in the game's database itself unless account_deletion.deleted_account_erase_enabled is false)",
       security_alert:
         "one of your own security alerts, as get_activity lists them (security_event): a sign-in on a new device from a network you hadn't used, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI or app connected. It reaches only a webhook for every game (game_slugs null) at an endpoint_url",
-      test: "sent by test_webhook; game, version, bug_report, player_report, game_server_error, alert, account_deletion, sign_in_app and security_event are null",
+      purchase_completed: "a player bought an item, or you granted one (purchase, with its receipt and game_account_id): the record to credit a game's own account from, sent even when no game is open",
+      purchase_refunded: "a purchase or grant was refunded or charged back (purchase; purchase.purchase_status says which): take back what your refund policy says",
+      test: "sent by test_webhook; game, version, bug_report, player_report, game_server_error, alert, account_deletion, sign_in_app, security_event and purchase are null",
     },
     "What happened. New kinds can be added: skip one you don't know.",
   ),
@@ -1053,6 +1065,7 @@ export const WEBHOOK_EVENT = object({
   ),
   sign_in_app: nullable({ ...SIGN_IN_APP, description: "The sign-in app as list_sign_in_apps answers it; null unless an account_deleted event is about a site, not a game." }),
   security_event: nullable({ ...ACTIVITY_EVENT, description: "The account's event as get_activity lists it; null unless kind is security_alert." }),
+  purchase: nullable({ ...PURCHASE, description: "The purchase as get_purchase answers it, receipt and game_account_id included; null unless kind is purchase_completed or purchase_refunded." }),
 });
 
 /** One event on its way to one webhook, and how it went. */

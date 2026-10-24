@@ -207,6 +207,10 @@ export const ERROR_CODES = {
   already_refunded: { httpStatus: 409, meaning: "The purchase was refunded or charged back already." },
   stripe_not_connected: { httpStatus: 409, meaning: "Refunding a sale goes through Stripe, which the game's developer hasn't connected." },
   receipts_unavailable: { httpStatus: 503, meaning: "Zaisma couldn't sign the purchase's receipt just now. A grant answered with it wasn't made, so trying again grants it once." },
+  bad_purchase_delivery: { httpStatus: 400, meaning: "purchase_delivery isn't game, game_server or own_server." },
+  no_game_server: { httpStatus: 409, meaning: "purchase_delivery game_server needs a game server, on Zaisma or the developer's own, and the game has none." },
+  already_handled: { httpStatus: 409, meaning: "The purchase was handed over already, or its refund was told already." },
+  handled_by_server: { httpStatus: 409, meaning: "The game's purchases go to its game server or the developer's own server (purchase_delivery), so the game can't mark them handled." },
 
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },

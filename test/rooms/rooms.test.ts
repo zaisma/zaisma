@@ -5,7 +5,7 @@ import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import roomsWranglerText from "../../apps/rooms/wrangler.jsonc?raw";
 import { HOSTING_PAUSED_END_MESSAGE, passesAreFriends, canChat, passesHaveBlockBetween, verifyPass } from "@zaisma/game-server";
 import { loadSigningKey } from "@zaisma/game-server/internal";
-import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
+import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, takeBack, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 import { GameRoomsService } from "../../apps/rooms/src/room-updates.ts";
 import { ERROR_TEXT } from "@zaisma/game-server/internal";
@@ -1726,5 +1726,156 @@ describe("the v1 rooms transcript, in Zaisma rooms", () => {
     const { stepCount, skippedStepCount } = await playTranscript(driver);
     expect(stepCount).toBeGreaterThan(20);
     expect(skippedStepCount).toBe(0);
+  });
+});
+
+describe("purchases to the game's page, exactly once", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM purchases; DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
+  });
+
+  const accountFor = (id: string) => createAccount(e.DB, { id, username: id, ageBand: "18+" });
+  const passOf = async (account: { id: string }, gameSlug: string, gameId: string) => (await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>()).pass;
+  const addPurchase = (id: string, gameId: string, playerId: string, purchaseStatus: string, createdAtMs: number) =>
+    e.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', 3, ?, 'patreon-4417', 'grant', ?, ?, ?)")
+      .bind(id, gameId, playerId, purchaseStatus, createdAtMs, purchaseStatus === "pending" || purchaseStatus === "failed" ? null : createdAtMs)
+      .run();
+  const unhandled = async (gameSlug: string, pass: string) => {
+    const answer = await post("/v1/items/unhandled", gameSlug, ORIGIN, { pass });
+    return { httpStatus: answer.status, origin: answer.headers.get("access-control-allow-origin"), body: await answer.json<any>() };
+  };
+  const markHandled = async (gameSlug: string, pass: string, purchaseId?: unknown) => {
+    const answer = await post("/v1/items/handled", gameSlug, ORIGIN, { pass, ...(purchaseId === undefined ? {} : { purchaseId }) });
+    return { httpStatus: answer.status, body: await answer.json<any>() };
+  };
+  const handlingOf = async (purchaseId: string) => (await e.DB.prepare("SELECT handled_at_ms, refund_handled_at_ms FROM purchases WHERE id = ?").bind(purchaseId).first<{ handled_at_ms: number | null; refund_handled_at_ms: number | null }>())!;
+
+  it("lists an account's purchases still to hand over with their receipts, a guest none, and takes no pass from another game or none", async () => {
+    const arena = await addGame("arena");
+    const other = await addGame("other");
+    const [ana, ben] = [await accountFor("handover_ana"), await accountFor("handover_ben")];
+    // Oldest first; pending, failed, another player's, another game's and already-handled purchases aren't listed.
+    await addPurchase("purchase_handoverana02", arena, ana.player_id, "completed", 2);
+    await addPurchase("purchase_handoverana01", arena, ana.player_id, "completed", 1);
+    await addPurchase("purchase_handoveranapn", arena, ana.player_id, "pending", 3);
+    await addPurchase("purchase_handoveranafl", arena, ana.player_id, "failed", 4);
+    await addPurchase("purchase_handoveranaot", other, ana.player_id, "completed", 5);
+    await addPurchase("purchase_handoverbenar", arena, ben.player_id, "completed", 6);
+    await addPurchase("purchase_handoveranadn", arena, ana.player_id, "completed", 7);
+    await e.DB.prepare("UPDATE purchases SET handled_at_ms = 1 WHERE id = 'purchase_handoveranadn'").run();
+
+    const mine = await unhandled("arena", await passOf(ana, "arena", arena));
+    expect(mine.httpStatus).toBe(200);
+    expect(mine.origin).toBe(ORIGIN);
+    expect(mine.body.purchases.map((purchase: { id: string }) => purchase.id)).toEqual(["purchase_handoverana01", "purchase_handoverana02"]);
+    expect(mine.body.purchases[0]).toEqual({
+      id: "purchase_handoverana01",
+      itemName: "revive",
+      itemKind: "consumable",
+      itemCount: 3,
+      purchaseSource: "grant",
+      purchaseStatus: "completed",
+      gameAccountId: "patreon-4417",
+      paidMinorUnits: null,
+      currencyCode: null,
+      purchasedAt: new Date(1).toISOString(),
+      refundedAt: null,
+      receipt: expect.stringMatching(/^[\w-]+\.[\w-]+\.[\w-]+$/),
+    });
+    // Listing doesn't mark anything: asking again gives the same.
+    expect((await unhandled("arena", await passOf(ana, "arena", arena))).body.purchases).toHaveLength(2);
+    expect((await handlingOf("purchase_handoverana01")).handled_at_ms).toBeNull();
+    // The other game sees only its own, and Ben only his.
+    expect((await unhandled("other", await passOf(ana, "other", other))).body.purchases.map((purchase: { id: string }) => purchase.id)).toEqual(["purchase_handoveranaot"]);
+    expect((await unhandled("arena", await passOf(ben, "arena", arena))).body.purchases.map((purchase: { id: string }) => purchase.id)).toEqual(["purchase_handoverbenar"]);
+
+    // Guests own nothing: no purchases, and no error.
+    expect((await unhandled("arena", (await getPass("arena")).pass)).body).toEqual({ purchases: [] });
+    // A pass for another game, a pass made up and none are refused as bad_pass; another site's page, as bad_origin.
+    for (const pass of [await passOf(ana, "other", other), "not.a.pass", undefined as unknown as string]) {
+      const refused = await unhandled("arena", pass);
+      expect(refused.httpStatus).toBe(401);
+      expect(refused.body).toMatchObject({ error: { code: "bad_pass" } });
+    }
+    expect((await post("/v1/items/unhandled", "arena", "https://evil.example", { pass: await passOf(ana, "arena", arena) })).status).toBe(403);
+    expect(await (await post("/v1/items/handled", "arena", "https://evil.example", { pass: await passOf(ana, "arena", arena) })).json()).toMatchObject({ error: { code: "bad_origin" } });
+    expect(await (await post("/v1/items/unhandled", "no-such-game", ORIGIN, { pass: "x" })).json()).toMatchObject({ error: { code: "game_unavailable" } });
+  });
+
+  it("marks a purchase handled once for a game that takes its own purchases, and says why not for another player's, another game's, a pending, a failed and an unknown one", async () => {
+    const arena = await addGame("arena");
+    const other = await addGame("other");
+    const [ana, ben] = [await accountFor("marking_ana"), await accountFor("marking_ben")];
+    await addPurchase("purchase_markingana001", arena, ana.player_id, "completed", 1);
+    await addPurchase("purchase_markingbenarn", arena, ben.player_id, "completed", 2);
+    await addPurchase("purchase_markinganaoth", other, ana.player_id, "completed", 3);
+    await addPurchase("purchase_markinganapnd", arena, ana.player_id, "pending", 4);
+    await addPurchase("purchase_markinganafld", arena, ana.player_id, "failed", 5);
+    const anaPass = await passOf(ana, "arena", arena);
+
+    for (const purchaseId of ["purchase_markingbenarn", "purchase_markinganaoth", "purchase_markinganapnd", "purchase_markinganafld", "purchase_markingnosuch1", "player_markingana", 7, undefined]) {
+      const refused = await markHandled("arena", anaPass, purchaseId);
+      expect(refused.httpStatus).toBe(404);
+      expect(refused.body).toMatchObject({ error: { code: "no_purchase", field: "purchaseId" } });
+    }
+    // Nothing was marked by any of those, and a guest has no purchase to mark either.
+    for (const purchaseId of ["purchase_markingbenarn", "purchase_markinganaoth", "purchase_markinganapnd", "purchase_markinganafld", "purchase_markingana001"]) expect(await handlingOf(purchaseId)).toEqual({ handled_at_ms: null, refund_handled_at_ms: null });
+    expect(await markHandled("arena", (await getPass("arena")).pass, "purchase_markingana001")).toMatchObject({ httpStatus: 404, body: { error: { code: "no_purchase", field: "purchaseId" } } });
+    expect(await markHandled("arena", await passOf(ana, "other", other), "purchase_markingana001")).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_pass" } } });
+
+    // Her own purchase is marked, and the second mark says it was already.
+    expect(await markHandled("arena", anaPass, "purchase_markingana001")).toEqual({ httpStatus: 200, body: { isHandled: true } });
+    expect(await handlingOf("purchase_markingana001")).toEqual({ handled_at_ms: expect.any(Number), refund_handled_at_ms: null });
+    const again = await markHandled("arena", anaPass, "purchase_markingana001");
+    expect(again.httpStatus).toBe(409);
+    expect(again.body).toMatchObject({ error: { code: "already_handled", field: "purchaseId" } });
+    // Marked, it no longer waits to be handed over; Ben's still does.
+    expect((await unhandled("arena", anaPass)).body).toEqual({ purchases: [] });
+    expect((await unhandled("arena", await passOf(ben, "arena", arena))).body.purchases).toHaveLength(1);
+  });
+
+  it("tells a refund of a purchase the game had once: it comes back to be listed and marked, and a refund of one it never had never does", async () => {
+    const arena = await addGame("arena");
+    const ana = await accountFor("refunding_ana");
+    await addPurchase("purchase_refundingana01", arena, ana.player_id, "completed", 1);
+    await addPurchase("purchase_refundingana02", arena, ana.player_id, "completed", 2);
+    const anaPass = await passOf(ana, "arena", arena);
+
+    // The first is handled, then taken back; the second is taken back before the game ever took it.
+    expect(await markHandled("arena", anaPass, "purchase_refundingana01")).toMatchObject({ body: { isHandled: true } });
+    expect(await takeBack(e.DB, "purchase_refundingana01", "refunded", 5_000)).toBe(true);
+    expect(await takeBack(e.DB, "purchase_refundingana02", "charged_back", 6_000)).toBe(true);
+
+    const listed = (await unhandled("arena", anaPass)).body.purchases;
+    expect(listed).toEqual([expect.objectContaining({ id: "purchase_refundingana01", purchaseStatus: "refunded", refundedAt: new Date(5_000).toISOString(), receipt: expect.any(String) })]);
+    const handledAtMs = (await handlingOf("purchase_refundingana01")).handled_at_ms;
+    expect(await markHandled("arena", anaPass, "purchase_refundingana01")).toEqual({ httpStatus: 200, body: { isHandled: true } });
+    expect(await handlingOf("purchase_refundingana01")).toEqual({ handled_at_ms: handledAtMs, refund_handled_at_ms: expect.any(Number) });
+    // Told once, as the purchase itself was.
+    expect(await markHandled("arena", anaPass, "purchase_refundingana01")).toMatchObject({ httpStatus: 409, body: { error: { code: "already_handled", field: "purchaseId" } } });
+    expect((await unhandled("arena", anaPass)).body).toEqual({ purchases: [] });
+    expect(await handlingOf("purchase_refundingana02")).toEqual({ handled_at_ms: null, refund_handled_at_ms: null });
+  });
+
+  it("lists purchases for every purchase_delivery but lets only a game that takes its own purchases mark them: handled_by_server for game_server and own_server", async () => {
+    const arena = await addGame("arena");
+    const ana = await accountFor("delivering_ana");
+    await addPurchase("purchase_deliveringana1", arena, ana.player_id, "completed", 1);
+    const anaPass = await passOf(ana, "arena", arena);
+    for (const purchaseDelivery of ["game_server", "own_server"]) {
+      await e.DB.prepare("UPDATE games SET purchase_delivery = ? WHERE id = ?").bind(purchaseDelivery, arena).run();
+      expect((await unhandled("arena", anaPass)).body.purchases).toHaveLength(1);
+      // Refused before the purchase is even looked at, for this one and an unknown ID alike.
+      for (const purchaseId of ["purchase_deliveringana1", "purchase_deliveringnone"]) {
+        const refused = await markHandled("arena", anaPass, purchaseId);
+        expect(refused.httpStatus).toBe(409);
+        expect(refused.body.error.code).toBe("handled_by_server");
+        expect(refused.body.error.message).toContain(purchaseDelivery);
+      }
+      expect(await handlingOf("purchase_deliveringana1")).toEqual({ handled_at_ms: null, refund_handled_at_ms: null });
+    }
+    // Back to game: it marks it.
+    await e.DB.prepare("UPDATE games SET purchase_delivery = 'game' WHERE id = ?").bind(arena).run();
+    expect(await markHandled("arena", anaPass, "purchase_deliveringana1")).toEqual({ httpStatus: 200, body: { isHandled: true } });
   });
 });

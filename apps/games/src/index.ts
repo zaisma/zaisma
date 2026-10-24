@@ -529,7 +529,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       // Room links from a tester link go back through it, since a private game has no public page, and rooms
       // let its players go when it's turned off.
       // version: the one this tab runs, so the game page can offer a newer one published "now".
-      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, version: version.id, ...(tester ? { page: `/t/${tester.token}`, tester: tester.id } : {}) };
+      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, version: version.id, purchaseDelivery: game.purchase_delivery, ...(tester ? { page: `/t/${tester.token}`, tester: tester.id } : {}) };
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       // Checked on every load, like the game's own HTML, so the version it names is the one the tab gets.
       headers.set("Cache-Control", "no-cache");

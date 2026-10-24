@@ -63,6 +63,8 @@
     { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } },
     // A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends).
     { "name": "FRIENDS_LIMIT", "namespace_id": "1016", "simple": { "limit": 60, "period": 60 } },
+    // A game asking for the player's purchases still to hand over, or marking one handled (Zaisma.items.unhandled, markHandled).
+    { "name": "ITEMS_LIMIT", "namespace_id": "1102", "simple": { "limit": 60, "period": 60 } },
     // Relay credentials for connections between players (src/relay.ts): like passes.
     { "name": "RELAY_LIMIT", "namespace_id": "1017", "simple": { "limit": 20, "period": 60 } },
     // Developers' own servers checking chat (POST /v1/chat/check), per game and sender: more than anyone types.
