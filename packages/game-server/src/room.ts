@@ -9,7 +9,7 @@
 
 import { DatabaseError, type GameDatabase } from "./database.ts";
 import { isRoomCode, roomCode } from "./names.ts";
-import type { PlayerKind } from "./pass.ts";
+import type { PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
 import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
 import { newStateTracker, type StateChange, type StateFrame, type StateTracker } from "./state-sync.ts";
@@ -132,6 +132,15 @@ export interface Room {
    * game_server_allowed_hosts, and anything else throws an OutsideCallError.
    */
   readonly secrets: Readonly<Record<string, string>>;
+  /**
+   * Check a purchase's receipt, as the game sent it, before delivering: its claims, or an error named
+   * ReceiptError with a code (wrong_game, bad_signature, ...); check error.name, not instanceof, since in
+   * Zaisma rooms it isn't your copy's class. The runtime fills in Zaisma's published keys and this game, in
+   * Zaisma rooms and on your own server alike. Any other error means the check couldn't run just now (keys
+   * that didn't load, a time-out): try again later, never treat the receipt as refused. Deliver once per purchase_id, and only when purchase_status
+   * is completed.
+   */
+  verifyReceipt(receipt: string): Promise<ReceiptClaims>;
   /**
    * Whether two players in the room have a block between them, either way (never which one made it):
    * from their Zaisma accounts, or a block a player just made in the game. A block is a wall both ways,
@@ -1031,6 +1040,8 @@ export interface Transport {
   database?: GameDatabase;
   /** The game's secrets, as room.secrets. Without them, there are none. */
   secrets?: Readonly<Record<string, string>>;
+  /** room.verifyReceipt, with Zaisma's keys and this game filled in. Without it, it throws, saying so. */
+  verifyReceipt?(receipt: string): Promise<ReceiptClaims>;
   /** room.applyVersionUpdate(): switch to the version coming now. Without it (your own server), it does nothing. */
   applyVersionUpdate?(): void;
   /** Whether a player's connection holds ROOM_TUNING.backedUpSizeBytes or more not yet sent. Without it, the room judges by its probes. */
@@ -1039,6 +1050,9 @@ export interface Transport {
 
 /** room.secrets and server.secrets where a game has none. */
 export const NO_SECRETS: Readonly<Record<string, string>> = Object.freeze({});
+
+/** room.verifyReceipt and server.verifyReceipt where the runtime has no receipt keys. */
+export const NO_RECEIPT_CHECK = (): Promise<ReceiptClaims> => Promise.reject(new Error("Receipts can't be checked here: run the game server in Zaisma rooms or with the Node runner (node packages/game-server/bin/node.js), or call verifyReceipt with the keys from https://rooms.zaisma.com/.well-known/receipt-jwks.json and issuer https://rooms.zaisma.com/receipts."));
 
 /** room.database where the room has no database: every call fails, saying so. */
 const NO_DATABASE: GameDatabase = {
@@ -1473,6 +1487,7 @@ export class RoomCore<S = any> {
       moveTo: (toRoomCode, moveOptions) => this.moveTo(toRoomCode, moveOptions),
       database: transport.database ?? NO_DATABASE,
       secrets: transport.secrets ?? NO_SECRETS,
+      verifyReceipt: transport.verifyReceipt ?? NO_RECEIPT_CHECK,
       hasBlockBetween: (firstPlayerId, secondPlayerId) => this.hasBlockBetween(firstPlayerId, secondPlayerId),
       areFriends: (firstPlayerId, secondPlayerId) => this.areFriends(firstPlayerId, secondPlayerId),
       pingDurationMs: (playerId) => this.presence.get(playerId)?.pingDurationMs ?? null,

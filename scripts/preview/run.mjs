@@ -54,10 +54,20 @@ const ROOMS_ISSUER = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = browserOrigin("localhost", PORTS.mail);
 // This script's own calls (test data, waiting for the servers) go straight to the servers here, not round the tailnet: the
-// router sees every request as sent to the phone address anyway.
+// router sees every request as sent to the phone address anyway. They're marked as this script's (the router's
+// PREVIEW_SCRIPT_HEADER), so their answers name the tailnet address, as a browser there sees them, not localhost.
 if (PHONE_HOST) {
   const fetchHere = globalThis.fetch;
-  globalThis.fetch = (input, init) => fetchHere(input instanceof Request ? input : String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), init);
+  const PREVIEW_SCRIPT_HEADER = "x-preview-script";
+  globalThis.fetch = (input, init) => {
+    if (input instanceof Request) {
+      input.headers.set(PREVIEW_SCRIPT_HEADER, "1");
+      return fetchHere(input, init);
+    }
+    const headers = new Headers(init?.headers);
+    headers.set(PREVIEW_SCRIPT_HEADER, "1");
+    return fetchHere(String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), { ...init, headers });
+  };
 }
 // The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
 const FEEDBACK = `http://localhost:${PORTS.feedback}`;
@@ -106,17 +116,19 @@ const siteSettings = {
   TURNSTILE_SITE_KEY: "1x00000000000000000000BB", TURNSTILE_SECRET: "1x0000000000000000000000000000000AA", TURNSTILE_SITEVERIFY_URL: `http://localhost:${PORTS.turnstile}/turnstile/v0/siteverify`,
 };
 const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS };
-// Multiplayer rooms, with their own pass signing key kept between runs so passes stay valid.
-const passKeyFile = join(STATE, "rooms-key.json");
-if (!existsSync(passKeyFile)) {
-  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-  const { kty, crv, x, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
-  writeFileSync(passKeyFile, JSON.stringify({ kty, crv, x, d }));
+// Multiplayer rooms, with their own pass and receipt signing keys kept between runs so passes and receipts stay valid.
+async function keptSigningKey(file) {
+  if (!existsSync(file)) {
+    const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const { kty, crv, x, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    writeFileSync(file, JSON.stringify({ kty, crv, x, d }));
+  }
+  return readFileSync(file, "utf8");
 }
 // And the key for the opaque player tags in passes, kept between runs so tags stay the same.
 const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
 if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: readFileSync(passKeyFile, "utf8"), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
+const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
@@ -422,7 +434,7 @@ const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
   compatibility_date: "2026-10-01",
-  vars: { GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
+  vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), MAIL_PORT: String(PORTS.mail), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
@@ -852,15 +864,17 @@ async function seed() {
   runSql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20) INSERT OR IGNORE INTO performance_checks (version_id, owner_id, check_status, queued_at_ms, checked_at_ms) SELECT 'version_usedrun' || i, (SELECT owner_id FROM games WHERE slug = 'texture-tour'), 'checked', CAST(unixepoch('subsec') * 1000 AS INTEGER), NULL FROM n");
 
   const games = [
-    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
-    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
-    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }] },
+    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["action"] },
+    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }], genres: ["action", "fighting"] },
+    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }], genres: ["card_and_board", "puzzle"] },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
-    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
-    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }] },
+    // Made for phones only, so Browse on a computer shows it after the divider with its note.
+    { title: "Pocket Putt", folder: "examples/hello-game", color: [60, 160, 120], description: "Flick the ball round tiny courses with one thumb.", devices: ["phone"], controls: ["touch"], play_modes: [{ mode: "single" }], genres: ["sports", "puzzle"] },
+    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }], genres: ["simulation"] },
+    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }], genres: ["adventure", "survival"] },
   ];
   for (const g of games) {
-    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
+    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, genres: g.genres ?? [], ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
     await upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
     // A listed game needs a screenshot.
@@ -1105,6 +1119,10 @@ async function seed() {
   await finishEngineSamples();
   await finishStartedInChrome();
   stepDone("runs in Chrome still going");
+  // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
+  // Last, since they count toward its developer's 50 games.
+  runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);
+  stepDone("Browse's other games");
 }
 
 /**

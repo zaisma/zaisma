@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -34,6 +34,7 @@ interface GameJson {
   review_reason: ReviewReasonJson | null;
   devices: string[];
   controls: string[];
+  genres: string[];
   screen_orientation: string | null;
   play_modes: PlayMode[] | null;
   cloud_saves_enabled: boolean;
@@ -249,6 +250,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         description: field("description"),
         devices: form.getAll("devices").map(String),
         controls: form.getAll("controls").map(String),
+        genres: form.getAll("genres").map(String),
         screen_orientation: field("screen") || null,
         play_modes: playModesFrom(form),
         cloud_saves_enabled: form.get("cloud_saves") === "on",
@@ -915,6 +917,7 @@ ${game.title_listing_reason ? html`<div class="note">${reasonPanel(slug, game.ti
 <label>Description<textarea name="description" maxlength="500">${waiting?.description ?? game.description}</textarea></label>
 <fieldset><legend>Works on</legend><div class="row">${DEVICES.map((device) => html`<label class="check"><input type="checkbox" name="devices" value="${device}"${game.devices.includes(device) ? raw(" checked") : ""}> ${DEVICE_LABELS[device]}</label>`)}</div></fieldset>
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((control) => html`<label class="check"><input type="checkbox" name="controls" value="${control}"${game.controls.includes(control) ? raw(" checked") : ""}> ${CONTROL_LABELS[control]}</label>`)}</div></fieldset>
+<fieldset><legend>Genres</legend><p class="hint">Pick up to ${MAXIMUM_GENRE_COUNT}. Players filter Browse by them.</p><div class="row">${GENRES.map((genre) => html`<label class="check"><input type="checkbox" name="genres" value="${genre}"${game.genres.includes(genre) ? raw(" checked") : ""}> ${GENRE_LABELS[genre]}</label>`)}</div></fieldset>
 ${playersFields(game.play_modes)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((screen) => html`<option value="${screen}"${(game.screen_orientation ?? "") === screen ? raw(" selected") : ""}>${SCREEN_LABELS[screen]}</option>`)}</select></label>
 ${multiplayerFields(game.multiplayer_mode)}

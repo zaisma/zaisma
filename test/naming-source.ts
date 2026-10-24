@@ -34,7 +34,7 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   AccessJwtClaims: ["exp", "nbf"],
   SupabaseJwtClaims: ["exp", "timestamp"],
   PassClaims: ["iat", "exp"],
-  ReceiptClaims: ["iat", "jti"],
+  ReceiptClaims: ["iat", "jti", "exp"],
   ReceiptClaimsInput: ["iat", "jti"],
   IdTokenClaims: ["iat", "exp", "auth_time"],
   AccessTokenClaims: ["iat", "exp"],

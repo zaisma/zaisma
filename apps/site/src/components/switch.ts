@@ -104,7 +104,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       var roomPx = parseFloat(getComputedStyle(sw).getPropertyValue("--tab-room")) || LEAST_ROOM_PX;
       sw.style.setProperty("--tab-room", Math.max(LEAST_ROOM_PX, roomPx - overflowPx / (2 * shown.length)).toFixed(2) + "px");
     }
-    // While a slide from the last page waits for the fonts, nothing moves the slab off the tab it starts on.
+    // While a slide from the last page waits or plays, nothing moves the slab: a settle then (the fonts, a picture in the header loading)
+    // would set the slab again under the slide, and a phone's browser can restart the slide from there, jumping it back.
     var isWaitingToSlide = false;
     // The gallery's fixed states: a tab marked is-pointed has the ghost under it, one marked is-focused the focus line round it.
     function fixedStates() {
@@ -119,19 +120,35 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // nothing is laid out or redrawn while the new page is still starting, and the settles that follow (fonts, the first resize) can't cut it short.
     var came = window.navigation && navigation.activation && navigation.activation.from;
     if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      var lastPath = new URL(came.url).pathname, last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      // The tab whose page it came from: by its whole address, or by its path where only one tab has it (Browse's sorts are all /games, so
+      // coming from a Browse address no tab has, none of them is the last page's and nothing slides).
+      var cameFrom = new URL(came.url), lastPath = cameFrom.pathname;
+      var samePath = Array.prototype.filter.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      var last = samePath.find(function (tab) { return new URL(tab.href).search === cameFrom.search; }) || (samePath.length === 1 ? samePath[0] : undefined);
       var on = current();
       if (last && on && last !== on) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
         var slide = function () {
           var from = isVertical ? "translateY(" + last.offsetTop + "px)" : "translateX(" + last.offsetLeft + "px) scaleX(" + (last.offsetWidth / Math.max(1, on.offsetWidth)).toFixed(4) + ")";
           var to = isVertical ? "translateY(" + on.offsetTop + "px)" : "translateX(" + on.offsetLeft + "px) scaleX(1)";
-          slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: parseFloat(getComputedStyle(slab).transitionDuration) * 1000 || 550, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
+          return slab.animate([{ transform: from, transformOrigin: "0 0" }, { transform: to, transformOrigin: "0 0" }], { duration: parseFloat(getComputedStyle(slab).transitionDuration) * 1000 || 550, easing: "cubic-bezier(.3, 1.2, .4, 1)" });
         };
         // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
         slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
         isWaitingToSlide = true;
-        var start = function () { isWaitingToSlide = false; settle(); slide(); };
+        // It starts once the page shows, not before (a slow phone draws the new page late, and a slide started earlier would show up already
+        // halfway there), and once the page's crossfade from the last one (its view transition) is over, so the slab moves on the page
+        // itself and not inside the crossfade's picture of it. Once it lands, the slab settles where its tab is by then.
+        var start = function () {
+          requestAnimationFrame(function () {
+            var fades = document.getAnimations ? document.getAnimations().filter(function (each) { return each.effect && /^::view-transition/.test(each.effect.pseudoElement || ""); }) : [];
+            Promise.all(fades.map(function (each) { return each.finished.catch(function () {}); })).then(function () {
+              isWaitingToSlide = false; settle(); isWaitingToSlide = true;
+              var land = function () { isWaitingToSlide = false; settle(); };
+              slide().finished.then(land, land);
+            });
+          });
+        };
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
       }
     }
@@ -150,10 +167,18 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     };
     function isDisabled(tab) { return tab.disabled || tab.getAttribute("aria-disabled") === "true"; }
     tabs.forEach(function (tab) {
-      tab.addEventListener("pointerenter", function () { if (isDisabled(tab)) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
-      // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab.
-      tab.addEventListener("click", function () {
-        if (isDisabled(tab) || (tab.href && new URL(tab.href, location.href).pathname !== location.pathname)) return;
+      // Pointing is a mouse's: a tap fires it too, and on a link to another page the ghost would glide there before the next page slides the slab.
+      tab.addEventListener("pointerenter", function (event) { if (isDisabled(tab) || (event.pointerType && event.pointerType !== "mouse")) return; if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
+      // A link to another page doesn't slide here: the page changes at once, and the next page slides it in from this tab, so the slide
+      // plays once. Only a link within this page (its address but for the #), or one a page script shows without leaving, slides here.
+      tab.addEventListener("click", function (event) {
+        if (isDisabled(tab)) return;
+        // The tab you're on is where you are: pressing it again changes nothing (a new tab or window from it still opens).
+        if (tab.href && tab.getAttribute("aria-current") === "page" && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); return; }
+        if (tab.href && !event.defaultPrevented) {
+          var to = new URL(tab.href, location.href);
+          if (to.pathname !== location.pathname || to.search !== location.search) return;
+        }
         sw.pickTab(tab);
       });
     });
@@ -167,6 +192,19 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
   });
+  // A page left with a view transition fades out as the next fades in. A switch with a tab for the next page leaves its slab out of this
+  // page's last picture, so only the next page's slab shows, sliding over from this tab, and not a second one fading where it was.
+  window.addEventListener("pageswap", function (event) {
+    if (!event.viewTransition || !event.activation || !event.activation.entry || !event.activation.entry.url) return;
+    var to = new URL(event.activation.entry.url);
+    document.querySelectorAll(".tab-switch").forEach(function (sw) {
+      var slab = sw.querySelector(":scope > .slab");
+      var isGoing = Array.prototype.some.call(sw.querySelectorAll(":scope > a[href]"), function (tab) { return new URL(tab.href).pathname === to.pathname && tab.getAttribute("aria-current") !== "page"; });
+      if (slab && isGoing) slab.style.visibility = "hidden";
+    });
+  });
+  // A page kept to go back to gets its slabs back.
+  window.addEventListener("pageshow", function () { document.querySelectorAll(".tab-switch > .slab").forEach(function (slab) { slab.style.visibility = ""; }); });
 })();
 `;
 

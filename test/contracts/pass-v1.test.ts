@@ -43,6 +43,7 @@ describe("player passes v1", () => {
       player_tag_id: "player_tag_9c4m1q7z",
       friend_player_tag_ids: ["player_tag_2b6v8n0x"],
       block_player_tag_ids: ["player_tag_5k1j3h7g"],
+      owned_item_names: [],
       iat: 1792800000,
       exp: 1792803600,
     });

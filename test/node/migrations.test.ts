@@ -415,3 +415,17 @@ describe("migration 0135", () => {
     database.exec(`INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ${purchase("purchase_again", 4)}`);
   });
 });
+
+describe("migration 0138", () => {
+  const database = migratedFrom(
+    "0138_",
+    `INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, price_minor_units, currency_code, created_at_ms, purchased_at_ms) VALUES
+       ('purchase_sold', 'game_one', 'expansion_north', 'permanent', 'player_one', 'sale', 'completed', 1999, 'usd', 1, 1);`,
+  );
+
+  it("keeps what each purchase paid as paid_minor_units, with room for a deleted game's slug and title", () => {
+    expect(database.prepare("SELECT id, paid_minor_units, deleted_game_slug, deleted_game_title FROM purchases").all()).toEqual([
+      { id: "purchase_sold", paid_minor_units: 1999, deleted_game_slug: null, deleted_game_title: null },
+    ]);
+  });
+});

@@ -210,7 +210,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, backgrounds, shaders, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, genres, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, deleted_account_erase_enabled, friend_joins_enabled, performance_measuring_enabled, room_browsing, multiplayer_mode, account_requirement, minimum_player_age_years, game_server_allowed_hosts, own_server_urls, links, glass_tint_color
  *   POST   /api/dev/games/:slug/images?kind=   add a cover, screenshot, background picture or shader texture (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/shaders        send a background shader: { screen, image, buffers } (see backgrounds-api.ts)
@@ -547,7 +547,7 @@ const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput 
 
 /** What a tester link opens and until when, besides its name. */
 const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
 const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
@@ -2515,6 +2515,7 @@ export async function gameJson(env: Env, game: Game) {
     country_blocks: countryBlocksAnswer(game),
     devices: splitLabels(game.devices),
     controls: splitLabels(game.controls),
+    genres: splitLabels(game.genres),
     screen_orientation: game.screen_orientation || null,
     play_modes: readPlayModes(game.play_modes),
     cloud_saves_enabled: Boolean(game.cloud_saves_enabled),

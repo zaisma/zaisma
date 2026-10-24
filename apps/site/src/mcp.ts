@@ -1,4 +1,4 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
@@ -133,6 +133,14 @@ const details = {
   description: { type: "string", maxLength: 500, description: "Shown on the game page" },
   devices: { type: "array", items: { enum: DEVICES }, description: "Devices the game works on" },
   controls: { type: "array", items: { enum: CONTROLS }, description: "Controls the game supports" },
+  genres: {
+    type: "array",
+    items: { enum: GENRES },
+    uniqueItems: true,
+    maxItems: MAXIMUM_GENRE_COUNT,
+    description: `Up to ${MAXIMUM_GENRE_COUNT} genres from Zaisma's list; players filter Browse by them (a genre's own list is zaisma.com/games?filter=<genre>, like ?filter=horror), and [] clears them. Only these words: not ["rpg"] or ["multiplayer"] (answers bad_genres; multiplayer comes from play_modes)`,
+    examples: [["role_playing", "strategy"], ["horror", "survival"], []],
+  },
   screen_orientation: { type: ["string", "null"], enum: [...SCREENS, null], description: "null: not set" },
   play_modes: {
     type: ["array", "null"],
@@ -317,6 +325,7 @@ export const TOOLS: Tool[] = [
       examples: [
         { slug: "sky-hopper", play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] },
         { slug: "party-hop", play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: null, play_style: "versus" }], devices: ["phone", "tablet"], controls: ["touch"], screen_orientation: "landscape" },
+        { slug: "sky-hopper", genres: ["platformer", "adventure"] },
         { slug: "sky-hopper", visibility: "listed" },
         { slug: "sky-hopper", multiplayer_mode: "relay", room_browsing: "page" },
         { slug: "sky-hopper", friend_joins_enabled: false },
@@ -1364,7 +1373,7 @@ export const TOOLS: Tool[] = [
     name: "grant_item",
     title: "Grant an item",
     description:
-      "Give a player an item, with no money: a supporter's reward, a prize, an apology. It's a purchase with purchase_source grant, completed at once, with a signed receipt any server checks with verifyReceipt. A permanent item shows in the player's next pass (Zaisma.items.owns, player.ownedItemNames); granting one they own answers that purchase with is_already_owned. A consumable is delivered with its receipt: your server counts it once per purchase ID. Only accounts own items, not guests.",
+      "Give a player an item, with no money: a supporter's reward, a prize, an apology. It's a purchase with purchase_source grant, completed at once, with a signed receipt a game server checks in one call, room.verifyReceipt(receipt) or server.verifyReceipt(receipt). A permanent item shows in the player's next pass (Zaisma.items.owns, player.ownedItemNames); granting one they own answers that purchase with is_already_owned. A consumable is delivered with its receipt: your server delivers it once per purchase_id, and only while its purchase_status is completed. Only accounts own items, not guests.",
     inputSchema: {
       ...object(
         {
@@ -1410,7 +1419,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_purchase",
     title: "Get a purchase",
-    description: "One purchase or grant, with its signed receipt.",
+    description: "One purchase or grant, with its signed receipt, signed again on each read: it says the purchase's current purchase_status, so one read after a refund says refunded.",
     inputSchema: object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases or grant_item") }, ["slug", "purchase_id"]),
     outputSchema: answer({ purchase: PURCHASE }),
     annotations: read,

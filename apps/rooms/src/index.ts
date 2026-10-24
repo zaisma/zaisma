@@ -1,7 +1,7 @@
 import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
-import { signingKey } from "./signing.ts";
+import { publishedReceiptKeys, signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
 import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
@@ -16,7 +16,7 @@ export { GameSecretsObject, GameSecretsService } from "./secrets.ts";
 export { GameServerOutbound } from "./outbound.ts";
 export { GameStorageService } from "./game-storage.ts";
 export { GameRoomsService } from "./room-updates.ts";
-export { ReceiptSigningService } from "./receipts.ts";
+export { ReceiptCheckBinding, ReceiptSigningService } from "./receipts.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;
@@ -50,6 +50,10 @@ export interface Env extends RelayEnv {
   GAME_ORIGIN: string;
   GAME_DOMAIN: string;
   PASS_SIGNING_KEY: string;
+  /** Signs receipts only (signing.ts). Without it, the site's receipts answer receipts_unavailable. */
+  RECEIPT_SIGNING_KEY?: string;
+  /** Public JWKs of retired receipt keys, as a JSON list: published for good, so their receipts keep verifying. */
+  RETIRED_RECEIPT_PUBLIC_KEYS?: string;
   /** 32 random bytes, base64: keys the player tags and chat groups in passes, apart from the signing key so replacing that never changes a tag. */
   PLAYER_TAG_KEY: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
@@ -412,8 +416,18 @@ export default {
     const origin = request.headers.get("origin");
 
     if (url.pathname === "/.well-known/jwks.json") {
-      const key = await signingKey(env);
-      return Response.json(jwks([key.publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
+      return Response.json(jwks([(await signingKey(env)).publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
+    }
+    // Receipt keys at their own address, so a receipt key never signs a pass anyone takes.
+    if (url.pathname === "/.well-known/receipt-jwks.json") {
+      let receiptKeys;
+      try {
+        receiptKeys = await publishedReceiptKeys(env);
+      } catch (error) {
+        console.error(`receipt keys not published: ${error instanceof Error ? error.message : String(error)}`);
+        return Response.json({ error: { code: "receipts_unavailable", message: "Zaisma's receipt keys can't be loaded just now." } }, { status: 503, headers: { "Access-Control-Allow-Origin": "*" } });
+      }
+      return Response.json(jwks(receiptKeys), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
     }
 
     // An account's public profile by player ID, for any game, server or site: what a stranger sees, read-only.
@@ -486,8 +500,7 @@ export default {
           : {};
         // The permanent items the account owns here, so any game server sees them on connect without calling Zaisma.
         const ownedNames = account ? await ownedItemNames(env.DB, game.id, account.player_id) : [];
-        const owned = ownedNames.length ? { owned_item_names: ownedNames } : {};
-        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, pass_version_number: PASS_VERSION_NUMBER, kind: player.kind, ...chat, ...owned, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, pass_version_number: PASS_VERSION_NUMBER, kind: player.kind, ...chat, owned_item_names: ownedNames, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }
