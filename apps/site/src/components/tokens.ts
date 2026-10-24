@@ -150,8 +150,9 @@ html { -webkit-tap-highlight-color: transparent; }
 [data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
-/* Moving between Zaisma's pages crossfades, so a page change never flashes. */
-@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }
+/* Moving between Zaisma's pages crossfades, so a page change never flashes. It's quick: a switch's slab slides over from the last page's
+   tab only once the crossfade is over (SWITCH_SCRIPT), so a long one would hold the slab still. */
+@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } ::view-transition-group(root) { animation-duration: 0.12s; } }
 :root {
   color-scheme: light dark;
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
