@@ -630,7 +630,8 @@ describe("background tools", () => {
   });
 
   it("point a misnamed argument at the tool that does it", async () => {
-    await tool("create_game", { title: "Worlds" });
+    // Arguments are checked before anything runs, so no game is needed (and the file's rate limit has no room for more calls).
+    expect(await tool("update_stripe_account", { stripe_connect: true })).toMatchObject({ code: "unknown_field", field: "stripe_connect", fix: expect.stringContaining("That's what connect_stripe_account does.") });
     expect(await tool("update_game", { slug: "worlds", background_video: "intro.mp4" })).toMatchObject({ code: "unknown_field", field: "background_video", fix: expect.stringContaining("That's what add_shader does.") });
   });
 });

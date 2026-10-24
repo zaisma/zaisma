@@ -410,29 +410,38 @@ describe("the SDK's types say what the SDK does", () => {
     sdk.page.say({ type: "zaisma:buy", requestNumber: 1, status: "open" });
     // An answer for another request isn't this one's.
     sdk.page.say({ type: "zaisma:buy", requestNumber: 9, status: "cancelled" });
-    const purchase = { id: "purchase_k2m9x4w7q1z8c3v5b6n0", item_name: "revive", item_count: 3, purchase_status: "completed", game_account_id: "farmer-42", paid_minor_units: 297, currency_code: "eur", receipt: "receipt.signed" };
+    // The sheet sends the API's snake_case purchase; the game gets the camelCase Purchase the purchase event has.
+    const purchase = { id: "purchase_k2m9x4w7q1z8c3v5b6n0", item_name: "revive", item_kind: "consumable", item_count: 3, purchase_source: "sale", purchase_status: "completed", game_account_id: "farmer-42", paid_minor_units: 297, currency_code: "eur", purchased_at: "2026-10-24T12:00:00.000Z", refunded_at: null, receipt: "receipt.signed" };
     sdk.page.say({ type: "zaisma:buy", requestNumber: 1, status: "bought", purchase });
     const bought = await buying;
-    expect(bought).toEqual({ status: "bought", purchase });
+    expect(bought).toEqual({
+      status: "bought",
+      purchase: { id: purchase.id, itemName: "revive", itemKind: "consumable", itemCount: 3, purchaseSource: "sale", purchaseStatus: "completed", gameAccountId: "farmer-42", paidMinorUnits: 297, currencyCode: "eur", purchasedAt: "2026-10-24T12:00:00.000Z", refundedAt: null, receipt: "receipt.signed" },
+    });
     expect(Object.keys(bought).sort()).toEqual(fieldsOf("BuyResult"));
     expect(sheets).toEqual(["open revive", "close revive"]);
     const cancelling = sdk.Zaisma.items.buy("skin_red-dragon");
     sdk.page.say({ type: "zaisma:buy", requestNumber: 2, status: "open" });
     sdk.page.say({ type: "zaisma:buy", requestNumber: 2, status: "cancelled" });
     expect(await cancelling).toEqual({ status: "cancelled", purchase: null });
+    // A payment still settling when the sheet closed is failed, with the purchase that has no receipt yet.
+    const settling = sdk.Zaisma.items.buy("revive");
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 3, status: "open" });
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 3, status: "failed", purchase: { id: purchase.id, item_name: "revive", item_kind: "consumable", item_count: 1, purchase_source: "sale", purchase_status: "pending", game_account_id: null, paid_minor_units: null, currency_code: "eur", purchased_at: null, refunded_at: null, receipt: null } });
+    expect(await settling).toMatchObject({ status: "failed", purchase: { id: purchase.id, itemName: "revive", purchaseStatus: "pending", receipt: "" } });
     // A developer's mistake rejects with its code; anything else the page says is request_failed.
     const unsold = sdk.Zaisma.items.buy("free_hat");
-    sdk.page.say({ type: "zaisma:buy", requestNumber: 3, status: "error", code: "not_for_sale", message: "Free Hat can't be bought: it has no price." });
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 4, status: "error", code: "not_for_sale", message: "Free Hat can't be bought: it has no price." });
     expect(await failureCode(() => unsold)).toBe("not_for_sale");
-    expect(valuesOf("ErrorCode")).toContain("not_for_sale");
+    expect(valuesOf("ErrorCode")).toEqual(expect.arrayContaining(["not_for_sale", "no_game", "bad_item_name"]));
     const odd = sdk.Zaisma.items.buy("revive");
-    sdk.page.say({ type: "zaisma:buy", requestNumber: 4, status: "error", code: "not_a_code", message: "Something." });
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 5, status: "error", code: "not_a_code", message: "Something." });
     expect(await failureCode(() => odd)).toBe("request_failed");
   });
 
   it("opens the buy sheet only right after the player's tap, and checks what the game sends", async () => {
     const sdk = loadSdk();
-    expect(await failureCode(() => sdk.Zaisma.items.buy(""))).toBe("no_item");
+    expect(await failureCode(() => sdk.Zaisma.items.buy(""))).toBe("bad_item_name");
     expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { itemCount: 1.5 }))).toBe("bad_item_count");
     expect(await failureCode(() => sdk.Zaisma.items.buy("revive", { gameAccountId: 42 as unknown as string }))).toBe("bad_game_account_id");
     sdk.navigator.userActivation = { isActive: false };

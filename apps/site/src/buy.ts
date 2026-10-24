@@ -8,6 +8,7 @@ import {
   hashPurchasePin,
   isPurchasePin,
   isWithdrawalLineShownFor,
+  isOldEnoughFor,
   itemByName,
   ownServerUrlsOf,
   owningPurchaseOf,
@@ -26,10 +27,11 @@ import { currentSession, realEmail, sessionCookies, type Session } from "./auth.
 import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { isOpenHere } from "./game-links.ts";
 import { glassMessage, html, layout, scriptTags } from "./html.ts";
+import { viewerOf } from "./viewer.ts";
 import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { purchaseJson, withReceipts } from "./items-api.ts";
 import { checkPasskeyTap, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
-import { completePurchase, failPurchase, notePayment, recordPendingSale, saleById, staleSales, type Sale } from "./sales.ts";
+import { completePurchase, failPurchase, failStaleSalesWithoutPayment, notePayment, recordPendingSale, saleById, STALE_SALE_COUNT, staleSales, type Sale } from "./sales.ts";
 import { stripeAccountRow } from "./stripe-account-api.ts";
 import {
   StripeRefusal,
@@ -115,11 +117,23 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
       const sale = await saleById(env, purchase[1]!);
       if (!sale || sale.player_id !== signedAccount.player_id) refuse(404, "no_purchase", "You have no purchase with that ID.");
       if (purchase[2] === "/pay-with-saved-card" && method === "POST") return answer(await payWithSavedCard(request, env, signedSession, signedAccount, sale!, nowMs), cookies);
-      if (purchase[2] === "/wallet-intent" && method === "POST") return answer(await walletIntent(env, sale!), cookies);
-      if (!purchase[2] && method === "GET") return answer({ purchase: await purchaseAnswer(env, await settle(env, sale!)) }, cookies);
+      if (purchase[2] === "/wallet-intent" && method === "POST") {
+        await checkPurchaseLimit(env, `wallet:${signedAccount.id}`);
+        return answer(await walletIntent(request, env, sale!), cookies);
+      }
+      if (!purchase[2] && method === "GET") {
+        await checkPurchaseLimit(env, `poll:${signedAccount.id}`);
+        return answer({ purchase: await purchaseAnswer(env, await settle(env, sale!)) }, cookies);
+      }
     }
-    if (path === "/api/payment-methods/setup" && method === "POST") return answer(await startSavingCard(env, signedSession, signedAccount, body), cookies);
-    if (path === "/api/payment-methods/saved" && method === "POST") return answer(await keepCard(env, signedAccount, body, nowMs), cookies);
+    if (path === "/api/payment-methods/setup" && method === "POST") {
+      await checkPurchaseLimit(env, `card:${signedAccount.id}`);
+      return answer(await startSavingCard(env, signedSession, signedAccount, body), cookies);
+    }
+    if (path === "/api/payment-methods/saved" && method === "POST") {
+      await checkPurchaseLimit(env, `card:${signedAccount.id}`);
+      return answer(await keepCard(env, signedAccount, body, nowMs), cookies);
+    }
     if (path === "/api/payment-methods/saved" && method === "DELETE") return answer(await forgetCard(env, signedAccount), cookies);
     if (path === "/api/account/purchase-pin" && method === "PUT") return answer(await setPurchasePin(request, env, signedSession, signedAccount, body), cookies);
     if (path === "/api/account/purchase-pin" && method === "DELETE") {
@@ -150,6 +164,11 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
     // Answered below.
   }
   return refuse(400, "bad_request", "Send a JSON object.");
+}
+
+/** Refuses with slow_down when this key has used its 20 calls a minute (PURCHASE_LIMIT): every call that reaches Stripe counts, each kind apart, so a loop of any one can't use up the platform key's Stripe rate limit. */
+async function checkPurchaseLimit(env: Env, key: string): Promise<void> {
+  if (env.PURCHASE_LIMIT && !(await env.PURCHASE_LIMIT.limit({ key })).success) refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
 }
 
 /** The player's country, from Cloudflare; in the local preview only, preview_country_code stands in for it. */
@@ -183,6 +202,8 @@ const savedCardOf = (env: Env, accountId: string) =>
 async function startBuying(request: Request, env: Env, slug: string, body: Record<string, unknown>, signed: Signed | null, nowMs: number) {
   const game = await gameBySlug(env.DB, slug);
   if (!game || !(await isOpenHere(env, game, body.tester_token))) return refuse(404, "no_game", "There's no game here by that name.");
+  // A game for older players turns younger accounts away from buying too, as it does from playing (plays.ts, ageRefusal).
+  if (signed && !isOldEnoughFor(signed.account.age_band, game.minimum_player_age_years)) return refuse(403, "game_not_open_to_player", "This game isn't open to your account.");
   const itemName = body.item_name;
   const gameItem = typeof itemName === "string" ? await itemByName(env.DB, game.id, itemName) : null;
   if (!gameItem) return refuse(404, "no_item", `${game.title} has no item named ${JSON.stringify(itemName)}.`);
@@ -203,15 +224,18 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
   if (gameItem.item_kind === "permanent" && (await owningPurchaseOf(env.DB, game.id, account.player_id, gameItem.item_name))) return refuse(409, "already_owned", `You already own ${gameItem.title}.`);
   if (env.PURCHASE_LIMIT && !(await env.PURCHASE_LIMIT.limit({ key: account.id })).success) return refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
 
-  const isEuWithdrawalLineShown = isWithdrawalLineShownFor(countryCode);
   const itemCount = requestedItemCount as number;
+  const totalMinorUnits = price.priceMinorUnits * itemCount;
+  if (totalMinorUnits > ITEM_LIMITS.maximumPriceMinorUnits) {
+    return refuse(400, "bad_item_count", `${itemCount} of ${gameItem.title} come to more than Stripe takes in one payment. Buy fewer at a time.`);
+  }
+  const isEuWithdrawalLineShown = isWithdrawalLineShownFor(countryCode);
   const purchaseId = await recordPendingSale(
     env,
     { gameId: game.id, playerId: account.player_id, gameItem, itemCount, gameAccountId: gameAccountId as string | null, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, stripeAccountId: seller.stripe_account_id, isEuWithdrawalLineShown },
     nowMs,
   );
   const [card, passkeys, pin] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id), pinOf(env, account.id)]);
-  const totalMinorUnits = price.priceMinorUnits * itemCount;
   return {
     purchase_id: purchaseId,
     item: { item_name: gameItem.item_name, title: gameItem.title, description: gameItem.description, item_kind: gameItem.item_kind, item_category: gameItem.item_category },
@@ -256,10 +280,13 @@ async function confirmBuying(request: Request, env: Env, session: Session, accou
   } else if (body.purchase_pin !== undefined) {
     const pin = await pinOf(env, account.id);
     if (!pin?.purchase_pin_hash) return refuse(409, "no_purchase_pin", "You haven't set a purchase PIN. Use your passkey or password.");
-    if (pin.purchase_pin_failed_count >= PURCHASE_PIN_LIMITS.maximumFailedTryCount) return refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
+    // The try is taken before the PIN is checked, in one statement: the slow check can't let a hundred parallel guesses all pass a lock that only counts misses afterwards.
+    const taken = await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = purchase_pin_failed_count + 1 WHERE id = ? AND purchase_pin_failed_count < ? RETURNING purchase_pin_failed_count")
+      .bind(account.id, PURCHASE_PIN_LIMITS.maximumFailedTryCount)
+      .first<{ purchase_pin_failed_count: number }>();
+    if (!taken) return refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
     if (typeof body.purchase_pin !== "string" || !(await isPurchasePin(body.purchase_pin, pin.purchase_pin_hash))) {
-      const counted = await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = purchase_pin_failed_count + 1 WHERE id = ? RETURNING purchase_pin_failed_count").bind(account.id).first<{ purchase_pin_failed_count: number }>();
-      const triesLeftCount = PURCHASE_PIN_LIMITS.maximumFailedTryCount - (counted?.purchase_pin_failed_count ?? PURCHASE_PIN_LIMITS.maximumFailedTryCount);
+      const triesLeftCount = PURCHASE_PIN_LIMITS.maximumFailedTryCount - taken.purchase_pin_failed_count;
       return triesLeftCount > 0 ? refuse(403, "wrong_purchase_pin", `That PIN isn't right. ${triesLeftCount} ${triesLeftCount === 1 ? "try" : "tries"} left.`) : refuse(403, "purchase_pin_locked", "Too many wrong PINs. Use your password once, and the PIN works again.");
     }
     await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = 0 WHERE id = ?").bind(account.id).run();
@@ -317,8 +344,9 @@ async function payWithSavedCard(request: Request, env: Env, session: Session, ac
       paymentMethodId: clone,
     });
   } catch (error) {
-    // A refused charge can't be tried again on this purchase (its idempotency key gives the same answer), so it fails.
-    if (!(error instanceof StripeRefusal)) throw error;
+    // A card Stripe refused can't be tried again on this purchase (its idempotency key gives the same answer), so it fails.
+    // Anything else (Stripe down, a rate limit, a bad call) says stripe_unavailable and leaves the sale pending, so trying again is safe.
+    if (!(error instanceof StripeRefusal) || error.stripeErrorKind !== "card_error") throw error;
     await failPurchase(env, sale.id);
     return refuse(402, "payment_declined", `The card didn't go through: ${error.stripeMessage} Try another card, or Apple Pay or Google Pay.`);
   }
@@ -343,11 +371,12 @@ async function taxCalculationFor(request: Request, env: Env, sale: Sale): Promis
 }
 
 /** A payment for Apple Pay or Google Pay to finish on the developer's account. */
-async function walletIntent(env: Env, sale: Sale) {
+async function walletIntent(request: Request, env: Env, sale: Sale) {
   await pendingCheck(sale);
   const gameSlug = (await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(sale.game_id).first<{ slug: string }>())?.slug ?? "";
-  const paymentIntent = await walletIntentOnAccount(env, { stripeAccountId: sale.stripe_account_id!, amountMinorUnits: sale.paid_minor_units!, currencyCode: sale.currency_code!, purchaseId: sale.id, gameSlug, playerId: sale.player_id, description: sale.item_name, taxCalculationId: null });
-  await notePayment(env, sale.id, { paymentIntentId: paymentIntent.id, receiptEmail: null, taxCalculationId: null });
+  const taxCalculationId = await taxCalculationFor(request, env, sale);
+  const paymentIntent = await walletIntentOnAccount(env, { stripeAccountId: sale.stripe_account_id!, amountMinorUnits: sale.paid_minor_units!, currencyCode: sale.currency_code!, purchaseId: sale.id, gameSlug, playerId: sale.player_id, description: sale.item_name, taxCalculationId });
+  await notePayment(env, sale.id, { paymentIntentId: paymentIntent.id, receiptEmail: null, taxCalculationId });
   return { client_secret: paymentIntent.client_secret, stripe_account_id: sale.stripe_account_id };
 }
 
@@ -384,24 +413,27 @@ async function startSavingCard(env: Env, session: Session, account: Account, bod
   if (!email && !passkeys.length) return refuse(409, "account_protection_needed", "Add a passkey or an email to your account first, so nobody else can spend with your card.");
   const receiptEmail = body.receipt_email ?? email;
   if (!isReceiptEmail(receiptEmail)) return refuse(400, "bad_receipt_email", "receipt_email is the email your receipts go to, like alex@example.com.");
-  const setup = await setUpCard(env, account.id);
+  const setup = await setUpCard(env, account.id, receiptEmail);
   return { setup_intent_id: setup.setupIntentId, client_secret: setup.clientSecret, receipt_email: receiptEmail };
 }
 
-/** Keeps the card a finished setup saved, replacing any card before it. */
+/**
+ * Keeps the card a finished setup saved, replacing any card before it. Its receipt email is the one startSavingCard checked
+ * and kept with the setup at Stripe, never one the browser sends now: nobody can aim a saved card's receipts at a stranger.
+ */
 async function keepCard(env: Env, account: Account, body: Record<string, unknown>, nowMs: number) {
-  if (typeof body.setup_intent_id !== "string" || typeof body.receipt_email !== "string") return refuse(400, "bad_request", "Send setup_intent_id and receipt_email.");
+  if (typeof body.setup_intent_id !== "string") return refuse(400, "bad_request", "Send setup_intent_id.");
   const customer = await playerCustomerFor(env, account.id);
   const card = await cardOfSetup(env, body.setup_intent_id, customer);
-  if (!card) return refuse(409, "card_not_saved", "Stripe didn't save that card. Try again.");
+  if (!card || !isReceiptEmail(card.receiptEmail)) return refuse(409, "card_not_saved", "Stripe didn't save that card. Try again.");
   const before = await savedCardOf(env, account.id);
   await env.DB.prepare(
     "INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET stripe_payment_method_id = excluded.stripe_payment_method_id, card_brand = excluded.card_brand, card_last_digits = excluded.card_last_digits, receipt_email = excluded.receipt_email, created_at_ms = excluded.created_at_ms",
   )
-    .bind(account.id, card.paymentMethodId, card.cardBrand, card.cardLastDigits, body.receipt_email, nowMs)
+    .bind(account.id, card.paymentMethodId, card.cardBrand, card.cardLastDigits, card.receiptEmail, nowMs)
     .run();
   if (before && before.stripe_payment_method_id !== card.paymentMethodId) await removeCard(env, before.stripe_payment_method_id);
-  return { saved_card: { card_brand: card.cardBrand, card_last_digits: card.cardLastDigits, receipt_email: body.receipt_email } };
+  return { saved_card: { card_brand: card.cardBrand, card_last_digits: card.cardLastDigits, receipt_email: card.receiptEmail } };
 }
 
 async function forgetCard(env: Env, account: Account) {
@@ -442,21 +474,41 @@ export async function failStaleSales(env: Env, nowMs = Date.now()): Promise<void
     env.DB.prepare("DELETE FROM purchase_confirmations WHERE confirmed_at_ms <= ?").bind(nowMs - 86_400_000),
     env.DB.prepare("DELETE FROM stripe_connect_states WHERE expires_at_ms <= ?").bind(nowMs),
   ]);
-  for (const sale of await staleSales(env, nowMs)) {
-    try {
-      if (sale.stripe_payment_intent_id) {
-        const paymentIntent = await paymentIntentOnAccount(env, sale.stripe_account_id!, sale.stripe_payment_intent_id);
+  // Sheets opened and never paid have no PaymentIntent at Stripe: one statement fails them all, however many.
+  await failStaleSalesWithoutPayment(env, nowMs);
+  // The rest are asked about at most 10 batches of STALE_SALE_COUNT a run, oldest first, each batch after the last; a sale that stays pending (Stripe down) is left for tomorrow and never asked twice today.
+  let after: { createdAtMs: number; id: string } | null = null;
+  for (let batchIndex = 0; batchIndex < 10; batchIndex++) {
+    const sales = await staleSales(env, nowMs, after);
+    for (const sale of sales) {
+      try {
+        if (!(await isStripeAccountConnected(env, sale.stripe_account_id!))) {
+          // The developer disconnected: Stripe can't be asked about it any more, and a sale nobody can finish must not stay pending for ever.
+          await failPurchase(env, sale.id);
+          continue;
+        }
+        const paymentIntent = await paymentIntentOnAccount(env, sale.stripe_account_id!, sale.stripe_payment_intent_id!);
         if (paymentIntent.status === "succeeded") {
           await completePurchase(env, sale, paymentIntent, nowMs);
           continue;
         }
-        await cancelPaymentOnAccount(env, sale.stripe_account_id!, sale.stripe_payment_intent_id);
+        await cancelPaymentOnAccount(env, sale.stripe_account_id!, sale.stripe_payment_intent_id!);
+        await failPurchase(env, sale.id);
+      } catch (error) {
+        // Access Stripe took away, or a payment it no longer has, can't be cancelled ever: the sale fails anyway.
+        if (error instanceof StripeRefusal && (error.stripeCode === "account_invalid" || error.stripeCode === "resource_missing")) await failPurchase(env, sale.id).catch(() => undefined);
+        console.error(`Couldn't close the pending sale ${sale.id}:`, error);
       }
-      await failPurchase(env, sale.id);
-    } catch (error) {
-      console.error(`Couldn't close the pending sale ${sale.id}:`, error);
     }
+    if (sales.length < STALE_SALE_COUNT) return;
+    const last = sales[sales.length - 1]!;
+    after = { createdAtMs: last.created_at_ms, id: last.id };
   }
+}
+
+/** Whether some developer still has this Stripe account connected. */
+async function isStripeAccountConnected(env: Env, stripeAccountId: string): Promise<boolean> {
+  return (await env.DB.prepare("SELECT 1 AS is_connected FROM owners WHERE stripe_account_id = ?").bind(stripeAccountId).first()) !== null;
 }
 
 /** Whether a receipt email is one: an address like alex@example.com, at most 254 characters. */
@@ -475,6 +527,9 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
   if (!game || !(await isOpenHere(env, game, undefined))) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
+  // The same turning away as startBuying: a signed-in account too young for the game doesn't get its sheet.
+  const viewer = game.minimum_player_age_years > 13 ? await viewerOf(request, env) : null;
+  if (viewer?.account && !isOldEnoughFor(viewer.account.age_band, game.minimum_player_age_years)) return glassMessage(env, "Not open to your account", "This game isn't open to your account.", 403);
   const wholeNumber = (text: string | null) => (text !== null && /^\d{1,9}$/.test(text) ? Number(text) : 0);
   const itemCount = url.searchParams.has("item_count") ? wholeNumber(url.searchParams.get("item_count")) : 1;
   const given = url.searchParams.get("opener_origin") ?? originOf(request.headers.get("referer"));

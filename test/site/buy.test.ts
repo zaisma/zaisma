@@ -1,10 +1,14 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, createAccount, createApiKey, gameBySlug, hashPurchasePin, personOwner } from "@zaisma/core";
+import { WITHDRAWAL_LINE_TEXT, accountById, addPasskey, createAccount, createApiKey, gameBySlug, hashPurchasePin, personOwner } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { callerFor } from "../../apps/site/src/developer.ts";
 import { stripeAccountRoute } from "../../apps/site/src/stripe-account-api.ts";
 import { failStaleSales } from "../../apps/site/src/buy.ts";
+import worker from "../../apps/site/src/index.ts";
+import { connectUrl, isLocalPreview, stripeCall, stripeOrigins } from "../../apps/site/src/stripe.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import siteWranglerText from "../../apps/site/wrangler.jsonc?raw";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -25,10 +29,13 @@ let ownerId = "";
 let playerId = "";
 
 /** What reached the stand-in for Stripe, and what it answers next. */
-let stripeCalls: { path: string; form: URLSearchParams; stripeAccount: string | null; idempotencyKey: string | null }[] = [];
+let stripeCalls: { host: string; path: string; form: URLSearchParams; stripeAccount: string | null; idempotencyKey: string | null }[] = [];
 let emails: { to: string; subject: string; text: string }[] = [];
 let charge: { status: string; amount?: number; declined?: boolean } = { status: "succeeded" };
 let connectedAccount: Record<string, unknown> = {};
+/** What Stripe answers when the saved-card setup is read back, and the password Supabase's stand-in accepts. */
+let setupAnswer: Record<string, unknown> = {};
+const RIGHT_PASSWORD = "a good password";
 
 const b64url = (given: ArrayBuffer | string) =>
   btoa(typeof given === "string" ? given : String.fromCharCode(...new Uint8Array(given)))
@@ -37,31 +44,45 @@ const b64url = (given: ArrayBuffer | string) =>
     .replace(/=+$/, "");
 
 /** A signed-in session's cookie, as Supabase would sign it, with its own session ID. */
-async function sessionCookie(accountId: string, sessionId = `session-${accountId}`): Promise<string> {
+async function accessToken(accountId: string, sessionId: string, email = `${accountId}@example.com`): Promise<string> {
   const nowSec = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "ES256", kid: "buy-test-key", typ: "JWT" }));
-  const claims = b64url(JSON.stringify({ sub: accountId, email: `${accountId}@example.com`, session_id: sessionId, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: nowSec + 3600, iat: nowSec, amr: [{ method: "password", timestamp: nowSec }] }));
+  const claims = b64url(JSON.stringify({ sub: accountId, email, session_id: sessionId, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: nowSec + 3600, iat: nowSec, amr: [{ method: "password", timestamp: nowSec }] }));
   const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signingKeys.privateKey, new TextEncoder().encode(`${header}.${claims}`));
-  return `__Host-zaisma=${header}.${claims}.${b64url(signature)}~r-${accountId}`;
+  return `${header}.${claims}.${b64url(signature)}`;
 }
 
+/** A signed-in session's cookie. email "<id>@no-mail.zaisma.com" is an account that never added an email. */
+async function sessionCookie(accountId: string, sessionId = `session-${accountId}`, email?: string): Promise<string> {
+  return `__Host-zaisma=${await accessToken(accountId, sessionId, email)}~r-${accountId}`;
+}
+
+/**
+ * A call to the site Worker. Miniflare's rate limits count in windows of the real clock across the whole file, which runs
+ * far more calls in a minute than one player or developer would, so the limits the file's calls would meet are stood in for
+ * with ones that never refuse; a test that checks a limit passes its own counting one (rate-limits.ts).
+ */
+const unlimited = { async limit(): Promise<{ success: boolean }> { return { success: true }; } };
+const callSite = (request: Request, bindings: Record<string, unknown> = {}) =>
+  worker.fetch(request as Request<unknown, IncomingRequestCfProperties>, { ...env, DEV_LIMIT: unlimited, PURCHASE_LIMIT: unlimited, PASSWORD_LIMIT: unlimited, SIGNIN_LIMIT: unlimited, ...bindings } as typeof env, createExecutionContext());
+
 async function api(path: string, init: { method?: string; body?: unknown } = {}) {
-  const response = await SELF.fetch(`${SITE}/api/dev${path}`, {
+  const response = await callSite(new Request(`${SITE}/api/dev${path}`, {
     method: init.method ?? (init.body ? "POST" : "GET"),
     headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
-  });
+  }));
   const answer = (await response.json()) as any;
   if (!response.ok) expect(errorProblems(answer, response.status)).toEqual([]);
   return { status: response.status, answer };
 }
 
 async function tool(name: string, toolArguments: Record<string, unknown>): Promise<any> {
-  const response = await SELF.fetch(`${SITE}/mcp`, {
+  const response = await callSite(new Request(`${SITE}/mcp`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: toolArguments } }),
-  });
+  }));
   const { result } = (await response.json()) as any;
   if (result.isError) {
     expect(errorProblems(result.structuredContent)).toEqual([]);
@@ -72,21 +93,23 @@ async function tool(name: string, toolArguments: Record<string, unknown>): Promi
 }
 
 /** A call from zaisma.com's own pages, signed in as accountId (or a guest with null). */
-async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string } = {}) {
+async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string; email?: string; country?: string | null; bindings?: Record<string, unknown>; cookie?: string } = {}) {
   const accountId = init.accountId === undefined ? "player-1" : init.accountId;
   const method = init.method ?? (init.body ? "POST" : "GET");
-  const response = await SELF.fetch(`${SITE}${path}`, {
+  const country = init.country === undefined ? "DE" : init.country;
+  const request = new Request(`${SITE}${path}`, {
     method,
     headers: {
-      ...(accountId ? { cookie: await sessionCookie(accountId, init.sessionId) } : {}),
+      ...(accountId || init.cookie ? { cookie: [accountId ? await sessionCookie(accountId, init.sessionId, init.email) : "", init.cookie ?? ""].filter(Boolean).join("; ") } : {}),
       ...(method !== "GET" ? { origin: init.origin ?? SITE } : {}),
       ...(init.body ? { "content-type": "application/json" } : {}),
-      "cf-ipcountry": "DE",
+      ...(country ? { "cf-ipcountry": country } : {}),
     },
     body: init.body ? JSON.stringify(init.body) : undefined,
   });
+  const response = await callSite(request, init.bindings);
   const text = await response.text();
-  return { status: response.status, answer: text ? (JSON.parse(text) as any) : null };
+  return { status: response.status, answer: text ? (JSON.parse(text) as any) : null, headers: response.headers };
 }
 
 /** An event on a connected account as Stripe signs it. */
@@ -109,6 +132,7 @@ beforeEach(async () => {
   stripeCalls = [];
   emails = [];
   charge = { status: "succeeded" };
+  setupAnswer = { status: "succeeded", customer: "cus_test_player", metadata: { receipt_email: "emma@example.com" }, payment_method: { id: "pm_test_new", card: { brand: "mastercard", last4: "4444" } } };
   connectedAccount = { id: ACCOUNT, charges_enabled: true, country: "de", default_currency: "eur", business_profile: { name: "Pixel Smith Games", support_email: "help@pixelsmith.example" } };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -118,10 +142,18 @@ beforeEach(async () => {
       emails.push({ to: sent.to, subject: sent.subject, text: sent.text });
       return Response.json({});
     }
-    if (url.hostname !== "api.stripe.com" && url.hostname !== "connect.stripe.com") return realFetch(input, init);
+    if (url.href === `${SUPABASE}/auth/v1/token?grant_type=password`) {
+      // Supabase's password check: the stand-in accepts one password, for the account whose stand-in address it's given.
+      const { email, password } = JSON.parse(String(init?.body ?? "{}"));
+      if (password !== RIGHT_PASSWORD) return Response.json({ error: "invalid_grant" }, { status: 400 });
+      const accountId = String(email).split("@")[0]!;
+      return Response.json({ access_token: await accessToken(accountId, "session-after-password", email), refresh_token: `r-${accountId}`, user: { id: accountId, email } });
+    }
+    // Stripe, and the stand-in Stripe the local preview points at (STRIPE_API_ORIGIN).
+    if (!["api.stripe.com", "connect.stripe.com", "localhost", "127.0.0.1"].includes(url.hostname) && !url.hostname.endsWith(".ts.net")) return realFetch(input, init);
     const form = new URLSearchParams(typeof init?.body === "string" ? init.body : url.search);
     const headers = new Headers(init?.headers);
-    stripeCalls.push({ path: url.pathname, form, stripeAccount: headers.get("stripe-account"), idempotencyKey: headers.get("idempotency-key") });
+    stripeCalls.push({ host: url.hostname, path: url.pathname, form, stripeAccount: headers.get("stripe-account"), idempotencyKey: headers.get("idempotency-key") });
     const path = url.pathname;
     if (path === "/oauth/token") return Response.json({ stripe_user_id: ACCOUNT });
     if (path === "/oauth/deauthorize") return Response.json({ stripe_user_id: ACCOUNT });
@@ -129,6 +161,9 @@ beforeEach(async () => {
     if (path === "/v1/payment_method_domains") return Response.json({ id: "pmd_test" });
     if (path === "/v1/customers") return Response.json({ id: "cus_test_player" });
     if (path === "/v1/payment_methods") return Response.json({ id: "pm_test_clone" });
+    if (path === "/v1/setup_intents") return Response.json({ id: "seti_test_new", client_secret: "seti_test_new_secret" });
+    if (path.startsWith("/v1/setup_intents/")) return Response.json({ id: path.split("/")[3], ...setupAnswer });
+    if (path.startsWith("/v1/payment_methods/") && path.endsWith("/detach")) return Response.json({ id: path.split("/")[3] });
     if (path === "/v1/payment_intents" && charge.declined) return Response.json({ error: { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: "Your card has insufficient funds." } }, { status: 402 });
     if (path === "/v1/payment_intents") {
       return Response.json({ id: "pi_test_sale", status: charge.status, amount: charge.amount ?? Number(form.get("amount")), currency: form.get("currency"), client_secret: "pi_test_sale_secret" });
@@ -139,7 +174,7 @@ beforeEach(async () => {
     return Response.json({ error: { message: `No such call in the stand-in: ${path}` } }, { status: 400 });
   });
   await env.DB.exec(
-    "DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM passkeys; DELETE FROM passkey_challenges; DELETE FROM wrong_passwords; DELETE FROM device_marks; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
@@ -159,6 +194,42 @@ const revive = { title: "Revive", item_kind: "consumable", price_minor_units: 19
 const barn = { title: "Golden Barn", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 999, currency_code: "eur" };
 const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', 'emma@example.com', ?)").bind(Date.now()).run();
 const setPin = async (pin = "482917") => env.DB.prepare("UPDATE accounts SET purchase_pin_hash = ? WHERE id = 'player-1'").bind(await hashPurchasePin(pin)).run();
+const givePassword = () => env.DB.prepare("UPDATE accounts SET password_changed_at_ms = ? WHERE id = 'player-1'").bind(Date.now()).run();
+/** The player's address as Supabase knows an account that never added an email. */
+const NO_EMAIL = "player-1@no-mail.zaisma.com";
+const confirmedAt = (confirmedAtMs: number, sessionId = "session-player-1") => env.DB.prepare("INSERT INTO purchase_confirmations (session_id, account_id, confirmation_method, confirmed_at_ms) VALUES (?, 'player-1', 'purchase_pin', ?) ON CONFLICT (session_id) DO UPDATE SET confirmed_at_ms = excluded.confirmed_at_ms").bind(sessionId, confirmedAtMs).run();
+const pinState = () => env.DB.prepare("SELECT purchase_pin_hash, purchase_pin_failed_count FROM accounts WHERE id = 'player-1'").first<{ purchase_pin_hash: string | null; purchase_pin_failed_count: number }>();
+const MINUTE_MS = 60_000;
+
+// A software passkey: what a phone does when it signs a tap for the player (the same steps as accounts.test.ts).
+const RELYING_PARTY = "zaisma.test";
+const sha256 = async (bytes: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+const bytesB64url = (bytes: Uint8Array) => b64url(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+const joined = (...parts: Uint8Array[]) => Uint8Array.from(parts.flatMap((part) => [...part]));
+const derSignature = (raw: Uint8Array) => {
+  const integer = (bytes: Uint8Array) => {
+    let start = 0;
+    while (start < bytes.length - 1 && bytes[start] === 0) start++;
+    const trimmed = bytes.slice(start);
+    return trimmed[0]! & 0x80 ? joined(Uint8Array.of(2, trimmed.length + 1, 0), trimmed) : joined(Uint8Array.of(2, trimmed.length), trimmed);
+  };
+  const body = joined(integer(raw.slice(0, 32)), integer(raw.slice(32)));
+  return joined(Uint8Array.of(0x30, body.length), body);
+};
+/** The player's own passkey, saved on their account, and a way to sign a challenge with it. */
+async function passkeyOfPlayer() {
+  const keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const credentialId = bytesB64url(crypto.getRandomValues(new Uint8Array(16)));
+  await addPasskey(env.DB, { id: credentialId, account_id: "player-1", public_key: b64url((await crypto.subtle.exportKey("spki", keys.publicKey)) as ArrayBuffer), algorithm_number: -7, sign_count: 0, name: "Test phone" }, 0);
+  return {
+    async tap(challenge: string) {
+      const authenticatorData = joined(await sha256(new TextEncoder().encode(RELYING_PARTY)), Uint8Array.of(0x05), Uint8Array.of(0, 0, 0, 1));
+      const clientData = new TextEncoder().encode(JSON.stringify({ type: "webauthn.get", challenge, origin: SITE }));
+      const signature = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, joined(authenticatorData, await sha256(clientData))));
+      return { id: credentialId, clientDataJSON: bytesB64url(clientData), authenticatorData: bytesB64url(authenticatorData), signature: bytesB64url(derSignature(signature)), userHandle: "" };
+    },
+  };
+}
 
 describe("a developer's Stripe account", () => {
   it("starts unconnected, and connecting needs the developer's passkey on zaisma.com", async () => {
@@ -193,6 +264,19 @@ describe("a developer's Stripe account", () => {
     expect(stripeCalls.find((call) => call.path === "/v1/payment_method_domains")).toMatchObject({ stripeAccount: ACCOUNT });
     expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ is_connected: true, stripe_account_id: ACCOUNT, can_take_payments: true, country_code: "DE", default_currency_code: "eur", business_name: "Pixel Smith Games", support_email: "help@pixelsmith.example", is_stripe_tax_used: false });
     expect(await env.DB.prepare("SELECT kind FROM security_events WHERE account_id = 'dev-1' AND kind = 'stripe_account_connected'").first()).not.toBeNull();
+  });
+
+  it("turns away a link that ran out, without asking Stripe anything", async () => {
+    const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
+    const [link] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isSpendingConfirmed: true })) as [any];
+    const state = new URL(link.connect_url).searchParams.get("state")!;
+    await env.DB.prepare("UPDATE stripe_connect_states SET expires_at_ms = ? WHERE state = ?").bind(Date.now() - 1, state).run();
+    const back = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
+    expect(back.headers.get("location")).toBe(`${SITE}/developer/settings?stripe=link_expired#payments`);
+    expect(stripeCalls.filter((call) => call.path === "/oauth/token")).toEqual([]);
+    expect((await tool("get_stripe_account", {})).stripe_account.is_connected).toBe(false);
+    // The link is used up either way.
+    expect(await env.DB.prepare("SELECT 1 FROM stripe_connect_states WHERE state = ?").bind(state).first()).toBeNull();
   });
 
   it("turns Stripe Tax on and off, follows Stripe's changes, and disconnects", async () => {
@@ -256,6 +340,58 @@ describe("opening the sheet", () => {
     expect(sale).toMatchObject({ purchase_source: "sale", purchase_status: "pending", item_count: 3, paid_minor_units: 597, currency_code: "eur", player_id: playerId, game_account_id: "farmer-42", stripe_account_id: ACCOUNT, is_eu_withdrawal_line_shown: 1 });
   });
 
+  it("prices by the player's country: their currency when the game set one, else the main price", async () => {
+    await connect();
+    await setItem("revive", { ...revive, currency_code: "usd", local_prices: [{ currency_code: "brl", price_minor_units: 990 }] });
+    const buy = (country: string | null) => player("/api/buy/tiny-farm/start", { body: { item_name: "revive", item_count: 2 }, country });
+    const brazil = await buy("BR");
+    expect(brazil.answer.price).toMatchObject({ currency_code: "brl", price_minor_units: 1980 });
+    expect(await env.DB.prepare("SELECT currency_code, paid_minor_units FROM purchases WHERE id = ?").bind(brazil.answer.purchase_id).first()).toEqual({ currency_code: "brl", paid_minor_units: 1980 });
+    // Germany pays in euros, which the game didn't price: the main price.
+    const germany = await buy("DE");
+    expect(germany.answer.price).toMatchObject({ currency_code: "usd", price_minor_units: 398 });
+    expect(await env.DB.prepare("SELECT currency_code, paid_minor_units FROM purchases WHERE id = ?").bind(germany.answer.purchase_id).first()).toEqual({ currency_code: "usd", paid_minor_units: 398 });
+    // No country at all is the main price too.
+    expect((await buy(null)).answer.price).toMatchObject({ currency_code: "usd", price_minor_units: 398 });
+    // And once the game prices euros, Germany pays that.
+    await setItem("revive", { ...revive, currency_code: "usd", local_prices: [{ currency_code: "brl", price_minor_units: 990 }, { currency_code: "eur", price_minor_units: 179 }] });
+    expect((await buy("DE")).answer.price).toMatchObject({ currency_code: "eur", price_minor_units: 358 });
+    // The player's country is Cloudflare's, never a field they send (only the local preview takes preview_country_code).
+    const sent = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", preview_country_code: "BR" }, country: "US" });
+    expect(sent.answer.price).toMatchObject({ currency_code: "usd", price_minor_units: 199 });
+  });
+
+  it("shows the withdrawal line to players in the EU, EEA and UK, and keeps it in the stored purchase", async () => {
+    await connect();
+    await setItem("revive", revive);
+    const line = async (country: string | null) => {
+      const { answer } = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, country });
+      const stored = await env.DB.prepare("SELECT is_eu_withdrawal_line_shown FROM purchases WHERE id = ?").bind(answer.purchase_id).first<{ is_eu_withdrawal_line_shown: number }>();
+      return [answer.is_eu_withdrawal_line_shown, stored!.is_eu_withdrawal_line_shown];
+    };
+    expect(await line("FR")).toEqual([true, 1]);
+    expect(await line("GB")).toEqual([true, 1]);
+    expect(await line("US")).toEqual([false, 0]);
+    expect(await line(null)).toEqual([false, 0]);
+  });
+
+  it("answers slow_down to the 21st buy an account opens in a minute", async () => {
+    expect(configuredRateLimit(siteWranglerText, "PURCHASE_LIMIT")).toEqual({ limit: 20, period: 60 });
+    await connect();
+    await setItem("revive", revive);
+    const purchaseLimit = countingRateLimiter(20);
+    const statuses: number[] = [];
+    for (let buyNumber = 1; buyNumber <= 21; buyNumber++) {
+      const opened = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, bindings: { PURCHASE_LIMIT: purchaseLimit } });
+      statuses.push(opened.status);
+      if (buyNumber === 21) expect(opened.answer.error.code).toBe("slow_down");
+    }
+    expect(statuses).toEqual([...Array(20).fill(200), 429]);
+    // Counted by the account, and a refused buy made no purchase.
+    expect(new Set(purchaseLimit.keys)).toEqual(new Set(["player-1"]));
+    expect((await env.DB.prepare("SELECT COUNT(*) AS purchase_count FROM purchases").first<{ purchase_count: number }>())!.purchase_count).toBe(20);
+  });
+
   it("refuses a permanent item the player already owns", async () => {
     await connect();
     await setItem("golden_barn", barn);
@@ -306,6 +442,106 @@ describe("paying with the saved card", () => {
     expect(emails.filter((email) => email.to === "emma@example.com")).toHaveLength(1);
     expect(emails[0]!.text).toContain("Pixel Smith Games");
     expect((await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" })).answer.error.code).toBe("already_paid");
+  });
+
+  it("keeps a confirm for 15 minutes: one tap at 14, a confirm again at 16", async () => {
+    const asked = () => player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
+    await confirmedAt(Date.now() - 14 * MINUTE_MS);
+    const within = await asked();
+    expect(within.answer.is_confirmation_needed).toBe(false);
+    const paid = await player(`/api/buy/purchases/${within.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
+    expect(paid.answer).toMatchObject({ status: "completed" });
+    expect(stripeCalls.filter((call) => call.path === "/v1/payment_intents")).toHaveLength(1);
+
+    await confirmedAt(Date.now() - 16 * MINUTE_MS);
+    const late = await asked();
+    expect(late.answer.is_confirmation_needed).toBe(true);
+    const refused = await player(`/api/buy/purchases/${late.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
+    expect(refused).toMatchObject({ status: 403, answer: { error: { code: "purchase_confirmation_needed" } } });
+    expect(stripeCalls.filter((call) => call.path === "/v1/payment_intents")).toHaveLength(1);
+    expect(await statusOf(late.answer.purchase_id)).toBe("pending");
+  });
+
+  it("unlocks a locked PIN with the password, and the count goes back to 0", async () => {
+    await setPin();
+    // No password on the account yet: it can't unlock anything.
+    expect((await player("/api/buy/confirm", { body: { password: RIGHT_PASSWORD } })).answer.error.code).toBe("wrong_password");
+    await givePassword();
+    for (let tryNumber = 1; tryNumber <= 5; tryNumber++) await player("/api/buy/confirm", { body: { purchase_pin: "000000" } });
+    expect((await pinState())!.purchase_pin_failed_count).toBe(5);
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer.error.code).toBe("purchase_pin_locked");
+    const asked = () => player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
+    expect((await asked()).answer.confirmation_methods).toMatchObject({ has_purchase_pin: true, has_password: true, is_purchase_pin_locked: true });
+
+    // A wrong password changes nothing.
+    expect((await player("/api/buy/confirm", { body: { password: "not the password" } })).answer.error.code).toBe("wrong_password");
+    expect((await pinState())!.purchase_pin_failed_count).toBe(5);
+
+    const unlocked = await player("/api/buy/confirm", { body: { password: RIGHT_PASSWORD } });
+    expect(unlocked.answer).toEqual({ is_confirmed: true });
+    // The password signs in again: its session carries the 15 minutes, and its cookie replaces this one's.
+    expect(unlocked.headers.getSetCookie().join("\n")).toContain("zaisma=");
+    expect(await env.DB.prepare("SELECT account_id, confirmation_method FROM purchase_confirmations WHERE session_id = 'session-after-password'").first()).toEqual({ account_id: "player-1", confirmation_method: "password" });
+    expect((await pinState())!.purchase_pin_failed_count).toBe(0);
+    expect((await asked()).answer.confirmation_methods.is_purchase_pin_locked).toBe(false);
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer).toEqual({ is_confirmed: true });
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "000000" } })).answer.error.message).toContain("4 tries left");
+  });
+
+  it("confirms with a passkey tap made for buying, once, and turns away any other", async () => {
+    const device = await passkeyOfPlayer();
+    const noTap = { id: "nope", clientDataJSON: "", authenticatorData: "", signature: "", userHandle: "" };
+    expect(await player("/api/buy/confirm", { body: { passkey_tap: noTap } })).toMatchObject({ status: 403, answer: { error: { code: "wrong_passkey" } } });
+
+    /** A challenge for the purpose, with the cookie that ties it to this browser. */
+    const challengeFor = async (purpose: string) => {
+      const options = await player("/api/passkeys/tap/options", { body: { purpose } });
+      expect(options.status).toBe(200);
+      const cookie = options.headers.getSetCookie().find((setCookie) => setCookie.includes("zaisma_pk="))!.split(";")[0]!;
+      return { challenge: options.answer.challenge as string, cookie };
+    };
+    // A tap made for confirming the account isn't one for buying.
+    const forConfirm = await challengeFor("confirm");
+    expect((await player("/api/buy/confirm", { body: { passkey_tap: await device.tap(forConfirm.challenge) }, cookie: forConfirm.cookie })).answer.error.code).toBe("wrong_passkey");
+
+    const forBuying = await challengeFor("purchase");
+    const tap = await device.tap(forBuying.challenge);
+    expect((await player("/api/buy/confirm", { body: { passkey_tap: tap }, cookie: forBuying.cookie })).answer).toEqual({ is_confirmed: true });
+    expect(await env.DB.prepare("SELECT confirmation_method FROM purchase_confirmations WHERE session_id = 'session-player-1'").first()).toEqual({ confirmation_method: "passkey" });
+    expect((await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } })).answer.is_confirmation_needed).toBe(false);
+    // The same tap sent again is refused: its challenge is used up.
+    await env.DB.prepare("DELETE FROM purchase_confirmations").run();
+    expect((await player("/api/buy/confirm", { body: { passkey_tap: tap }, cookie: forBuying.cookie })).answer.error.code).toBe("wrong_passkey");
+  });
+
+  /** Buys revive from a country with a confirm on this device, and answers the receipt email that follows. */
+  async function receiptFrom(country: string) {
+    await confirmedAt(Date.now());
+    const opened = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, country });
+    const paid = await player(`/api/buy/purchases/${opened.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
+    expect(paid.answer.status).toBe("completed");
+    const sent = emails.filter((email) => email.to === "emma@example.com");
+    expect(sent).toHaveLength(1);
+    return { purchaseId: opened.answer.purchase_id as string, refundWords: opened.answer.refund_policy_words as string, receipt: sent[0]! };
+  }
+
+  it("repeats the purchase ID, the seller's support email, the refund words and the EU line in the receipt", async () => {
+    const { purchaseId, refundWords, receipt } = await receiptFrom("DE");
+    expect(refundWords).toContain("within 14 days");
+    expect(receipt.subject).toBe("Your receipt from Tiny Farm");
+    expect(receipt.text).toContain(`Purchase ID: ${purchaseId}`);
+    expect(receipt.text).toContain("Sold by: Pixel Smith Games (help@pixelsmith.example)");
+    expect(receipt.text).toContain(`Refund policy: ${refundWords}`);
+    expect(receipt.text).toContain("Questions or a refund: write to help@pixelsmith.example with your purchase ID.");
+    expect(receipt.text).toContain("You get it now, so you can't cancel it in the next 14 days.");
+    expect(receipt.text).toContain(WITHDRAWAL_LINE_TEXT);
+  });
+
+  it("leaves the EU line out of a receipt for a player elsewhere", async () => {
+    const { purchaseId, receipt } = await receiptFrom("US");
+    expect(receipt.text).toContain(`Purchase ID: ${purchaseId}`);
+    expect(receipt.text).toContain("Refund policy:");
+    expect(receipt.text).not.toContain("can't cancel it");
   });
 
   it("fails the purchase when the card is declined", async () => {
@@ -375,6 +611,26 @@ describe("Stripe's Connect events", () => {
     expect(await statusOf(purchaseId)).toBe("completed");
     await connectEvent("charge.dispute.closed", { id: "dp_test", payment_intent: "pi_test_barn", status: "lost" });
     expect(await statusOf(purchaseId)).toBe("charged_back");
+  });
+
+  it("take the item back when a refund adds up to the price, and handle a repeated event once", async () => {
+    await paid();
+    const row = () => env.DB.prepare("SELECT purchase_status, refunded_minor_units, refunded_at_ms FROM purchases WHERE id = ?").bind(purchaseId).first<{ purchase_status: string; refunded_minor_units: number; refunded_at_ms: number | null }>();
+    // 300 back first, then the charge's whole refunded amount so far is the price: 999.
+    await connectEvent("charge.refunded", { id: "ch_test", payment_intent: "pi_test_barn", amount_refunded: 300 });
+    expect((await row())!.purchase_status).toBe("completed");
+    expect((await connectEvent("charge.refunded", { id: "ch_test", payment_intent: "pi_test_barn", amount_refunded: 999 })).status).toBe(200);
+    const refunded = await row();
+    expect(refunded).toMatchObject({ purchase_status: "refunded", refunded_minor_units: 999 });
+    // Stripe sends an event again until it's answered: the second one changes nothing.
+    await connectEvent("charge.refunded", { id: "ch_test", payment_intent: "pi_test_barn", amount_refunded: 999 });
+    expect(await row()).toEqual(refunded);
+  });
+
+  it("do not take the item back for a full refund on another account", async () => {
+    await paid();
+    await connectEvent("charge.refunded", { id: "ch_test", payment_intent: "pi_test_barn", amount_refunded: 999 }, "acct_test_other");
+    expect(await statusOf(purchaseId)).toBe("completed");
   });
 
   it("fail a declined payment, and the daily step fails sheets nobody finished", async () => {
@@ -456,5 +712,119 @@ describe("the sheet's pages", () => {
     expect((await sheetData(await page("/buy/tiny-farm/revive?opener_origin=https%3A%2F%2Fevil.test"))).opener_origin).toBeNull();
     expect((await sheetData(await page("/buy/tiny-farm/revive?opener_origin=https%3A%2F%2Fplay.tinyfarm.test"))).opener_origin).toBe("https://play.tinyfarm.test");
     expect((await page("/buy/no-such-game/revive")).status).toBe(404);
+  });
+});
+
+describe("the player's saved card and purchase PIN", () => {
+  const sheetCall = (path: string, init: Parameters<typeof player>[1] = {}) => player(path, init);
+
+  it("asks a guest to sign in first", async () => {
+    for (const [method, path] of [["POST", "/api/payment-methods/setup"], ["POST", "/api/payment-methods/saved"], ["DELETE", "/api/payment-methods/saved"], ["PUT", "/api/account/purchase-pin"], ["DELETE", "/api/account/purchase-pin"]] as const) {
+      expect(await sheetCall(path, { method, body: method === "DELETE" ? undefined : {}, accountId: null })).toMatchObject({ status: 403, answer: { error: { code: "account_needed" } } });
+    }
+  });
+
+  it("starts saving a card only for an account with a passkey or an email", async () => {
+    const noEmail = await sheetCall("/api/payment-methods/setup", { body: {}, email: NO_EMAIL });
+    expect(noEmail).toMatchObject({ status: 409, answer: { error: { code: "account_protection_needed" } } });
+    expect(stripeCalls.filter((call) => call.path === "/v1/setup_intents")).toEqual([]);
+
+    // With an email: the receipts go there unless the player says another address.
+    expect((await sheetCall("/api/payment-methods/setup", { body: {} })).answer).toEqual({ setup_intent_id: "seti_test_new", client_secret: "seti_test_new_secret", receipt_email: "player-1@example.com" });
+    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma@example.com" } })).answer.receipt_email).toBe("emma@example.com");
+    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma" } })).answer.error.code).toBe("bad_receipt_email");
+    const setup = stripeCalls.find((call) => call.path === "/v1/setup_intents")!;
+    expect(Object.fromEntries(setup.form)).toMatchObject({ customer: "cus_test_player", usage: "on_session", "payment_method_types[0]": "card", "metadata[account_id]": "player-1" });
+
+    // A passkey is protection too, but then there is no address to default to.
+    await passkeyOfPlayer();
+    expect((await sheetCall("/api/payment-methods/setup", { body: {}, email: NO_EMAIL })).answer.error.code).toBe("bad_receipt_email");
+    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma@example.com" }, email: NO_EMAIL })).answer.setup_intent_id).toBe("seti_test_new");
+  });
+
+  it("keeps the card a finished setup saved, replaces an older one, and forgets it on request", async () => {
+    const keep = (body: unknown = { setup_intent_id: "seti_test_new", receipt_email: "emma@example.com" }) => sheetCall("/api/payment-methods/saved", { body });
+    const stored = () => env.DB.prepare("SELECT stripe_payment_method_id, card_brand, card_last_digits, receipt_email FROM saved_payment_methods WHERE account_id = 'player-1'").first();
+    expect((await keep({ receipt_email: "emma@example.com" })).answer.error.code).toBe("bad_request");
+
+    // Stripe says it isn't this player's customer, or it didn't finish: no card.
+    setupAnswer = { ...setupAnswer, customer: "cus_someone_else" };
+    expect((await keep()).answer.error.code).toBe("card_not_saved");
+    setupAnswer = { ...setupAnswer, customer: "cus_test_player", status: "requires_payment_method" };
+    expect((await keep()).answer.error.code).toBe("card_not_saved");
+    expect(await stored()).toBeNull();
+
+    setupAnswer = { status: "succeeded", customer: "cus_test_player", metadata: { receipt_email: "emma@example.com" }, payment_method: { id: "pm_test_new", card: { brand: "mastercard", last4: "4444" } } };
+    await saveCard();
+    expect((await keep()).answer).toEqual({ saved_card: { card_brand: "mastercard", card_last_digits: "4444", receipt_email: "emma@example.com" } });
+    expect(await stored()).toEqual({ stripe_payment_method_id: "pm_test_new", card_brand: "mastercard", card_last_digits: "4444", receipt_email: "emma@example.com" });
+    // The card it replaced is taken off the player's Stripe customer.
+    expect(stripeCalls.filter((call) => call.path.endsWith("/detach")).map((call) => call.path)).toEqual(["/v1/payment_methods/pm_test_saved/detach"]);
+
+    expect((await sheetCall("/api/payment-methods/saved", { method: "DELETE" })).answer).toEqual({ saved_card: null });
+    expect(await stored()).toBeNull();
+    expect(stripeCalls.filter((call) => call.path.endsWith("/detach")).map((call) => call.path)).toEqual(["/v1/payment_methods/pm_test_saved/detach", "/v1/payment_methods/pm_test_new/detach"]);
+    // Nothing saved: forgetting it again is still done.
+    expect((await sheetCall("/api/payment-methods/saved", { method: "DELETE" })).answer).toEqual({ saved_card: null });
+  });
+
+  it("sets a purchase PIN only with the password, on an account that protects itself", async () => {
+    const set = (body: unknown, init: Parameters<typeof player>[1] = {}) => sheetCall("/api/account/purchase-pin", { method: "PUT", body, ...init });
+    expect((await set({ purchase_pin: "12345", password: RIGHT_PASSWORD })).answer.error.code).toBe("bad_purchase_pin");
+    expect((await set({ purchase_pin: "482917", password: RIGHT_PASSWORD }, { email: NO_EMAIL }))).toMatchObject({ status: 409, answer: { error: { code: "account_protection_needed" } } });
+    // No password on the account to check against.
+    expect((await set({ purchase_pin: "482917", password: RIGHT_PASSWORD })).answer.error.code).toBe("password_needed");
+    await givePassword();
+    expect((await set({ purchase_pin: "482917" })).answer.error.code).toBe("wrong_password");
+    expect((await set({ purchase_pin: "482917", password: "not the password" })).answer.error.code).toBe("wrong_password");
+    expect((await pinState())!.purchase_pin_hash).toBeNull();
+
+    await env.DB.prepare("UPDATE accounts SET purchase_pin_failed_count = 3 WHERE id = 'player-1'").run();
+    expect((await set({ purchase_pin: "482917", password: RIGHT_PASSWORD })).answer).toEqual({ has_purchase_pin: true });
+    const kept = (await pinState())!;
+    expect(kept.purchase_pin_hash).toMatch(/^pbkdf2-sha256\$/);
+    expect(kept.purchase_pin_hash).not.toContain("482917");
+    expect(kept.purchase_pin_failed_count).toBe(0);
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer).toEqual({ is_confirmed: true });
+
+    expect((await sheetCall("/api/account/purchase-pin", { method: "DELETE" })).answer).toEqual({ has_purchase_pin: false });
+    expect(await pinState()).toEqual({ purchase_pin_hash: null, purchase_pin_failed_count: 0 });
+    expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer.error.code).toBe("no_purchase_pin");
+  });
+});
+
+describe("the stand-in for Stripe", () => {
+  const withOrigins = (siteOrigin: string, apiOrigin: string | undefined) => ({ ...env, SITE_ORIGIN: siteOrigin, STRIPE_API_ORIGIN: apiOrigin }) as typeof env;
+  const deployed = ["https://zaisma.com", "https://www.zaisma.com", "https://localhost.zaisma.com", "https://phone.ts.net.zaisma.com", "https://zaisma.test"];
+  const preview = [["http://localhost:8800", "localhost"], ["http://127.0.0.1:8801", "127.0.0.1"], ["https://laptop.tail1a2b3.ts.net:8800", "laptop.tail1a2b3.ts.net"]] as const;
+
+  it("is refused on a deployed site, for calls and for Connect's sign-in", async () => {
+    for (const siteOrigin of deployed) {
+      const deployedEnv = withOrigins(siteOrigin, "http://localhost:8800");
+      expect(isLocalPreview(deployedEnv), siteOrigin).toBe(false);
+      await expect(stripeCall(deployedEnv, "POST", "/customers", {}), siteOrigin).rejects.toMatchObject({ code: "stripe_unavailable" });
+      expect(() => connectUrl(deployedEnv, "state_test"), siteOrigin).toThrow(expect.objectContaining({ code: "stripe_unavailable" }));
+      expect(() => stripeOrigins(deployedEnv), siteOrigin).toThrow(/local preview/);
+    }
+    // Nothing, not even the secret key, left for the stand-in.
+    expect(stripeCalls).toEqual([]);
+  });
+
+  it("is used by the local preview, on this machine or over its tailnet name", async () => {
+    for (const [siteOrigin, host] of preview) {
+      const previewEnv = withOrigins(siteOrigin, `http://${host}:9100`);
+      expect(isLocalPreview(previewEnv), siteOrigin).toBe(true);
+      expect((await stripeCall(previewEnv, "POST", "/customers", {})).id).toBe("cus_test_player");
+      expect(stripeCalls.at(-1)).toMatchObject({ host, path: "/v1/customers" });
+      expect(connectUrl(previewEnv, "state_test")).toMatch(new RegExp(`^http://${host.replace(/\./g, "\\.")}:9100/oauth/authorize\\?`));
+    }
+  });
+
+  it("is Stripe itself wherever no stand-in is set", async () => {
+    for (const siteOrigin of [...deployed, ...preview.map(([origin]) => origin)]) {
+      expect(stripeOrigins(withOrigins(siteOrigin, undefined))).toEqual({ apiOrigin: "https://api.stripe.com", connectOrigin: "https://connect.stripe.com" });
+    }
+    await stripeCall(withOrigins("https://zaisma.com", undefined), "POST", "/customers", {});
+    expect(stripeCalls.at(-1)!.host).toBe("api.stripe.com");
   });
 });

@@ -1910,6 +1910,7 @@ const MEANT: Record<string, string> = {
   product_id: "item_name",
   quantity: "item_count",
   give_item: "grant_item",
+  stripe_connect: "connect_stripe_account",
   // add_shader's shape before buffers: the whole shader was one source.
   source: "image",
   // Tools of their own, for names an AI might try on update_game.

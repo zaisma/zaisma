@@ -170,7 +170,7 @@ export const ERROR_CODES = {
 
   // Hosting and credit
   hosting_paused: { httpStatus: 429, meaning: "The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used. It starts again when the month resets, the budget is raised or credit is added." },
-  confirmation_needed: { httpStatus: 403, meaning: "Turning spending on or up needs the developer's passkey on zaisma.com: confirm_url is where they do it." },
+  confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, or connecting a Stripe account): confirm_url is where they do it." },
   bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting." },
   bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000)." },
   no_top_up: { httpStatus: 404, meaning: "You have no top-up with that ID." },
@@ -199,7 +199,7 @@ export const ERROR_CODES = {
   bad_refund_policy_text: { httpStatus: 400, meaning: "refund_policy_text isn't up to 600 characters of plain words, or doesn't go with refund_policy own_words." },
   bad_own_payment_categories: { httpStatus: 400, meaning: "own_payment_categories isn't a list of cosmetic, gameplay, content and currency." },
   item_has_owners: { httpStatus: 409, meaning: "Players bought or were granted the item, so it can't be removed; take its price off to stop selling it." },
-  bad_item_count: { httpStatus: 400, meaning: "item_count isn't a whole number from 1 to 1,000, or isn't 1 for a permanent item." },
+  bad_item_count: { httpStatus: 400, meaning: "item_count isn't a whole number from 1 to 1,000, isn't 1 for a permanent item, or makes a buy's total more than 99,999,999 minor units." },
   bad_game_account_id: { httpStatus: 400, meaning: "game_account_id isn't text of up to 200 characters, or null." },
   bad_purchase_source: { httpStatus: 400, meaning: "purchase_source isn't sale or grant." },
   bad_purchase_status: { httpStatus: 400, meaning: "purchase_status isn't pending, completed, failed, refunded or charged_back." },

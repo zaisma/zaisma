@@ -83,19 +83,20 @@ export async function stripeCall(env: Env, method: "GET" | "POST", path: string,
     console.error("Stripe didn't answer:", error);
     throw unavailable("it didn't answer.");
   }
-  const answer = (await response.json().catch(() => ({}))) as StripeObject & { error?: { message?: string; code?: string; decline_code?: string } };
+  const answer = (await response.json().catch(() => ({}))) as StripeObject & { error?: { message?: string; code?: string; decline_code?: string; type?: string } };
   if (!response.ok) {
     console.error(`Stripe refused ${method} ${path}:`, answer.error);
-    throw new StripeRefusal(answer.error?.message ?? `HTTP ${response.status}`, answer.error?.decline_code ?? answer.error?.code ?? null);
+    throw new StripeRefusal(answer.error?.message ?? `HTTP ${response.status}`, answer.error?.decline_code ?? answer.error?.code ?? null, answer.error?.type ?? null);
   }
   return answer;
 }
 
-/** Stripe said no: a declined card, or a call it won't take. message is Stripe's own words. */
+/** Stripe said no: a declined card, or a call it won't take. message is Stripe's own words; stripeErrorKind is Stripe's error type ("card_error" for a card that was really refused, "api_error" for Stripe's own trouble). */
 export class StripeRefusal extends ApiError {
   constructor(
     readonly stripeMessage: string,
     readonly stripeCode: string | null,
+    readonly stripeErrorKind: string | null = null,
   ) {
     super("stripe_unavailable", { message: `Stripe didn't take it: ${stripeMessage}`, fix: "Try again in a minute; if it keeps happening, tell Zaisma with message_zaisma." });
   }
@@ -301,19 +302,20 @@ export async function playerCustomerFor(env: Env, accountId: string): Promise<st
   return (await env.DB.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?").bind(accountId).first<{ stripe_customer_id: string }>())!.stripe_customer_id;
 }
 
-/** Starts saving a card on the platform, for buys while the player is there (never charged while they're away). */
-export async function setUpCard(env: Env, accountId: string): Promise<{ setupIntentId: string; clientSecret: string }> {
+/** Starts saving a card on the platform, for buys while the player is there (never charged while they're away). receiptEmail is the checked address the card's receipts go to; it stays in the setup's metadata, where only Zaisma writes it, so keeping the card never trusts the browser's copy. */
+export async function setUpCard(env: Env, accountId: string, receiptEmail: string): Promise<{ setupIntentId: string; clientSecret: string }> {
   const customer = await playerCustomerFor(env, accountId);
-  const intent = await stripeCall(env, "POST", "/setup_intents", { customer, usage: "on_session", payment_method_types: ["card"], metadata: { account_id: accountId } });
+  const intent = await stripeCall(env, "POST", "/setup_intents", { customer, usage: "on_session", payment_method_types: ["card"], metadata: { account_id: accountId, receipt_email: receiptEmail } });
   return { setupIntentId: intent.id, clientSecret: String(intent.client_secret) };
 }
 
-/** The card a finished setup saved, when it's this customer's and it succeeded. */
-export async function cardOfSetup(env: Env, setupIntentId: string, customerId: string): Promise<{ paymentMethodId: string; cardBrand: string; cardLastDigits: string } | null> {
+/** The card a finished setup saved, when it's this customer's and it succeeded, with the receipt email setUpCard kept in the setup (null when it holds none). */
+export async function cardOfSetup(env: Env, setupIntentId: string, customerId: string): Promise<{ paymentMethodId: string; cardBrand: string; cardLastDigits: string; receiptEmail: string | null } | null> {
   const intent = await stripeCall(env, "GET", `/setup_intents/${encodeURIComponent(setupIntentId)}`, { expand: ["payment_method"] });
   const method = intent.payment_method as { id?: string; card?: { brand?: string; last4?: string } } | null;
   if (intent.status !== "succeeded" || intent.customer !== customerId || !method?.id || !method.card?.last4) return null;
-  return { paymentMethodId: method.id, cardBrand: method.card.brand ?? "card", cardLastDigits: method.card.last4 };
+  const receiptEmail = (intent.metadata as { receipt_email?: unknown } | undefined)?.receipt_email;
+  return { paymentMethodId: method.id, cardBrand: method.card.brand ?? "card", cardLastDigits: method.card.last4, receiptEmail: typeof receiptEmail === "string" ? receiptEmail : null };
 }
 
 /** Takes a saved card off the platform customer. Already gone counts as done. */

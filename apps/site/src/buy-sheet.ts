@@ -125,8 +125,10 @@ const join = byId("buy-join");
 const factRows = byId("buy-facts").querySelectorAll(".fact");
 const CELLS = ["buy-loading", "buy-about", "buy-facts", "buy-other-card", "buy-card", "buy-confirm", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-eu"];
 // The developer's mistakes, which the game hears as an error once the player closes the sheet; the player only sees it can't be bought.
-const DEVELOPER_MISTAKES = ["no_game", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id"];
+const DEVELOPER_MISTAKES = ["no_game", "bad_item_name", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id"];
 const BOUGHT_SHOWN_MS = 1800;
+// Buy stays unpressable this long after the sheet draws it, so the tap that was meant for the game can't land on it.
+const BUY_HOLD_MS = 700;
 const SETTLE_TRY_COUNT = 20;
 const SETTLE_WAIT_MS = 1500;
 const isSignedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
@@ -139,6 +141,9 @@ let confirmMethod = null;
 let cardForm = null;
 let wallet = null;
 let isBusy = false;
+let isHeld = false;
+let holdTimer = null;
+let latestPurchase = null;
 let ended = { status: "cancelled", purchase: null, error: null };
 
 function tell(asked, status, extra) {
@@ -151,10 +156,19 @@ function showButtons(buttons) {
   back.hidden = !buttons.includes("back");
   go.hidden = !buttons.includes("go");
   signIn.hidden = join.hidden = !buttons.includes("sign_in");
+  if (buttons.includes("go")) holdBuy();
+  syncGo();
+}
+// Whether Buy can be pressed: not while paying, not in its first moments on screen, and not before a confirm method exists.
+function syncGo() { go.disabled = isBusy || isHeld || (moment === "ready" && sale.is_confirmation_needed && !confirmMethod); }
+function holdBuy() {
+  isHeld = true;
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => { isHeld = false; syncGo(); }, BUY_HOLD_MS);
 }
 function busy(isOn) {
   isBusy = isOn;
-  go.disabled = isOn;
+  syncGo();
   if (isOn) go.setAttribute("aria-busy", "true"); else go.removeAttribute("aria-busy");
 }
 function setFact(factIndex, text) {
@@ -190,6 +204,7 @@ function open(asked) {
   if (asking) finish();
   asking = asked;
   ended = { status: "cancelled", purchase: null, error: null };
+  latestPurchase = null;
   tell(asked, "open");
   const keep = byId("keep");
   if (keep) keep.hidden = true;
@@ -200,6 +215,8 @@ function open(asked) {
 async function start() {
   const asked = asking;
   sale = null;
+  ended = { status: "cancelled", purchase: null, error: null };
+  latestPurchase = null;
   moment = "loading";
   title.textContent = "Buy";
   busy(false);
@@ -290,7 +307,6 @@ function ready(confirmProblem) {
   if (!sale.item.description) shown.splice(shown.indexOf("buy-about"), 1);
   showCells(shown);
   goLabel.textContent = "Buy";
-  go.disabled = sale.is_confirmation_needed && !confirmMethod;
   showButtons(["cancel", "go"]);
 }
 
@@ -349,6 +365,7 @@ async function paid(answer) {
     if (answer.error.code === "payment_declined") return declined(answer.error.message);
     return problem("Couldn't buy it", answer.error.message);
   }
+  if (answer.purchase) latestPurchase = answer.purchase;
   if (answer.status === "completed") return bought(answer.purchase);
   if (answer.status === "action_needed") {
     waiting("Your bank asks you to confirm");
@@ -379,16 +396,24 @@ async function settle() {
     const answer = await call("/api/buy/purchases/" + sale.purchase_id, null, "GET");
     if (asking !== asked) return;
     const purchase = answer.purchase;
+    if (purchase) latestPurchase = purchase;
     if (purchase && purchase.purchase_status === "completed") return bought(purchase);
     if (purchase && purchase.purchase_status === "failed") return declined("The payment didn't go through.");
     await new Promise((resolve) => setTimeout(resolve, SETTLE_WAIT_MS));
   }
+  // Still settling: it can complete later, so the game hears failed with the purchase and gets the purchase event if it does.
+  ended.status = "failed";
+  ended.purchase = latestPurchase;
   problem("Still waiting on the payment", "If it goes through, the game gets it on its own. You'll get a receipt by email.");
 }
 
 function declined(message) {
+  const asked = asking;
   ended.status = "failed";
+  ended.purchase = latestPurchase;
   problem("The payment didn't go through", (message || "") + " Nothing was charged.");
+  // The game hears failed with the purchase, so ask for it when the answer that declined didn't carry it.
+  if (!ended.purchase && sale) call("/api/buy/purchases/" + sale.purchase_id, null, "GET").then((answer) => { if (asking === asked && answer.purchase) ended.purchase = answer.purchase; });
 }
 
 function bought(purchase) {
@@ -443,7 +468,7 @@ async function saveCard() {
     const confirmed = await form.stripe.confirmSetup({ elements: form.elements, clientSecret: setup.client_secret, confirmParams: { return_url: location.href }, redirect: "if_required" });
     if (confirmed.error) { busy(false); return; }
   }
-  const saved = await call("/api/payment-methods/saved", { setup_intent_id: setup.setup_intent_id, receipt_email: setup.receipt_email });
+  const saved = await call("/api/payment-methods/saved", { setup_intent_id: setup.setup_intent_id });
   if (saved.error) return problem("Couldn't save your card", saved.error.message);
   sale.saved_card = saved.saved_card;
   // Saved: Buy takes it from here, confirming it's you once if this device hasn't in 15 minutes.
@@ -485,7 +510,7 @@ byId("buy-wallet-stand-in").querySelector("button").addEventListener("click", ()
 });
 
 go.addEventListener("click", () => {
-  if (isBusy) return;
+  if (isBusy || isHeld) return;
   if (moment === "ready") return buyWithSavedCard();
   if (moment === "card") return saveCard();
   if (moment === "problem") return start();
@@ -494,17 +519,19 @@ go.addEventListener("click", () => {
 buySheet.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
   event.preventDefault();
-  if (!go.hidden && !go.disabled) go.click();
+  if (!go.hidden && !go.disabled && !isHeld) go.click();
 });
 // Nothing closes the sheet while it's paying, so the player sees how it ended.
 buySheet.addEventListener("cancel", (event) => { if (isBusy) event.preventDefault(); });
 buySheet.addEventListener("close", finish);
 
-// The game hears how it ended once the sheet is gone: bought with the purchase, failed, cancelled, or the developer's mistake.
+// The game hears how it ended once the sheet is gone: bought with the purchase; failed (declined, or still settling) with the purchase when there is one; cancelled when nothing was charged; or the developer's mistake.
 function finish() {
   if (!asking) return;
   const asked = asking;
   asking = null;
+  // Closed while a payment was settling (a bank's confirmation, a wallet): it can still complete, so it isn't a cancel.
+  if (moment === "waiting" && ended.status === "cancelled") { ended.status = "failed"; ended.purchase = latestPurchase; }
   moment = "closed";
   busy(false);
   if (buySheet.open) buySheet.close();

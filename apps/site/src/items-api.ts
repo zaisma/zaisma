@@ -341,6 +341,15 @@ async function refundSale(env: Env, game: Game, purchase: Purchase, caller: Call
   if (sale.purchase_status !== "completed" || !sale.stripe_payment_intent_id || !sale.stripe_account_id) {
     throw new ApiError("purchase_not_paid", { message: `${sale.id} wasn't paid, so there's nothing to refund.`, field: "purchase_id", fix: "Only completed sales can be refunded; list_purchases shows each one's purchase_status." });
   }
+  // After the developer disconnected Stripe (or removed Zaisma on Stripe's side) Zaisma can't refund for them: Stripe would only say no.
+  const seller = game.owner_id ? await stripeAccountRow(env, game.owner_id) : null;
+  if (!seller?.stripe_account_id || seller.stripe_account_id !== sale.stripe_account_id) {
+    throw new ApiError("stripe_not_connected", {
+      message: `${sale.id} was paid to Stripe account ${sale.stripe_account_id}, which isn't connected to Zaisma now, so Zaisma can't refund it.`,
+      field: "purchase_id",
+      fix: "Refund it in the Stripe dashboard (Payments, then Refund). The player keeps the item here until Stripe's refund event reaches Zaisma, which only happens while the account is connected: connect_stripe_account connects it again.",
+    });
+  }
   const leftMinorUnits = sale.paid_minor_units! - sale.refunded_minor_units;
   const refundMinorUnits = amount ?? leftMinorUnits;
   if (!Number.isInteger(refundMinorUnits) || (refundMinorUnits as number) < 1 || (refundMinorUnits as number) > leftMinorUnits) {

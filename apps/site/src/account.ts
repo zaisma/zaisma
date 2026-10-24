@@ -128,6 +128,7 @@ import { tellAccountDeleted, type WaitUntil } from "./webhooks.ts";
 import { carryProof, confirmationOf, recordProof } from "./session-proofs.ts";
 import { refundForDeletion } from "./credit-api.ts";
 import { forgetCardForDeletion } from "./buy.ts";
+import { disconnect } from "./stripe.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
 
 /**
@@ -653,6 +654,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     await deleteForumFiles(env, account.id);
     await refundForDeletion(env, account.id);
     await forgetCardForDeletion(env, account.id);
+    await disconnectStripeForDeletion(env, account.id);
     await deleteAccount(env.DB, account.id);
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
@@ -669,6 +671,12 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   }
 
   return done(redirect("/account"));
+}
+
+/** A deleted developer's connected Stripe account stops being authorized to Zaisma (their sales stay as records); a Stripe that can't be reached doesn't stop the deletion. */
+async function disconnectStripeForDeletion(env: Env, accountId: string): Promise<void> {
+  const owner = await env.DB.prepare("SELECT stripe_account_id FROM owners WHERE account_id = ?").bind(accountId).first<{ stripe_account_id: string | null }>();
+  if (owner?.stripe_account_id) await disconnect(env, owner.stripe_account_id).catch((error) => console.error(`Couldn't disconnect ${owner.stripe_account_id} at Stripe for the deleted account ${accountId}:`, error));
 }
 
 /** What a password try came to: a session, or why not. */

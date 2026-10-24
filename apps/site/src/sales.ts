@@ -146,7 +146,8 @@ export async function noteRefund(env: Env, sale: Sale, refundedMinorUnits: numbe
     if (await takeBack(env.DB, sale.id, "refunded", nowMs)) await tellSale(env, sale, "purchase_refunded");
     return;
   }
-  await env.DB.prepare("UPDATE purchases SET refunded_minor_units = MAX(refunded_minor_units, ?), refunded_at_ms = ? WHERE id = ? AND purchase_status = 'completed'").bind(refundedMinorUnits, nowMs, sale.id).run();
+  // refunded_at_ms is for an item taken back; a partial refund shows only in refunded_minor_units.
+  await env.DB.prepare("UPDATE purchases SET refunded_minor_units = MAX(refunded_minor_units, ?) WHERE id = ? AND purchase_status = 'completed'").bind(refundedMinorUnits, sale.id).run();
 }
 
 /** A dispute the developer lost takes the item back. An open or won one changes nothing. */
@@ -167,8 +168,23 @@ async function tellSale(env: Env, sale: Sale, kind: "purchase_completed" | "purc
   }
 }
 
-/** The pending sales older than a day, to fail (the daily step in index.ts). */
-export async function staleSales(env: Env, nowMs = Date.now()): Promise<Sale[]> {
-  const { results } = await env.DB.prepare(`SELECT ${SALE_COLUMNS} FROM purchases WHERE purchase_status = 'pending' AND created_at_ms < ? LIMIT 500`).bind(nowMs - PENDING_SALE_DURATION_MS).all<Sale>();
+/** How many stale sales with a payment the daily step asks Stripe about in one batch. */
+export const STALE_SALE_COUNT = 200;
+
+/**
+ * The pending sales older than a day that have a payment at Stripe, oldest first, one batch after the last one
+ * (the daily step in buy.ts). Sales with no payment are failed together by failStaleSalesWithoutPayment.
+ */
+export async function staleSales(env: Env, nowMs = Date.now(), after: { createdAtMs: number; id: string } | null = null): Promise<Sale[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT ${SALE_COLUMNS} FROM purchases WHERE purchase_status = 'pending' AND purchase_source = 'sale' AND stripe_payment_intent_id IS NOT NULL AND created_at_ms < ? AND (created_at_ms > ? OR (created_at_ms = ? AND id > ?)) ORDER BY created_at_ms, id LIMIT ${STALE_SALE_COUNT}`,
+  )
+    .bind(nowMs - PENDING_SALE_DURATION_MS, after?.createdAtMs ?? -1, after?.createdAtMs ?? -1, after?.id ?? "")
+    .all<Sale>();
   return results;
+}
+
+/** The pending sales older than a day with no payment at Stripe (a sheet nobody paid on) fail all at once: nothing at Stripe needs cancelling. */
+export async function failStaleSalesWithoutPayment(env: Env, nowMs = Date.now()): Promise<void> {
+  await env.DB.prepare("UPDATE purchases SET purchase_status = 'failed' WHERE purchase_status = 'pending' AND purchase_source = 'sale' AND stripe_payment_intent_id IS NULL AND created_at_ms < ?").bind(nowMs - PENDING_SALE_DURATION_MS).run();
 }

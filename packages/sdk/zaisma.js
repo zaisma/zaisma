@@ -1722,7 +1722,7 @@
    * cancelled, failed); only a developer's mistake rejects. After a buy, the next pass owns the item at once.
    */
   // What a buy rejects with: the developer's mistakes and a page that couldn't be reached.
-  var BUY_ERROR_CODES = ["needs_player_tap", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id", "request_failed"];
+  var BUY_ERROR_CODES = ["needs_player_tap", "bad_item_name", "no_item", "no_game", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id", "request_failed"];
   var BUY_WINDOW_WIDTH_PX = 480;
   var BUY_WINDOW_HEIGHT_PX = 720;
   var buyRequestCount = 0;
@@ -1749,7 +1749,7 @@
       return waiter.reject(codedError(code, typeof event.data.message === "string" ? event.data.message : "Zaisma didn't answer, so check the connection and try again."));
     }
     var status = event.data.status === "bought" || event.data.status === "failed" ? event.data.status : "cancelled";
-    var purchase = event.data.purchase && typeof event.data.purchase === "object" ? event.data.purchase : null;
+    var purchase = status !== "cancelled" && event.data.purchase && typeof event.data.purchase === "object" ? purchaseFromSheet(event.data.purchase) : null;
     if (status !== "bought") return waiter.resolve({ status: status, purchase: purchase });
     // A fresh pass, so items.owns and the pass the game's servers get say it's owned now.
     try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
@@ -1758,12 +1758,30 @@
     waiter.resolve({ status: "bought", purchase: purchase });
   });
 
+  /** The sheet's purchase (the developer API's snake_case) as the camelCase Purchase the purchase event hands over; receipt "" while there's none (a payment that never completed). */
+  function purchaseFromSheet(purchase) {
+    return {
+      id: purchase.id,
+      itemName: purchase.item_name,
+      itemKind: purchase.item_kind,
+      itemCount: purchase.item_count,
+      purchaseSource: purchase.purchase_source,
+      purchaseStatus: purchase.purchase_status,
+      gameAccountId: purchase.game_account_id === undefined ? null : purchase.game_account_id,
+      paidMinorUnits: purchase.paid_minor_units === undefined ? null : purchase.paid_minor_units,
+      currencyCode: purchase.currency_code === undefined ? null : purchase.currency_code,
+      purchasedAt: purchase.purchased_at === undefined ? null : purchase.purchased_at,
+      refundedAt: purchase.refunded_at === undefined ? null : purchase.refunded_at,
+      receipt: typeof purchase.receipt === "string" ? purchase.receipt : ""
+    };
+  }
+
   /** Buy an item through Zaisma's buy sheet (zaisma.d.ts: Zaisma.items.buy). */
   function buyItem(itemName, buyOptions) {
     var refused = unknownOption(buyOptions, BUY_OPTIONS, "Zaisma.items.buy");
     if (refused) return Promise.reject(refused);
     buyOptions = buyOptions || {};
-    if (typeof itemName !== "string" || !itemName) return Promise.reject(codedError("no_item", "itemName isn't an item's name, like \"revive\": list_items names the game's items."));
+    if (typeof itemName !== "string" || !itemName) return Promise.reject(codedError("bad_item_name", "itemName isn't an item's name, like \"revive\": list_items names the game's items."));
     var itemCount = buyOptions.itemCount === undefined ? 1 : buyOptions.itemCount;
     if (typeof itemCount !== "number" || itemCount % 1 !== 0 || itemCount < 1) return Promise.reject(codedError("bad_item_count", "itemCount is a whole number from 1, and 1 for a permanent item."));
     var gameAccountId = buyOptions.gameAccountId === undefined ? null : buyOptions.gameAccountId;

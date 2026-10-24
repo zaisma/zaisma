@@ -1004,7 +1004,7 @@ export const PURCHASE = object({
   currency_code: nullable(text("The currency paid in; null for a grant.")),
   refunded_minor_units: countOf("How much was given back, in the same currency's smallest unit; 0 for a grant."),
   purchased_at: nullable(isoTime("When it was bought or granted; null while paying, or when it failed.")),
-  refunded_at: nullable(isoTime()),
+  refunded_at: nullable(isoTime("When the item was taken back: a full refund or a chargeback. null otherwise; a partial refund shows only in refunded_minor_units, and purchase_status says what the player owns.")),
   handled_at: nullable(isoTime("When the game, its game server or your own server took it (purchase_delivery); null until then.")),
   refund_handled_at: nullable(isoTime("When it was told the purchase was refunded or charged back; null until then, and for one never refunded.")),
   receipt: nullable(

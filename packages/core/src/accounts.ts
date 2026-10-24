@@ -439,6 +439,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     // Where they were playing, and their friends, on both sides, with the invites they made.
     database.prepare("DELETE FROM presences WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM room_players WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
+    // The email their purchases' receipts went to goes; the sale itself (amount, status) stays for the developer's records.
+    database.prepare("UPDATE purchases SET receipt_email = NULL WHERE player_id = (SELECT player_id FROM accounts WHERE id = ?)").bind(id),
     database.prepare("DELETE FROM friendships WHERE account_id = ? OR friend_account_id = ?").bind(id, id),
     database.prepare("DELETE FROM friend_invites WHERE account_id = ?").bind(id),
     // Their blocks, both the ones they made and the ones of them.

@@ -51,7 +51,7 @@ export interface Purchase {
   currencyCode: string | null;
   /** When it was bought or granted, an ISO time. */
   purchasedAt: string | null;
-  /** When it was refunded or charged back, an ISO time; null in onPurchase. */
+  /** When the item was taken back (a full refund or a chargeback), an ISO time; null in onPurchase, and for a partial refund, which leaves the item owned. */
   refundedAt: string | null;
   receipt: string;
 }
