@@ -1373,7 +1373,7 @@ export const TOOLS: Tool[] = [
     name: "grant_item",
     title: "Grant an item",
     description:
-      "Give a player an item, with no money: a supporter's reward, a prize, an apology. It's a purchase with purchase_source grant, completed at once, with a signed receipt any server checks with verifyReceipt. A permanent item shows in the player's next pass (Zaisma.items.owns, player.ownedItemNames); granting one they own answers that purchase with is_already_owned. A consumable is delivered with its receipt: your server counts it once per purchase ID. Only accounts own items, not guests.",
+      "Give a player an item, with no money: a supporter's reward, a prize, an apology. It's a purchase with purchase_source grant, completed at once, with a signed receipt a game server checks in one call, room.verifyReceipt(receipt) or server.verifyReceipt(receipt). A permanent item shows in the player's next pass (Zaisma.items.owns, player.ownedItemNames); granting one they own answers that purchase with is_already_owned. A consumable is delivered with its receipt: your server delivers it once per purchase_id, and only while its purchase_status is completed. Only accounts own items, not guests.",
     inputSchema: {
       ...object(
         {
@@ -1419,7 +1419,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_purchase",
     title: "Get a purchase",
-    description: "One purchase or grant, with its signed receipt.",
+    description: "One purchase or grant, with its signed receipt, signed again on each read: it says the purchase's current purchase_status, so one read after a refund says refunded.",
     inputSchema: object({ slug, purchase_id: idInput("purchase", "A purchase's ID from list_purchases or grant_item") }, ["slug", "purchase_id"]),
     outputSchema: answer({ purchase: PURCHASE }),
     annotations: read,

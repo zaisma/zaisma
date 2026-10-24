@@ -14,7 +14,7 @@ import { letPublish } from "../helpers.ts";
 
 // Items and purchases through the developer API and MCP (apps/site/src/items-api.ts): what a game sells or
 // grants, its refund policy, grants with their receipts (signed in the rooms Worker, here its stand-in through
-// the RECEIPTS binding, with the tests' pass key), and refunds of grants.
+// the RECEIPTS binding, with the tests' receipt key), and refunds of grants.
 
 const SITE = "https://zaisma.test";
 const ISSUER = "https://rooms.zaisma.test";
@@ -55,7 +55,8 @@ const revive = { title: "Revive", description: "Back in the fight where you fell
 const cape = { title: "Supporter's Cape", description: "", item_kind: "permanent", item_category: "cosmetic", price_minor_units: null, currency_code: null, local_prices: [] };
 const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/sky-hopper/items/${itemName}`, { method: "PUT", body: fields });
 const setRefundPolicy = () => api("/games/sky-hopper/purchase-settings", { method: "PATCH", body: { refund_policy: "unused_within_14_days" } });
-const receiptKeys = async () => [(await loadSigningKey(env.TEST_PASS_SIGNING_KEY)).publicKey];
+const receiptKeys = async () => [(await loadSigningKey(env.TEST_RECEIPT_SIGNING_KEY)).publicKey];
+const RECEIPT_ISSUER = `${ISSUER}/receipts`;
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM purchases; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
@@ -146,16 +147,32 @@ describe("grants", () => {
     const granted = await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "supporter_cape", game_account_id: "patreon-4417" } });
     expect(granted.status).toBe(201);
     expect(schemaProblems(PURCHASE, granted.answer.purchase)).toEqual([]);
-    expect(granted.answer).toMatchObject({ is_already_owned: false, purchase: { purchase_source: "grant", purchase_status: "completed", item_count: 1, price_minor_units: null, game_account_id: "patreon-4417" } });
+    expect(granted.answer).toMatchObject({ is_already_owned: false, purchase: { purchase_source: "grant", purchase_status: "completed", item_count: 1, paid_minor_units: null, game_account_id: "patreon-4417" } });
     const keys = await receiptKeys();
-    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER });
-    expect(claims).toMatchObject({ sub: playerId, aud: "sky-hopper", kind: "receipt", jti: granted.answer.purchase.id, item_name: "supporter_cape", item_kind: "permanent", purchase_source: "grant", game_account_id: "patreon-4417" });
-    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "moon-base", issuerUrl: ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
-    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER }).catch((error: unknown) => error);
+    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER });
+    expect(claims).toMatchObject({
+      sub: playerId,
+      aud: "sky-hopper",
+      receipt_version_number: 1,
+      jti: granted.answer.purchase.id,
+      purchase_id: granted.answer.purchase.id,
+      purchased_at: granted.answer.purchase.purchased_at,
+      purchase_status: "completed",
+      item_name: "supporter_cape",
+      item_kind: "permanent",
+      purchase_source: "grant",
+      paid_minor_units: null,
+      game_account_id: "patreon-4417",
+    });
+    expect(claims).not.toHaveProperty("kind");
+    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "moon-base", issuerUrl: RECEIPT_ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
+    // A check for the passes' issuer, as any JWT library makes it, refuses a receipt; so does verifyPass, whatever issuer it's given.
+    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER })).rejects.toMatchObject({ code: "wrong_issuer" });
+    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER }).catch((error: unknown) => error);
     expect(asPass).toBeInstanceOf(PassError);
     expect((asPass as PassError).code).toBe("wrong_kind");
-    // The same purchase always signs to the same receipt.
-    expect((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}`)).answer.purchase.receipt).toBe(granted.answer.purchase.receipt);
+    // The same purchase signs again on each read with the same purchase_id.
+    expect(await verifyReceipt((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}`)).answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id });
   });
 
   it("give a permanent item once, and a consumable as many times and as many as asked", async () => {
@@ -188,6 +205,8 @@ describe("grants", () => {
     expect((await api("/games/sky-hopper/items/supporter_cape", { method: "DELETE" })).answer.error).toMatchObject({ code: "item_has_owners", field: "item_name" });
     const refunded = await tool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.answer.purchase.id });
     expect(refunded.purchase).toMatchObject({ purchase_status: "refunded", refunded_minor_units: 0 });
+    // Its receipt says so, so no game server delivers on it.
+    expect(await verifyReceipt(refunded.purchase.receipt, await receiptKeys(), { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id, purchase_status: "refunded" });
     expect(refunded.purchase.refunded_at).not.toBeNull();
     expect((await api(`/games/sky-hopper/players/${playerId}/items`)).answer.owned_item_names).toEqual([]);
     expect((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}/refund`, { method: "POST" })).answer.error).toMatchObject({ code: "already_refunded" });
@@ -197,7 +216,7 @@ describe("grants", () => {
   it("refund a sale only through Stripe, which isn't connected yet", async () => {
     const game = (await gameBySlug(env.DB, "sky-hopper"))!;
     const purchaseId = "purchase_salefortest01";
-    await env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, price_minor_units, currency_code, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', ?, 'sale', 'completed', 199, 'usd', ?, ?)")
+    await env.DB.prepare("INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, paid_minor_units, currency_code, created_at_ms, purchased_at_ms) VALUES (?, ?, 'revive', 'consumable', ?, 'sale', 'completed', 199, 'usd', ?, ?)")
       .bind(purchaseId, game.id, playerId, Date.now(), Date.now())
       .run();
     expect((await api(`/games/sky-hopper/purchases/${purchaseId}/refund`, { method: "POST" })).answer.error).toMatchObject({ code: "stripe_not_connected" });
@@ -304,7 +323,7 @@ describe("a grant whose receipt can't be signed", () => {
 });
 
 describe("a deleted game", () => {
-  it("leaves its players' purchases in their Download your data", async () => {
+  it("leaves its players' purchases in their Download your data, under the game's name", async () => {
     await setItem("supporter_cape", cape);
     const granted = await api("/games/sky-hopper/purchases", { body: { player_id: playerId, item_name: "supporter_cape" } });
     const game = (await gameBySlug(env.DB, "sky-hopper"))!;
@@ -313,7 +332,7 @@ describe("a deleted game", () => {
     const zip = unzipSync(new Uint8Array(await new Response(accountDataZip(env as never, (await accountById(env.DB, "player-1"))!)).arrayBuffer()));
     vi.unstubAllGlobals();
     const played = JSON.parse(new TextDecoder().decode(zip["games-played.json"]));
-    expect(played.purchases).toMatchObject([{ game_slug: null, id: granted.answer.purchase.id, item_name: "supporter_cape", purchase_status: "completed" }]);
+    expect(played.purchases).toMatchObject([{ game_slug: "sky-hopper", game_title: game.title, id: granted.answer.purchase.id, item_name: "supporter_cape", purchase_status: "completed" }]);
   });
 });
 

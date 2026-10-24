@@ -231,6 +231,23 @@ function gameDatabase(binding) {
   };
 }
 
+class ReceiptError extends Error {
+  constructor(code) {
+    super("Receipt rejected: " + code);
+    this.name = "ReceiptError";
+    this.code = code;
+  }
+}
+
+// room.verifyReceipt and server.verifyReceipt: checked by the rooms Worker, which has every receipt key and knows the game.
+function receiptChecker(binding) {
+  return async (receipt) => {
+    const answer = await timedWait(binding.verify(receipt));
+    if (answer.errorCode) throw new ReceiptError(answer.errorCode);
+    return answer.claims;
+  };
+}
+
 // A send's delivery and latestKey, checked here so a mistake throws in the game's own handler, where its developer sees it.
 function delivered(given, call) {
   const options = given && typeof given === "object" ? given : {};
@@ -239,11 +256,12 @@ function delivered(given, call) {
   return { delivery: options.delivery, latestKey: options.latestKey };
 }
 
-function recorder(snapshot, effects, database, secrets) {
+function recorder(snapshot, effects, database, secrets, verifyReceipt) {
   const clockOffsetMs = (snapshot.serverTimeMs ?? Date.now()) - Date.now();
   return {
     database,
     secrets,
+    verifyReceipt,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     get spectators() { return snapshot.spectators.map((spectator) => ({ ...spectator })); },
     broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId, audience: broadcastOptions && broadcastOptions.audience, ...delivered(broadcastOptions, "room.broadcast") }); },
@@ -303,16 +321,18 @@ function frozenSecrets(given) {
 class Session extends RpcTarget {
   #database;
   #secrets;
+  #verifyReceipt;
   // A real-time room's state lives here between calls; a turn-based room's comes with each call.
   #state;
   // The room as the last call left it: each call sends only what changed.
   #room = { players: [], spectators: [], isListed: true, isOpen: true, friendJoinsEnabled: true, isKept: false, roomCode: null, name: null, labels: {}, endsAt: null, blockPairs: [], friendPairs: [], pingDurationsMs: {}, awayReasons: {}, serverTimeMs: Date.now(), backedUpPlayerIds: [] };
   // What each player was last sent of the state, with stateSyncEnabled; a fresh session sends everyone a full copy.
   #stateTracker = server.stateSyncEnabled === true ? stateSync.newStateTracker(MAXIMUM_STATE_VIEW_SIZE_BYTES) : null;
-  constructor(database, secrets) {
+  constructor(database, secrets, verifyReceipt) {
     super();
     this.#database = database;
     this.#secrets = frozenSecrets(secrets);
+    this.#verifyReceipt = verifyReceipt;
   }
   setSecrets(secrets) {
     this.#secrets = frozenSecrets(secrets);
@@ -390,7 +410,7 @@ class Session extends RpcTarget {
     const viewers = new Map([...snapshot.players.filter((player) => awayReasons[player.id] !== "lost"), ...(snapshot.spectators || [])].map((player) => [player.id, player]));
     const state = this.#state;
     // stateView only answers; anything it asks the room to do is dropped.
-    const viewRoom = typeof server.stateView === "function" ? recorder(snapshot, [], this.#database, this.#secrets) : null;
+    const viewRoom = typeof server.stateView === "function" ? recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt) : null;
     const viewOf = viewRoom ? (playerId) => server.stateView(state, { ...viewers.get(playerId) }, viewRoom) : null;
     const round = this.#stateTracker.round(state, [...viewers.keys()], viewOf, new Set(snapshot.backedUpPlayerIds || []));
     for (const frame of round.frames) effects.push({ do: "state", playerIds: frame.playerIds, frame: frame.frame });
@@ -408,7 +428,7 @@ class Session extends RpcTarget {
   }
   // One handler on the state: what it answers is the new state (nothing keeps it). Answers the error it threw, or null.
   async #run(hook, handlerArguments, snapshot, effects) {
-    const room = recorder(snapshot, effects, this.#database, this.#secrets);
+    const room = recorder(snapshot, effects, this.#database, this.#secrets, this.#verifyReceipt);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
     // onSpectatorJoin(state, spectator, room), onSpectatorLeave(state, spectator, room),
     // onMessage(state, player, message, room), onBytes(state, player, bytes, room), onTick(state, tickDurationSec, room),
@@ -438,7 +458,7 @@ class Session extends RpcTarget {
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
-      answer = await server.canJoin(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets), joinData, joinInfo);
+      answer = await server.canJoin(this.#state, player, recorder(snapshot, [], this.#database, this.#secrets, this.#verifyReceipt), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -457,7 +477,7 @@ class Session extends RpcTarget {
     if (typeof server.onRequest !== "function") return { error: "This game server has no onRequest" };
     let answer;
     try {
-      answer = await server.onRequest(player, request, { database: this.#database, secrets: this.#secrets });
+      answer = await server.onRequest(player, request, { database: this.#database, secrets: this.#secrets, verifyReceipt: this.#verifyReceipt });
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -479,7 +499,7 @@ class Session extends RpcTarget {
   async #schedule(run) {
     if (typeof server.onSchedule !== "function") return { error: "This game server has no onSchedule" };
     try {
-      await server.onSchedule(run, { database: this.#database, secrets: this.#secrets });
+      await server.onSchedule(run, { database: this.#database, secrets: this.#secrets, verifyReceipt: this.#verifyReceipt });
       return {};
     } catch (error) {
       return { error: String((error && error.stack) || error) };
@@ -492,7 +512,7 @@ class Session extends RpcTarget {
   async #webhook(event) {
     if (typeof server.onWebhook !== "function") return { error: "This game server has no onWebhook" };
     try {
-      await server.onWebhook(event, { database: this.#database, secrets: this.#secrets });
+      await server.onWebhook(event, { database: this.#database, secrets: this.#secrets, verifyReceipt: this.#verifyReceipt });
       return {};
     } catch (error) {
       return { error: String((error && error.stack) || error) };
@@ -518,7 +538,7 @@ function plain(value) {
 export default class extends WorkerEntrypoint {
   open(secrets) {
     if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function" && typeof server.onSchedule !== "function" && typeof server.onWebhook !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests, onSchedule() for schedules or onWebhook() for webhooks");
-    return new Session(gameDatabase(this.env.DATABASE), secrets);
+    return new Session(gameDatabase(this.env.DATABASE), secrets, receiptChecker(this.env.RECEIPTS));
   }
 }
 `;
@@ -647,7 +667,7 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
 export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string): Promise<((secrets: Record<string, string>) => Promise<Session>) | null> {
   const code = await serverCode(env, versionId);
   if (code === null) return null;
-  const ours = exports as unknown as Record<"GameDatabaseBinding" | "GameServerOutbound", (options: { props: { gameId: string } }) => Fetcher>;
+  const ours = exports as unknown as Record<"GameDatabaseBinding" | "GameServerOutbound" | "ReceiptCheckBinding", (options: { props: { gameId: string } }) => Fetcher>;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
@@ -655,10 +675,11 @@ export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameI
     modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs, "state-sync.js": stateSyncModuleSource() },
     // AsyncLocalStorage, so each call's lines stay with it (logs.js).
     compatibilityFlags: ["nodejs_als"],
-    // Its internet is our gateway, which takes only https to the hosts the game lists; and one binding,
-    // its own game's database (room.database). Both are fixed to the game by props it can't see.
+    // Its internet is our gateway, which takes only https to the hosts the game lists; and two bindings,
+    // its own game's database (room.database) and receipt checks for its own game (room.verifyReceipt).
+    // All are fixed to the game by props it can't see.
     globalOutbound: ours.GameServerOutbound({ props: { gameId } }),
-    env: { DATABASE: ours.GameDatabaseBinding({ props: { gameId } }) },
+    env: { DATABASE: ours.GameDatabaseBinding({ props: { gameId } }), RECEIPTS: ours.ReceiptCheckBinding({ props: { gameId } }) },
     limits: { cpuMs: CPU_MS },
   }));
   return (secrets) => (worker.getEntrypoint() as unknown as { open(secrets: Record<string, string>): Promise<Session> }).open(secrets);

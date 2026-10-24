@@ -14,8 +14,12 @@
     "SITE_ORIGIN": "https://zaisma.com",
     "GAME_HOST_MODE": "subdomain",
     "GAME_ORIGIN": "https://zaismausercontent.com",
-    "GAME_DOMAIN": "zaismausercontent.com"
-    // Secrets (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK, and PLAYER_TAG_KEY, 32 random bytes in base64 (openssl rand -base64 32) that key the opaque tags in passes.
+    "GAME_DOMAIN": "zaismausercontent.com",
+    // Public JWKs of receipt keys no longer signing, as a JSON list: published for good, so their receipts keep verifying.
+    "RETIRED_RECEIPT_PUBLIC_KEYS": "[]"
+    // Secrets (wrangler secret put): PASS_SIGNING_KEY and RECEIPT_SIGNING_KEY, Ed25519 private JWKs, and PLAYER_TAG_KEY,
+    // 32 random bytes in base64 (openssl rand -base64 32) that key the opaque tags in passes. The pass key rotates
+    // freely; the receipt key's public JWK goes into RETIRED_RECEIPT_PUBLIC_KEYS when it's replaced.
     // And for connections between players through Cloudflare's relay (src/relay.ts): TURN_KEY_ID and
     // TURN_KEY_API_TOKEN (Realtime's TURN key), CLOUDFLARE_ACCOUNT_ID and RELAY_ANALYTICS_API_TOKEN
     // (Account Analytics read), to read each game's use. Without them, players' connections don't connect.

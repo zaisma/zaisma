@@ -6,7 +6,7 @@
 // when it's back. Zaisma's own half-broken alerts (scans behind, errors spiking, this checker silent) are the site
 // Worker's (apps/site/src/health-alerts.ts).
 
-import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkUrl } from "./ship-checks.mjs";
+import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkUrl, publishedKeyCount } from "./ship-checks.mjs";
 
 export const WATCH_RETRY_WAIT_MS = 10_000;
 /** A check tries twice, 10 seconds apart, before it counts as failed for this run. */
@@ -25,12 +25,13 @@ const SIGN_IN_BODY = new URLSearchParams({ username: "watch@zaisma-watch.invalid
 const ok = (isGood) => (response, body) => (isGood(response, body) ? [] : ["unexpected answer"]);
 const options = { attemptCount: WATCH_ATTEMPT_COUNT, retryWaitMs: WATCH_RETRY_WAIT_MS };
 
-/** The five checks, each answering { name, isPass, isSecurity, note }. */
+/** The six checks, each answering { name, isPass, isSecurity, note }. */
 export function runWatchChecks() {
   return Promise.all([
     checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe")), options),
     checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { ...options, isSameOriginRedirectFollowed: true }),
-    checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && body.includes('"keys"')), options),
+    checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1), options),
+    checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1), options),
     checkUrl(
       "MCP",
       `${SITE_URL}/mcp`,
