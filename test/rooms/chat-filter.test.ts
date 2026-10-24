@@ -55,6 +55,14 @@ describe("the chat filter", () => {
     expect(await filterChatMessage(stubbedAi().withAi, message(teen, [{ player_id: "player_guest1" }], "gg"))).toMatchObject({ isAllowed: false, reason: "chat_paused" });
   });
 
+  it("checks the whole message, and refuses one over 2000 characters without asking anyone", async () => {
+    const [adult, teen] = [await player("18+"), await player("13-15")];
+    const ai = stubbedAi();
+    expect(await filterChatMessage(ai.withAi, message(adult, [teen], "a".repeat(2001)))).toEqual({ isAllowed: false, reason: "too_long", message: "That message is too long to send.", hasSwearing: false });
+    expect(ai.asked).toEqual([]);
+    expect(await filterChatMessage(ai.withAi, message(adult, [teen], `${"nice ".repeat(300)}add me on snap`))).toMatchObject({ isAllowed: false, reason: "contact_details" });
+  });
+
   it("sends every message from an adult to a teen to the AI", async () => {
     const [adult, teen] = [await player("18+"), await player("16-17")];
     const { asked, withAi } = stubbedAi();

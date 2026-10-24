@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { DatabaseError, dumpPart, importStatements, scanStatements, utf8SizeBytes } from "../../packages/game-server/src/index.ts";
+import { DatabaseError, dumpPart, importStatements, scanStatements, utf8SizeBytes } from "../../packages/game-server/src/internal.ts";
 import { dumpParts, nodeRead, trickyDatabase } from "./dump-fixtures.ts";
 
 // The game database's SQL dump (packages/game-server/src/dump.ts), over Node's own SQLite: the same reading

@@ -63,7 +63,7 @@ beforeAll(async () => {
           ...options,
           name: "zaisma-rooms",
           modules: [{ type: "ESModule", path: "index.mjs", contents: bundle.outputFiles[0]!.text }],
-          bindings: { ...(options.bindings ?? {}), ISSUER: R, SITE_ORIGIN: "https://zaisma.test", GAME_HOST_MODE: "path", GAME_ORIGIN: ORIGIN, GAME_DOMAIN: "", PASS_SIGNING_KEY: await generateSigningKey() },
+          bindings: { ...(options.bindings ?? {}), ISSUER: R, SITE_ORIGIN: "https://zaisma.test", GAME_HOST_MODE: "path", GAME_ORIGIN: ORIGIN, GAME_DOMAIN: "", PASS_SIGNING_KEY: await generateSigningKey(), PLAYER_TAG_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64") },
         },
       ],
     } as Parameters<typeof convertV4MiniflareOptions>[0]),

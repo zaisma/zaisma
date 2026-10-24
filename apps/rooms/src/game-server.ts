@@ -159,7 +159,11 @@ export class GameServerObject extends DurableObject<Env> {
       const outcome = ready.outcome;
       return { failureMessage: "code" in outcome && outcome.code === "no_request_handler" ? "The game's live version has no game server: add zaisma-server.js with onWebhook(event, server)." : "The game's server didn't start: get_stats shows its errors." };
     }
-    if (!ready.handlerNames.includes("onWebhook")) return { failureMessage: "The game's live version has a game server without onWebhook(event, server), so nothing takes the event." };
+    if (!ready.handlerNames.includes("onWebhook")) {
+      // Zaisma erases a deleted player's rows itself, so an account_deleted event needs nothing more here (as the Node runner).
+      if ((event as { kind?: unknown } | null)?.kind === "account_deleted") return { failureMessage: null };
+      return { failureMessage: "The game's live version has a game server without onWebhook(event, server), so nothing takes the event." };
+    }
 
     this.countRequest();
     const reply = await this.reach(versionId, "webhook", () => ready.session.webhook(event), WEBHOOK_LIMITS.answerTimeoutSec, "onWebhook", `onWebhook didn't finish within ${WEBHOOK_LIMITS.answerTimeoutSec} seconds, so the event will be tried again. Something it awaits never finished.`);

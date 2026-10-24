@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REQUEST_LIMITS, ROOM_LIMITS } from "../../packages/game-server/src/index.ts";
+import { REQUEST_LIMITS, ROOM_LIMITS } from "../../packages/game-server/src/internal.ts";
 
 const runner = join(import.meta.dirname, "../../packages/game-server/bin/node.js");
 const folder = mkdtempSync(join(tmpdir(), "zaisma-runner-"));

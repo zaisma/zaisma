@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
 import { signatureFor, newSigningSecret } from "../../packages/core/src/webhooks.ts";
-import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/game-server/src/index.ts";
+import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/game-server/src/internal.ts";
 
 // Webhooks on the developer's own server: the Node runner takes a webhook's signed POSTs at /v1/webhooks
 // and runs the same onWebhook as Zaisma does for a webhook to the game server (test/rooms/webhooks.test.ts).
@@ -10,7 +10,7 @@ import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/ga
 // Webhooks' test vectors (test/site/webhooks.test.ts).
 
 const SECRET = newSigningSecret();
-const EVENT = { id: "webhook_event_8f3k2m9q1x7c4v6b0n5z", kind: "bug_reported", happened_at: "2026-10-17T12:00:00.000Z", game: { slug: "sky-hopper" }, version: null, bug_report: { id: "report_4k2m", player_text: "Stuck on level 2" } };
+const EVENT = { id: "webhook_event_8f3k2m9q1x7c4v6b0n5z", kind: "bug_reported", created_at: "2026-10-17T12:00:00.000Z", game: { slug: "sky-hopper" }, version: null, bug_report: { id: "report_4k2m", player_text: "Stuck on level 2" } };
 
 async function serve(gameServer: object, webhookSigningSecret: string | undefined = SECRET, database: unknown = localDatabase(":memory:")) {
   const own = startServer({ server: gameServer, game: "sky-hopper", port: 0, origins: [], issuer: "https://rooms.zaisma.test", keys: async () => [], database, webhookSigningSecret });
@@ -59,6 +59,12 @@ describe("Node runner webhooks", () => {
       expect((await post(EVENT, { timestampSec: Math.floor(Date.now() / 1000) - 600 })).text).toContain("webhook-timestamp");
       // Signed, but not the event whose id it was signed with.
       expect((await post({ ...EVENT, id: "webhook_event_other" })).httpStatus).toBe(401);
+      // No headers, or a body over the limit, is turned away before the rest is read.
+      const at = `http://localhost:${(own.wss.address() as { port: number }).port}/v1/webhooks`;
+      const bare = await fetch(at, { method: "POST", body: JSON.stringify(EVENT) });
+      expect([bare.status, await bare.text()]).toEqual([401, expect.stringContaining("webhook-id")]);
+      const huge = await fetch(at, { method: "POST", headers: { "webhook-id": EVENT.id, "webhook-timestamp": String(Math.floor(Date.now() / 1000)), "webhook-signature": "v1,AAAA" }, body: "x".repeat(17 * 1024 * 1024) }).catch(() => null);
+      if (huge) expect(huge.status).toBe(413);
       expect(handledCount).toBe(0);
       // Several signatures while a secret is replaced: any one that matches will do.
       const timestampSec = Math.floor(Date.now() / 1000);
@@ -99,7 +105,7 @@ describe("Node runner webhooks", () => {
     const database = localDatabase(":memory:");
     await database.query("CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL)");
     await database.batch([{ sql: "INSERT INTO scores VALUES ('player_mia', 10)" }, { sql: "INSERT INTO scores VALUES ('player_kai', 20)" }]);
-    const deleted = (isEraseEnabled: boolean, playerId: string) => ({ ...EVENT, kind: "account_deleted", game: { slug: "sky-hopper", deleted_account_erase_enabled: isEraseEnabled }, bug_report: null, player_id: playerId, sign_in_app: null });
+    const deleted = (isEraseEnabled: boolean, playerId: string) => ({ ...EVENT, kind: "account_deleted", game: { slug: "sky-hopper" }, bug_report: null, account_deletion: { player_id: playerId, deleted_account_erase_enabled: isEraseEnabled }, sign_in_app: null });
     const { own, post } = await serve({ onRequest: () => 1 }, SECRET, database);
     try {
       // Turned off: the developer erases their own way, so nothing changes, and the event is still taken.
@@ -111,6 +117,10 @@ describe("Node runner webhooks", () => {
       expect((await post(deleted(true, "mia_plays"))).httpStatus).toBe(500);
       // Other events still need onWebhook.
       expect((await post(EVENT)).httpStatus).toBe(404);
+      // An event about another game is taken and skipped: it never erases this game's rows or reaches onWebhook.
+      expect(await post({ ...deleted(true, "player_kai"), game: { slug: "cave-crew" } })).toEqual({ httpStatus: 204, text: "" });
+      expect(await post({ ...EVENT, game: { slug: "cave-crew" } })).toEqual({ httpStatus: 204, text: "" });
+      expect(await database.query("SELECT player_id FROM scores")).toEqual([{ player_id: "player_kai" }]);
     } finally {
       await own.close();
     }
@@ -123,7 +133,7 @@ describe("verifyWebhook", () => {
     const headers = { webhookId: "msg_p5jXN8AQM9LWM0D4loKWxJek", webhookTimestamp: "1614265330", webhookSignature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=" };
     const checked = await verifyWebhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", headers, '{"test": 2432232314}', 1614265330_000);
     // The signature matches; the body just isn't a Zaisma event.
-    expect(checked).toEqual({ failure: "Its body isn't a webhook event with the webhook-id's id." });
-    expect(await verifyWebhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", headers, '{"test": 2432232315}', 1614265330_000)).toEqual({ failure: "Its webhook-signature doesn't match the signing secret." });
+    expect(checked).toEqual({ error: expect.objectContaining({ code: "not_an_event" }) });
+    expect(await verifyWebhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", headers, '{"test": 2432232315}', 1614265330_000)).toEqual({ error: expect.objectContaining({ code: "bad_signature" }) });
   });
 });

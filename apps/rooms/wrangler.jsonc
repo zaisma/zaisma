@@ -15,7 +15,7 @@
     "GAME_HOST_MODE": "subdomain",
     "GAME_ORIGIN": "https://zaismausercontent.com",
     "GAME_DOMAIN": "zaismausercontent.com"
-    // Secret (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK.
+    // Secrets (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK, and PLAYER_TAG_KEY, 32 random bytes in base64 (openssl rand -base64 32) that key the opaque tags in passes.
     // And for connections between players through Cloudflare's relay (src/relay.ts): TURN_KEY_ID and
     // TURN_KEY_API_TOKEN (Realtime's TURN key), CLOUDFLARE_ACCOUNT_ID and RELAY_ANALYTICS_API_TOKEN
     // (Account Analytics read), to read each game's use. Without them, players' connections don't connect.
