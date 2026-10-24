@@ -513,10 +513,13 @@ describe("the game page's answer to a game without cloud saves here", async () =
     const window: Record<string, unknown> = hasSavesScript
       ? { savesRequest: (request: Message) => handedToSavesScript.push(request), offerAccount: () => handedToSavesScript.push({ type: "offerAccount" }) }
       : {};
+    const addEventListener = (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener);
+    // The page script reaches the window's listeners both bare and as window.addEventListener.
+    window.addEventListener = addEventListener;
     const globals: Record<string, unknown> = {
       window,
       document: new Proxy({ getElementById: (id: string) => elements[id] ?? anything(), cookie: "" } as Record<string, unknown>, { get: (target, key) => (key in target ? target[key as string] : anything()) }),
-      addEventListener: (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener),
+      addEventListener,
     };
     for (const name of ["location", "history", "navigator", "localStorage", "sessionStorage", "matchMedia", "scrollTo", "BroadcastChannel", "requestAnimationFrame", "IntersectionObserver", "screen", "countPlay"]) globals[name] = anything();
     // The saves script's functions are page globals, so the page script calls them by name.
