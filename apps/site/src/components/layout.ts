@@ -185,11 +185,13 @@ export interface GridOptions {
   /** What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit. */
   itemSize: "cover" | "card" | "figure";
   label?: string;
+  /** Unique on the page, for Load more to add the next page's cells to it (navigation.ts, loadMore's listIds). */
+  id?: string;
 }
 
 /** Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. */
 export function grid(options: GridOptions): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}"${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>`;
+  return html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>`;
 }
 
 export interface TrackOptions {

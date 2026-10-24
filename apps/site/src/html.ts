@@ -570,8 +570,8 @@ const THEME_SCRIPT = pageScript("theme", `(function () {
 })();
 `);
 
-/** Where a page is in the header: Home, or the developer tabs, which open out of the end of the tabs on developer pages. */
-export type Nav = "home" | "developer" | "forum";
+/** Where a page is in the header: Home, Browse, or the developer tabs, which open out of the end of the tabs on developer pages. */
+export type Nav = "home" | "browse" | "developer" | "forum";
 
 /** A page's search box in the header: where it sends, what's typed, and fields it keeps. */
 export interface HeaderSearch {
@@ -581,6 +581,9 @@ export interface HeaderSearch {
   label: string;
   keep?: Record<string, string>;
 }
+
+/** The header's search on player pages: games, by title, developer or genre, on Browse. */
+export const GAME_SEARCH: HeaderSearch = { action: "/games", searchText: "", placeholder: "Search games", label: "Search games" };
 
 const ADMIN_TABS: [string, string][] = [
   ["Admin", "/admin"], ["Reports", "/admin/reports"], ["Feedback", "/admin/feedback"], ["Profiles", "/admin/profiles"], ["Publishing", "/admin/publishing"],
@@ -678,10 +681,13 @@ export const SPECULATION_RULES = { prefetch: [{ source: "document", where: { and
  */
 export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean } = {}): Raw {
   const account = options.viewer?.account ?? null;
+  // Every player page searches games, landing on Browse; developer and admin pages have their own search or none.
+  const isPlayerPage = !options.isAdmin && options.nav !== "developer" && options.nav !== "forum";
+  const shownSearch = options.search ?? (isPlayerPage ? GAME_SEARCH : undefined);
   const markup = header({
     current: options.isAdmin ? null : (options.nav ?? null),
     ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
-    search: options.search ? { ...options.search, name: "search_text" } : undefined,
+    search: shownSearch ? { ...shownSearch, name: "search_text" } : undefined,
     account: account ? { username: account.username, pictureMarkup: pictureFrame(account.username, "md", { isCut: true }) } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
     // The page has a runner of its own (Play, Save): Sign in is a cut button, so only one runner is ever in view.

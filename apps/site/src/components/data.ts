@@ -67,13 +67,15 @@ export interface GlanceFacts {
   updatesHref?: string;
   /** Friends playing it now. */
   friends?: { username: string }[];
+  /** Why it may not suit this device ("Needs a keyboard"), for a game made for others; said instead of when you played or friends. */
+  deviceNote?: string;
 }
 
 /** The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag. */
 export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
-  return html`<ul class="glance">${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
+  return html`<ul class="glance">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
     friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><b>${nameList(friends.map((friend) => friend.username))}</b> ${friends.length > 1 ? "are" : "is"} playing</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${keepUnits(ago(nowMs - facts.playedAtMs))}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${keepUnits(ago(nowMs - facts.updatedAtMs))}${facts.updatesHref ? html`\u00a0· <span class="glance-fact">${textLink("What's new", facts.updatesHref)}</span>` : ""}</span></li>` : ""
