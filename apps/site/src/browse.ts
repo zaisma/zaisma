@@ -24,7 +24,7 @@ import { viewerOf } from "./viewer.ts";
 
 export const BROWSE_SORTS = ["popular", "trending", "new", "updated"] as const;
 export type BrowseSort = (typeof BROWSE_SORTS)[number];
-const SORT_LABELS: Record<BrowseSort, string> = { popular: "Popular", trending: "Trending", new: "New", updated: "Recently updated" };
+const SORT_LABELS: Record<BrowseSort, string> = { popular: "Popular", trending: "Trending", new: "New", updated: "Updated" };
 
 export type BrowseFilter = "all" | "multiplayer" | Genre;
 

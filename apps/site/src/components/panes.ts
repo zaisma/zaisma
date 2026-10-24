@@ -111,7 +111,7 @@ const COVER_LARGEST_PX = 960;
 export function gameCover(options: GameCoverOptions): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
   const isPlaceholder = options.imageUrl === null;
-  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async">`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  return html`<div class="cover${isPlaceholder ? " is-placeholder" : ""}"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art cut-carved" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${CUT_LINE}${options.imageUrl === null ? html`<span class="cover-title" aria-hidden="true">${options.title}</span>` : html`<span class="cover-picture" data-cut-line="0"><img src="${options.imageUrl}"${coverSizes(options.imageUrl)} alt="" loading="${options.isEager ? "eager" : "lazy"}"${options.hasHighPriority ? raw(' fetchpriority="high"') : ""} decoding="async"></span>`}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
@@ -246,12 +246,14 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* Covers are the studios' art alone: no rim, no glass, nothing drawn on them. They're cut by the edge rule like every control, so a
-   cover near a pane's corner takes the pane's cut and one in the middle of it is square: never a rectangle against a cut corner.
+/* A cover is a carved well cut into the glass, with the studio's art set inside it: no glass and nothing drawn on the art itself. The
+   well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
+   middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art sits a few pixels in.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape); text-decoration: none;
-  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); }
+  background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
+.cover-picture { position: absolute; inset: 4px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover.is-placeholder .cover-art img { display: none; }
 /* A game with no cover has its title under the mark, so it's never a blank in a list. */
@@ -423,7 +425,7 @@ component({
   name: "Game cover",
   slug: "game-cover",
   group: "panes",
-  summary: "A game in a list: the studio's art, bare, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
+  summary: "A game in a list: the studio's art, bare, set in a carved well, with only what concerns you under it. Zaisma's mark stands in while the art loads, and for a game with none yet.",
   styles: COVER_STYLES,
   render: gameCover,
   examples: [
