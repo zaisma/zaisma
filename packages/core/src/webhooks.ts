@@ -12,6 +12,8 @@ const now = () => Date.now();
 /**
  * The events a webhook can take:
  * - bug_reported: report triage sorted a player's report as a bug, the same ones get_reports lists;
+ * - player_reported: a player reported another player in one of the game's rooms (chat, cheating, …), as
+ *   get_reports lists it;
  * - scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later (a person
  *   approved or rejected it, a report paused it, image matching held it);
  * - live_version_changed: players get another version: published, rolled back, published at its set
@@ -26,9 +28,13 @@ const now = () => Date.now();
  *   account: player_id, and game or sign_in_app;
  * - security_alert: one of the developer's own security alerts (a sign-in from a new network, a key made or
  *   used from a new place, …): security_event, as get_activity lists it. About the account, so it reaches only
- *   webhooks for every game at an endpoint_url, like account_deleted for a sign-in app.
+ *   webhooks for every game at an endpoint_url, like account_deleted for a sign-in app;
+ * - purchase_completed: a player bought an item, or the developer granted one: purchase, as get_purchase
+ *   answers it, receipt and game_account_id included;
+ * - purchase_refunded: a purchase or grant was refunded or charged back: purchase, whose purchase_status
+ *   says which.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "country_blocks_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "country_blocks_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert", "purchase_completed", "purchase_refunded"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */

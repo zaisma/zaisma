@@ -43,6 +43,11 @@ const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
   { union: "ErrorCode", value: "stripe_cannot_take_payments" },
   { union: "ErrorCode", value: "bad_item_count" },
   { union: "ErrorCode", value: "bad_game_account_id" },
+  // Zaisma.items.markHandled and unhandled.
+  { union: "ErrorCode", value: "bad_purchase_id" },
+  { union: "ErrorCode", value: "no_purchase" },
+  { union: "ErrorCode", value: "already_handled" },
+  { union: "ErrorCode", value: "handled_by_server" },
 ];
 
 const MORE_VALUES_NOTE = "More values may come";

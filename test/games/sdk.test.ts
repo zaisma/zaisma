@@ -34,7 +34,7 @@ describe("multiplayer on the game domain", () => {
     const body = await res.text();
     // Its setup is a parameter, never a global the game can read: it names the version it was served with, so it's checked on every load.
     expect(body.startsWith("(function (__ZAISMA__) {\n")).toBe(true);
-    expect(body.endsWith('\n})({"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","version":"vgarena"});\n')).toBe(true);
+    expect(body.endsWith('\n})({"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","version":"vgarena","purchaseDelivery":"game"});\n')).toBe(true);
     expect(body).not.toContain("var __ZAISMA");
     expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(body).toContain("window.Zaisma");
@@ -46,7 +46,7 @@ describe("multiplayer on the game domain", () => {
     // The Workers runtime runs no code from text, so this reads it instead: the SDK's own source, unchanged, inside the
     // setup's function, and the source's only top-level statement is a call of its own function. Nothing it declares,
     // the setup included, is a global the game's code can read.
-    expect(body).toBe(`(function (__ZAISMA__) {\n${sdkSource}\n})(${JSON.stringify({ rooms: "https://rooms.zaisma.test", game: "arena", site: "https://zaisma.test", version: "vgarena" })});\n`);
+    expect(body).toBe(`(function (__ZAISMA__) {\n${sdkSource}\n})(${JSON.stringify({ rooms: "https://rooms.zaisma.test", game: "arena", site: "https://zaisma.test", version: "vgarena", purchaseDelivery: "game" })});\n`);
     expect(sdkSource.split("\n").filter((line) => /^[^\s/*]/.test(line))).toEqual(["(function () {", "})();"]);
     expect(sdkSource).not.toMatch(/(window|self|globalThis)\.__ZAISMA/);
   });

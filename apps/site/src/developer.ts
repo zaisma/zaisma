@@ -252,9 +252,9 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
  *   GET    /api/dev/games/:slug/kept-rooms     the game's kept rooms and its storage (see kept-rooms-api.ts)
  *   …/api/dev/games/:slug/items                what the game sells or grants: set and remove items (see items-api.ts)
- *   PATCH  /api/dev/games/:slug/purchase-settings   refund_policy, refund_policy_text, own_payment_categories
- *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund (see items-api.ts)
- *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns
+ *   PATCH  /api/dev/games/:slug/purchase-settings   refund_policy, refund_policy_text, own_payment_categories, purchase_delivery
+ *   …/api/dev/games/:slug/purchases            purchases and grants with their receipts: list, get, grant, refund, mark handled (see items-api.ts)
+ *   GET    /api/dev/games/:slug/players/:player_id/items   the permanent items a player owns, and their purchases still to hand over
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world for good
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
@@ -645,11 +645,12 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
   call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
-  call({ method: "PATCH", path: "/games/:slug/purchase-settings", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories") } }),
+  call({ method: "PATCH", path: "/games/:slug/purchase-settings", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories", "purchase_delivery") } }),
   call({ method: "GET", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
   call({ method: "POST", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
   call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" }, body: { inputs: plainInputs("amount_minor_units"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/handled", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/players/:player_id/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
@@ -982,7 +983,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
   if (apiRoute.path.startsWith("/games/:slug/items")) return answer(...(await itemsRoute(request, env, game!, pathValues.item_name, caller, checked)));
   if (apiRoute.path === "/games/:slug/purchase-settings") return answer(...(await purchaseSettingsRoute(env, game!, caller, checked)));
-  if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund"), caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/purchases")) return answer(...(await purchasesRoute(request, env, game!, pathValues.purchase_id, apiRoute.path.endsWith("/refund") ? "refund" : apiRoute.path.endsWith("/handled") ? "handled" : null, caller, checked)));
   if (apiRoute.path === "/games/:slug/players/:player_id/items") return answer(...(await playerItemsRoute(env, game!, pathValues.player_id!)));
   if (apiRoute.path.startsWith("/games/:slug/shader") || apiRoute.path.startsWith("/games/:slug/backgrounds")) return answer(...(await backgroundsRoute(request, env, game!, apiRoute.path, caller, checked)));
 

@@ -1,6 +1,8 @@
-import { gameById, newId, purchaseSettingsOf, priceText, takeBack, type GameItem, type Purchase } from "@zaisma/core";
+import { gameById, newId, purchaseById, purchaseSettingsOf, priceText, takeBack, type GameItem, type Purchase } from "@zaisma/core";
 import { deliverEmail, purchaseReceiptEmail } from "./email-codes.ts";
 import { recordTaxTransaction, refundOnAccount, type StripeObject } from "./stripe.ts";
+import { withReceipts } from "./items-api.ts";
+import { tellPurchase } from "./webhooks.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -93,6 +95,7 @@ export async function completePurchase(env: Env, sale: Sale, paymentIntent: Stri
     await recordTaxTransaction(env, sale.stripe_account_id!, sale.stripe_tax_calculation_id, sale.id).catch((error) => console.error(`Stripe Tax didn't record ${sale.id}:`, error));
   }
   if (receiptEmail) await sendReceipt(env, completed, receiptEmail);
+  await tellSale(env, completed, "purchase_completed");
   return completed;
 }
 
@@ -140,7 +143,7 @@ export async function failPurchase(env: Env, purchaseId: string): Promise<void> 
 export async function noteRefund(env: Env, sale: Sale, refundedMinorUnits: number, nowMs = Date.now()): Promise<void> {
   if (sale.purchase_status !== "completed") return;
   if (refundedMinorUnits >= sale.paid_minor_units!) {
-    await takeBack(env.DB, sale.id, "refunded", nowMs);
+    if (await takeBack(env.DB, sale.id, "refunded", nowMs)) await tellSale(env, sale, "purchase_refunded");
     return;
   }
   await env.DB.prepare("UPDATE purchases SET refunded_minor_units = MAX(refunded_minor_units, ?), refunded_at_ms = ? WHERE id = ? AND purchase_status = 'completed'").bind(refundedMinorUnits, nowMs, sale.id).run();
@@ -148,7 +151,20 @@ export async function noteRefund(env: Env, sale: Sale, refundedMinorUnits: numbe
 
 /** A dispute the developer lost takes the item back. An open or won one changes nothing. */
 export async function noteLostDispute(env: Env, sale: Sale, nowMs = Date.now()): Promise<void> {
-  await takeBack(env.DB, sale.id, "charged_back", nowMs);
+  if (await takeBack(env.DB, sale.id, "charged_back", nowMs)) await tellSale(env, sale, "purchase_refunded");
+}
+
+/** The game's webhooks hear a sale completed or was taken back, with the purchase as the API answers it. Never fails the sale. */
+async function tellSale(env: Env, sale: Sale, kind: "purchase_completed" | "purchase_refunded"): Promise<void> {
+  try {
+    const game = await gameById(env.DB, sale.game_id);
+    const purchase = game && (await purchaseById(env.DB, game.id, sale.id));
+    if (!game || !purchase) return;
+    const [answered] = await withReceipts(env, game, [purchase]);
+    await tellPurchase(env, game, answered!, kind);
+  } catch (error) {
+    console.error(`The webhooks didn't hear ${kind} for ${sale.id}:`, error);
+  }
 }
 
 /** The pending sales older than a day, to fail (the daily step in index.ts). */

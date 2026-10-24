@@ -860,7 +860,7 @@ export const TOOLS: Tool[] = [
     name: "create_webhook",
     title: "Make a webhook",
     description:
-      `Have Zaisma POST an event to your server whenever something happens to your games, instead of checking: ${WEBHOOK_EVENT_KINDS.join(", ")}. A bug report can become a GitHub issue, a scan or publish can move your CI on, a takedown can page you. A game server error can page you, and a heads-up at 80% of a month's free use lets you act before rooms, requests or the database pause. Each event is JSON: { id, kind, created_at, game, version, bug_report, player_report, game_server_error, alert, account_deletion, sign_in_app, security_event }, with game, version, bug_report, player_report, game_server_error, alert, sign_in_app and security_event as get_game, get_version, get_reports, get_stats, the game's alerts, list_sign_in_apps and get_activity answer them (null when the event isn't about one); account_deletion is { player_id, deleted_account_erase_enabled } on an account_deleted event. account_deleted reaches a webhook for every game (game_slugs null) for your sign-in apps too, and security_alert (your own account's security alerts) reaches only a webhook for every game at an endpoint_url. Events are signed the Standard Webhooks way (standardwebhooks.com), so its libraries for every language check them in one call: headers webhook-id, webhook-timestamp (Unix seconds) and webhook-signature ("v1," and the base64 HMAC-SHA256 of "<webhook-id>.<webhook-timestamp>.<body>", keyed by the base64 bytes after whsec_ in signing_secret). Your server answers 2xx within ${WEBHOOK_TIMEOUT_SEC} seconds to take one; anything else is tried again after 5 minutes, 30 minutes, 2, 8 and 24 hours. Redirects aren't followed. An event can come twice or out of order: skip an id you've had, and read the state from the event's objects. The signing_secret is answered once, here: keep it on your server, never in a game or page. Then call test_webhook.\n\n` +
+      `Have Zaisma POST an event to your server whenever something happens to your games, instead of checking: ${WEBHOOK_EVENT_KINDS.join(", ")}. A bug report can become a GitHub issue, a scan or publish can move your CI on, a takedown can page you. A game server error can page you, and a heads-up at 80% of a month's free use lets you act before rooms, requests or the database pause. Each event is JSON: { id, kind, created_at, game, version, bug_report, player_report, game_server_error, alert, account_deletion, sign_in_app, security_event, purchase }, with game, version, bug_report, player_report, game_server_error, alert, sign_in_app, security_event and purchase as get_game, get_version, get_reports, get_stats, the game's alerts, list_sign_in_apps, get_activity and get_purchase answer them (null when the event isn't about one); account_deletion is { player_id, deleted_account_erase_enabled } on an account_deleted event. account_deleted reaches a webhook for every game (game_slugs null) for your sign-in apps too, and security_alert (your own account's security alerts) reaches only a webhook for every game at an endpoint_url. Events are signed the Standard Webhooks way (standardwebhooks.com), so its libraries for every language check them in one call: headers webhook-id, webhook-timestamp (Unix seconds) and webhook-signature ("v1," and the base64 HMAC-SHA256 of "<webhook-id>.<webhook-timestamp>.<body>", keyed by the base64 bytes after whsec_ in signing_secret). Your server answers 2xx within ${WEBHOOK_TIMEOUT_SEC} seconds to take one; anything else is tried again after 5 minutes, 30 minutes, 2, 8 and 24 hours. Redirects aren't followed. An event can come twice or out of order: skip an id you've had, and read the state from the event's objects. The signing_secret is answered once, here: keep it on your server, never in a game or page. Then call test_webhook.\n\n` +
       'No server of your own? Send destination_kind "game_server" and game_slugs with one game, and the events go to that game\'s own game server on Zaisma instead: its live version\'s onWebhook(event, server) gets the same JSON, unsigned (nothing to check), and turns it into a Discord post or a GitHub issue with fetch() and the tokens you keep with set_secret, calling only the hosts in game_server_allowed_hosts (update_game). Finishing without an error counts as delivered; throwing is tried again like a failed answer. Each event counts as one of the game\'s requests, and none run while the game is held or taken down. The same onWebhook runs on your own server later: the Node runner takes signed events at /v1/webhooks with ZAISMA_WEBHOOK_SIGNING_SECRET set to signing_secret, so switch with update_webhook (destination_kind "endpoint_url" and its address).\n\n' +
       'Not: { "endpoint_url": "http://hooks.skyhopper.io/zaisma" } (https only)\n' +
       'Not: { "event_kinds": ["all"] } (list the kinds you want)\n' +
@@ -880,7 +880,7 @@ export const TOOLS: Tool[] = [
             minItems: 1,
             items: { enum: WEBHOOK_EVENT_KINDS },
             description:
-              "The events to send. bug_reported: report triage sorted a player's report as a bug. player_reported: Zaisma passed you a report about one of your game's players (bullying, cheating or other behavior that's your game's call), as get_reports lists it. scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later. live_version_changed: players get another version (published, rolled back, published at its set time, or put back while a report is checked). review_status_changed: Zaisma held or took down a game, or put it back. country_blocks_changed: Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks). account_deleted: a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about account_deletion.player_id (Zaisma erases their rows in the game's database itself unless account_deletion.deleted_account_erase_enabled is false). security_alert: one of your own account's security alerts (a sign-in on a new device from a new network, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI connected), as security_event; only for a webhook for every game at an endpoint_url.",
+              "The events to send. bug_reported: report triage sorted a player's report as a bug. player_reported: Zaisma passed you a report about one of your game's players (bullying, cheating or other behavior that's your game's call), as get_reports lists it. scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later. live_version_changed: players get another version (published, rolled back, published at its set time, or put back while a report is checked). review_status_changed: Zaisma held or took down a game, or put it back. country_blocks_changed: Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks). account_deleted: a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about account_deletion.player_id (Zaisma erases their rows in the game's database itself unless account_deletion.deleted_account_erase_enabled is false). security_alert: one of your own account's security alerts (a sign-in on a new device from a new network, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI connected), as security_event; only for a webhook for every game at an endpoint_url. purchase_completed: a player bought an item or you granted one, as purchase (get_purchase's, with its receipt and game_account_id): credit your game's own account from it. purchase_refunded: a purchase or grant was refunded or charged back (purchase.purchase_status says which).",
           },
           game_slugs: {
             type: ["array", "null"],
@@ -906,7 +906,7 @@ export const TOOLS: Tool[] = [
     name: "update_webhook",
     title: "Change a webhook",
     description:
-      "Change a webhook's destination_kind, endpoint_url, event_kinds (the whole list, from: bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, country_blocks_changed, game_server_error_found, alert_raised, account_deleted, security_alert, as create_webhook says) or game_slugs (the whole list, or null for every game; account_deleted about your sign-in apps only reaches a webhook for every game), or make a new signing secret with replace_signing_secret: true: the old one stops at once, so put the new one on your server straight away. Leave out what stays the same. Events already on their way go to the new address, signed with the new secret. To move a game server's webhook to your own server, send destination_kind \"endpoint_url\" with the address the Node runner takes them at (https://<your server>/v1/webhooks); to move one to a game's game server on Zaisma, send destination_kind \"game_server\" and game_slugs with that one game (endpoint_url goes).\n\n" +
+      "Change a webhook's destination_kind, endpoint_url, event_kinds (the whole list, from: bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, country_blocks_changed, game_server_error_found, alert_raised, account_deleted, security_alert, purchase_completed, purchase_refunded, as create_webhook says) or game_slugs (the whole list, or null for every game; account_deleted about your sign-in apps only reaches a webhook for every game), or make a new signing secret with replace_signing_secret: true: the old one stops at once, so put the new one on your server straight away. Leave out what stays the same. Events already on their way go to the new address, signed with the new secret. To move a game server's webhook to your own server, send destination_kind \"endpoint_url\" with the address the Node runner takes them at (https://<your server>/v1/webhooks); to move one to a game's game server on Zaisma, send destination_kind \"game_server\" and game_slugs with that one game (endpoint_url goes).\n\n" +
       'Not: { "destination_kind": "endpoint_url" } (moving to an address needs endpoint_url too)',
     inputSchema: {
       ...object(
@@ -1391,8 +1391,9 @@ export const TOOLS: Tool[] = [
     name: "set_purchase_settings",
     title: "Set a game's refund policy",
     description:
-      "Set what a game says about what it sells: its refund policy, which a game states before anything goes on sale, and what it sells through its own payments outside Zaisma's buy sheet (own_payment_categories), which the game page's label shows too. Leave out what stays the same.\n\n" +
-      'Not: { "refund_policy": "own_words" } alone (own_words needs the policy in refund_policy_text)',
+      "Set what a game says about what it sells: its refund policy, which a game states before anything goes on sale, and what it sells through its own payments outside Zaisma's buy sheet (own_payment_categories), which the game page's label shows too; and where its purchases are delivered (purchase_delivery), each exactly once. Leave out what stays the same.\n\n" +
+      "purchase_delivery: game (the default) for a single-player game with no server: the game hears Zaisma.items.on(\"purchase\") and calls Zaisma.items.markHandled. game_server for a game whose rooms decide inventory: the game server's onPurchase(state, player, room, purchase) gets it, on Zaisma or on your own server with the Node runner and ZAISMA_KEY. own_server for a game whose own backend credits accounts: it checks the receipt the game sends, credits the account in game_account_id, and calls mark_purchase_handled. Webhooks get purchase_completed and purchase_refunded either way.\n\n" +
+      'Not: { "refund_policy": "own_words" } alone (own_words needs the policy in refund_policy_text). Not: { "purchase_delivery": "game_server" } for a game with no game server (no_game_server)',
     inputSchema: {
       ...object(
         {
@@ -1400,14 +1401,20 @@ export const TOOLS: Tool[] = [
           refund_policy: { enum: ["no_refunds", "unused_within_14_days", "within_14_days", "own_words", null], description: "no_refunds; unused_within_14_days (items not used yet, within 14 days); within_14_days; or own_words, with refund_policy_text. null only for a game that sells nothing" },
           refund_policy_text: { type: ["string", "null"], maxLength: 600, description: "The policy in your own words, with own_words only; no links or contact details" },
           own_payment_categories: { type: "array", items: { enum: ["cosmetic", "gameplay", "content", "currency"] }, description: "What the game sells through its own payments (its own site, a registered link); [] for nothing" },
+          purchase_delivery: { enum: ["game", "game_server", "own_server"], description: "Where purchases are delivered: game (the SDK's purchase event), game_server (onPurchase), or own_server (your backend, with mark_purchase_handled)" },
         },
         ["slug"],
       ),
-      examples: [{ slug: "sky-hopper", refund_policy: "unused_within_14_days" }, { slug: "frostbound", refund_policy: "own_words", refund_policy_text: "Expansions are refunded within 30 days if you played less than two hours of them." }],
+      examples: [
+        { slug: "sky-hopper", refund_policy: "unused_within_14_days" },
+        { slug: "frostbound", refund_policy: "own_words", refund_policy_text: "Expansions are refunded within 30 days if you played less than two hours of them." },
+        { slug: "iron-tide", purchase_delivery: "game_server" },
+        { slug: "starfall-online", purchase_delivery: "own_server" },
+      ],
     },
     outputSchema: answer({ ...(PURCHASE_SETTINGS.properties as Record<string, Record<string, unknown>>), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("PATCH", `/games/${pathPart(toolArguments.slug)}/purchase-settings`, pick(toolArguments, ["refund_policy", "refund_policy_text", "own_payment_categories"])),
+    run: (toolArguments, call) => call("PATCH", `/games/${pathPart(toolArguments.slug)}/purchase-settings`, pick(toolArguments, ["refund_policy", "refund_policy_text", "own_payment_categories", "purchase_delivery"])),
   },
   {
     name: "grant_item",
@@ -1481,11 +1488,22 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}/refund`, pick(toolArguments, ["amount_minor_units"])),
   },
   {
+    name: "mark_purchase_handled",
+    title: "Mark a purchase handled",
+    description:
+      "Say your own server took a purchase (purchase_delivery own_server): it checked the receipt the game sent (verifyReceipt from @zaisma/game-server) and credited the player, or the account in game_account_id. A completed purchase is marked handled; a refunded or charged-back one, its refund told. Each only once: already_handled says it was. Zaisma's own rooms and the Node runner mark purchases themselves.",
+    inputSchema: object({ slug, purchase_id: idInput("purchase", "The purchase's ID: purchase_id in its receipt") }, ["slug", "purchase_id"]),
+    outputSchema: answer({ purchase: PURCHASE, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/purchases/${pathPart(toolArguments.purchase_id)}/handled`),
+  },
+  {
     name: "get_player_items",
     title: "Get a player's items",
-    description: "The permanent items a player owns in a game (bought or granted, not refunded), as their next pass lists them in owned_item_names.",
+    description:
+      "The permanent items a player owns in a game (bought or granted, not refunded), as their next pass lists them in owned_item_names, and their purchases still to hand over (unhandled_purchases): completed and not handled, and refunded after being handled but not told, oldest first, at most 50 purchases and 50 refunds.",
     inputSchema: object({ slug, player_id: idInput("player", "The player's ID") }, ["slug", "player_id"]),
-    outputSchema: answer({ player_id: idOf("player"), owned_item_names: list(text(), "By item_name; [] for none.") }),
+    outputSchema: answer({ player_id: idOf("player"), owned_item_names: list(text(), "By item_name; [] for none."), unhandled_purchases: list(PURCHASE, "Oldest first, at most 50 purchases and 50 refunds; [] for none.") }),
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/players/${pathPart(toolArguments.player_id)}/items`),
   },

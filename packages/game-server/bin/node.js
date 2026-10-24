@@ -61,13 +61,21 @@ const CATCH_UP_MS = 50;
  * database (room.database and server.database; by default a local file, zaisma-database.sqlite, made the
  * first time the game uses it), secrets (room.secrets and server.secrets; by default this process's
  * environment variables), webhookSigningSecret (the whsec_ secret of the webhook whose events come to
- * /v1/webhooks; by default the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable) and roomStateFile (where
- * rooms save their states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none).
+ * /v1/webhooks; by default the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable), roomStateFile (where
+ * rooms save their states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none),
+ * zaismaKey (an API key with purchase_access write for this game, which onPurchase and onRefund need; by default
+ * the ZAISMA_KEY environment variable) and developerApiUrl (Zaisma's developer API; by default https://zaisma.com/api/dev).
  * Answers { close(), httpServer }: close() saves every room first and finishes once the server has stopped.
  */
 export function startServer(options) {
-  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite" } = checkedStartServerOptions(options, PASS_ISSUER_URL);
+  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite", zaismaKey = process.env.ZAISMA_KEY, developerApiUrl = "https://zaisma.com/api/dev" } = checkedStartServerOptions(options, PASS_ISSUER_URL);
   const definition = defineGameServer(gameServer);
+  // Exactly once needs Zaisma's record of what's handled: without a key, purchases would come twice, so it doesn't start.
+  if ((definition.onPurchase || definition.onRefund) && !zaismaKey) {
+    const hook = definition.onPurchase ? "onPurchase" : "onRefund";
+    throw new GameServerError("bad_option", "zaismaKey", `${hook} needs zaismaKey, so each purchase is delivered once.`, "Give an API key with purchase_access write for this game as zaismaKey, or set ZAISMA_KEY.");
+  }
+  const purchaseHandling = definition.onPurchase || definition.onRefund ? ownServerPurchaseHandling(gameSlug, zaismaKey, developerApiUrl) : undefined;
   const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
   const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
   // Schedules run while this server is up; one that's down when a run is due misses that run.
@@ -242,6 +250,7 @@ export function startServer(options) {
         database,
         secrets,
         verifyReceipt: receiptClaims,
+        purchaseHandling,
         send: (id, text) => sockets.get(id)?.send(text),
         sendBytes: (id, frame) => sockets.get(id)?.send(frame, { binary: true }),
         isBackedUp: (id) => (sockets.get(id)?.bufferedAmount ?? 0) >= BACKED_UP_SIZE_BYTES,
@@ -551,6 +560,83 @@ export function startServer(options) {
 /** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
 function stateKeyOf(stateJson, matchPlayers, isKept) {
   return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
+}
+
+/** How long this server holds a purchase while its hook runs, as Zaisma rooms do; and how long it remembers one it handled. */
+const HANDLING_LEASE_MS = 60 * 1000;
+const HANDLED_KEPT_MS = 10 * 60 * 1000;
+/** How long this server keeps the game's purchase_delivery before reading it again. */
+const DELIVERY_KEPT_MS = 60 * 1000;
+
+/** A purchase from the developer API, as onPurchase and onRefund get it. */
+function purchaseOf(answered) {
+  return {
+    id: answered.id,
+    itemName: answered.item_name,
+    itemKind: answered.item_kind,
+    itemCount: answered.item_count,
+    purchaseSource: answered.purchase_source,
+    purchaseStatus: answered.purchase_status,
+    gameAccountId: answered.game_account_id,
+    paidMinorUnits: answered.paid_minor_units,
+    currencyCode: answered.currency_code,
+    purchasedAt: answered.purchased_at,
+    refundedAt: answered.refunded_at,
+    receipt: answered.receipt,
+  };
+}
+
+/**
+ * Handing purchases over on your own server: Zaisma's record of what's handled, through the developer API
+ * with the developer's key, so a purchase comes once across restarts and Zaisma's own rooms. Rooms on this
+ * server don't race each other for one: each is held here while its hook runs. An API that can't be reached,
+ * or a key that ended, hands nothing over, and the player's next join tries again.
+ */
+function ownServerPurchaseHandling(gameSlug, zaismaKey, developerApiUrl) {
+  const heldUntilMs = new Map(); // "<purchase id> purchase|refund" -> when this server lets go of it
+  const keyOf = (purchase) => `${purchase.id} ${purchase.purchaseStatus === "completed" ? "purchase" : "refund"}`;
+  async function callApi(method, path) {
+    const response = await fetch(`${developerApiUrl}${path}`, { method, headers: { authorization: `Bearer ${zaismaKey}`, "content-type": "application/json" }, body: method === "POST" ? "{}" : undefined });
+    const answer = await response.json().catch(() => null);
+    return { status: response.status, answer };
+  }
+  const failure = (what, { status, answer }) => new Error(`Zaisma's developer API answered ${status} ${what}${answer?.error ? `: ${answer.error.code}, ${answer.error.message} ${answer.error.fix}` : "."}`);
+  // Where the game's purchases go, read again at most once a minute: only game_server hands them to this server,
+  // so a game whose page or own backend takes them never races it for them.
+  let delivery = { purchaseDelivery: null, readAtMs: 0 };
+  async function isDeliveredHere() {
+    if (Date.now() - delivery.readAtMs >= DELIVERY_KEPT_MS) {
+      const answered = await callApi("GET", `/games/${encodeURIComponent(gameSlug)}/items`);
+      if (answered.status !== 200) throw failure("for the game's purchase settings", answered);
+      delivery = { purchaseDelivery: answered.answer.purchase_delivery, readAtMs: Date.now() };
+    }
+    return delivery.purchaseDelivery === "game_server";
+  }
+  return {
+    isReceiptNeeded: true,
+    async unhandledFor(playerId) {
+      if (!(await isDeliveredHere())) return [];
+      const answered = await callApi("GET", `/games/${encodeURIComponent(gameSlug)}/players/${encodeURIComponent(playerId)}/items`);
+      if (answered.status !== 200) throw failure(`for ${playerId}'s purchases`, answered);
+      return (answered.answer.unhandled_purchases ?? []).map(purchaseOf);
+    },
+    async startHandling(playerId, purchase) {
+      const nowMs = Date.now();
+      for (const [key, untilMs] of heldUntilMs) if (untilMs <= nowMs) heldUntilMs.delete(key);
+      if (heldUntilMs.has(keyOf(purchase))) return false;
+      heldUntilMs.set(keyOf(purchase), nowMs + HANDLING_LEASE_MS);
+      return true;
+    },
+    async finishHandling(playerId, purchase) {
+      // Remembered here first, so a room on this server can't hand it over again while the call is on its way.
+      heldUntilMs.set(keyOf(purchase), Date.now() + HANDLED_KEPT_MS);
+      const answered = await callApi("POST", `/games/${encodeURIComponent(gameSlug)}/purchases/${encodeURIComponent(purchase.id)}/handled`);
+      if (answered.status !== 200 && answered.answer?.error?.code !== "already_handled") throw failure(`marking ${purchase.id} handled`, answered);
+    },
+    async releaseHandling(playerId, purchase) {
+      heldUntilMs.delete(keyOf(purchase));
+    },
+  };
 }
 
 /** A binary frame from ws (a Buffer, an ArrayBuffer or a fragmented frame's pieces) as a Uint8Array of its own. */

@@ -43,10 +43,11 @@ jobs:
             echo "is_new=true" >> "$GITHUB_OUTPUT"
             echo "@zaisma/game-server $VERSION is new: publishing."
           fi
-      - if: steps.version.outputs.is_new == 'true'
-        run: npm run build -w packages/game-server
+      # The package test builds into dist and removes it again, so it runs first and the publish gets its own build.
       - if: steps.version.outputs.is_new == 'true'
         run: npx vitest run --project node test/node/game-server-package.test.ts
+      - if: steps.version.outputs.is_new == 'true'
+        run: npm run build -w packages/game-server
       - if: steps.version.outputs.is_new == 'true'
         working-directory: packages/game-server/dist
         run: npm publish --provenance --access public

@@ -35,6 +35,7 @@ import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
+import { roomPurchaseHandling } from "./purchases.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -1219,6 +1220,8 @@ export class Room extends DurableObject<Env> {
       // A game server built into this Worker reaches its game's database directly; a sandboxed one through its own binding (sandbox.ts).
       database: gameDatabase(this.env, this.meta!.gameId),
       applyVersionUpdate: () => void this.applyVersionUpdate(),
+      // Purchases for onPurchase and onRefund, from D1: the game's own, for players joined here (RoomCore asks only for them).
+      purchaseHandling: roomPurchaseHandling(this.env, { id: this.meta!.gameId, slug: this.meta!.slug }),
     };
     // Turn-based rooms wake with their saved state. A real-time room restarted (every rooms deploy, or
     // evicted) comes back with the state it last saved: the players in its match then who aren't

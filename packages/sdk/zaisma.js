@@ -30,8 +30,8 @@
   var ROOM_INFO_FIELDS = ["name", "labels"];
   var ROOM_EVENTS = ["message", "bytes", "state", "players", "connectionStatus", "ended", "ending", "kicked", "settings", "move", "moved", "idle", "away", "back", "muted", "error", "versionUpdate"];
   var SAVES_EVENTS = ["conflict", "developerChange"];
+  var ITEMS_EVENTS = ["purchase", "refund", "sheetOpen", "sheetClose"];
   var VERSIONS_EVENTS = ["update"];
-  var ITEMS_EVENTS = ["sheetOpen", "sheetClose"];
   var BUY_OPTIONS = ["itemCount", "gameAccountId"];
   /** The room messages this SDK speaks (zaisma.d.ts: the wire protocol), sent in the hello. */
   var PROTOCOL_VERSION_NUMBER = 1;
@@ -1754,6 +1754,7 @@
     // A fresh pass, so items.owns and the pass the game's servers get say it's owned now.
     try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
     passPromise = null;
+    if (purchase) purchaseMade(purchase);
     waiter.resolve({ status: "bought", purchase: purchase });
   });
 
@@ -1807,13 +1808,70 @@
     });
   }
 
+  /*
+   * Purchases on their way to the game (purchase_delivery in the game's purchase settings, given in config):
+   * with "game", the game hears "purchase" and "refund" here and marks each handled, so it comes once; with
+   * "game_server", the rooms the game is in get it (zaisma:purchase) and their game server's onPurchase takes
+   * it; with "own_server", the game sends the receipt to its own server its own way.
+   */
+  var heardPurchaseIds = {}; // "<purchase id> purchase|refund" -> true, so this page hands each over once
+  var isLookingForPurchases = false;
+
+  /** The player's purchases the game hasn't marked handled yet, oldest first, at most 50 at a time. */
+  function unhandledPurchases() {
+    if (!config.rooms) return Promise.reject(notOnZaisma("Purchases come from Zaisma, so they work only in games played on Zaisma."));
+    return getPass().then(function (mine) {
+      return post("/v1/items/unhandled", { gameSlug: config.game, pass: mine.pass });
+    }).then(function (answer) { return answer.purchases; });
+  }
+  function markPurchaseHandled(purchaseId) {
+    if (typeof purchaseId !== "string" || purchaseId.indexOf("purchase_") !== 0 || purchaseId.length > 80) return Promise.reject(codedError("bad_purchase_id", "purchaseId isn't a purchase's ID, like \"purchase_8f2k1x\": it's the id of the purchase \"purchase\" or \"refund\" gave the game."));
+    if (!config.rooms) return Promise.reject(notOnZaisma("Purchases come from Zaisma, so they work only in games played on Zaisma."));
+    return getPass().then(function (mine) {
+      return post("/v1/items/handled", { gameSlug: config.game, pass: mine.pass, purchaseId: purchaseId });
+    }).then(function () { return undefined; });
+  }
+  /** Hand the game what's waiting for it, each purchase to "purchase" and each one taken back to "refund", once a page. */
+  function tellGame(purchases) {
+    purchases.forEach(function (purchase) {
+      var event = purchase.purchaseStatus === "completed" ? "purchase" : "refund";
+      var key = purchase.id + " " + event;
+      if (heardPurchaseIds[key] || !(itemsEvents._on[event] || []).length) return;
+      heardPurchaseIds[key] = true;
+      itemsEvents._emit(event, purchase);
+    });
+  }
+  /** With "game" delivery, look for waiting purchases once the game listens, and again after each purchase. */
+  function lookForPurchases() {
+    if (config.purchaseDelivery !== "game" || !config.rooms || isLookingForPurchases) return;
+    isLookingForPurchases = true;
+    // After this turn, so a game that listens to both events in a row gets both.
+    Promise.resolve().then(unhandledPurchases).then(tellGame, function (error) {
+      console.error(error);
+    }).then(function () { isLookingForPurchases = false; });
+  }
+  /**
+   * A purchase the buy sheet just completed (Zaisma.items.buy answered "bought"): to the game's own events,
+   * or to the game server in each room the game is in, which marks it handled itself.
+   */
+  function purchaseMade(purchase) {
+    if (config.purchaseDelivery === "game") return lookForPurchases();
+    if (config.purchaseDelivery !== "game_server") return;
+    joined.forEach(function (room) {
+      if (!room._done) room._say({ type: "zaisma:purchase", purchaseId: purchase.id, receipt: purchase.receipt });
+    });
+  }
+
   var items = {
     owns: ownsItem,
     owned: ownedItems,
     list: listItems,
     buy: buyItem,
+    unhandled: unhandledPurchases,
+    markHandled: markPurchaseHandled,
     on: function (event, listener) {
       itemsEvents.on(event, listener);
+      lookForPurchases();
       return items;
     },
     off: function (event, listener) {

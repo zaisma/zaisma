@@ -273,6 +273,8 @@ export default {
   stateSaveIntervalSec: 5,   // how often a real-time room saves its state, for a restart to come back with (default 5, 1 to 60)
   onRestored(state, restoreInfo, room) {}, // the room restarted with its saved state: restoreInfo.savedAt, lostDurationSec and savedVersionId
   onVersionUpdate(state, versionUpdate, room) {}, // a version published "now" is coming: call room.applyVersionUpdate() at a good moment, or it switches at versionUpdate.appliesAt
+  onPurchase(state, player, room, purchase) {}, // with purchase_delivery "game_server": a purchase to hand over, once; a throw tries again at the player's next join
+  onRefund(state, player, room, purchase) {},   // a purchase handed over before was refunded or charged back: take back what you decide
 };
 ```
 
