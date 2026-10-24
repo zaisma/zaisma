@@ -317,19 +317,17 @@ describe("sandboxed game servers", () => {
       for (let message = await room.next(); message.data !== "pong"; message = await room.next()) heard.push(message.data);
       return heard;
     };
-    const inFirst = await join("twin-rooms", "TWINAA", undefined, await accountPassFor("twin-rooms", account.id));
+    const inFirst = await join("twin-rooms", "TWNAAA", undefined, await accountPassFor("twin-rooms", account.id));
     await vi.waitFor(async () => expect(await handlingOf("purchase_twinrooms0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
     expect(await heardIn(inFirst)).toEqual([{ kind: "purchase", id: "purchase_twinrooms0001", purchaseStatus: "completed", isBroken: false }]);
     inFirst.ws.close(1000);
-    // The second room lets the player in once the first has seen them leave.
-    const secondPass = await accountPassFor("twin-rooms", account.id);
-    const inSecond = await vi.waitFor(() => join("twin-rooms", "TWINBB", undefined, secondPass), { timeout: 5000, interval: 200 });
+    const inSecond = await join("twin-rooms", "TWNBBB", undefined, await accountPassFor("twin-rooms", account.id));
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await heardIn(inSecond)).toEqual([]);
     inSecond.ws.close(1000);
 
     // purchase_delivery own_server: the developer's own backend marks it handled, so the room's game server never gets it.
-    const own = await join("own-backend", "OWNBAK", undefined, await accountPassFor("own-backend", account.id));
+    const own = await join("own-backend", "WNBAK2", undefined, await accountPassFor("own-backend", account.id));
     await new Promise((resolve) => setTimeout(resolve, 200));
     own.say("ping");
     expect(await own.next()).toEqual({ type: "message", data: "pong", fromPlayerId: null });
