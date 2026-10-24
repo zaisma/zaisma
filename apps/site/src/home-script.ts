@@ -1,4 +1,5 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
+import { DEVICE_KIND_SOURCE } from "./device-kind.ts";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -10,9 +11,12 @@ import { pageScript } from "./page-scripts.ts";
  * quick sweep across a row never flashes; it stays until another cover is pointed at. Covers that slide under a still pointer (a row or
  * the page scrolling) don't count. The last three games' shaders stay loaded, paused and out of sight, so pointing back at one shows it at
  * once. The glass is measured from the new layer's still by the backdrop script, so it follows the background.
+ * Popular, Trending and New put the games made for this device first (each part keeping its order), and the device is kept for Browse.
  * The data it reads comes in the page's home-data block.
  */
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
+${DEVICE_KIND_SOURCE}
+const DEVICE_KIND = zaismaDeviceKind();
 const DATA = JSON.parse(document.getElementById("home-data").textContent);
 const GAMES = DATA.games;
 if (!GAMES.length) return;
@@ -208,6 +212,14 @@ function fillContinue() {
 document.querySelectorAll("#home-continue .tab-switch button").forEach((button) => button.addEventListener("click", () => { sort = button.value; fillContinue(); }));
 // Server-rendered covers carry their game in the address; the focus follows the pointer and the keys from here.
 document.querySelectorAll("#home-games .cover").forEach((cover) => { const art = cover.querySelector(".cover-art"); if (art) cover.dataset.slug = art.getAttribute("href").slice(3); });
+// Games made for this device first on every shelf; a game that names no devices fits them all.
+["track-popular", "track-trending", "track-new"].forEach((id) => {
+  const track = $(id);
+  if (!track) return;
+  const fits = (item) => { const cover = item.matches("[data-slug]") ? item : item.querySelector("[data-slug]"); const game = cover && bySlug[cover.dataset.slug]; return !game || !game.devices.length || game.devices.includes(DEVICE_KIND); };
+  const items = Array.from(track.children);
+  track.replaceChildren(...items.filter(fits), ...items.filter((item) => !fits(item)));
+});
 
 /* Pointing rests for a moment before the background follows, so sweeping across a row doesn't flash through games. */
 let restTimer = 0, lastScrollMs = 0, isPending = false;

@@ -38,6 +38,13 @@ export interface ShowGame {
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
+  controls: string[];
+  /** portrait, landscape, either, or "" when not set. */
+  screen_orientation: string;
+  /** Up to 3 of GENRES. */
+  genres: string[];
+  /** It has a multiplayer mode, or a local or online play mode: Browse's Multiplayer filter. */
+  is_multiplayer: boolean;
   /** People playing it right now (checked browsers with it on screen); cards show it from MINIMUM_PLAYING_NOW_PLAYER_COUNT up. */
   playing_now_player_count: number;
   /** none, multiplayer or whole_game: a guest can't start a whole_game game without an account. */
@@ -57,7 +64,7 @@ const PEOPLE_ICON = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><ci
 export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200, countryCode: string | null = null): Promise<ShowGame[]> {
   const [{ results }, playingNow] = await Promise.all([env.DB
     .prepare(
-      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color,
+      `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.controls, games.screen_orientation, games.genres, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color,
          accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
@@ -70,10 +77,12 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, countryCode, maximumGameCount)
-    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
+    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; controls: string; screen_orientation: string; genres: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
     playingNowCounts(env),
   ]);
-  return results.map((row) => ({
+  return results.map((row) => {
+    const playModes = readPlayModes(row.play_modes);
+    return {
     id: row.id,
     slug: row.slug,
     title: row.title,
@@ -84,13 +93,18 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     square: row.square ? `/img/${row.square}` : null,
     published_at_ms: row.published_at_ms,
     first_published_at_ms: row.first_published_at_ms,
-    modes: playerLine(readPlayModes(row.play_modes), row.multiplayer_mode !== "none"),
+    modes: playerLine(playModes, row.multiplayer_mode !== "none"),
     devices: row.devices ? row.devices.split(",") : [],
+    controls: row.controls ? row.controls.split(",") : [],
+    screen_orientation: row.screen_orientation,
+    genres: row.genres ? row.genres.split(",") : [],
+    is_multiplayer: row.multiplayer_mode !== "none" || (playModes ?? []).some((playMode) => playMode.mode !== "single"),
     playing_now_player_count: playingNow.get(row.id) ?? 0,
     account_requirement: row.account_requirement,
     glass_tint_color: row.glass_tint_color,
     background: null,
-  }));
+    };
+  });
 }
 
 const DAY_MS = 86_400_000;
@@ -98,16 +112,26 @@ const DAY_MS = 86_400_000;
 const MAXIMUM_SHELF_GAME_COUNT = 12;
 const MINIMUM_SHELF_GAME_COUNT = 2;
 
+/** A game's counted players as the shelves count them (plays.ts: no cloud networks, no one network carrying it). */
+export interface ShelfCount {
+  /** The last 7 days, today included: Popular. */
+  weekPlayerCount: number;
+  /** The last 3 days: Trending. */
+  recentPlayerCount: number;
+  /** The 14 days before those 3: what Trending compares against. */
+  earlierPlayerCount: number;
+}
+
+/** Popular's floor: fewer counted players in 7 days than this keeps a game off the Popular shelf. */
+export const MINIMUM_POPULAR_PLAYER_COUNT = 3;
+
 /**
- * Popular, trending and new, the same for everyone, by plain rules from counted plays (plays.ts), not
- * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
- * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
+ * Each listed game's shelf counts, by slug, for games Zaisma hasn't kept off the shelves, and the slugs it has kept off
+ * (offShelfSlugs). Read by the home's shelves and by Browse, so both rank alike.
  */
-export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[] | Promise<GameOnShelf[]>, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
+export async function shelfCounts(env: Env, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ counts: Map<string, ShelfCount>; offShelfSlugs: Set<string> }> {
   const dateDaysAgo = (dayCount: number) => new Date(nowMs - dayCount * DAY_MS).toISOString().slice(0, 10);
-  // Counted players by network, for listed games Zaisma hasn't kept off the shelves. The games may still be on their way (the home
-  // starts every read at once): the counts don't need them, only the picking after.
-  const [{ results: networks }, { results: held }, listedGames] = await Promise.all([
+  const [{ results: networks }, { results: held }] = await Promise.all([
     env.DB
       .prepare(
         `SELECT games.slug, play_networks.date, play_networks.autonomous_system_number, play_networks.player_count
@@ -117,34 +141,44 @@ export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first
       .bind(dateDaysAgo(16), viewerAgeFloorYears)
       .all<{ slug: string; date: string; autonomous_system_number: number; player_count: number }>(),
     env.DB.prepare("SELECT slug FROM games WHERE is_off_shelves = 1").all<{ slug: string }>(),
-    games,
   ]);
-  // Each game's days, as the shelves count them (plays.ts: no cloud networks, no one network carrying it).
   const byDay = new Map<string, Map<string, { autonomous_system_number: number; player_count: number }[]>>();
   for (const network of networks) {
     const days = byDay.get(network.slug) ?? new Map<string, { autonomous_system_number: number; player_count: number }[]>();
     days.set(network.date, [...(days.get(network.date) ?? []), network]);
     byDay.set(network.slug, days);
   }
-  const shelfCounts = [...byDay].map(([slug, days]) => {
+  const counts = new Map<string, ShelfCount>();
+  for (const [slug, days] of byDay) {
     const sum = (from: string, to = "9999") => [...days].filter(([date]) => date >= from && date < to).reduce((totalPlayerCount, [, rows]) => totalPlayerCount + shelfPlayers(rows), 0);
-    return { slug, weekPlayerCount: sum(dateDaysAgo(6)), recentPlayerCount: sum(dateDaysAgo(2)), earlierPlayerCount: sum(dateDaysAgo(16), dateDaysAgo(2)) };
-  });
-  const off = new Set(held.map((heldGame) => heldGame.slug));
+    counts.set(slug, { weekPlayerCount: sum(dateDaysAgo(6)), recentPlayerCount: sum(dateDaysAgo(2)), earlierPlayerCount: sum(dateDaysAgo(16), dateDaysAgo(2)) });
+  }
+  return { counts, offShelfSlugs: new Set(held.map((heldGame) => heldGame.slug)) };
+}
+
+/** Over 3 days, what the 14 before would suggest. */
+const usualRecentPlayerCount = (counts: ShelfCount) => (counts.earlierPlayerCount / 14) * 3;
+/** A game is trending with at least 10 players in 3 days, half as many again as usual. */
+export const isTrending = (counts: ShelfCount): boolean => counts.recentPlayerCount >= 10 && counts.recentPlayerCount >= usualRecentPlayerCount(counts) * 1.5;
+/** How strongly it trends: its usual plus 10, so a handful of players can't trend. */
+export const trendingScore = (counts: ShelfCount): number => counts.recentPlayerCount / (usualRecentPlayerCount(counts) + 10);
+
+/**
+ * Popular, trending and new, the same for everyone, by plain rules from counted plays (plays.ts), not
+ * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
+ * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
+ */
+export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[] | Promise<GameOnShelf[]>, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
+  // The games may still be on their way (the home starts every read at once): the counts don't need them, only the picking after.
+  const [{ counts: countsBySlug, offShelfSlugs: off }, listedGames] = await Promise.all([shelfCounts(env, viewerAgeFloorYears, nowMs), games]);
+  const shelfCounted = [...countsBySlug].map(([slug, counts]) => ({ slug, ...counts }));
   const bySlug = new Map(listedGames.map((game) => [game.slug, game]));
   const pick = (slugs: string[]) => {
     const list = slugs.map((slug) => bySlug.get(slug)).filter((game): game is GameOnShelf => Boolean(game)).slice(0, MAXIMUM_SHELF_GAME_COUNT);
     return list.length >= MINIMUM_SHELF_GAME_COUNT ? list : [];
   };
-  const popular = pick(shelfCounts.filter((counts) => counts.weekPlayerCount >= 3).sort((first, second) => second.weekPlayerCount - first.weekPlayerCount).map((counts) => counts.slug));
-  // Over 3 days, what the 14 before would suggest, plus 10 so a handful of players can't trend.
-  const usualRecentPlayerCount = (counts: { earlierPlayerCount: number }) => (counts.earlierPlayerCount / 14) * 3;
-  const trending = pick(
-    shelfCounts
-      .filter((counts) => counts.recentPlayerCount >= 10 && counts.recentPlayerCount >= usualRecentPlayerCount(counts) * 1.5)
-      .sort((first, second) => second.recentPlayerCount / (usualRecentPlayerCount(second) + 10) - first.recentPlayerCount / (usualRecentPlayerCount(first) + 10))
-      .map((counts) => counts.slug),
-  );
+  const popular = pick(shelfCounted.filter((counts) => counts.weekPlayerCount >= MINIMUM_POPULAR_PLAYER_COUNT).sort((first, second) => second.weekPlayerCount - first.weekPlayerCount).map((counts) => counts.slug));
+  const trending = pick(shelfCounted.filter(isTrending).sort((first, second) => trendingScore(second) - trendingScore(first)).map((counts) => counts.slug));
   const fresh = pick(
     listedGames
       .filter((game) => game.first_published_at_ms && game.first_published_at_ms >= nowMs - 60 * DAY_MS && !off.has(game.slug))
@@ -195,8 +229,8 @@ function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]
   return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, loadingOf(coverIndex)) })) }) };
 }
 
-/** What of each game the home's script needs: Continue playing's covers and the background behind the cover pointed at. */
-const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "published_at_ms", "playing_now_player_count", "glass_tint_color", "background"] as const;
+/** What of each game the home's script needs: Continue playing's covers, the background behind the cover pointed at and the devices it puts first. */
+const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "published_at_ms", "playing_now_player_count", "glass_tint_color", "background", "devices"] as const;
 
 export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.

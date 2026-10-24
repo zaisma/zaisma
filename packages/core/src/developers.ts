@@ -544,6 +544,17 @@ export const VISIBILITIES: Visibility[] = ["draft", "listed", "unlisted", "priva
 export const DEVICES = ["phone", "tablet", "computer"] as const;
 export const CONTROLS = ["touch", "keyboard_mouse", "gamepad"] as const;
 export const SCREENS = ["portrait", "landscape", "either"] as const;
+/** The genres a game can pick, in a PC store's words, shown on Browse in this order. */
+export const GENRES = ["action", "adventure", "role_playing", "shooter", "strategy", "simulation", "racing", "sports", "fighting", "platformer", "puzzle", "horror", "survival", "sandbox", "card_and_board", "party", "rhythm", "visual_novel"] as const;
+export type Genre = (typeof GENRES)[number];
+/** What pages show for each genre. */
+export const GENRE_LABELS: Record<Genre, string> = {
+  action: "Action", adventure: "Adventure", role_playing: "Role-playing", shooter: "Shooter", strategy: "Strategy", simulation: "Simulation",
+  racing: "Racing", sports: "Sports", fighting: "Fighting", platformer: "Platformer", puzzle: "Puzzle", horror: "Horror", survival: "Survival",
+  sandbox: "Sandbox", card_and_board: "Card and board", party: "Party", rhythm: "Rhythm", visual_novel: "Visual novel",
+};
+/** A game picks at most this many genres, so it can't sit in every filter. */
+export const MAXIMUM_GENRE_COUNT = 3;
 export const MAXIMUM_GAME_COUNT_PER_OWNER = 50;
 export const PLAY_STYLES = ["co-op", "versus", "both"] as const;
 /** The most players we name; more than that shows as "<n>+". */
@@ -641,6 +652,8 @@ export interface DetailsChange {
   visibility?: Visibility;
   devices?: string[];
   controls?: string[];
+  /** Up to MAXIMUM_GENRE_COUNT of GENRES, in GENRES order. */
+  genres?: Genre[];
   /** null: not set. */
   screen_orientation?: (typeof SCREENS)[number] | null;
   /** null clears it. */
@@ -699,6 +712,14 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
       return refuse(field, `${field} isn't a list of ${allowed.join(", ")}.`, `Send a list of any of: ${allowed.join(", ")}, like ["${allowed[0]}"].`);
     }
     change[field] = allowed.filter((label) => given.includes(label));
+  }
+  if ("genres" in input) {
+    const given = input.genres === null ? [] : input.genres;
+    const isGenreList = Array.isArray(given) && given.every((genre) => typeof genre === "string" && (GENRES as readonly string[]).includes(genre));
+    if (!isGenreList || new Set(given).size !== given.length || given.length > MAXIMUM_GENRE_COUNT) {
+      return refuse("genres", `genres isn't a list of up to ${MAXIMUM_GENRE_COUNT} of Zaisma's genres.`, `Send up to ${MAXIMUM_GENRE_COUNT} different ones of: ${GENRES.join(", ")}, like ["role_playing", "strategy"], or [] for none.`);
+    }
+    change.genres = GENRES.filter((genre) => (given as string[]).includes(genre));
   }
   if ("screen_orientation" in input) {
     if (input.screen_orientation !== null && !SCREENS.includes(input.screen_orientation as (typeof SCREENS)[number])) {
@@ -838,6 +859,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.visibility) set("visibility", change.visibility);
   if (change.devices) set("devices", change.devices.join(","));
   if (change.controls) set("controls", change.controls.join(","));
+  if (change.genres) set("genres", change.genres.join(","));
   if (change.screen_orientation !== undefined) set("screen_orientation", change.screen_orientation ?? "");
   if (change.play_modes !== undefined) set("play_modes", change.play_modes ? JSON.stringify(change.play_modes) : "");
   if (change.cloud_saves_enabled !== undefined) set("cloud_saves_enabled", change.cloud_saves_enabled ? 1 : 0);

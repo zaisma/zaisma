@@ -38,6 +38,8 @@ const GALLERY_GROUPS = ["", "/layout", "/actions", "/inputs", "/navigation", "/p
 export const CHECKED_PAGES: CheckedPage[] = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, signed in", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Games, one genre", area: "Playing", path: "/games?filter=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Sign in", area: "Signing in", path: "/signin", ...CITY },
   { name: "Make an account", area: "Signing in", path: "/join", ...CITY },
   { name: "Forgot your password", area: "Signing in", path: "/signin/email", ...CITY },

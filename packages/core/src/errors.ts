@@ -37,6 +37,7 @@ export const ERROR_CODES = {
   bad_description: { httpStatus: 400, meaning: "The description isn't text of up to 500 characters." },
   bad_visibility: { httpStatus: 400, meaning: "visibility isn't draft, listed, unlisted or private." },
   bad_devices: { httpStatus: 400, meaning: "devices isn't a list of phone, tablet and computer." },
+  bad_genres: { httpStatus: 400, meaning: "genres isn't a list of up to 3 of Zaisma's genres." },
   bad_controls: { httpStatus: 400, meaning: "controls isn't a list of touch, keyboard_mouse and gamepad." },
   bad_screen_orientation: { httpStatus: 400, meaning: "screen_orientation isn't portrait, landscape, either or null." },
   bad_play_modes: { httpStatus: 400, meaning: "play_modes isn't a list of play modes, or one of them is wrong." },

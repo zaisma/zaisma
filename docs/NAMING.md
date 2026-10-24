@@ -216,6 +216,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Concept | API and MCP | SDK and game server |
 | --- | --- | --- |
 | A game's link name, as in zaisma.com/g/<slug> | `slug` | `slug` |
+| A game's genres: up to 3 from one fixed list, which players filter Browse by | `genres` (a list of `action`, `adventure`, `role_playing`, `shooter`, `strategy`, `simulation`, `racing`, `sports`, `fighting`, `platformer`, `puzzle`, `horror`, `survival`, `sandbox`, `card_and_board`, `party`, `rhythm`, `visual_novel`); refused with `bad_genres`. Inside: `games.genres` (comma-separated), `GENRES`, `GENRE_LABELS`, `MAXIMUM_GENRE_COUNT` | |
 | A version of a game | `version_id` | |
 | A cover or screenshot | `image_id` | |
 | A game's world behind Zaisma's glass, for one screen, and what it shows | `background`: `screen`, `source` (`zaisma`, `image`, `shader`, and on phone `wide`), `image_id`, `shader_id`, `still_url`; pictures are images of `kind` `background` and `phone_background` | |

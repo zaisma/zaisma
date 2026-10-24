@@ -60,6 +60,8 @@ export interface Game {
   visibility: Visibility;
   /** Device labels, comma-separated (see DEVICES, CONTROLS, SCREENS). */
   devices: string;
+  /** Comma-separated GENRES, up to 3; empty for none. */
+  genres: string;
   controls: string;
   screen_orientation: string;
   /** How it's played: a list of PlayMode as JSON, or '' when the developer hasn't said. */

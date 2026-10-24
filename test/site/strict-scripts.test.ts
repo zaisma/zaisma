@@ -80,7 +80,7 @@ describe("every page runs only the site's own script files", () => {
   });
 
   it("signing in, making an account, profiles, the forum, the rules and the design gallery", async () => {
-    for (const path of ["/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/layout", "/design/panes?theme=dark"]) {
+    for (const path of ["/games", "/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design/actions", "/design/layout", "/design/panes?theme=dark"]) {
       await checkPage(`${SITE}${path}`);
     }
   });
