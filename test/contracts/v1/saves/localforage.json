@@ -1,0 +1,64 @@
+{
+  "name": "localforage",
+  "stored_text": "{\"save_format_version_number\":1,\"local_storage_items\":{\"game-settings\":\"{\\\"volume\\\":0.8}\"},\"indexeddb_databases\":[{\"name\":\"localforage\",\"version\":2,\"stores\":[{\"name\":\"keyvaluepairs\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"inventory\",[\"sword\",\"shield\"]],[\"player\",{\"name\":\"Ada\",\"level\":12,\"position\":{\"x\":1.5,\"y\":-2}}],[\"portrait\",{\"$z\":[\"blob\",\"image/png\",\"iVBORw==\"]}]]},{\"name\":\"local-forage-detect-blob-support\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[]}]}]}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{\"game-settings\":\"{\\\"volume\\\":0.8}\"},\"indexeddb_databases\":[{\"name\":\"localforage\",\"version\":2,\"stores\":[{\"name\":\"keyvaluepairs\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"inventory\",[\"sword\",\"shield\"]],[\"player\",{\"name\":\"Ada\",\"level\":12,\"position\":{\"x\":1.5,\"y\":-2}}],[\"portrait\",{\"$z\":[\"blob\",\"image/png\",\"iVBORw==\"]}]]},{\"name\":\"local-forage-detect-blob-support\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[]}]}]}",
+  "sha256": "154aa13017d895d8e3b66c9a56a5f0ff92e339fa04bf40bfc12587042f7e65fc",
+  "size_bytes": 505,
+  "projection": {
+    "local_storage_items": {
+      "game-settings": "{\"volume\":0.8}"
+    },
+    "missing_keys": [],
+    "indexeddb_databases": [
+      {
+        "name": "localforage",
+        "version": 2,
+        "stores": [
+          {
+            "name": "keyvaluepairs",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [],
+            "records": [
+              [
+                "inventory",
+                [
+                  "sword",
+                  "shield"
+                ]
+              ],
+              [
+                "player",
+                {
+                  "name": "Ada",
+                  "level": 12,
+                  "position": {
+                    "x": 1.5,
+                    "y": -2
+                  }
+                }
+              ],
+              [
+                "portrait",
+                {
+                  "$z": [
+                    "blob",
+                    "image/png",
+                    "iVBORw=="
+                  ]
+                }
+              ]
+            ]
+          },
+          {
+            "name": "local-forage-detect-blob-support",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [],
+            "records": []
+          }
+        ]
+      }
+    ]
+  }
+}

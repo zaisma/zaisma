@@ -1989,7 +1989,7 @@ async function saves(command, values, flags) {
     const answer = await api("GET", `/games/${values.slug}/saves${flags.cursor ? `?cursor=${encodeURIComponent(flags.cursor)}` : ""}`);
     if (isJson) return printJson(answer);
     if (!answer.saves.length) console.log("No saves yet. Players' progress shows up here once they play signed in with cloud saves on.");
-    for (const save of answer.saves) console.log(`${save.player_id}  ${save.updated_at.slice(0, 16).replace("T", " ")}  ${sizeText(save.size_bytes).padStart(8)}  ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"}${save.save_copy_count ? `, ${save.save_copy_count} earlier` : ""}`);
+    for (const save of answer.saves) console.log(`${save.player_id}  ${save.saved_at.slice(0, 16).replace("T", " ")}  ${sizeText(save.size_bytes).padStart(8)}  ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"}${save.save_copy_count ? `, ${save.save_copy_count} earlier` : ""}`);
     if (answer.next_cursor) console.log(`\nMore: zaisma saves ${values.slug} --cursor ${answer.next_cursor}`);
     return;
   }
@@ -1999,7 +1999,7 @@ async function saves(command, values, flags) {
     const answer = await api("GET", command === "saves get" ? `${savePath()}${query}` : `${savePath()}/copies/${encodeURIComponent(values.save_copy_id)}${query}`);
     if (isJson) return printJson(answer);
     const save = answer.save ?? answer.save_copy;
-    console.log(answer.save ? `${sizeText(save.size_bytes)}, ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"} ${when(save.updated_at)}.` : `Saved ${when(save.saved_at)} (${save.copy_reason})${save.is_current_save ? ", the same as the save now" : ""}.`);
+    console.log(answer.save ? `${sizeText(save.size_bytes)}, ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"} ${when(save.saved_at)}.` : `Saved ${when(save.saved_at)} (${save.copy_reason})${save.is_current_save ? ", the same as the save now" : ""}.`);
     for (const [key, itemText] of Object.entries(save.local_storage_items)) console.log(`${key} = ${itemText}`);
     for (const key of save.missing_keys) console.log(`${key}: not in the save`);
     if (save.indexeddb_databases?.length) console.log(`IndexedDB: ${save.indexeddb_databases.map((database) => database.name).join(", ")} (--json shows them)`);

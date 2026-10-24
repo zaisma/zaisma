@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -199,7 +199,7 @@ const details = {
   account_requirement: {
     enum: ACCOUNT_REQUIREMENTS,
     description:
-      'What the game needs a Zaisma account for. none (the default): guests play everything, and signed-in players play as their account. multiplayer: guests play alone; only signed-in players get player passes, so a guest\'s Zaisma.joinRoom() and Zaisma.player() fail with error.code "account_needed" (show your own message). whole_game: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Players under 13 can\'t make accounts, so they can\'t play games that need one.',
+      'What the game needs a Zaisma account for. none (the default): guests play everything, and signed-in players play as their account. multiplayer: guests play alone; only signed-in players get player passes, so a guest\'s Zaisma.joinRoom() and Zaisma.player.getPass() fail with error.code "account_needed" (show your own message). whole_game: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Players under 13 can\'t make accounts, so they can\'t play games that need one.',
   },
   minimum_player_age_years: {
     type: "integer",
@@ -1657,7 +1657,7 @@ export const TOOLS: Tool[] = [
     title: "List a game's saves",
     description:
       "The players with a cloud save in the game, by player ID, 100 a page: each save's size, when it last changed and who changed it (the player's game, or you), and how many earlier versions it has. Cloud saves are signed-in players' progress, mirrored from the game's own browser saves (localStorage and IndexedDB); guests' stays in their browser. Saves are apart from the game database. For more than 100, pass next_cursor as cursor.",
-    inputSchema: object({ slug, cursor: { type: "string", pattern: "^cursor_[a-z0-9]+$", description: "next_cursor from an earlier call: the page after it" } }, ["slug"]),
+    inputSchema: object({ slug, cursor: { type: "string", description: "next_cursor from an earlier list_saves answer, as it came." } }, ["slug"]),
     outputSchema: SAVE_LIST,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/saves${toolArguments.cursor ? `?cursor=${pathPart(toolArguments.cursor)}` : ""}`),
@@ -1718,8 +1718,8 @@ export const TOOLS: Tool[] = [
           local_storage_items: { type: "object", additionalProperties: { type: "string" }, description: "Every localStorage key the save should have, and its text." },
           indexeddb_databases: {
             type: "array",
-            items: { type: "object", description: "One database as get_save answers it: { name, version, stores }." },
-            description: "Every IndexedDB database the save should have, as get_save answered them; [] for none.",
+            items: INDEXEDDB_DATABASE,
+            description: "Every IndexedDB database the save should have, as get_save answered them, changed only inside records' values; [] for none.",
           },
         },
         ["slug", "player_id", "local_storage_items", "indexeddb_databases"],

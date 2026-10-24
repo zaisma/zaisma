@@ -1,17 +1,18 @@
 import {
   ApiError,
+  EMPTY_SAVE_TEXT,
   SAVE_LIMIT_BYTES,
   canonicalSave,
   checkIdKind,
   gameSaves,
+  indexeddbDatabasesProblem,
+  isIdOf,
   iso,
   readStoredSave,
   saveContentsJson,
   saveCopyJson,
-  saveCopyKey,
   saveFromParts,
   saveHistory,
-  saveParts,
   saveRow,
   type Game,
   type GameSaveRow,
@@ -21,7 +22,7 @@ import {
 } from "@zaisma/core";
 import type { CheckedCall, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { changeSaveAsDeveloper, readSave } from "./saves.ts";
+import { changeSaveAsDeveloper, readCopy, readSave } from "./saves.ts";
 
 /**
  * A game's cloud saves through the developer API (docs/DECISIONS.md, "Developers get their game's saves"),
@@ -46,6 +47,7 @@ const MAXIMUM_KEY_CHARACTER_COUNT = 1000;
 
 const PLAYER_FIX = "list_saves (GET /games/<slug>/saves) lists the players with a save in this game; a player ID comes from your game too (a room's players, or the sub of a player pass).";
 const COPY_FIX = "list_save_copies (GET /games/<slug>/saves/<player_id>/copies) lists the player's earlier versions with their IDs.";
+const DATABASES_FIX = "Give the databases as get_save answered them, changed only inside records' values; see Cloud saves in docs/DEVELOPER-API.md for the shape and the $z tags.";
 const ITEMS_FIX = 'Give local_storage_items as an object of localStorage keys and their text, like { "coins": "500", "level": "3" }. localStorage holds only text: send "500", not 500, and an object as JSON text.';
 
 /** One call, once the router (developer.ts, checkCall) has checked the key, the game, and that the query and body hold only the call's inputs. */
@@ -58,7 +60,7 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
     const rows = await gameSaves(env.DB, game.id, afterPlayerId, PAGE_SAVE_COUNT);
     const page = rows.slice(0, PAGE_SAVE_COUNT);
     const last = page.at(-1);
-    return [{ saves: page.map((row) => summaryJson(row, row.player_id, row.save_copy_count)), next_cursor: rows.length > PAGE_SAVE_COUNT && last ? `cursor_${last.player_id.slice("player_".length)}` : null }];
+    return [{ saves: page.map((row) => summaryJson(row, row.player_id, row.save_copy_count)), next_cursor: rows.length > PAGE_SAVE_COUNT && last ? saveCursor(last.player_id) : null }];
   }
 
   const accountId = await accountOf(env, playerId);
@@ -71,19 +73,19 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
     checkIdKind("save_copy", saveCopyId, "save_copy_id", COPY_FIX);
     const copies = await saveHistory(env.DB, accountId, game.id);
     const copy = copies.find((savedCopy) => savedCopy.id === saveCopyId);
-    const text = copy ? await (await env.SAVES.get(saveCopyKey(accountId, game.id, copy.id)))?.text() : null;
-    if (!copy || !text) throw new ApiError("no_save_copy", { message: `${playerId} has no earlier version ${saveCopyId} in ${game.slug}.`, field: "save_copy_id", fix: COPY_FIX });
+    const text = copy ? await readCopy(env, copy) : null;
+    if (!copy || text === null) throw new ApiError("no_save_copy", { message: `${playerId} has no earlier version ${saveCopyId} in ${game.slug}.`, field: "save_copy_id", fix: COPY_FIX });
     if (!isRestore) {
       const row = await saveRow(env.DB, accountId, game.id);
       return [{ save_copy: { ...copyJson(copy, row), ...saveContentsJson(readStoredSave(text), readKeys(query)) } }];
     }
     checkCloudSaves(game);
-    return changed(env, game, accountId, playerId, text);
+    return changed(env, game, accountId, playerId, canonicalSave(readStoredSave(text)), copy.version_id);
   }
 
   if (method === "GET") {
     const row = await existingSave(env, game, accountId, playerId);
-    const text = await readSave(env, accountId, game.id);
+    const text = await readSave(env, row);
     if (text === null) throw noSave(game, playerId);
     const copyCount = (await saveHistory(env.DB, accountId, game.id)).length;
     return [{ save: { ...summaryJson(row, playerId, copyCount), ...saveContentsJson(readStoredSave(text), readKeys(query)) } }];
@@ -92,21 +94,21 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
   if (method === "DELETE") {
     await existingSave(env, game, accountId, playerId);
     checkCloudSaves(game);
-    return changed(env, game, accountId, playerId, canonicalSave({}));
+    return changed(env, game, accountId, playerId, EMPTY_SAVE_TEXT, null);
   }
 
   if (method === "PATCH") {
     const changes = readItems(body.local_storage_items, true);
     if (!Object.keys(changes).length) throw new ApiError("bad_local_storage_items", { message: "local_storage_items has no keys, so nothing would change.", field: "local_storage_items", fix: ITEMS_FIX });
     checkCloudSaves(game);
-    const current = (await saveRow(env.DB, accountId, game.id)) ? await readSave(env, accountId, game.id) : null;
-    const { localStorageItems, indexeddbDatabases } = saveParts(current === null ? {} : readStoredSave(current));
-    const items: Record<string, string> = { ...localStorageItems };
+    const row = await saveRow(env.DB, accountId, game.id);
+    const current = readStoredSave((row ? await readSave(env, row) : null) ?? EMPTY_SAVE_TEXT);
+    const items: Record<string, string> = { ...current.local_storage_items };
     for (const [key, itemText] of Object.entries(changes)) {
       if (itemText === null) delete items[key];
       else items[key] = itemText;
     }
-    return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, indexeddbDatabases)));
+    return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, current.indexeddb_databases)), null);
   }
 
   // PUT: the whole save.
@@ -119,14 +121,15 @@ export async function savesRoute(request: Request, env: Env, game: Game, playerI
     });
   }
   const items = readItems(body.local_storage_items, false) as Record<string, string>;
-  const databases = readDatabases(body.indexeddb_databases);
+  const problem = indexeddbDatabasesProblem(body.indexeddb_databases);
+  if (problem) throw new ApiError("bad_indexeddb_databases", { message: problem.message, field: problem.field, fix: DATABASES_FIX });
   checkCloudSaves(game);
-  return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, databases)));
+  return changed(env, game, accountId, playerId, checkedText(saveFromParts(items, body.indexeddb_databases as unknown[])), null);
 }
 
-/** Make the change, and answer the save as it is now with the copy that keeps what it replaced. */
-async function changed(env: Env, game: Game, accountId: string, playerId: string, text: string): Promise<[unknown]> {
-  const change = await changeSaveAsDeveloper(env, accountId, game.id, text);
+/** Make the change, and answer the save as it is now with the copy that keeps what it replaced. `versionId` is a restored copy's, else null. */
+async function changed(env: Env, game: Game, accountId: string, playerId: string, text: string, versionId: string | null): Promise<[unknown]> {
+  const change = await changeSaveAsDeveloper(env, accountId, game.id, text, versionId);
   if (!change) {
     throw new ApiError("save_busy", { message: `${playerId}'s game kept saving at the same moment, so the change didn't go through.`, fix: "Call again in a few seconds.", retryAfterSec: 5 });
   }
@@ -167,12 +170,12 @@ function checkCloudSaves(game: Game): void {
 
 /** One player's save as get_save answers it, whole, for Export everything (game-export.ts); null when its data is gone. */
 export async function exportedSave(env: Env, game: Game, row: GameSaveRow) {
-  const text = await readSave(env, row.account_id, game.id);
+  const text = await readSave(env, row);
   return text === null ? null : { ...summaryJson(row, row.player_id, row.save_copy_count), ...saveContentsJson(readStoredSave(text), null) };
 }
 
 function summaryJson(row: SaveRow, playerId: string, saveCopyCount: number) {
-  return { player_id: playerId, sha256: row.sha256, size_bytes: row.size_bytes, updated_at: iso(row.updated_at_ms), changed_by_kind: row.changed_by_kind, save_copy_count: saveCopyCount };
+  return { player_id: playerId, sha256: row.sha256, size_bytes: row.size_bytes, saved_at: iso(row.saved_at_ms), changed_by_kind: row.changed_by_kind, save_copy_count: saveCopyCount, version_id: row.version_id };
 }
 
 function copyJson(copy: SaveCopy, row: SaveRow | null) {
@@ -210,25 +213,23 @@ function readItems(given: unknown, canRemove: boolean): Record<string, string | 
   return given as Record<string, string | null>;
 }
 
-/** IndexedDB databases as get_save answers them (the game domain script's encoding, packages/sdk/saves.js): checked for their shape, kept as they are. */
-function readDatabases(given: unknown): unknown[] {
-  const isDatabase = (database: unknown) => {
-    const candidate = database as { name?: unknown; version?: unknown; stores?: unknown } | null;
-    return Boolean(candidate) && typeof candidate === "object" && typeof candidate!.name === "string" && typeof candidate!.version === "number" && Array.isArray(candidate!.stores);
-  };
-  if (Array.isArray(given) && given.every(isDatabase)) return given;
-  throw new ApiError("bad_indexeddb_databases", {
-    message: "indexeddb_databases isn't a list of databases, each { name, version, stores } as get_save answers them.",
-    field: "indexeddb_databases",
-    fix: "Give [] for a game that keeps nothing in IndexedDB, or the databases from get_save, changed only inside their records.",
-  });
+/** An opaque next_cursor, like get_logs': saves_ and base64url JSON of [the last player ID on the page], so its form can change. */
+function saveCursor(lastPlayerId: string): string {
+  return `saves_${btoa(JSON.stringify([lastPlayerId])).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
 }
 
-/** cursor_<the random part of the last player ID on the page>. */
+/** The last player ID of the page before, from a next_cursor saveCursor made. */
 function readSaveCursor(cursor: string | null): string | null {
   if (!cursor) return null;
-  if (!/^cursor_[a-z0-9]{1,40}$/.test(cursor)) {
-    throw new ApiError("bad_cursor", { message: `cursor ${JSON.stringify(cursor.slice(0, 40))} isn't a next_cursor Zaisma gave.`, field: "cursor", fix: "Pass the next_cursor from your last answer as it came, or leave cursor out to start from the beginning." });
+  const bad = () =>
+    new ApiError("bad_cursor", { message: `cursor ${JSON.stringify(cursor.slice(0, 40))} isn't a next_cursor list_saves gave.`, field: "cursor", fix: "Pass the next_cursor from your last list_saves answer as it came, or leave cursor out to start from the beginning." });
+  if (!cursor.startsWith("saves_")) throw bad();
+  let position: unknown;
+  try {
+    position = JSON.parse(atob(cursor.slice("saves_".length).replaceAll("-", "+").replaceAll("_", "/")));
+  } catch {
+    throw bad();
   }
-  return `player_${cursor.slice("cursor_".length)}`;
+  if (!Array.isArray(position) || position.length !== 1 || !isIdOf("player", position[0])) throw bad();
+  return position[0];
 }
