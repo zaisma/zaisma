@@ -13,6 +13,7 @@ import { handleGithubSecretScanning } from "./leaked-keys.ts";
 import { recordBlockedScripts } from "./security-alerts.ts";
 import { pageScriptResponse } from "./page-scripts.ts";
 import { pageStyleResponse } from "./page-styles.ts";
+import { browsePage } from "./browse.ts";
 import { handlePlayed, home } from "./home.ts";
 import { handlePlays } from "./plays.ts";
 import { gamePage, legal, previewPage, testerEnter, testerPage } from "./pages.ts";
@@ -87,6 +88,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
   if (path === "/" && method !== "POST") return home(env, request);
+  if (path === "/games" && (method === "GET" || method === "HEAD")) return browsePage(env, request);
 
   const played = await handlePlayed(request, env, path);
   if (played) return played;

@@ -68,8 +68,9 @@ export function dropdown(options: DropdownOptions): Raw {
 function coverFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
-  const left =
-    facts.playedAtMs !== undefined
+  const left = facts.deviceNote
+    ? html`<span class="device-note">${facts.deviceNote}</span>`
+    : facts.playedAtMs !== undefined
       ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`${tag("Updated", "new")}` : ""}`
       : friends.length
         ? html`<span class="friends">${pictureRow(friends.map((friend) => friend.username), "xs")}<span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
@@ -273,7 +274,7 @@ const COVER_STYLES = `
 .cover-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); min-height: 24px; margin-top: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
-.cover-meta .when, .cover-meta .count { white-space: nowrap; }
+.cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
 @media (prefers-reduced-motion: reduce) { .cover-art, .cover-bar { transition: none !important; } .cover-bar::after { animation: none !important; } }
@@ -431,6 +432,7 @@ component({
     { label: "Players now", markup: html`<div class="cover-sample">${standInCovers(["hollow-tide"])}</div>` },
     { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
+    { label: "Made for another device", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { deviceNote: "Needs a keyboard" } })}</div>` },
     { label: "No cover yet", markup: html`<div class="cover-sample">${gameCover({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-cover", facts: { playerCount: 38 } })}</div>` },
     {
       label: "Five friends playing",
