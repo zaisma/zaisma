@@ -366,9 +366,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
-    // A small box near a corner (a check's box) keeps its shape: never more than a quarter of its short side, as on no pane. A thin bar (a
-    // scrollbar along a pane's foot) follows the corner across its whole height instead.
-    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.25 : Infinity;
+    // Its cut keeps the same gap to the pane's cut as its sides keep to the pane's sides, however small the box (a swatch, a check's box),
+    // up to half its short side, where two cuts on one side would meet. A thin bar (a scrollbar along a pane's foot) follows the corner
+    // across its whole height instead.
+    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.5 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
       return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
