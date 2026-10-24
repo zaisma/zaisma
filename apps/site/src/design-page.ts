@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
@@ -123,6 +123,7 @@ ${options.main}
 ${railMarkup("page")}
 </div>
 ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
+${stylesAppliedTag()}
 </body>
 </html>`;
   return new Response(page.html, { headers: securityHeaders(env, {}, false, options.frames ?? []) });

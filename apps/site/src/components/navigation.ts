@@ -303,14 +303,19 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   }
   // Any box that scrolls up and down gets its rail by itself, so a new component never has to remember one. A box that
   // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
-  window.zaismaWatch.scrollBoxes().forEach(function (box) {
+  // Every box's style is read before any rail goes in: a rail put in between would make the next read work out the whole page's styles
+  // again, once a box (a page of fields has over a hundred).
+  var railedBoxes = window.zaismaWatch.scrollBoxes().map(function (box) {
     var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
-    if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return;
-    var style = getComputedStyle(box);
-    if (style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
-    var parent = box.parentElement; if (!parent || parent === document.body) return;
-    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
-    box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+    if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return null;
+    if (getComputedStyle(box).scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return null;
+    var parent = box.parentElement; if (!parent || parent === document.body) return null;
+    return { box: box, isControl: isControl, isParentStatic: getComputedStyle(parent).position === "static" };
+  });
+  railedBoxes.forEach(function (railed) {
+    if (!railed) return;
+    if (railed.isParentStatic) railed.box.parentElement.style.position = "relative";
+    railed.box.insertAdjacentHTML("afterend", '<div class="rail"' + (railed.isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
   // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
   // phones too, whose own sideways scrollbars hide.
@@ -428,7 +433,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         spread(track);
       }
     };
-    function layout() { layOutSoon(rail); }
+    // While a finger or the mouse holds the thumb, the rail stays where it is: the page's bar slimming as it scrolls would otherwise move
+    // the rail, and the thumb with it, under a pointer that hasn't moved. It's laid out again once let go.
+    var isLayoutDue = false;
+    function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
     function move(atPx) { if (!bar.hidden) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
@@ -441,16 +449,24 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
     if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
     var drag = null;
+    // On a long page a pixel of the thumb is dozens of the page's, so a finger held still, which always trembles a little, would shake the
+    // page: by touch, the thumb follows only once the finger has truly moved, from where it was then.
+    var TOUCH_SLOP_PX = 6;
     function start(event, jump) {
       event.preventDefault();
       if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
-      drag = { y: along(event), from: at() }; bar.classList.add("dragging");
+      drag = { y: along(event), from: at(), isMoving: event.pointerType === "mouse" }; bar.classList.add("dragging");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
     line.addEventListener("pointerdown", function (event) { start(event, true); });
-    bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (along(event) - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
-    function end() { drag = null; bar.classList.remove("dragging"); }
+    bar.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+      var spotPx = along(event);
+      if (!drag.isMoving) { if (Math.abs(spotPx - drag.y) < TOUCH_SLOP_PX) return; drag.isMoving = true; drag.y = spotPx; drag.from = at(); }
+      to(drag.from + (spotPx - drag.y) * size.max / Math.max(1, size.track - size.thumb));
+    });
+    function end() { drag = null; bar.classList.remove("dragging"); if (isLayoutDue) { isLayoutDue = false; layout(); } }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
     function near(event) {
       if (!isSide || !marks.length) return;
@@ -465,7 +481,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // By touch, letting go of the thumb near a mark goes to its part, as a click on the mark does with a mouse.
     var SNAP_PX = 18;
     function release(event) {
-      var wasDragging = Boolean(drag); end();
+      // A finger only resting on the thumb goes nowhere.
+      var wasDragging = Boolean(drag && drag.isMoving); end();
       if (event.pointerType !== "mouse") farAway();
       if (!wasDragging || event.pointerType === "mouse" || !marks.length) return;
       var middle = (size.track - size.thumb) * Math.min(1, at() / size.max) + size.thumb / 2, nearest = null, gap = SNAP_PX;
@@ -502,37 +519,55 @@ export function rowArrows(options: RowArrowsOptions): ControlMarkup {
  * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
-  var FADE_PX = 28, boxes = [];
+  var FADE_PX = 28, boxes = [], dueBoxes = null;
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
-  function sync(box) {
-    var scrollTop = box.scrollTop, scrollHeight = box.scrollHeight, clientHeight = box.clientHeight, isScrollable = scrollHeight > clientHeight + 1;
+  function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
-    var head = box.querySelector(":scope > table > thead"), headPx = head ? head.offsetHeight : 0;
-    var top = Math.min(FADE_PX, scrollTop), bottom = Math.min(FADE_PX, scrollHeight - clientHeight - scrollTop);
+    var head = box.querySelector(":scope > table > thead");
+    return { scrollTop: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight, headPx: head ? head.offsetHeight : null };
+  }
+  function put(box, read) {
+    var isScrollable = read.scrollHeight > read.clientHeight + 1;
+    var top = Math.min(FADE_PX, read.scrollTop), bottom = Math.min(FADE_PX, read.scrollHeight - read.clientHeight - read.scrollTop);
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
-    if (head) box.style.setProperty("--fade-from", headPx + "px");
+    if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", isScrollable);
     box.classList.toggle("is-scrollable", isScrollable);
   }
+  // Boxes syncing together are all read before any is written: one at a time, each write would make the next read lay the page out again.
+  function syncAll(list) {
+    var reads = list.map(measure);
+    list.forEach(function (box, i) { put(box, reads[i]); });
+  }
+  // The batch the boxes' size callbacks share (zaismaWatch.size): each callback only marks its box, and the batch syncs them together.
+  function inOnePass(work) {
+    dueBoxes = new Set(); work();
+    var due = Array.from(dueBoxes); dueBoxes = null; syncAll(due);
+  }
+  function sync(box) { if (dueBoxes) dueBoxes.add(box); else syncAll([box]); }
   // A box keeps a swipe or a wheel to itself only while it can scroll; one that can't lets it carry on to the page.
   function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
   function find() {
     // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
-    document.querySelectorAll("[data-scroll-box]").forEach(function (box) {
-      held(box);
+    var heldBoxes = Array.from(document.querySelectorAll("[data-scroll-box]")), canScroll = heldBoxes.map(function (box) { return box.scrollHeight > box.clientHeight + 1; });
+    heldBoxes.forEach(function (box, i) {
+      box.classList.toggle("is-scrollable", canScroll[i]);
       window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
-    window.zaismaWatch.scrollBoxes().forEach(function (box) {
-      if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
-      box.classList.add("scroll-fades"); boxes.push(box); sync(box);
+    var found = window.zaismaWatch.scrollBoxes().filter(function (box) {
+      return !(box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade"));
+    });
+    found.forEach(function (box) {
+      box.classList.add("scroll-fades"); boxes.push(box);
       var queued = false;
       box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
-      window.zaismaWatch.size(box, function () { sync(box); });
+      window.zaismaWatch.size(box, function () { sync(box); }, inOnePass);
     });
+    syncAll(found);
   }
   find();
-  window.zaismaWatch.resize(function () { boxes.forEach(sync); });
+  window.zaismaWatch.resize(function () { syncAll(boxes); });
   // Rows that scroll sideways fade over a side with more past it, and start where the one you're on shows whole.
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
@@ -802,9 +837,10 @@ component({
   .rail[data-rail="page"] .rail-mark::before { left: 16px; right: 0; }
   .rail[data-rail="page"] .rail-mark:hover::before { left: 12px; }
 }
-/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page. */
+/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centered on its line), and a finger on it drags the thumb instead of the page.
+   A finger held on it never selects the words beside it, opens the phone's callout or flashes a tap's highlight. */
 @media (hover: none), (pointer: coarse) {
-  .rail { touch-action: none; }
+  .rail { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
   .rail.sideways .rail-thumb { left: 0; top: 3px; width: auto; height: 7px; }
 }

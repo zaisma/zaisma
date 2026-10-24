@@ -498,9 +498,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    * (its own shape), a pane (its own corners), what's inside either (clipped with it), and a shape of its own (a tag's clip-path).
    */
   var EDGE_MIN_PX = 6, edgedCuts = new Map();
+  function isShadowSeen(shadow) {
+    return shadow !== "none" && (shadow.match(/rgba?\\([^)]*\\)/g) || [""]).some(function (color) { var parts = color.match(/[\\d.]+/g); return !parts || parts.length < 4 || Number(parts[3]) > 0.04; });
+  }
   function hasEdge(el, css) {
     if (/^(IMG|VIDEO|CANVAS|IFRAME)$/.test(el.tagName)) return true;
-    if (css.backgroundImage !== "none" || css.boxShadow !== "none") return true;
+    // A shadow all in a clear color (a focus ring at rest, waiting to show) draws nothing, so it's no edge.
+    if (css.backgroundImage !== "none" || isShadowSeen(css.boxShadow)) return true;
     var fill = css.backgroundColor.match(/[\\d.]+/g);
     if (fill && (fill.length < 4 || Number(fill[3]) > 0.04)) return true;
     return ["Top", "Right", "Bottom", "Left"].some(function (side) { return parseFloat(css["border" + side + "Width"]) > 0 && !/rgba\\(.*, 0\\)|transparent/.test(css["border" + side + "Color"]); });
@@ -519,7 +523,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         if (!r.width || !r.height || !nearCorner(r)) return;
         if (edgedCuts.has(child)) { found.push(child); return; }
         var css = getComputedStyle(child);
-        if (css.display === "contents" || css.position === "fixed") return walk(child);
+        // Words inline (a link, code in a sentence) are never cut: a link that wraps isn't one box for a shape to follow, and Safari lays a
+        // clip-path on an inline box from another box than the one measured here, cutting the words themselves (a tray head's name, its
+        // link in the pane's corner, lost its lower half).
+        if (css.display === "contents" || css.display === "inline" || css.position === "fixed") return walk(child);
         if (css.clipPath === "none" && Math.min(r.width, r.height) >= EDGE_MIN_PX && hasEdge(child, css)) found.push(child);
         else walk(child);
       });
