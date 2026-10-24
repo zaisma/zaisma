@@ -1,5 +1,5 @@
 import { finishHandling, finishRefundHandling, iso, receiptClaimsFor, releaseHandling, releaseRefundHandling, signReceipt, startHandling, startRefundHandling, unhandledFor, type PurchaseDelivery, type Purchase as StoredPurchase } from "@zaisma/core";
-import type { Purchase, PurchaseHandling } from "@zaisma/game-server";
+import type { Purchase, PurchaseHandling } from "@zaisma/game-server/internal";
 import type { Env } from "./index.ts";
 import { receiptIssuerOf } from "./receipts.ts";
 import { receiptSigningKey } from "./signing.ts";

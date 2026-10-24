@@ -12,10 +12,10 @@ export const relay = defineGameServer({
   hostControlsEnabled: true,
   idleCheck: "client",
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     room.broadcast(message, { exceptPlayerId: player.id, fromPlayerId: player.id });
   },
-  onBytes(state, player, bytes, room) {
+  onBytes(state, player, room, bytes) {
     room.broadcastBytes(bytes, { exceptPlayerId: player.id, fromPlayerId: player.id });
   },
 });

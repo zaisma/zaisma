@@ -59,7 +59,7 @@ export const TRANSCRIPT_GAME_SERVER_SOURCE = `export default {
   maximumPlayerCount: 2,
   hostControlsEnabled: true,
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "end") room.end("The match is over.");
     else room.broadcast(message, { exceptPlayerId: player.id, fromPlayerId: player.id });
     return state;

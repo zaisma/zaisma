@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatCheckError, checkChat } from "@zaisma/game-server";
+import { OutsideCallError } from "@zaisma/game-server/internal";
 
 /** A pass's look, unsigned: checkChat reads only whose it is and where it's from, and Zaisma checks the rest. */
 const passOf = (claims: Record<string, unknown>) => `e30.${btoa(JSON.stringify({ aud: "own-game", iss: "https://rooms.zaisma.com", ...claims })).replace(/=+$/, "")}.signature`;
@@ -47,7 +48,10 @@ describe("checkChat", () => {
   });
 
   it("refuses in Zaisma rooms, where the room filters chat itself", async () => {
-    vi.stubGlobal("isZaismaRoomsSandbox", true);
+    // The gateway refuses a call to Zaisma's own address, which the sandbox's fetch turns into an OutsideCallError.
+    vi.stubGlobal("fetch", async () => {
+      throw new OutsideCallError("host_not_allowed", "That host isn't allowed.", "Call your own server.");
+    });
     const refused = await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender5" }), receiverPasses: [] }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ChatCheckError);
     expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("Zaisma.checkChat") });

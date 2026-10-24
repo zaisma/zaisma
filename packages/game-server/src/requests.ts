@@ -2,7 +2,7 @@
  * Requests: plain calls from a game to its game server's onRequest, outside any room, for a
  * leaderboard, a shop or a daily reward in any game, single-player ones too. Zaisma rooms answer them
  * at rooms.zaisma.com (apps/rooms/src/game-server.ts) and the Node runner on the developer's own
- * server (bin/node.js), both at POST /v1/requests/<game>, both checked here so a request that works
+ * server (@zaisma/game-server/node), both at POST /v1/requests/<game>, both checked here so a request that works
  * in one works the same in the other.
  *
  * The game sends { pass, request } as text/plain JSON (so the browser needs no preflight): its player
@@ -82,7 +82,7 @@ export const REQUEST_ERROR_HTTP_STATUS: Record<RequestErrorCode, number> = {
   game_unavailable: 404,
   no_request_handler: 404,
   game_server_error: 500,
-  hosting_paused: 429,
+  hosting_paused: 403,
   slow_down: 429,
   bad_origin: 403,
   busy: 503,

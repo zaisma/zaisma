@@ -59,7 +59,7 @@
     { "name": "PROFILE_LIMIT", "namespace_id": "1012", "simple": { "limit": 300, "period": 60 } },
     // Requests to games' own game servers (Zaisma.server.request): plenty for a player, not for a script.
     { "name": "REQUEST_LIMIT", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } },
-    // Game servers' calls to other servers, per game (src/outbound.ts; OUTSIDE_CALL_LIMITS.callsPerMin).
+    // Game servers' calls to other servers, per game (src/outbound.ts; OUTSIDE_CALL_LIMITS.maximumCallsPerMin).
     { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } },
     // A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends).
     { "name": "FRIENDS_LIMIT", "namespace_id": "1016", "simple": { "limit": 60, "period": 60 } },

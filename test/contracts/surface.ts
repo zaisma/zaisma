@@ -40,7 +40,9 @@ export function surfaceOf(file: string, names: string[], namespace?: string): Re
   const text = (type: ts.Type) => withoutPaths(checker.typeToString(type, undefined, FORMAT));
   const surfaces: Record<string, Surface> = {};
   for (const name of names) {
-    const symbol = exports.find((exported) => exported.name === name);
+    const exported = exports.find((each) => each.name === name);
+    // A name re-exported from another module (a package's index) is read where it's declared.
+    const symbol = exported && exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
     if (!symbol) throw new Error(`${file} doesn't ${namespace ? `declare ${namespace}.` : "export "}${name}`);
     if (symbol.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Class)) {
       const type = checker.getTypeOfSymbol(symbol);
@@ -48,8 +50,8 @@ export function surfaceOf(file: string, names: string[], namespace?: string): Re
       surfaces[name] = { kind: "signature", signature: signatures.map((signature) => withoutPaths(checker.signatureToString(signature, undefined, FORMAT))).join(" | ") };
     } else if (symbol.flags & ts.SymbolFlags.Variable) {
       const declaration = symbol.valueDeclaration as ts.VariableDeclaration;
-      const initializer = declaration.initializer && ts.isAsExpression(declaration.initializer) ? declaration.initializer.expression : declaration.initializer;
-      surfaces[name] = { kind: "constant", value: initializer ? evaluate(initializer) : text(checker.getTypeOfSymbol(symbol)) };
+      // A constant that is a value of a type, not a literal (a ready-made game server), is locked by its type.
+      surfaces[name] = { kind: "constant", value: declaration.initializer ? literalOrType(declaration.initializer, () => text(checker.getTypeOfSymbol(symbol))) : text(checker.getTypeOfSymbol(symbol)) };
     } else {
       const type = checker.getDeclaredTypeOfSymbol(symbol);
       const parts = type.isUnion() ? type.types : [type];
@@ -90,13 +92,21 @@ export function scriptConstantsOf(file: string, names: string[]): Record<string,
   return surfaces;
 }
 
+function literalOrType(node: ts.Expression, typeText: () => string): unknown {
+  try {
+    return evaluate(node);
+  } catch {
+    return typeText();
+  }
+}
+
 /** A constant's literal value: numbers (with their arithmetic), strings, booleans, arrays and objects. */
 function evaluate(node: ts.Expression): unknown {
   if (ts.isNumericLiteral(node)) return Number(node.text.replace(/_/g, ""));
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) return evaluate(node.expression);
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) return evaluate(node.expression);
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) return -(evaluate(node.operand) as number);
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskToken) return (evaluate(node.left) as number) * (evaluate(node.right) as number);
   if (ts.isArrayLiteralExpression(node)) return node.elements.map(evaluate);

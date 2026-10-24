@@ -1,0 +1,19 @@
+{
+  "about": "One scripted match with mistakes in the game server's code, played on the Node runner (test/node/runner-parity.test.ts) and in Zaisma's sandbox (test/rooms/sandbox-parity.test.ts). Both must answer the same messages and log the same errors by code and field, never by text.",
+  "steps": [
+    { "client": "a", "join": true, "expect": [{ "hello": true }] },
+    { "client": "a", "say": "ping", "expect": [{ "pong": 1 }] },
+    { "client": "a", "say": "bad-broadcast", "note": "room.broadcast with a delivery it doesn't take throws in the handler: nothing is sent" },
+    { "client": "a", "say": "answer-five", "note": "a handler answering 5 leaves the state as it was" },
+    { "client": "a", "say": "ping", "expect": [{ "pong": 2 }] },
+    { "client": "b", "join": true, "joinData": { "nothing": true }, "expectError": "refused", "note": "canJoin answering nothing turns the player away" },
+    { "client": "a", "say": "reserve", "expect": [{ "reserved": true }] },
+    { "client": "a", "say": "count-players", "expect": [{ "players": 1 }] },
+    { "client": "a", "say": "end", "expectEnded": "game" }
+  ],
+  "errors": [
+    { "code": "bad_room_call", "field": "room.broadcast" },
+    { "code": "bad_handler_answer", "field": "onMessage" },
+    { "code": "bad_handler_answer", "field": "canJoin" }
+  ]
+}
