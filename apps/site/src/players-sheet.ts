@@ -7,6 +7,7 @@ import { listRows, pictureFrame } from "./components/data.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
 import { sheet } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
+import { profilePath } from "./profiles.ts";
 import { html, pageData, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -77,7 +78,9 @@ function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGa
       const reasons = [...new Set([join, watch].flatMap((door) => (door?.refusal ? [joinRefusalText(door)] : [])))];
       const doorButton = (label: string, door: NonNullable<typeof join>, path: string) => (door.refusal ? cutButton(label, { type: "button", isSmall: true, isDisabled: true }) : cutButton(label, { href: path, isSmall: true }));
       const actions = [join ? doorButton("Join", join, joinPath(slug, join)) : null, watch ? doorButton("Watch", watch, `${joinPath(slug, watch)}&watch=1`) : null].filter((action): action is ControlMarkup => action !== null);
-      return { lead: pictureFrame(friend.username, "md"), title: friend.username, detail: reasons.join(" · ") || undefined, action: actions.length ? actions : undefined };
+      // The picture opens their profile in a new tab, so the game keeps running here.
+      const lead = html`<a href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}'s profile">${pictureFrame(friend.username, "md")}</a>`;
+      return { lead, title: friend.username, detail: reasons.join(" · ") || undefined, action: actions.length ? actions : undefined };
     }),
   });
 }
