@@ -1149,8 +1149,10 @@ declare namespace Zaisma {
     moved: (moved: Moved) => void;
     /**
      * "Still there?": idleStatus "asking" when it's time to ask, after idleTimeoutSec without input, with
-     * answerTimeoutSec to answer. Listening replaces Zaisma's small "Still there?" plate. Then "answered"
-     * (any input), or "timed_out" as the room is told they walked away.
+     * answerTimeoutSec to answer. Listening replaces Zaisma's own "Still there?": a card beside the game
+     * on its zaisma.com page, and elsewhere a small plate in the game (restyle the plate with CSS on
+     * #zaisma-still-there instead, if you like). Then "answered" (any input), or "timed_out" as the room
+     * is told they walked away.
      */
     idle: (idle: Idle) => void;
     /**

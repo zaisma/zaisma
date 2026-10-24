@@ -15,6 +15,10 @@ const ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right"
 
 /** What a button is: a link when it has an address, otherwise a button of a form. */
 interface ButtonTarget {
+  /** Unique on the page, for the page's script to find it by (Play, a bar's Share). */
+  id?: string;
+  /** data-* attributes a page's script reads ({ keep: "/join" } is data-keep="/join"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   href?: string;
   type?: "submit" | "button";
   name?: string;
@@ -31,8 +35,10 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+const dataMarkup = (target: ButtonTarget): Raw | "" =>
+  target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 /** Can't be pressed now: a button is disabled (a busy one is already); a link can't be, so it's left as it is. */
@@ -339,7 +345,8 @@ component({
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.is-full { display: flex; width: 100%; }
-.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height); padding: 0 24px;
+.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height);
+  --face-padding: 24px; --face-shift: 0px; padding: 0 calc(var(--face-padding) - var(--face-shift)) 0 calc(var(--face-padding) + var(--face-shift));
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
@@ -348,15 +355,19 @@ component({
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { padding: 0 28px; font-size: 17px; }
-.cut-btn.small > .face { padding: 0 14px; }
+.cut-btn.big > .face { --face-padding: 28px; font-size: 17px; }
+.cut-btn.small > .face { --face-padding: 14px; }
+/* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
+   slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
+.cut-btn > .face[data-slanted="start"] { --face-shift: calc(var(--control-slant) / 4); }
+.cut-btn > .face[data-slanted="end"] { --face-shift: calc(var(--control-slant) / -4); }
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
-.cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
+.cut-btn.in-well > .face { height: 30px; --face-padding: 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
 /* Pointed: it lifts toward you and casts its shade. In a well of its own it only brightens, since the well is its shade. */
@@ -388,7 +399,7 @@ component({
 .cut-btn .face > .loader { position: relative; z-index: 2; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
 @media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--control-height-regular)) / 2); } }
-@media (max-width: 760px) { .cut-btn.big > .face { padding: 0 20px; } }
+@media (max-width: 760px) { .cut-btn.big > .face { --face-padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
 `,
   render: cutButton,
@@ -755,12 +766,16 @@ const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body });
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;
+  /** It opens in a new tab, so the page it's on keeps running (a notice's page from beside a running game). */
+  isNewTab?: boolean;
+  /** data-* attributes a page's script reads ({ keep: "/signin" } is data-keep="/signin"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   state?: "is-pointed" | "is-focused";
 }
 
 /** A link in words: ink with an orange underline, so it reads as a link without shouting. Quiet in a list of links, where it's plain until pointed at. */
 export function textLink(words: string, href: string, options: TextLinkOptions = {}): Raw {
-  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}">${words}</a>`;
+  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}"${options.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : ""}>${words}</a>`;
 }
 
 component({
@@ -803,6 +818,7 @@ component({
       markup: html`<p style="margin:0;max-width:300px;font:var(--type-reading);color:var(--ink-2)">Saves stay on this device until you sign in. ${textLink("Read how cloud saves keep your progress on every device you play on", "#link", { state: "is-pointed" })}, or keep playing as a guest.</p>`,
       isStill: true,
     },
+    { label: "In a new tab, beside a running game", markup: html`<p style="margin:0;font:var(--type-words)">Someone copied your work? ${textLink("Send a copyright notice", "#link", { isNewTab: true })}</p>` },
     // The list spaces its links, not the link: a footer's are a block's gap apart, so each reads as its own.
     { label: "Quiet, in a list of links", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true })}${textLink("Source code", "#link", { isQuiet: true })}</p>` },
     { label: "Quiet, pointed", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true, state: "is-pointed" })}${textLink("Source code", "#link", { isQuiet: true })}</p>`, isStill: true },

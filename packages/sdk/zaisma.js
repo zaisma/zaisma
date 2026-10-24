@@ -1999,7 +1999,7 @@
   }
 
   function startAsking(rooms) {
-    asking = { untilMs: Date.now() + ASK_MS, rooms: rooms };
+    asking = { untilMs: Date.now() + ASK_MS, rooms: rooms, isPageAsked: false, isShownByPage: false, pageTimer: null };
     var isOwn = false;
     rooms.forEach(function (room) {
       if ((room._on.idle || []).length) isOwn = true;
@@ -2008,18 +2008,51 @@
     if (!isOwn) showStillThere();
   }
 
-  /** The "Still there?" question is over: answered by input, or timed_out as the room hears the player went idle. */
+  /** The "Still there?" question is over: answered by input (idleStatus "answered"), or "timed_out" as the room hears the player went idle. */
   function stopAsking(idleStatus) {
-    var rooms = asking ? asking.rooms : [];
+    var asked = asking;
     asking = null;
+    if (asked) {
+      clearTimeout(asked.pageTimer);
+      // The Zaisma page hides its card too.
+      if (asked.isPageAsked) window.parent.postMessage({ type: "zaisma:still-there", untilMs: null }, config.site);
+    }
+    var rooms = asked ? asked.rooms : [];
     hideStillThere();
     rooms.forEach(function (room) { room._emit("idle", { idleStatus: idleStatus, answerTimeoutSec: IDLE_ANSWER_TIMEOUT_SEC }); });
   }
 
-  /** Zaisma's small "Still there?" plate, in the Steel look. It never covers the game. */
+  /*
+   * "Still there?" on a Zaisma page: the page shows it beside the game, in its own look, until the SDK says
+   * the asking is over (untilMs: null), and answers "showing" at once and "here" when the player presses
+   * I'm here, which counts as input. No answer within a second (a game on the developer's own site, or
+   * the page's game in full screen): the game draws its own plate.
+   */
+  var STILL_THERE_PAGE_MS = 1000;
   function showStillThere() {
+    var asked = asking;
+    if (!asked || !config.site || window.parent === window) return drawStillThere();
+    asked.isPageAsked = true;
+    window.parent.postMessage({ type: "zaisma:still-there", untilMs: asked.untilMs }, config.site);
+    asked.pageTimer = setTimeout(function () {
+      if (asking === asked && !asked.isShownByPage) drawStillThere();
+    }, STILL_THERE_PAGE_MS);
+  }
+
+  addEventListener("message", function (event) {
+    if (!asking || !asking.isPageAsked || !config.site || event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:still-there") return;
+    if (event.data.status === "showing") {
+      asking.isShownByPage = true;
+      hideStillThere();
+    } else if (event.data.status === "here") input();
+  });
+
+  /** Zaisma's small "Still there?" plate, in the Steel look, off Zaisma. It never covers the game; games can restyle #zaisma-still-there. */
+  var stillTherePlate = null;
+  function drawStillThere() {
     hideStillThere();
     var plate = document.createElement("div");
+    stillTherePlate = plate;
     plate.id = "zaisma-still-there";
     plate.setAttribute("role", "status");
     plate.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;gap:14px;align-items:center;max-width:calc(100vw - 32px);box-sizing:border-box;padding:12px 14px 14px;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#eceef0;background:linear-gradient(180deg,#262a31,#1b1e23);box-shadow:inset 1px 1px 0 rgba(255,255,255,.09),inset -1px -1px 0 rgba(0,0,0,.7),0 14px 32px rgba(0,0,0,.42);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)";
@@ -2044,8 +2077,8 @@
   }
 
   function hideStillThere() {
-    var old = document.getElementById("zaisma-still-there");
-    if (old) old.remove();
+    if (stillTherePlate) stillTherePlate.remove();
+    stillTherePlate = null;
   }
 
   // Hidden and shown again: the room counts a real-time game hidden for 2 minutes as away; coming back counts as input.

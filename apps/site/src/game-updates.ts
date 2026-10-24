@@ -1,6 +1,11 @@
 import { gameBySlug } from "@zaisma/core";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
+import type { Raw } from "./html.ts";
+import { cutButton } from "./components/actions.ts";
+import type { ControlMarkup } from "./components/control-markup.ts";
+import type { IconName } from "./components/icons.ts";
+import { dropdown } from "./components/panes.ts";
 
 /*
  * Updates and the connection, beside the game in the game page's bar (docs/DECISIONS.md, "A version reaches
@@ -29,54 +34,40 @@ export async function liveVersionAnswer(env: Env, slug: string): Promise<Respons
   );
 }
 
-const svg = (paths: string, className = "") => `<svg${className ? ` class="${className}"` : ""} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-/** Three bars rising, the last two dimmed: a weak signal. */
-const ICON_WEAK = svg('<path d="M5 20v-4"/><path class="dim" d="M12 20v-9"/><path class="dim" d="M19 20V5"/>', "conn-weak");
-/** The bars crossed out: no connection. */
-const ICON_LOST = svg('<path class="dim" d="M5 20v-4"/><path class="dim" d="M12 20v-9"/><path class="dim" d="M19 20V5"/><path d="M3 3l18 18"/>', "conn-lost");
-/** Two arrows chasing round, turning: reconnecting. */
-const ICON_RETRYING = svg('<path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/>', "conn-retrying");
-const ICON_UPDATE = svg('<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 20h14"/>');
-
-/** The bar's buttons, between Players and Share: the connection, then Update. Both start hidden. */
-export function updateBarButtons(): string {
-  return `<button class="ctl conn" id="conn" type="button" title="Connection" aria-haspopup="dialog" aria-controls="conn-dialog" hidden>${ICON_WEAK}${ICON_RETRYING}${ICON_LOST}<span class="label" id="conn-label">Connection</span></button>
-  <button class="ctl update" id="update" type="button" title="Update the game" hidden>${ICON_UPDATE}<span class="label" id="update-label">Update</span></button>`;
+/**
+ * The bar's buttons, between Players and Share: the connection (one button for each way it can be wrong: weak, reconnecting, lost; the
+ * script shows the one that's true, and only that one opens the connection's dropdown), then Update. All start hidden.
+ */
+export function updateBarButtons(): ControlMarkup[] {
+  const connection = (state: "weak" | "retrying" | "lost", label: string, iconName: IconName) =>
+    cutButton(label, { id: `conn-${state}`, type: "button", icon: iconName, isLabelHidden: true, isSmall: true, controls: "conn-dialog", isHidden: true });
+  return [
+    connection("weak", "Weak connection", "signal-weak"),
+    connection("retrying", "Reconnecting", "reconnecting"),
+    connection("lost", "Connection lost", "signal-lost"),
+    cutButton("Update", { id: "update", type: "button", icon: "download", isSmall: true, isHidden: true }),
+  ];
 }
 
-/** The plate the connection button opens, beside the game like the ⋯ menu. */
-export function connectionPlate(): string {
-  return `<dialog id="conn-dialog" class="quick plate conn-dialog" aria-label="Connection"><div class="q-head"><strong id="conn-title">Connection</strong><p class="q-about" id="conn-line"></p></div></dialog>`;
+/** What the connection button opens, hanging from it like the ⋯ menu: how the connection is, and the ping. */
+export function connectionPlate(): Raw {
+  return dropdown({ id: "conn-dialog", label: "Connection", head: { title: "Connection", note: "Checking the connection." }, items: [] });
 }
-
-export const UPDATE_BAR_STYLE = `
-/* The connection, only when it isn't fine, and Update or Updating beside it. */
-.ctl.conn svg{display:none}
-.ctl.conn.weak .conn-weak,.ctl.conn.retrying .conn-retrying,.ctl.conn.lost .conn-lost{display:block}
-.ctl.conn .conn-weak,.ctl.conn .conn-lost{stroke-width:3}
-.ctl.conn .dim{opacity:.35}
-.ctl.conn.weak{color:#f0c060}
-.ctl.conn.lost{color:#ff8a7a}
-.ctl.conn.retrying .conn-retrying{animation:conn-turn 1.2s linear infinite}
-@keyframes conn-turn{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.ctl.conn.retrying .conn-retrying{animation:none}}
-.ctl.update.updating{cursor:default;opacity:.8}
-.conn-dialog{max-width:280px}
-.conn-dialog .q-about{font-variant-numeric:tabular-nums}
-`;
 
 export const GAME_UPDATES_SCRIPT = pageScript(
   "game-updates",
   String.raw`(() => {
   const gamePage = JSON.parse(document.getElementById("game-page-data").textContent);
-  const conn = document.getElementById("conn");
+  const conns = { weak: document.getElementById("conn-weak"), retrying: document.getElementById("conn-retrying"), lost: document.getElementById("conn-lost") };
   const update = document.getElementById("update");
-  if (!conn || !update) return;
-  const connLabel = document.getElementById("conn-label");
-  const updateLabel = document.getElementById("update-label");
+  if (!conns.weak || !update) return;
+  const updateLabel = update.querySelector(".face > span:not([class])");
   const plate = document.getElementById("conn-dialog");
-  const plateTitle = document.getElementById("conn-title");
-  const plateLine = document.getElementById("conn-line");
+  const plateTitle = plate.querySelector(".dropdown-head strong");
+  const plateLine = plate.querySelector(".dropdown-head span");
+  const isPlateOpen = () => !plate.classList.contains("shut");
+  // The dropdown hangs from the button that names it with aria-expanded: only the one shown has it.
+  const closePlate = () => { plate.classList.add("shut"); plate.setAttribute("aria-hidden", "true"); Object.values(conns).forEach((b) => b.hasAttribute("aria-expanded") && b.setAttribute("aria-expanded", "false")); };
   const gameOrigin = new URL(gamePage.frame_url).origin;
   const CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
   const LOST_AFTER_MS = 10000;
@@ -107,15 +98,14 @@ export const GAME_UPDATES_SCRIPT = pageScript(
   function showConnection() {
     // While the game reloads for an update, the bar says Updating, not that the connection dropped.
     const state = matchUpdate && matchUpdate.step === "now" ? null : connectionState();
-    conn.hidden = !state;
-    conn.classList.toggle("weak", state === "weak");
-    conn.classList.toggle("retrying", state === "retrying");
-    conn.classList.toggle("lost", state === "lost");
-    const words = { weak: "Weak connection", retrying: "Reconnecting", lost: "Connection lost" }[state] || "Connection";
-    conn.title = words;
-    connLabel.textContent = words;
-    if (!state && plate.open) plate.close();
-    if (plate.open) fillPlate(state);
+    const wasOpen = isPlateOpen();
+    if (wasOpen && !state) closePlate();
+    for (const [each, button] of Object.entries(conns)) {
+      button.hidden = each !== state;
+      if (each === state) { if (!button.hasAttribute("aria-expanded")) button.setAttribute("aria-expanded", "false"); }
+      else button.removeAttribute("aria-expanded");
+    }
+    if (wasOpen && state) { const shown = conns[state]; shown.setAttribute("aria-expanded", "true"); fillPlate(state); }
   }
   function fillPlate(state) {
     const ping = connection && typeof connection.pingDurationMs === "number" ? Math.round(connection.pingDurationMs) + " ms ping" : "";
@@ -126,15 +116,8 @@ export const GAME_UPDATES_SCRIPT = pageScript(
       !navigator.onLine ? "This device is offline. The game reconnects when it's back." :
       "Still trying to reach the game's room.";
   }
-  conn.onclick = () => {
-    if (plate.open) return plate.close();
-    const b = conn.getBoundingClientRect();
-    Object.assign(plate.style, { left: "auto", right: Math.max(8, innerWidth - b.right) + "px", top: b.bottom + 8 + "px", bottom: "auto" });
-    fillPlate(connectionState());
-    plate.show();
-  };
-  addEventListener("pointerdown", (e) => { if (plate.open && !plate.contains(e.target) && !conn.contains(e.target)) plate.close(); });
-  addEventListener("keydown", (e) => { if (e.key === "Escape" && plate.open) plate.close(); });
+  // The dropdown opens and closes itself (DROPDOWN_SCRIPT); its words are filled as it opens.
+  Object.values(conns).forEach((button) => button.addEventListener("click", () => fillPlate(connectionState()), true));
   addEventListener("online", showConnection);
   addEventListener("offline", showConnection);
 
@@ -142,12 +125,10 @@ export const GAME_UPDATES_SCRIPT = pageScript(
     if (matchUpdate) {
       update.hidden = false;
       update.disabled = true;
-      update.classList.add("updating");
       updateLabel.textContent = matchUpdate.step === "now" ? "Updating…" : "Update coming";
       update.title = matchUpdate.step === "now" ? "The game is updating" : "This match moves to a new version by " + new Date(matchUpdate.appliesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
       return;
     }
-    update.classList.remove("updating");
     update.disabled = false;
     updateLabel.textContent = "Update";
     update.title = "Update the game to its new version";

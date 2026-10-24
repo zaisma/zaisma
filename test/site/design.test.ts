@@ -38,6 +38,7 @@ import layoutGallerySource from "../../apps/site/src/components/layout-gallery.t
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
+import playingSource from "../../apps/site/src/components/playing.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
@@ -46,7 +47,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
@@ -527,7 +528,9 @@ describe("components", () => {
     expect(BACKDROP_SCRIPT).not.toContain("gl_FragColor");
     // Fewer frames when nobody's touched the page for a while, and a game's frame is told, since it never sees the page's input.
     expect(BACKDROP_SCRIPT).toContain(`IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000}`);
-    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: panes, isIdle: isIdle }");
+    // It's told no glass: a frame can't redraw a bend in the frame the page scrolls in, so it bends nothing under glass, and a scroll tells it nothing.
+    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: [], isIdle: isIdle }");
+    expect(BACKDROP_SCRIPT).not.toContain("isScrolling");
   });
 
   it("open the Developer and Forum tabs only on a developer page", () => {
@@ -611,6 +614,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="foot glass"', "the footer"],
   ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
+  ['class="playing-bar glass', "the bar beside a running game"],
+  ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
@@ -645,10 +650,12 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // A pane that starts low on a phone: the room above it is the viewport left over, not spacing.
+  ".glass-pane.is-started-low | margin-top",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right",
+  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right", ".list-rows.is-capped.shows-rail | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
@@ -661,7 +668,7 @@ const NOT_SPACING = new Set<string>([
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
   '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right",
@@ -754,14 +761,16 @@ describe("pages", () => {
   // accounts.test.ts renders those answers.
   const needsStandIns = (each: (typeof CHECKED_PAGES)[number]) =>
     (each.stepsToTake ?? []).some((step) => ("fieldValues" in step ? "turnstile_token" in step.fieldValues : step.path.startsWith("/signin/with/")));
-  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each));
+  // A game's pages show the preview's test games (scripts/preview), which this test doesn't make; npm run layout:check measures them there.
+  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/");
+  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each) && !needsPreviewGames(each));
   const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
 
   it("are only gallery components in every state a form shows too, and each says the state it's listed as", async () => {
     for (const state of PUBLIC_STATES) {
       const text = state.stepsToTake ? await pageAfterSteps(state.path, state.stepsToTake) : (await page(state.path)).text;
       if (text === null) continue;
-      expect(text.match(/<meta name="checked-page" content="([^"]*)">/)?.[1]?.replaceAll("&#39;", "'"), state.name).toBe(state.name);
+      expect(text.match(/<meta name="checked-page" content="([^"]*)">/)?.[1]?.replaceAll("&#39;", "'"), state.name).toBe(state.stateBeforeSetUp ?? state.name);
       expect(pageProblems(text), state.name).toEqual([]);
     }
   });

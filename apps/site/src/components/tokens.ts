@@ -95,6 +95,36 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
 
 /**
+ * The words margin (docs/DESIGN.md, Spacing), defined once. Words are never closer to the edge of a surface of glass than its margin, --pad-pane
+ * (a tray's, --pad-tray): only what has an edge of its own (a control, a field, a list's rows, a cover, a table) may sit closer, at the frame
+ * gap. A surface that holds words pads at the frame gap and sets --pad-words, the extra the margin needs; every one is listed here, and
+ * nothing else sets a surface's padding for words. A surface that isn't listed has no words margin, and the layout check
+ * (layout-measure.ts) fails any words it finds closer to a surface's edge than the margin.
+ *   - WORDS_SURFACES: what holds a pane's, a sheet's and a playing card's content, and a banner (which sets its words' own padding).
+ *   - WORDS_HOLDERS: where a heading or paragraph, or the first and last words (layout.ts's edgeWords), take the margin from --pad-words.
+ */
+export const WORDS_HOLDERS = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".tray"];
+export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-card-in", ".banner"];
+
+/**
+ * Bare groups (docs/DESIGN.md, Spacing): a component whose words sit bare, with no edge of their own, is one unit, and the unit as a whole
+ * keeps the words margin from a surface's edge on every side where it meets that edge, top and bottom included. Its parts line up with each
+ * other inside it (a game card's cover, title and players now flush; a person's picture, name and line) and move together, so no part
+ * is treated apart and a component never pads its own words. A row, a grid or a track of them is inset at its start, end and foot as one
+ * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A cover always has its words under it (its title or players
+ * now); a picture with none (a screenshot) has an edge all round and keeps the frame gap. A new bare group is added here and nowhere else;
+ * the layout check (layout-measure.ts) measures each one's box.
+ */
+export const BARE_GROUPS = [".cover", ".person"];
+
+/** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
+export const BARE_GROUPS_STYLES = `
+:where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }
+:is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")})) { padding-inline: var(--pad-words); }
+:is(.layout-grid, .layout-track) > :is(${BARE_GROUPS.join(", ")}), .grid-cell > :is(${BARE_GROUPS.join(", ")}) { padding-inline: 0; }
+`;
+
+/**
  * The tokens. Light or dark follows the system unless a choice is fixed with data-theme-choice, on <html>
  * or on any element (the gallery's stage fixes it for what's inside). Dark is smoked glass over a night-dark
  * page. Smoked glass on its own is the class smoke on any ancestor: a dark game's background smokes the
@@ -124,9 +154,10 @@ export const TOKEN_STYLES = `
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
-/* A box that scrolls keeps a swipe to itself: reaching its end never carries on into the page, so the page never nudges under it. */
-/* Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. */
-.is-scrollable { overscroll-behavior-y: contain; }
+/* A box that scrolls keeps a swipe to itself on a touch screen: reaching its end never carries on into the page, so the page never nudges under it.
+   Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. With a mouse
+   or trackpad the wheel is never held: at a box's end the next scroll carries on into the page, so a pointer resting over a list never gets stuck. */
+@media (pointer: coarse) { .is-scrollable { overscroll-behavior-y: contain; } }
 /* The page never rubber-bands, sideways or past its top or bottom: its backdrop stays put behind the glass, so a page pulled past its end
    would leave the glass's light on the backdrop behind. A tap shows itself on what was tapped, never as the browser's grey box. */
 html, body { overscroll-behavior: none; }
@@ -249,6 +280,13 @@ html { -webkit-tap-highlight-color: transparent; }
 .glass { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
 /* A slab's words keep no inset of their own unless it's a pane that sets one (layout.ts): none comes in from the pane round it. */
 .glass { --pad-words: 0px; }
+/* The words margin, once: what holds a surface's content pads at the frame gap and sets --pad-words, the rest of the margin (--pad-pane less
+   --pad-frame), for its words to take (layout.ts places them). A tray sets its own, smaller (panes.ts). */
+${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+/* Headings and paragraphs keep the margin at their sides wherever they sit in it (layout.ts's edge rules give their top and bottom); inside
+   anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's own padding wins. */
+:where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
+/* Bare groups (BARE_GROUPS above): a game card, a person. The unit takes the margin as a whole, at its sides here and its top and bottom in layout.ts. */${BARE_GROUPS_STYLES}
 .glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: var(--glass-transition); }

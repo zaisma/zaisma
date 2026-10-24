@@ -8,9 +8,8 @@ import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import { cutButton, runButton } from "./components/actions.ts";
-import { pictureFrame } from "./components/data.ts";
+import { pictureFrame, problemState } from "./components/data.ts";
 import { backdrop, glassPane } from "./components/foundations.ts";
-import { stack } from "./components/layout.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
@@ -243,7 +242,7 @@ label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 input,textarea,select{background:#0d0f12;color:var(--text);border:1px solid #000;padding:0 12px;min-height:44px;font:inherit;
   box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
 textarea{min-height:100px;padding:10px 12px}
-input:focus,textarea:focus,select:focus{outline:none;border-color:#000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none;border-color:#000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
 input[type=checkbox]{box-shadow:none}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:9px 8px;vertical-align:top;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
@@ -429,7 +428,9 @@ const SHELL_STYLES = `
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
 :root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
 @media (max-width: 760px) { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
-body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
+/* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
+html { background: var(--backdrop-edge, var(--page)); }
+body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
 /* The footer keeps a block's gap above it itself. */
@@ -718,7 +719,8 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const body = glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>${title}</h1>` }, { kind: "block", markup: html`<p>${text}</p>` }, { kind: "control", markup: runButton("Back to games", { href: "/", isFullWidth: true }) }] }) });
+  // The gallery's problem state says it; the page's heading is for screen readers, since the state's title is its words.
+  const body = glassPane({ paneWidth: "fit", body: html`<h1 class="sr">${title}</h1>${problemState({ title, text, action: runButton("Back to games", { href: "/", isFullWidth: true }) })}` });
   const response = layout(env, { title, body, checkedPage: "A message" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }

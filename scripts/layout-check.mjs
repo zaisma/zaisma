@@ -135,6 +135,12 @@ async function checkPage(chrome, contextId, url, looks, options) {
       await Promise.race([next, wait(30_000)]);
     }
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
+    // What the page starts hidden (a sheet, a card over the game) is opened first, and settled in each look below.
+    if (options.setUp) {
+      await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
+      const opened = await send("Runtime.evaluate", { expression: options.setUp, awaitPromise: true, returnByValue: true });
+      if (opened.exceptionDetails) return looks.map(() => [{ check: "the check couldn't open the page's hidden state", element: "", said: opened.exceptionDetails.exception?.description ?? opened.exceptionDetails.text }]);
+    }
     const foundByLook = [];
     for (const [lookIndex, { size, theme }] of looks.entries()) {
       if (lookIndex > 0) await look({ size, theme });
@@ -145,7 +151,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
-      if (!options.markup && state !== options.name) {
+      if (!options.markup && state !== (options.stateBeforeSetUp ?? options.name)) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
         found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }

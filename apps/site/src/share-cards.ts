@@ -8,8 +8,12 @@
 import { SHOWN_IN_LISTS_SQL, qrCodeSvg, type Game } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, raw, structuredData, type Raw } from "./html.ts";
+import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
+import { cutButton } from "./components/actions.ts";
+import { codeField, qrCode } from "./components/inputs.ts";
+import { stack, type LayoutItem } from "./components/layout.ts";
+import { sheet } from "./components/panes.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 /** Search engines show about this much of a description. */
@@ -123,47 +127,17 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
 }
 
 /**
- * The game page's Share dialog: the QR code (the room's during a match), the link with Copy, and the
- * system's share sheet where there is one. Tester links get no QR code: their address is a secret
- * the code would only spread further. The game page's script fills it in (shareFrom).
+ * The game page's Share sheet: the QR code (the room's during a match), the room code, the link with Copy (Code field), and the system's
+ * share sheet where there is one. Tester links get no QR code: their address is a secret the code would only spread further. The game
+ * page's script fills it in (shareFrom); with the room code hidden (streamer mode) the QR code, room code and link are masked until Show.
  */
-const EYE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
-
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
-  return html`<dialog id="share-dialog" class="share-dialog plate bevel" aria-labelledby="share-title">
-  <div class="head"><strong id="share-title">Share ${gameTitle}</strong><button class="btn ghost close" type="button" id="share-close" aria-label="Close">×</button></div>
-  <div class="body">
-    <div class="share-secret">
-      ${hasQrCode ? html`<figure class="share-qr"><img id="share-qr" alt="QR code for this link" width="220" height="220"><figcaption id="share-scan">Scan to play</figcaption></figure>` : ""}
-      <p class="share-room" id="share-room" hidden>Room code <b></b></p>
-      <button class="btn reveal" type="button" id="share-reveal" hidden>${raw(EYE_ICON)}Show</button>
-    </div>
-    <div class="share-row"><input readonly aria-label="Link"><button class="btn" type="button" id="share-copy">Copy</button></div>
-    <button class="btn ghost" type="button" id="share-more" hidden>More ways to share</button>
-  </div>
-</dialog>`;
+  const items: LayoutItem[] = [
+    ...(hasQrCode ? [{ kind: "block" as const, markup: qrCode({ id: "share-qr", label: "QR code for this link", caption: "Scan to play", isCompact: true }) }] : []),
+    { kind: "control", markup: cutButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
+    { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
+    { kind: "block", markup: codeField({ id: "share-link", label: "Link", code: "" }) },
+    { kind: "control", markup: cutButton("More ways to share", { id: "share-more", type: "button", icon: "share", isHidden: true }) },
+  ];
+  return sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true });
 }
-
-export const SHARE_DIALOG_STYLES = `
-/* Share: the QR code on white, so any phone's camera reads it, then the link. */
-dialog.share-dialog{width:min(360px,calc(100vw - 16px));max-width:none;padding:0}
-.share-dialog .close{min-height:36px;width:36px;padding:0;font-size:22px;line-height:1}
-.share-dialog .body{justify-items:stretch;grid-template-columns:minmax(0,1fr)}
-.share-qr{margin:4px 0 0;display:grid;justify-items:center;gap:10px;min-width:0}
-.share-qr img{display:block;width:min(220px,100%);height:auto;aspect-ratio:1;background:#fff;box-shadow:0 0 0 1px #000,0 10px 26px rgba(0,0,0,.5)}
-.share-qr figcaption{font-family:var(--display);font-size:16px;font-weight:500;color:var(--text)}
-.share-row{display:flex;gap:8px}
-.share-row input{flex:1;width:0;min-width:0}
-.share-row .btn{flex:none}
-#share-more[hidden]{display:none}
-.share-room{margin:0;text-align:center;font-size:14px;color:var(--text-2)}
-.share-room b{font-family:var(--display);font-size:18px;letter-spacing:.14em;color:var(--text);margin-left:6px}
-.share-room[hidden],#share-reveal[hidden]{display:none}
-.share-secret{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
-/* Show sits on the blurred code itself: one tap reveals the code, link and QR code. */
-.share-secret .reveal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 22px rgba(0,0,0,.6)}
-.share-secret .reveal svg{width:18px;height:18px}
-/* The room code is hidden (for streamers): the code, link and QR code blur until Show; Copy still works. */
-.share-dialog.masked .share-qr img,.share-dialog.masked .share-row input,.share-dialog.masked .share-room b{filter:blur(7px)}
-.share-dialog.masked .share-row input{cursor:pointer}
-`;

@@ -1,3 +1,5 @@
+import { BARE_GROUPS } from "./tokens.ts";
+
 /**
  * The measuring check (docs/DESIGN.md, Layout), run in a page: what's out of line on it, as failures, each { check, element, said }.
  * scripts/layout-check.mjs runs it on every page in Chrome, and Screens (screens.ts) on each page it shows, live. It's a function's
@@ -5,6 +7,8 @@
  * cut by the edge rule (data-cut-line), glass of their own (data-glass), a cover, or a list's rows.
  */
 export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
+  // The bare groups (tokens.ts): a unit whose words sit bare, measured whole.
+  var BARE_GROUPS = ${JSON.stringify(BARE_GROUPS.join(", "))};
   var TOLERANCE_PX = 1.5, LEAST_BEVEL_PX = 4;
   var failures = [];
   var root = getComputedStyle(document.documentElement);
@@ -92,9 +96,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var panes = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (pane) { return isShown(pane) && !pane.classList.contains("frame"); });
   panes.forEach(function (pane) {
-    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
+    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in") || pane, css = getComputedStyle(holder), p = pane.getBoundingClientRect();
     var gap = { left: parseFloat(css.paddingLeft), right: parseFloat(css.paddingRight), top: parseFloat(css.paddingTop), bottom: parseFloat(css.paddingBottom) };
     var words = parseFloat(css.getPropertyValue("--pad-words")) || 0;
+    // The words margin, one rule for every surface of glass (tokens.ts): words are never closer to its edge than --pad-pane (a tray's, --pad-tray),
+    // whatever the surface pads itself. Only what has an edge of its own may sit closer, at the frame gap.
+    var marginPx = parseFloat(root.getPropertyValue(pane.matches(".tray") ? "--pad-tray" : "--pad-pane")) || 0;
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
@@ -173,13 +180,16 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         var r = lineBox(glyphs, el), scroller = scrollerIn(el, pane);
         // Words running on past what scrolls sideways round them are measured where they show.
         if (scroller) { var s = scroller.getBoundingClientRect(); if (r.left < s.left - TOLERANCE_PX || r.right > s.right + TOLERANCE_PX) return false; }
-        var d = distances(r), wordsAt = { left: gap.left + words, right: gap.right + words, top: gap.top + words, bottom: gap.bottom + words };
+        // Words that end in an ellipsis (a long name) are measured where they show, up to the ellipsis.
+        if (getComputedStyle(el).textOverflow === "ellipsis") { var shown = el.getBoundingClientRect(); r = { left: Math.max(r.left, shown.left), right: Math.min(r.right, shown.right), top: r.top, bottom: r.bottom, width: Math.min(r.right, shown.right) - Math.max(r.left, shown.left), height: r.height }; }
+        var d = distances(r), wordsAt = { left: Math.max(gap.left + words, marginPx), right: Math.max(gap.right + words, marginPx), top: Math.max(gap.top + words, marginPx), bottom: Math.max(gap.bottom + words, marginPx) };
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
         var isBesideFramed = framed.some(function (f) { var o = f.getBoundingClientRect(); return (o.right <= r.left + TOLERANCE_PX || o.left >= r.right - TOLERANCE_PX) && Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > TOLERANCE_PX; });
-        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed ? ["left", "right"] : ["left", "right", "top", "bottom"];
+        // A notice is one centered line, as tall as a small control and its room: its words keep the margin at the sides only.
+        var sides = el.closest(BESIDE_CONTROLS_WORDS) || isBesideFramed || pane.matches(".notice") ? ["left", "right"] : ["left", "right", "top", "bottom"];
         var side = sides.find(function (each) { return d[each] < wordsAt[each] - TOLERANCE_PX; });
-        if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge, expected " + round(wordsAt[side]) + "px"); return true; }
+        if (side) { flagged.add(el); report("words closer to the pane's edge than its margin", el, round(d[side]) + "px from the " + side + " edge of " + describe(pane) + ", the words margin is " + round(wordsAt[side]) + "px"); return true; }
         var under = framed.find(function (f) { var o = f.getBoundingClientRect(); return Math.min(r.right, o.right) - Math.max(r.left, o.left) > TOLERANCE_PX && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > TOLERANCE_PX; });
         if (under) { flagged.add(el); report("words over something with an edge", el, "over " + describe(under)); return true; }
         lines.push({ r: r, el: el });
@@ -204,6 +214,24 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       if (hasBefore(line) || lines.some(function (other) { return Math.abs(other.r.left - line.r.left) <= TOLERANCE_PX && hasBefore(other); })) return;
       flagged.add(line.el);
       report("words off the pane's margin", line.el, round(d.left) + "px from the start edge, its margin " + round(marginPx) + "px");
+    });
+    // Bare groups (tokens.ts's BARE_GROUPS: a game card with its title and players now, a person): one unit, whose parts line up with each
+    // other and whose box, as a whole, keeps the words margin from the pane's edge on every side it meets it, top and bottom included. A row
+    // that scrolls sideways counts its whole length.
+    Array.prototype.forEach.call(pane.querySelectorAll(BARE_GROUPS), function (group) {
+      if (!isShown(group) || isScrolledAway(group, pane) || framedIn(group, pane)) return;
+      var parts = Array.prototype.filter.call(group.children, function (part) { var o = part.getBoundingClientRect(); return o.width >= 1 && o.height >= 1 && !part.matches(SKIPPED); });
+      if (!parts.length) return;
+      var unit = parts.reduce(function (all, part) { var o = part.getBoundingClientRect(); return { left: Math.min(all.left, o.left), right: Math.max(all.right, o.right), top: Math.min(all.top, o.top), bottom: Math.max(all.bottom, o.bottom) }; }, { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity });
+      var d = distances(unit), track = group.closest(".layout-track");
+      if (track && pane.contains(track)) { d = { left: d.left + track.scrollLeft, right: d.right + track.scrollWidth - track.clientWidth - track.scrollLeft, top: d.top, bottom: d.bottom }; }
+      var tooClose = ["left", "right", "top", "bottom"].find(function (each) { return d[each] < marginPx - TOLERANCE_PX; });
+      if (tooClose) report("a bare group closer to the pane's edge than the words margin", group, round(d[tooClose]) + "px from the " + tooClose + " edge of " + describe(pane) + ", the words margin is " + round(marginPx) + "px: the whole unit keeps it, not its words alone");
+      var art = group.querySelector(":scope > .cover-art"), meta = group.querySelector(":scope > .cover-meta");
+      if (art && meta && isShown(art) && isShown(meta)) {
+        var a = art.getBoundingClientRect(), m = meta.getBoundingClientRect();
+        if (Math.abs(m.left - a.left) > TOLERANCE_PX || Math.abs(m.right - a.right) > TOLERANCE_PX) report("a bare group's parts off each other", group, "its words span " + round(m.left - a.left) + "px and " + round(m.right - a.right) + "px off the cover's start and end: they line up with it");
+      }
     });
   });
   // Rows: every control one height, on one line.

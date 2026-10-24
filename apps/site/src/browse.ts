@@ -4,8 +4,8 @@ import { glassPane } from "./components/foundations.ts";
 import { grid, stack, type LayoutItem } from "./components/layout.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
-import { gameCover } from "./components/panes.ts";
 import { dividerWords } from "./components/reading.ts";
+import { gameCard } from "./components/playing.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
@@ -136,7 +136,7 @@ export function browseHref(query: Partial<BrowseQuery>): string {
 
 const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
   kind: "block",
-  markup: gameCover({
+  markup: gameCard({
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
@@ -144,7 +144,6 @@ const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
     hasHighPriority: coverIndex === 0,
-    isTitleShown: true,
   }),
 });
 

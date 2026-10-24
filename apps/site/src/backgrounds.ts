@@ -45,7 +45,7 @@ export async function backgroundOf(env: Env, game: Game, screen: BackgroundScree
  */
 export function backgroundMarkup(background: ShownBackground): Raw {
   if (background.source === "zaisma") return html`<canvas class="backdrop" data-backdrop="shader" aria-hidden="true"></canvas>`;
-  const tone = background.tone ? html` data-glass-kind="${background.tone.isGlassSmoked ? "smoked" : "light"}" data-glass-tint="${background.tone.glassTint}"` : "";
+  const tone = background.tone ? html` data-glass-kind="${background.tone.isGlassSmoked ? "smoked" : "light"}" data-glass-tint="${background.tone.glassTint}" data-backdrop-color="${background.tone.averageColor}"` : "";
   if (background.source === "image") return html`<img class="backdrop" data-backdrop="picture" data-adapts-glass${tone} src="${background.imageUrl}" alt="" decoding="async">`;
   return html`<iframe class="backdrop" data-backdrop="frame" data-adapts-glass${tone} data-backdrop-still="${background.stillUrl}" src="${background.frameUrl}" sandbox="allow-scripts allow-same-origin" allow="" loading="eager" tabindex="-1" aria-hidden="true" title="Background"></iframe>`;
 }
