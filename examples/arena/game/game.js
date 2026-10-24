@@ -134,7 +134,7 @@ function showBoard(/** @type {World} */ world) {
 }
 
 // Mute, block and report, from the game's own menu.
-document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
+document.getElementById("players").onclick = () => room && Zaisma.openPlayersPanel(room);
 // Your color: picked with the Color button, kept for next time and brought into each room as join data.
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
 const colorButton = document.getElementById("color");
@@ -177,8 +177,8 @@ document.getElementById("best").onclick = async () => {
   }
 };
 
-// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openSafetyPanel lists them).
-document.getElementById("friends").onclick = () => room && Zaisma.openSafetyPanel(room);
+// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openPlayersPanel lists them).
+document.getElementById("friends").onclick = () => room && Zaisma.openPlayersPanel(room);
 
 /** @param {string} [roomCode] a friend's arena; else the linked one, a busy one or a new one */
 async function start(roomCode) {

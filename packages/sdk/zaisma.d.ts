@@ -6,6 +6,9 @@
  *
  * Plain JavaScript, no dependencies, MIT licensed, and every part is optional.
  *
+ * v1 only gains things: calls, options, fields and values are added, never renamed or removed. Page
+ * messages, storage keys and members whose names start with `_` are not part of v1.
+ *
  * For editor and compiler checks, save this file beside your game's folder, not in it, since uploads
  * take no .ts files. On Zaisma it's served beside the SDK as _zaisma/v1.d.ts; in Zaisma's repository
  * it's packages/sdk/zaisma.d.ts. Then put `/// <reference path="../zaisma.d.ts" />` (and in JavaScript,
@@ -40,18 +43,23 @@ declare namespace Zaisma {
   /** The game's slug, as in zaisma.com/g/<slug>, or null outside Zaisma. */
   const gameSlug: string | null;
 
-  /**
-   * This tab's player, with their player pass: the signed-in Zaisma account, with the same player ID in
-   * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
-   * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
-   * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
-   * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
-   * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
-   * (its account_requirement setting): ask them to sign in with {@link player.signIn}.
-   */
-  function player(): Promise<PlayerWithPass>;
+  /** This tab's player: their pass, profiles, and asking a guest to sign in. */
+  const player: {
+    /**
+     * This tab's player, with their player pass: the signed-in Zaisma account, with the same player ID in
+     * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
+     * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
+     * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
+     * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
+     * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
+     * (its account_requirement setting): ask them to sign in with Zaisma.player.signIn().
+     *
+     * @example
+     * const mine = await Zaisma.player.getPass(); // { id, name, kind, pass, expiresAt }
+     * socket.send(JSON.stringify({ pass: mine.pass }));
+     */
+    getPass(): Promise<PlayerWithPass>;
 
-  namespace player {
     /**
      * An account's public profile by player ID, what anyone sees of it, like a name for a leaderboard
      * row. Fails with error.code "no_player" for a guest's ID or a deleted account's, and
@@ -61,13 +69,13 @@ declare namespace Zaisma {
      * const profile = await Zaisma.player.getProfile("player_8f3k2m");
      * scoreRow.textContent = profile.name; // the username: nobody can pass as someone else
      */
-    function getProfile(playerId: string): Promise<PlayerProfile>;
+    getProfile(playerId: string): Promise<PlayerProfile>;
 
     /**
      * Ask a guest to sign in with their Zaisma account, without leaving the game. Zaisma's page shows a
      * small card beside the game ("Sign in" or make a free account, and "Not now"); signing in opens a
      * new tab, so the game keeps running. Resolves with the account once the player has signed in, and
-     * at once when they already are. From then on {@link player} and joinRoom give the account's pass;
+     * at once when they already are. From then on Zaisma.player.getPass() and joinRoom give the account's pass;
      * rooms the player is already in keep them as the guest they joined as, so join again to play as
      * the account. Call it when the player presses something that needs an account, like Play online
      * in a game whose multiplayer needs one (joinRoom failed with "account_needed"), or Save to
@@ -84,7 +92,7 @@ declare namespace Zaisma {
      *   room = await Zaisma.joinRoom();
      * }
      */
-    function signIn(): Promise<Player>;
+    signIn(): Promise<Player>;
 
     /**
      * Show Zaisma's "Keep your progress" card at the moment the game picks, like right after the player
@@ -99,8 +107,9 @@ declare namespace Zaisma {
      * Fails with error.code "account_offer_too_soon" when the card already showed this visit or the
      * player chose Not now in the last 3 days (the game can't see the card, so it hears it here; show your
      * own message if you like), "sign_in_declined" when the player chose Not now, "cloud_saves_off" when
-     * the game has cloud saves off (no progress for the card to keep: ask with {@link player.signIn}
-     * instead), and "not_on_zaisma" when the game isn't played on its zaisma.com page.
+     * the game has cloud saves off (no progress for the card to keep: ask with Zaisma.player.signIn()
+     * instead), "cloud_saves_not_here" when cloud saves don't work where it's played (a tester link, or a
+     * Zaisma without accounts), and "not_on_zaisma" when the game isn't played on its zaisma.com page.
      *
      * @example
      * async function levelBeaten() {
@@ -112,8 +121,8 @@ declare namespace Zaisma {
      *   }
      * }
      */
-    function offerAccount(): Promise<Player>;
-  }
+    offerAccount(): Promise<Player>;
+  };
 
   /**
    * Join a room: the one joinOptions.roomCode names, else the one the page's link points to
@@ -126,7 +135,7 @@ declare namespace Zaisma {
    * the player: full, closed (to new players), ended, kept_out (removed for the rest of the match),
    * refused (the game server's canJoin said no; the message is its refusalMessage), hosting_paused (the
    * game's hosting is paused this month: its free allowance or its developer's budget or credit is used). No player pass: unchecked, or account_needed for a
-   * guest when the game needs accounts (see {@link player}). The
+   * guest when the game needs accounts (see Zaisma.player.getPass()). The
    * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
    * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
    * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
@@ -149,9 +158,12 @@ declare namespace Zaisma {
 
   /**
    * Invite friends. On Zaisma it opens the page's Share, the same as the game bar's Share button: the
-   * room's QR code, link and code, Copy and the share sheet ("opened"). On your own site it opens the
-   * share sheet on phones, otherwise copies the room's invite link (the game's page without a room).
-   * Call it from a button in your game, like on a "waiting for players" screen.
+   * room's QR code, link and code, Copy and the share sheet ("opened", or "failed" when the page couldn't
+   * open it). On your own site it opens the share sheet on phones, otherwise copies the room's invite link
+   * (the game's page without a room). Call it from a button in your game, like on a "waiting for players"
+   * screen: it opens only right after the player taps or presses a key in the game, so call it from that
+   * tap's handler, and it fails with error.code "needs_player_tap" otherwise. On a page that isn't
+   * Zaisma's, around a game hosted on Zaisma, it fails with "not_on_zaisma".
    *
    * @example
    * if ((await Zaisma.invite(room)) === "copied") inviteButton.textContent = "Link copied";
@@ -159,7 +171,7 @@ declare namespace Zaisma {
   function invite(room?: Room | null): Promise<InviteStatus>;
 
   /**
-   * Zaisma's chat filter: the same check Zaisma runs on its side on every chat message to or from an
+   * Zaisma's chat check: the same check Zaisma runs on its side on every chat message to or from an
    * under-18 account. It stops contact details in any disguise, moving to another app or meeting up,
    * personal details, slurs and sexual content, and answers with the words to show the sender. Swearing
    * is flagged (hasSwearing) but allowed: blocking it is your game's call. Use it to show the sender why
@@ -167,12 +179,12 @@ declare namespace Zaisma {
    * text, up to 2000 characters; a longer one is refused (too_long), never cut.
    *
    * @example
-   * const check = await Zaisma.filterText(typedMessage);
+   * const check = await Zaisma.checkChat(typedMessage);
    * if (!check.isAllowed) showError(check.message);
    * else if (check.hasSwearing) showError("No swearing in this game."); // your call
    * else send(check.text);
    */
-  function filterText(text: string): Promise<FilteredText>;
+  function checkChat(text: string): Promise<ChatCheck>;
 
   /**
    * The Players panel, where a player can mute, block and report the others and see their friends. On
@@ -182,7 +194,7 @@ declare namespace Zaisma {
    * on #zaisma-safety. A game with its own netcode offers them in its own menu. Or build your own panel
    * with room.mute, room.block and room.report.
    */
-  function openSafetyPanel(room: Room): void;
+  function openPlayersPanel(room: Room): void;
 
   /**
    * The signed-in player's Zaisma friends who are playing this game right now, for your own list of
@@ -324,7 +336,7 @@ declare namespace Zaisma {
      * Whether the player owns a permanent item (bought or granted, not refunded), by its item_name, as their
      * player pass says: a new pass (at most a day old) brings new items. false for guests, who own nothing.
      * Fails with error.code bad_item_name, not_on_zaisma, unchecked, account_needed and request_failed, as
-     * Zaisma.player() does.
+     * Zaisma.player.getPass() does.
      *
      * @example
      * if (await Zaisma.items.owns("skin_red-dragon")) unlockSkin("red-dragon");
@@ -373,8 +385,9 @@ declare namespace Zaisma {
    * in their browser, so the calls fail with "account_needed" for them.
    *
    * Every call fails with error.code "account_needed" for a guest, "cloud_saves_off" when the game has
-   * cloud saves off (or plays from a tester link), "not_on_zaisma" when the game isn't played on its
-   * zaisma.com page, "slow_down" and "request_failed".
+   * cloud saves off, "cloud_saves_not_here" when they don't work where it's played (a tester link, or a
+   * Zaisma without accounts), "not_on_zaisma" when the game isn't played on its zaisma.com page,
+   * "slow_down" and "request_failed".
    */
   const saves: Saves;
 
@@ -426,10 +439,10 @@ declare namespace Zaisma {
      * marked isCurrentSave. Each says why it was kept ({@link SaveCopyReason}).
      *
      * @example
-     * const copies = await Zaisma.saves.listCopies();
-     * for (const copy of copies) addRow(new Date(copy.savedAt).toLocaleString(), copy.copyReason);
+     * const { saveCopies } = await Zaisma.saves.listCopies();
+     * for (const copy of saveCopies) addRow(new Date(copy.savedAt).toLocaleString(), copy.copyReason);
      */
-    listCopies(): Promise<SaveCopy[]>;
+    listCopies(): Promise<SaveCopyList>;
     /**
      * One earlier version with what it holds: its localStorage items and IndexedDB databases, so the game
      * can show what's in it ("Level 7, 1,200 coins"). Writing its localStorageItems into localStorage
@@ -469,7 +482,7 @@ declare namespace Zaisma {
      * @example
      * Zaisma.saves.on("conflict", async (conflict) => {
      *   const other = await Zaisma.saves.getCopy(conflict.keptSaveCopy.id);
-     *   const where = conflict.winningProgress === "this_device" ? "another device" : "this device";
+     *   const where = conflict.winnerKind === "this_device" ? "another device" : "this device";
      *   if (confirm("Use your progress from " + where + " instead (level " + other.localStorageItems.level + ")?")) {
      *     await Zaisma.saves.restoreCopy(conflict.keptSaveCopy.id); // the game reloads with it
      *   }
@@ -492,6 +505,12 @@ declare namespace Zaisma {
     developerChange: (change: DeveloperChange) => void;
   }
 
+  /** The player's earlier versions ({@link Saves.listCopies}). */
+  interface SaveCopyList {
+    /** Newest first: up to 5. */
+    saveCopies: SaveCopy[];
+  }
+
   /** One of the player's earlier versions ({@link Saves.listCopies}). */
   interface SaveCopy {
     /** Its ID, like "save_copy_k2v9q4x7m1p3w8r5t6y0": what getCopy and restoreCopy take. */
@@ -504,6 +523,11 @@ declare namespace Zaisma {
     sizeBytes: number;
     /** It's the same progress as the save now. */
     isCurrentSave: boolean;
+    /**
+     * The game version that saved it, like "version_k2v9q4x7m1p3w8r5t6y0", as the game's page reported it;
+     * null for one you wrote through the API or MCP, or one from before Zaisma kept it.
+     */
+    versionId: string | null;
   }
 
   /** An earlier version with what it holds ({@link Saves.getCopy}). */
@@ -511,32 +535,59 @@ declare namespace Zaisma {
     /** The game's localStorage as it was: every key with its text. */
     localStorageItems: Record<string, string>;
     /**
-     * The game's IndexedDB databases as it was ([] when it keeps none), in Zaisma's save format: each
-     * { name, version, stores }, with records whose binary data and dates are tagged values. Treat them as
-     * opaque; restoreCopy puts them back.
+     * The game's IndexedDB databases as it was ([] when it keeps none), in Zaisma's save format, with
+     * records whose binary data and dates are tagged values. restoreCopy puts them back.
      */
     indexeddbDatabases: IndexeddbDatabase[];
   }
 
   /**
-   * One IndexedDB database in a save, in Zaisma's save format: { name, version, stores }, the same as
-   * the developer API's get_save_copy answers. Opaque: restoreCopy puts it back.
+   * One IndexedDB database in a save, in Zaisma's save format, the same as the developer API's
+   * get_save_copy answers. Its names (keyPath, autoIncrement, unique, multiEntry, version) are IndexedDB's own.
    */
-  type IndexeddbDatabase = { readonly [field: string]: unknown };
+  interface IndexeddbDatabase {
+    name: string;
+    /** The database's IndexedDB version: a whole number from 1. */
+    version: number;
+    stores: IndexeddbStore[];
+  }
+
+  /** One object store in an {@link IndexeddbDatabase}. */
+  interface IndexeddbStore {
+    name: string;
+    /** Where each record's key is in its value, or null when keys are kept beside the values. */
+    keyPath: string | string[] | null;
+    autoIncrement: boolean;
+    indexes: IndexeddbIndex[];
+    /** Each record as [key, value], in Zaisma's save format: binary data, dates and the like are tagged values. */
+    records: [unknown, unknown][];
+  }
+
+  /** One index on an {@link IndexeddbStore}. */
+  interface IndexeddbIndex {
+    name: string;
+    keyPath: string | string[];
+    unique: boolean;
+    multiEntry: boolean;
+  }
 
   /**
    * Why an earlier version was kept: hourly (a routine copy while playing, at most one an hour),
-   * replaced (another device's progress, played more recently, replaced it), smaller (the save shrank to
-   * under half, usually a reset), restore (the player went back to an earlier version: restoreCopy),
-   * device (a device's progress lost to the account's, played more recently) or developer (you changed,
-   * reset or restored the save through the API or MCP).
+   * account_lost (the account's progress, replaced by a device's played more recently), smaller (the
+   * save shrank to under half, usually a reset), restore (the player went back to an earlier version:
+   * restoreCopy), device_lost (a device's progress lost to the account's, played more recently) or
+   * developer (you changed, reset or restored the save through the API or MCP).
+   * More values may come; treat an unknown one as no reason shown.
    */
-  type SaveCopyReason = "hourly" | "replaced" | "smaller" | "restore" | "device" | "developer";
+  type SaveCopyReason = "hourly" | "account_lost" | "smaller" | "restore" | "device_lost" | "developer";
 
   /** A conflict Zaisma settled ({@link SavesEvents.conflict}). */
   interface SaveConflict {
-    /** Whose progress won: this device's, played more recently, or another's (the account's), which the game opened with. */
-    winningProgress: "this_device" | "other_device";
+    /**
+     * Whose progress won: "this_device", played more recently, or "account", the account's, which the game
+     * opened with. More values may come; treat an unknown one as "account".
+     */
+    winnerKind: "this_device" | "account";
     /** Where the other progress is kept. */
     keptSaveCopy: SaveCopy;
   }
@@ -544,7 +595,7 @@ declare namespace Zaisma {
   /** A change you made to the player's save ({@link SavesEvents.developerChange}). */
   interface DeveloperChange {
     /** When you changed it, as an ISO time in UTC. */
-    changedAt: string;
+    savedAt: string;
     /** Where the player's progress since their last save is kept, or null when there was none to keep. */
     keptSaveCopy: SaveCopy | null;
   }
@@ -565,7 +616,10 @@ declare namespace Zaisma {
     ownSiteUrl?: string;
   }
 
-  /** What happened when the game opened a link: opened (in a new tab), or stayed (the player chose Stay, or the link can't open for them). */
+  /**
+   * What happened when the game opened a link: opened (in a new tab), or stayed (the player chose Stay, or
+   * the link can't open for them). More values may come; treat an unknown one as "stayed".
+   */
   type LinkStatus = "opened" | "stayed";
 
   /** What {@link joinRoom} takes. Every option is optional. */
@@ -1037,7 +1091,7 @@ declare namespace Zaisma {
     awayReason: "idle" | "hidden" | "lost" | null;
   }
 
-  /** A signed-in Zaisma account, or a guest. */
+  /** A signed-in Zaisma account, or a guest. More values may come; treat an unknown one as "guest". */
   type PlayerKind = "guest" | "account";
 
   /** What anyone sees of an account on its profile, zaisma.com/@username ({@link player.getProfile}). */
@@ -1074,10 +1128,10 @@ declare namespace Zaisma {
     pageUrl: string;
   }
 
-  /** Roughly when a player last played a game: a profile never shows a time. */
+  /** Roughly when a player last played a game: a profile never shows a time. More values may come; treat an unknown one as "earlier". */
   type PlayedPeriod = "today" | "this_week" | "this_month" | "earlier";
 
-  /** This tab's player and their player pass ({@link player}). */
+  /** This tab's player and their player pass (Zaisma.player.getPass()). */
   interface PlayerWithPass extends Player {
     /**
      * The player pass: a standard EdDSA JWT (header typ "pass+jwt") any server can check against the
@@ -1236,7 +1290,8 @@ declare namespace Zaisma {
    * - not_on_zaisma: the game isn't hosted on Zaisma, so it has no player passes, sign-in or room lists, and joinRoom needs a serverUrl.
    * - sign_in_declined: the player chose Not now when the game asked them to sign in ({@link player.signIn}) or showed the "Keep your progress" card ({@link player.offerAccount}).
    * - account_offer_too_soon: the "Keep your progress" card already showed this visit, or the player chose Not now in the last 3 days ({@link player.offerAccount}).
-   * - cloud_saves_off: the game has cloud saves off, or plays from a tester link, so it has no saves on players' accounts ({@link saves}).
+   * - cloud_saves_off: the game has cloud saves off, so it has no saves on players' accounts ({@link saves}).
+   * - cloud_saves_not_here: cloud saves don't work where the game is played: a tester link, or a Zaisma without accounts. Save in the browser as usual.
    * - bad_save_copy_id: not a save copy ID; they come from {@link Saves.listCopies}, like "save_copy_k2v9q4x7m1p3w8r5t6y0".
    * - no_save_copy: the player has no earlier version with that ID in this game.
    * - bad_room_code: not a room code, which is six characters like "K7Q2MX", from 2 to 9 and A to Z without I or O.
@@ -1246,6 +1301,8 @@ declare namespace Zaisma {
    * - bad_bytes: {@link Room.sendBytes} was given something other than an ArrayBuffer or a typed array.
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
    * - And a request's ({@link RequestErrorCode}).
+   *
+   * More values may come; treat an unknown one as "request_failed".
    */
   type ErrorCode =
     | RoomErrorCode
@@ -1261,6 +1318,7 @@ declare namespace Zaisma {
     | "sign_in_declined"
     | "account_offer_too_soon"
     | "cloud_saves_off"
+    | "cloud_saves_not_here"
     | "bad_save_copy_id"
     | "no_save_copy"
     | "no_player"
@@ -1292,20 +1350,19 @@ declare namespace Zaisma {
     code: ErrorCode;
   }
 
-  /** What {@link invite} did: "opened" Zaisma's Share on a Zaisma page; elsewhere "shared" from the share sheet, "copied" the link, "cancelled" the share sheet, or "failed" to do either. */
+  /**
+   * What {@link invite} did: "opened" Zaisma's Share on a Zaisma page, or "failed" when the page couldn't
+   * open it; elsewhere "shared" from the share sheet, "copied" the link, "cancelled" the share sheet, or
+   * "failed" to do either. More values may come; treat an unknown one as "failed".
+   */
   type InviteStatus = "opened" | "shared" | "copied" | "cancelled" | "failed";
 
-  /** What {@link filterText} found. */
-  interface FilteredText {
+  /** What {@link checkChat} found. */
+  interface ChatCheck {
     /** Whether it can be sent. */
     isAllowed: boolean;
-    /**
-     * Why not, null when it's allowed: "contact_details" (a link, handle, email, phone number or contact
-     * app in any disguise, or moving to another app or meeting up), "personal_details" (where someone
-     * lives, their school, their full name, photos), "slur", "sexual", "unchecked" (Zaisma couldn't
-     * check it: try again in a moment) or "too_long" (over 2000 characters).
-     */
-    reason: "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | "too_long" | null;
+    /** Why not, null when it's allowed ({@link ChatCheckReason}). */
+    reason: ChatCheckReason | null;
     /** The words to show the sender when it's stopped (never about age or the other player); null when it's allowed. */
     message: string | null;
     /** Whether it swears. Zaisma allows swearing; block it yourself if your game doesn't. */
@@ -1313,6 +1370,16 @@ declare namespace Zaisma {
     /** The text tidied up: hidden characters and extra spaces gone, line breaks kept (empty when it's too_long). */
     text: string;
   }
+
+  /**
+   * Why {@link checkChat} stopped a message: "contact_details" (a link, handle, email, phone number or
+   * contact app in any disguise, or moving to another app or meeting up), "personal_details" (where
+   * someone lives, their school, their full name, photos), "slur", "sexual", "unchecked" (Zaisma couldn't
+   * check it: try again in a moment) or "too_long" (over 2000 characters). The game server's
+   * ChatCheckReason has two more, "chat_paused" and "not_allowed_to_chat", which only a room can give.
+   * More values may come; treat an unknown one as a stop: show message.
+   */
+  type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "unchecked" | "too_long";
 
   /** What happened, in a player report. Zaisma looks at real_life_threat (a threat that reaches past the game: their real details, finding them, a plan), personal_details (sharing someone's), following_after_block and sexual (behavior); harassment, cheating and other go to the game's developer. */
   type ReportReason = "real_life_threat" | "personal_details" | "following_after_block" | "sexual" | "harassment" | "cheating" | "other";

@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import { audit, monthStartDateOf, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { audit, bumpSave, canonicalSave, monthStartDateOf, createAccount, createApiKey, createGame, createReport, gameBySlug, notConnected, personOwner, saveFromParts, saveHash, saveKey, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
@@ -572,6 +572,43 @@ describe("players", () => {
   });
 });
 
+describe("cloud saves", () => {
+  afterEach(async () => {
+    await env.DB.exec("DELETE FROM save_history; DELETE FROM saves;");
+  });
+
+  /** The other developer's game, made directly: these tests call as them, leaving dev-1's rate limits to the tests after. */
+  const skyHopper = async () => (await createGame(env.DB, { slug: "sky-hopper", title: "Sky Hopper", description: "", ownerId: (await personOwner(env.DB, "dev-2")).id })).id;
+
+  /** A save of the player's in the game, as the game page stores it. */
+  async function saved(accountId: string, gameId: string) {
+    const text = canonicalSave(saveFromParts({ coins: "120" }, []));
+    await bumpSave(env.DB, { accountId, gameId, baseVersionNumber: 0, sha256: await saveHash(text), sizeBytes: text.length, changedByKind: "player", versionId: null });
+    await env.SAVES.put(saveKey(accountId, gameId), text);
+  }
+
+  it("lists saves after an encoded cursor, and refuses one it didn't give", async () => {
+    const gameId = await skyHopper();
+    const players = [await createAccount(env.DB, { id: "player-1", username: "Night_Owl", ageBand: "18+" }), await createAccount(env.DB, { id: "player-2", username: "Red_Fox", ageBand: "18+" })];
+    for (const player of players) await saved(player.id, gameId);
+    const [first, second] = players.map((player) => player.player_id).sort();
+    const cursorAfter = (playerId: string) => `saves_${btoa(JSON.stringify([playerId])).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+    expect((await tool("list_saves", { slug: "sky-hopper" }, other)).saves.map((save: { player_id: string }) => save.player_id)).toEqual([first, second]);
+    expect((await tool("list_saves", { slug: "sky-hopper", cursor: cursorAfter(first!) }, other)).saves.map((save: { player_id: string }) => save.player_id)).toEqual([second]);
+    expect(await tool("list_saves", { slug: "sky-hopper", cursor: "cursor_abc" }, other)).toMatchObject({ code: "bad_cursor", field: "cursor" });
+  });
+
+  it("refuses a store a browser couldn't make, saying which field", async () => {
+    const gameId = await skyHopper();
+    const player = await createAccount(env.DB, { id: "player-1", username: "Night_Owl", ageBand: "18+" });
+    await saved(player.id, gameId);
+    const store = { name: "slots", keyPath: ["team", "slot"], autoIncrement: true, indexes: [], records: [] };
+    expect(await tool("replace_save", { slug: "sky-hopper", player_id: player.player_id, local_storage_items: {}, indexeddb_databases: [{ name: "game", version: 1, stores: [store] }] }, other)).toMatchObject({
+      code: "bad_indexeddb_databases",
+      field: "indexeddb_databases[0].stores[0].autoIncrement",
+    });
+  });
+});
 
 describe("background tools", () => {
   it("send a shader, choose it once it passed, and remove it, each answering its output schema", async () => {

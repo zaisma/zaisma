@@ -50,6 +50,6 @@ describe("checkChat", () => {
     vi.stubGlobal("isZaismaRoomsSandbox", true);
     const refused = await checkChat({ text: "gg", senderPass: passOf({ sub: "player_sender5" }), receiverPasses: [] }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(ChatCheckError);
-    expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("Zaisma.filterText") });
+    expect(refused).toMatchObject({ code: "own_server_only", fix: expect.stringContaining("Zaisma.checkChat") });
   });
 });

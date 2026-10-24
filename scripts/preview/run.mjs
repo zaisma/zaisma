@@ -1791,7 +1791,7 @@ async function seedProtectAccount() {
     await asFarmer("/api/saves/tiny-farm", JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ carrot_count: "12" }) }), "PUT");
   }
   const farmer = "(SELECT id FROM accounts WHERE username = 'Saved_Farmer')";
-  const sql = [`UPDATE saves SET updated_at_ms = ${Date.now() - 2 * 3600_000} WHERE account_id = ${farmer}`, `UPDATE accounts SET protection_offered_at_ms = NULL WHERE id = ${farmer}`];
+  const sql = [`UPDATE saves SET saved_at_ms = ${Date.now() - 2 * 3600_000} WHERE account_id = ${farmer}`, `UPDATE accounts SET protection_offered_at_ms = NULL WHERE id = ${farmer}`];
   runSql(sql.join("; "));
 }
 

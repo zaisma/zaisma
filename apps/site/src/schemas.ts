@@ -794,13 +794,46 @@ const SAVE_SUMMARY_FIELDS = {
   player_id: idOf("player", "The player whose save it is: the same ID in every game, in room.players and a player pass's sub."),
   sha256: text("The SHA-256 of the save as stored (its keys sorted), to compare with save_copies."),
   size_bytes: countOf("Up to 5 MB."),
-  updated_at: isoTime(),
+  saved_at: isoTime("When the save was last saved or changed."),
   changed_by_kind: choice(
     { player: "the player's game saved it (or the player went back to an earlier version)", developer: "you changed, reset or restored it through the API or MCP" },
     "Who made the save as it is now.",
   ),
   save_copy_count: countOf("Earlier versions kept, up to 5: list_save_copies lists them."),
+  version_id: nullable(idOf("version", "The game version that saved it, as the page reported it; null for a save the developer wrote, or one from before Zaisma kept it.")),
 };
+/** A key path, IndexedDB's own: "" or names joined by dots, like "player.id". */
+const KEY_PATH = text('A key path: "" (the whole value) or names joined by dots, like "player.id".');
+const KEY_PATHS = describe({ type: "array", items: KEY_PATH, minItems: 1 }, "A compound key path: one key path per part of the key.");
+/**
+ * One IndexedDB database as the game domain script stores it (packages/sdk/saves.js), with IndexedDB's own names: what
+ * get_save answers, and what replace_save takes (it refuses one a browser couldn't restore, saying where: indexeddbDatabasesProblem).
+ */
+export const INDEXEDDB_DATABASE: Schema = object(
+  {
+    name: text('The database\'s name. Databases named with "cache" (like Unity\'s UnityCache) hold downloaded game files and are never in a save.'),
+    version: describe({ type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, "The database's version, as the game opens it."),
+    stores: list(
+      object({
+        name: text("The store's name, one per database."),
+        keyPath: { anyOf: [KEY_PATH, KEY_PATHS, { type: "null" }], description: "Where each record's key is in its value; null when keys are kept beside the values (out-of-line)." },
+        autoIncrement: yes("IndexedDB makes keys for new records. Only with a null key path or one of names, never a list or \"\"."),
+        indexes: list(
+          object({
+            name: text("The index's name, one per store."),
+            keyPath: { anyOf: [KEY_PATH, KEY_PATHS], description: "Where the index's key is in each value." },
+            unique: yes("No two records share the index's key."),
+            multiEntry: yes("A list at the key path indexes each item. Only with a single key path."),
+          }),
+        ),
+        records: list(
+          describe({ type: "array", items: {}, minItems: 2, maxItems: 2 }, 'One record as [key, value]. Values beyond JSON are tagged { "$z": [kind, …] }: num, undef, bigint, date, regexp, bytes, view, blob, file, map, set, and obj for an object with its own "$z" key.'),
+        ),
+      }),
+    ),
+  },
+  "One IndexedDB database as the game domain script stores it: its stores, their indexes and records.",
+);
 const SAVE_CONTENTS_FIELDS = {
   local_storage_items: {
     type: "object",
@@ -810,7 +843,7 @@ const SAVE_CONTENTS_FIELDS = {
   missing_keys: list(text(), "With keys: the ones asked for that the save doesn't have. [] without keys."),
   indexeddb_databases: nullable(
     list(
-      { type: "object", description: "One IndexedDB database as the game domain script stores it: { name, version, stores: [{ name, keyPath, autoIncrement, indexes, records: [[key, value]] }] }. Bytes, dates and the like are tagged as { $z: [kind, …] }." },
+      INDEXEDDB_DATABASE,
       "The game's IndexedDB databases (Unity, Godot and localForage keep saves there); [] when it keeps none. null when you asked for some keys.",
     ),
   ),
@@ -818,10 +851,10 @@ const SAVE_CONTENTS_FIELDS = {
 export const SAVE_COPY_REASON = choice(
   {
     hourly: "a routine copy, about once an hour while playing",
-    replaced: "another device's progress, played more recently, replaced this",
+    account_lost: "another device's progress, played more recently, replaced the account's",
     smaller: "the save shrank to under half, usually a restart",
     restore: "the player went back to an earlier version in the game (Zaisma.saves.restoreCopy)",
-    device: "a device's progress, older than the account's when the device opened the game or saved",
+    device_lost: "a device's progress, older than the account's when the device opened the game or saved, dated when the device last played",
     developer: "right before you changed, reset or restored the save",
   },
   "Why the copy was kept. Copies kept because progress was about to be lost (all but hourly) outlast hourly ones for 30 days.",
@@ -833,6 +866,7 @@ const SAVE_COPY_FIELDS = {
   sha256: text(),
   size_bytes: countOf(),
   is_current_save: yes("The save holds exactly this progress now."),
+  version_id: nullable(idOf("version", "The game version that saved this progress; null when you wrote it, or from before Zaisma kept it.")),
 };
 export const SAVE_SUMMARY = object(SAVE_SUMMARY_FIELDS);
 export const SAVE_LIST = object({

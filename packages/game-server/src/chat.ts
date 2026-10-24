@@ -12,7 +12,7 @@
  * server running there never sees passes, and checkChat throws a ChatCheckError (own_server_only).
  */
 
-/** Why a message was stopped. The same reasons as Zaisma.filterText, plus chat_paused and not_allowed_to_chat. */
+/** Why a message was stopped. The same reasons as Zaisma.checkChat, plus chat_paused and not_allowed_to_chat. */
 export type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
 
 export interface ChatCheck {
@@ -108,7 +108,7 @@ export async function checkChat({ text, senderPass, receiverPasses }: ChatCheckO
   if ((globalThis as { isZaismaRoomsSandbox?: boolean }).isZaismaRoomsSandbox === true) {
     throw new ChatCheckError(
       "checkChat is for a game server on your own server. In Zaisma rooms the room runs Zaisma's chat filter on the chat it delivers.",
-      "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.filterText, or offer preset phrases and emotes.",
+      "Send chat through Zaisma's chat hosting in rooms once it's out; until then, check what a player types in the game with Zaisma.checkChat, or offer preset phrases and emotes.",
     );
   }
   const claims = readClaims(String(senderPass ?? ""));

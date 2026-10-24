@@ -415,3 +415,31 @@ describe("migration 0135", () => {
     database.exec(`INSERT INTO purchases (id, game_id, item_name, item_kind, player_id, purchase_source, purchase_status, created_at_ms, purchased_at_ms) VALUES ${purchase("purchase_again", 4)}`);
   });
 });
+
+describe("migration 0143", () => {
+  const database = migratedFrom(
+    "0143_",
+    `INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('account_mia', 'player_mia', 'Mia', '18+', 1, 1);
+     INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_one', 'one', 'One', 'live', 1, 1);
+     INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES ('account_mia', 'game_one', 4, 'x', 2, 30);
+     INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES
+       ('save_copy_hourly', 'account_mia', 'game_one', 10, 'hourly', 'a', 2), ('save_copy_replaced', 'account_mia', 'game_one', 11, 'replaced', 'b', 2),
+       ('save_copy_smaller', 'account_mia', 'game_one', 12, 'smaller', 'c', 2), ('save_copy_restore', 'account_mia', 'game_one', 13, 'restore', 'd', 2),
+       ('save_copy_device', 'account_mia', 'game_one', 14, 'device', 'e', 2), ('save_copy_developer', 'account_mia', 'game_one', 15, 'developer', 'f', 2);`,
+  );
+
+  it("keeps a save's time as saved_at_ms, and no game version for saves from before", () => {
+    expect(database.prepare("SELECT version_number, saved_at_ms, version_id FROM saves").all()).toEqual([{ version_number: 4, saved_at_ms: 30, version_id: null }]);
+  });
+
+  it("says whose progress a copy set aside, and leaves the other reasons", () => {
+    expect(database.prepare("SELECT id, copy_reason, version_id FROM save_history ORDER BY saved_at_ms").all()).toEqual([
+      { id: "save_copy_hourly", copy_reason: "hourly", version_id: null },
+      { id: "save_copy_replaced", copy_reason: "account_lost", version_id: null },
+      { id: "save_copy_smaller", copy_reason: "smaller", version_id: null },
+      { id: "save_copy_restore", copy_reason: "restore", version_id: null },
+      { id: "save_copy_device", copy_reason: "device_lost", version_id: null },
+      { id: "save_copy_developer", copy_reason: "developer", version_id: null },
+    ]);
+  });
+});

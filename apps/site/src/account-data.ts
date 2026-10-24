@@ -177,14 +177,14 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     ),
   });
 
-  // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers ---
-  const saves = await env.DB.prepare("SELECT save.*, game.slug FROM saves save JOIN games game ON game.id = save.game_id WHERE save.account_id = ? ORDER BY game.slug").bind(id).all<{ game_id: string; slug: string; version_number: number; sha256: string; size_bytes: number; updated_at_ms: number; changed_by_kind: string }>();
+  // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers (as v1, read without writing back) ---
+  const saves = await env.DB.prepare("SELECT save.*, game.slug FROM saves save JOIN games game ON game.id = save.game_id WHERE save.account_id = ? ORDER BY game.slug").bind(id).all<{ game_id: string; slug: string; version_number: number; sha256: string; size_bytes: number; saved_at_ms: number; changed_by_kind: string }>();
   const copies = await env.DB.prepare("SELECT id, game_id, saved_at_ms, copy_reason, sha256, size_bytes FROM save_history WHERE account_id = ? ORDER BY saved_at_ms").bind(id).all<{ id: string; game_id: string; saved_at_ms: number; copy_reason: string; sha256: string; size_bytes: number }>();
   for (const save of saves.results) {
     const folder = `saves/${save.slug}`;
     const text = await (await env.SAVES.get(saveKey(id, save.game_id)))?.text();
     if (text === undefined) missing.push(`${folder}/save.json`);
-    else yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: save.sha256, size_bytes: save.size_bytes, updated_at: iso(save.updated_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(text), null) });
+    else yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: save.sha256, size_bytes: save.size_bytes, saved_at: iso(save.saved_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(text), null) });
     for (const copy of copies.results.filter((candidate) => candidate.game_id === save.game_id)) {
       const path = `${folder}/earlier/${new Date(copy.saved_at_ms).toISOString().replace(/:/g, "-")}.json`;
       const copyText = await (await env.SAVES.get(saveCopyKey(id, copy.game_id, copy.id)))?.text();
