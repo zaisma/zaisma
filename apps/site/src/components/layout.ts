@@ -337,8 +337,10 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */
 :is(.stack-cell, .row-cell, .grid-cell, .pane-foot-start).is-words > *, .pane-head-words > * { --pad-words: 0px; }
-${edgeWords("top")} { padding-top: calc(var(--pad-words) + var(--edge-room, 0px)); }
-${edgeWords("bottom")} { padding-bottom: calc(var(--pad-words) + var(--edge-room, 0px)); }
+/* Room a sideways track keeps for what lifts in it (.layout-track sets it); none elsewhere. */
+:root { --edge-room: 0px; }
+${edgeWords("top")} { padding-top: calc(var(--pad-words) + var(--edge-room)); }
+${edgeWords("bottom")} { padding-bottom: calc(var(--pad-words) + var(--edge-room)); }
 `;
 
 export const ROW_STYLES = `

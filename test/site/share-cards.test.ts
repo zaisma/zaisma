@@ -179,7 +179,7 @@ describe("QR codes", () => {
 
   it("sit in a Share sheet made only of gallery components, with none on a tester link's", () => {
     const withCode = shareDialog("Sky Hopper", true).html;
-    expect(withCode).toMatch(/^<dialog class="sheet glass" id="share-dialog"/);
+    expect(withCode).toMatch(/^<dialog class="sheet glass( is-compact)?" id="share-dialog"/);
     for (const id of ["share-qr", "share-qr-caption", "share-reveal", "share-room", "share-room-code", "share-link", "share-more"]) expect(withCode).toContain(`id="${id}"`);
     expect(pageProblems(withCode)).toEqual([]);
     const tester = shareDialog("Sky Hopper", false).html;

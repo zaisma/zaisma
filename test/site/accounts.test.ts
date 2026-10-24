@@ -1451,7 +1451,7 @@ describe("friends", () => {
 
     // The game page says who's playing it, with the same Join.
     const here = await (await ana.go("/g/arena-game/friends")).text();
-    expect(here).toContain("<b>Quiet_Comet</b> is playing");
+    expect(here).toContain("<b>Quiet_Comet</b><span>\u00a0is playing</span>");
     expect(here).toMatch(/<a class="shell cut-btn small" href="\/g\/arena-game\?room=ROOMAA">.*?<span>Join<\/span>/);
     // Glass: only gallery components.
     expect(pageProblems(here)).toEqual([]);
