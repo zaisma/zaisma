@@ -248,12 +248,12 @@ const PANE_STYLES = `
 const COVER_STYLES = `
 /* A cover is a carved well cut into the glass, with the studio's art set inside it: no glass and nothing drawn on the art itself. The
    well and the art are both cut by the edge rule like every control, so a cover near a pane's corner takes the pane's cut and one in the
-   middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art sits a few pixels in.
+   middle of it is square: never a rectangle against a cut corner. The well keeps the cover's 16:9, and the art fills it up to its carved rim (2px), so the rim frames the art without lying on it.
    Under the art, Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; clip-path: var(--cut-shape); text-decoration: none;
   background: url("/zaisma-mark-metal.svg") center / auto 50% no-repeat var(--well); box-shadow: var(--well-shade); }
-.cover-picture { position: absolute; inset: 4px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
+.cover-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover.is-placeholder .cover-art img { display: none; }
 /* A game with no cover has its title under the mark, so it's never a blank in a list. */
