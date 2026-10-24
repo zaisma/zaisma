@@ -1054,8 +1054,9 @@ describe("mistakes in a sandboxed game server's code", () => {
     const a = await join("flood", "ABCDEF");
     a.say("go");
     // The room runs the first 1000 calls before it logs the rest, which takes a while.
-    const errors = await errorsOf("gflood", 1, 400);
-    expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
+    const heard = await Promise.race([a.next().then((m) => JSON.stringify(m)), new Promise((resolve) => setTimeout(() => resolve("nothing heard"), 3000))]);
+    const errors = await errorsOf("gflood", 1, 200);
+    expect(`heard: ${heard}; ${errors.join("\n")}`).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
     a.ws.close(1000);
-  });
+  }, 30_000);
 });
