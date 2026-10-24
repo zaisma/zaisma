@@ -1,8 +1,9 @@
 // The preview's feedback comments, one JSON file each in .wrangler/preview-feedback/ (outside .wrangler/preview, so
 // npm run preview -- --reset keeps them), shared by the feedback server (feedback-server.mjs) and the command a session
 // runs when Julius says he left feedback (scripts/feedback.mjs). One file a comment, written whole through a rename, so
-// the two never write over each other. Pictures sit beside each comment: <comment_id>.seen.png (drawn from the page as
-// he saw it), <comment_id>.live.png (the page loaded again) and, when he'd done something on the page first, the replay of it:
+// the two never write over each other. Pictures sit beside each comment: <comment_id>.seen.png (the page as he saw it, drawn on
+// his own device; when that browser wouldn't read its drawing back, <comment_id>.seen.svg is what it copied, for the server's
+// Chrome to draw), <comment_id>.live.png (the page loaded again) and, when he'd done something on the page first, the replay of it:
 // <comment_id>.replay-<step>.jpg, listed in <comment_id>.replay.json.
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -27,7 +28,7 @@ function newCommentId() {
 
 const commentFile = (directory, commentId) => join(directory, `${commentId}.json`);
 export const pictureFile = (directory, commentId, kind) => join(directory, `${commentId}.${kind}.png`);
-export const snapshotFile = (directory, commentId) => join(directory, `${commentId}.html`);
+export const snapshotFile = (directory, commentId) => join(directory, `${commentId}.seen.svg`);
 export const replayFile = (directory, commentId) => join(directory, `${commentId}.replay.json`);
 export const replayPictureFile = (directory, commentId, stepNumber) => join(directory, `${commentId}.replay-${String(stepNumber).padStart(2, "0")}.jpg`);
 
@@ -52,7 +53,7 @@ function writeComment(comment, directory) {
 export function listComments({ status, directory = FEEDBACK_DIRECTORY } = {}) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory)
-    .filter((name) => name.endsWith(".json"))
+    .filter((name) => name.endsWith(".json") && isCommentId(name.slice(0, -".json".length)))
     .map((name) => JSON.parse(readFileSync(join(directory, name), "utf8")))
     .filter((comment) => !status || comment.status === status)
     .sort((a, b) => a.created_at_ms - b.created_at_ms);
@@ -94,6 +95,7 @@ export function addComment(input, { signInCookieHeader = null, directory = FEEDB
         layout_rule: text(input.layout_rule, 500) || null,
         element_class: text(input.element_class, 300),
         element_text: text(input.element_text, 80),
+        seen_picture_note: text(input.seen_picture_note, 1000) || null,
         recent_actions: cleanActions(input.recent_actions),
         text: commentText,
         status: "open",
@@ -151,6 +153,15 @@ export function readReplay(commentId, directory = FEEDBACK_DIRECTORY) {
   return existsSync(replayFile(directory, commentId)) ? JSON.parse(readFileSync(replayFile(directory, commentId), "utf8")) : null;
 }
 
-export function writeSnapshot(commentId, html, directory = FEEDBACK_DIRECTORY) {
-  writeWhole(snapshotFile(directory, commentId), html);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** The seen picture the overlay drew, as PNG bytes; null when what it sent isn't a PNG. */
+export function pngFromBase64(base64) {
+  if (typeof base64 !== "string" || !base64) return null;
+  const bytes = Buffer.from(base64, "base64");
+  return bytes.length > PNG_SIGNATURE.length && bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ? bytes : null;
+}
+
+/** What the overlay copied of the page, as an SVG, when its browser wouldn't read back its own drawing: the server's Chrome draws it. */
+export function writeSnapshot(commentId, svg, directory = FEEDBACK_DIRECTORY) {
+  writeWhole(snapshotFile(directory, commentId), svg);
 }

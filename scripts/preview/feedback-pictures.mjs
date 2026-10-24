@@ -1,8 +1,9 @@
 // The pictures behind each preview feedback comment, taken in headless Chrome (scripts/chrome.mjs) at the comment's screen size,
-// theme and scroll, as the same test account when Julius was signed in, with his box drawn on in orange:
-//   seen  the page as he saw it: the overlay's snapshot of it (open menus, typed fields and readable canvases kept), drawn again
-//   live  the page loaded again from its address, which also draws what the snapshot can't (a WebGL background), and after a fix
-//         shows the change (npm run feedback -- retake <comment_id>)
+// theme and scroll, as the same test account when Julius was signed in, with his box drawn on in orange. The seen picture, the page
+// as he saw it, is drawn on his own device by the overlay (feedback-overlay.js), so it's mostly not taken here:
+//   seen  only when his browser wouldn't read back its own drawing: the SVG it drew from, drawn here instead
+//   live  the page loaded again from its address, which also draws what his device couldn't (a game frame from another site), and
+//         after a fix shows the change (npm run feedback -- retake <comment_id>)
 //   replay  what he did on the page before commenting (pointing, clicks, touches, keys, scrolling), done again from a fresh load
 //         with its timing, a picture after each step and two a moment after the last, for what a still can't show: a hover, an
 //         animation, a jump, a click that does nothing
@@ -127,10 +128,13 @@ export async function openPictureTaker({ siteOrigin, directory }) {
 
   const shot = async (send, format = "png") => Buffer.from((await send("Page.captureScreenshot", format === "jpeg" ? { format, quality: 82 } : { format })).data, "base64");
 
-  async function take(comment, url) {
+  async function take(comment, kind, url) {
     return onPage(comment, url, async (send) => {
-      await send("Runtime.evaluate", { expression: `scrollTo(${comment.scroll_x_px}, ${comment.scroll_y_px}); true`, returnByValue: true });
-      await wait(150);
+      // The seen SVG is already the screen as it was scrolled.
+      if (kind === "live") {
+        await send("Runtime.evaluate", { expression: `scrollTo(${comment.scroll_x_px}, ${comment.scroll_y_px}); true`, returnByValue: true });
+        await wait(150);
+      }
       // A comment on the whole page has no spot to draw.
       if (!comment.is_page_comment) await send("Runtime.evaluate", { expression: drawBox(comment.box), returnByValue: true });
       return shot(send);
@@ -208,7 +212,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
     /** Takes one picture after the ones before it, and writes it; answers the file's path. */
     picture: (comment, kind, url) =>
       queued(async () => {
-        writePicture(comment.comment_id, kind, await take(comment, url), directory);
+        writePicture(comment.comment_id, kind, await take(comment, kind, url), directory);
         return pictureFile(directory, comment.comment_id, kind);
       }),
     /** Replays what he did before the comment, and writes its pictures and their list; answers the list. Nothing when he did nothing. */
@@ -228,5 +232,5 @@ export async function openPictureTaker({ siteOrigin, directory }) {
 
 /** The live page's address for a comment. */
 export const liveUrl = (comment, siteOrigin) => `${siteOrigin}${comment.page_url}`;
-/** The snapshot's address: served by the feedback server through the site, so its styles and pictures load as they did. */
+/** The address of the SVG his device copied, on a page of its own, served by the feedback server through the site. */
 export const seenUrl = (comment, siteOrigin) => `${siteOrigin}/__preview/feedback/snapshots/${comment.comment_id}`;

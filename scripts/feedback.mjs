@@ -7,12 +7,13 @@
 //   npm run feedback -- --json                        the same, as JSON
 //   npm run feedback -- reply <comment_id> "<text>"   a reply he sees on the page, under the comment
 //   npm run feedback -- retake <comment_id>           the live picture and the replay taken again, after a change
-// Only he closes a comment, on the page. Pictures: <comment_id>.seen.png is the page as he saw it, <comment_id>.live.png the page
+// Only he closes a comment, on the page. Pictures: <comment_id>.seen.png is the page as he saw it, drawn on his own device the moment
+// he picked the spot (its note says what it couldn't hold, like a game frame from another site), <comment_id>.live.png the page
 // loaded again, both with his box in orange, and <comment_id>.replay-<step>.jpg what he did on the page before commenting, done
 // again a step at a time, for what a still picture can't show (a hover, an animation, a click that does nothing).
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { FEEDBACK_DIRECTORY, listComments, pictureFile, publicComment, readComment, readReplay, replyToComment } from "./preview/feedback-store.mjs";
+import { FEEDBACK_DIRECTORY, listComments, pictureFile, publicComment, readComment, readReplay, replyToComment, snapshotFile } from "./preview/feedback-store.mjs";
 
 const [command, ...rest] = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
 const flags = new Set(process.argv.slice(2).filter((argument) => argument.startsWith("--")));
@@ -77,7 +78,9 @@ if (command === "reply") {
       console.log(`  On ${under}${comment.element_text ? `: "${comment.element_text}"` : ""}`);
       console.log(`  Julius: ${comment.text}`);
       for (const reply of comment.replies) console.log(`  ${reply.author === "session" ? "Claude" : "Julius"}: ${reply.text}`);
-      console.log(`  Seen: ${comment.seen_picture_path ? show(comment.seen_picture_path) : notYet}`);
+      // The seen picture comes from his device; the server draws it only from the SVG his browser sent when it couldn't.
+      const seenMissing = existsSync(snapshotFile(FEEDBACK_DIRECTORY, comment.comment_id)) ? notYet : "none: his device didn't draw one";
+      console.log(`  Seen: ${comment.seen_picture_path ? show(comment.seen_picture_path) : seenMissing}${comment.seen_picture_note ? ` (${comment.seen_picture_note})` : ""}`);
       console.log(`  Live: ${comment.live_picture_path ? show(comment.live_picture_path) : notYet}`);
       if (comment.recent_actions.length) {
         console.log(`  What he did first (${comment.recent_actions.length} actions), replayed:${comment.replay_steps.length ? "" : ` ${notYet}`}`);

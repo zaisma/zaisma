@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { addComment, changeComment, listComments, publicComment, readComment, replyToComment } from "../../scripts/preview/feedback-store.mjs";
+import { addComment, changeComment, listComments, pngFromBase64, publicComment, readComment, replyToComment, writeReplay } from "../../scripts/preview/feedback-store.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { cookiesFromHeader } from "../../scripts/preview/feedback-pictures.mjs";
 
@@ -74,6 +74,23 @@ describe("preview feedback comments", () => {
       { kind: "press", at_ms: 530, x_px: 10, y_px: 20, pointer_type: "mouse", element_label: "Cut button" },
     ]);
     expect(addComment(sent, { directory }).comment).toMatchObject({ is_page_comment: false, recent_actions: [] });
+  });
+
+  it("keeps what the device couldn't put in the seen picture, and lists comments only, not their replays", () => {
+    const { comment } = addComment({ ...sent, seen_picture_note: "a frame from another site (the game) is a marked placeholder." }, { directory });
+    expect(comment.seen_picture_note).toBe("a frame from another site (the game) is a marked placeholder.");
+    expect(addComment(sent, { directory }).comment.seen_picture_note).toBeNull();
+    writeReplay(comment.comment_id, [{ step_number: 1, label: "The page as it loads", picture_path: "x.jpg" }], directory);
+    writeFileSync(join(directory, "server.json"), "{}");
+    expect(listComments({ directory })).toHaveLength(2);
+  });
+
+  it("takes the seen picture from the device only when it's a PNG", () => {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("rest of the picture")]);
+    expect(pngFromBase64(png.toString("base64"))?.equals(png)).toBe(true);
+    expect(pngFromBase64(Buffer.from("<svg></svg>").toString("base64"))).toBeNull();
+    expect(pngFromBase64(null)).toBeNull();
+    expect(pngFromBase64("")).toBeNull();
   });
 
   it("keeps the sign-in cookie out of what the page and the command show", () => {
