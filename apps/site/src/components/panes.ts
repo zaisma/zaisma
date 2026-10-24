@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton, textButton } from "./actions.ts";
-import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
+import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, longField, qrCode } from "./inputs.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
 /*
@@ -25,6 +25,14 @@ export interface DropdownChoice {
    * It looks like any other choice, never red: only a delete's confirm step is.
    */
   confirmSheetId?: string;
+  /** Unique on the page, for the page's script to find it by (the game page's Keep your progress). */
+  id?: string;
+  /** Not shown for now: a page script shows it (Keep your progress, once there's progress to keep). Arrow keys skip it. */
+  isHidden?: boolean;
+  /** A link that opens in a new tab, so the page it's on keeps running (the rules from beside a running game): it ends in the out-of-the-page arrow. */
+  isNewTab?: boolean;
+  /** data-* attributes a page's script reads ({ report: "" } is data-report=""), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
   /** The page you're on, or the choice that's made: it sits on a slab with the orange line, like a switch's. */
   isCurrent?: boolean;
   icon?: IconName;
@@ -39,11 +47,12 @@ export type DropdownItem = DropdownChoice | { kind: "rule" };
 
 /** One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one. */
 function dropdownChoice(choice: DropdownChoice): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}`;
-  const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}" role="menuitem" tabindex="-1" data-cut-line="8"${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}`;
+  const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  const shared = html` class="dropdown-choice${choice.state ? ` ${choice.state}` : ""}" role="menuitem" tabindex="-1" data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
   if (choice.confirmSheetId !== undefined) return html`<button type="button" aria-controls="${choice.confirmSheetId}"${shared}>${inside}</button>`;
-  return html`<a href="${choice.href ?? "#"}"${shared}>${inside}</a>`;
+  return html`<a href="${choice.href ?? "#"}"${choice.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${dataMarkup}${shared}>${inside}</a>`;
 }
 
 export interface DropdownOptions {
@@ -119,6 +128,30 @@ export function gameCover(options: GameCoverOptions): Raw {
 }
 
 /**
+ * Where a pane that hangs from a button goes (window.zaismaPlace(buttonRect, paneSize, options)): one rule for a sheet, a select's list and a menu.
+ * It opens toward the middle of the room it has, as dropdowns do: a button in the right half has the pane's right edge on its right edge, one in
+ * the left half the left edges together; under the button, or above it (bottom edges together) when the button is in the lower half and the pane
+ * fits there, or when it doesn't fit below and there's more room above. Kept inside the room, edgePx from its edges. Returns { leftPx, topPx,
+ * isAtEnd, isAbove }, in the coordinates the rect and the room are given in. options: roomRect (the window by default), gapPx, edgePx and
+ * isAlwaysBelow (a menu hanging from the header's slab never flips).
+ */
+export const PLACE_SCRIPT = `/* place */(function () {
+  window.zaismaPlace = function (buttonRect, paneSize, options) {
+    var room = options.roomRect || { left: 0, top: 0, right: document.documentElement.clientWidth, bottom: window.innerHeight };
+    var gapPx = options.gapPx, edgePx = options.edgePx;
+    var isAtEnd = (buttonRect.left + buttonRect.right) / 2 > (room.left + room.right) / 2;
+    var leftPx = Math.max(room.left + edgePx, Math.min(isAtEnd ? buttonRect.right - paneSize.width : buttonRect.left, room.right - edgePx - paneSize.width));
+    var roomBelowPx = room.bottom - edgePx - buttonRect.bottom - gapPx, roomAbovePx = buttonRect.top - gapPx - edgePx - room.top;
+    var fitsBelow = paneSize.height <= roomBelowPx, fitsAbove = paneSize.height <= roomAbovePx;
+    var isLower = (buttonRect.top + buttonRect.bottom) / 2 > (room.top + room.bottom) / 2;
+    var isAbove = !options.isAlwaysBelow && (fitsBelow && fitsAbove ? isLower : !fitsBelow && roomAbovePx > roomBelowPx);
+    var topPx = isAbove ? buttonRect.top - gapPx - paneSize.height : buttonRect.bottom + gapPx;
+    return { leftPx: leftPx, topPx: Math.max(room.top + edgePx, Math.min(topPx, room.bottom - edgePx - paneSize.height)), isAtEnd: isAtEnd, isAbove: isAbove };
+  };
+})();
+`;
+
+/**
  * Menus: a button with aria-controls and aria-expanded opens the menu it names. It hangs just under the header slab when the button is in
  * the header, otherwise just under the button: from the button's end, or from its start where that would run off the screen's start, and
  * kept on the screen either way. Escape, a press elsewhere or choosing an item closes it; the arrow keys move through it.
@@ -136,18 +169,18 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
     return { left: 0, top: 0 };
   }
   function buttonOf(menu) { return document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded]'); }
-  function items(menu) { return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')); }
+  function items(menu) { return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')).filter(function (item) { return !item.closest("[hidden]"); }); }
   function place(menu) {
     var button = buttonOf(menu); if (!button || menu.classList.contains("shut")) return;
     var gapPx = token("--gap-control-stack", 8), edgePx = token("--pad-frame", 10);
     var origin = fixedOrigin(menu), r = button.getBoundingClientRect(), slab = button.closest(".top"), below = slab ? slab.getBoundingClientRect().bottom : r.bottom;
     // The room it keeps to: the screen, or what holds it where that holds fixed things (a gallery frame stands in for a screen).
     var start = origin.width ? origin.left : 0, end = origin.width ? origin.right : document.documentElement.clientWidth;
-    var width = menu.offsetWidth, isFromStart = r.right - width < start + edgePx, left = isFromStart ? r.left : r.right - width;
-    left = Math.max(start + edgePx, Math.min(end - edgePx - width, left));
-    menu.classList.toggle("from-start", isFromStart);
-    menu.style.top = (below - origin.top + gapPx) + "px";
-    menu.style.left = (left - origin.left) + "px";
+    var top = origin.height ? origin.top : 0, foot = origin.height ? origin.bottom : window.innerHeight;
+    var spot = window.zaismaPlace(slab ? { left: r.left, right: r.right, top: below - 1, bottom: below } : r, { width: menu.offsetWidth, height: menu.offsetHeight }, { roomRect: { left: start, right: end, top: top, bottom: foot }, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: !!slab });
+    menu.classList.toggle("from-start", !spot.isAtEnd); menu.classList.toggle("is-above", spot.isAbove);
+    menu.style.top = (spot.topPx - origin.top) + "px";
+    menu.style.left = (spot.leftPx - origin.left) + "px";
   }
   function toggle(menu, open, focusFirst) {
     var button = buttonOf(menu);
@@ -185,13 +218,16 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
 `;
 
 const DROPDOWN_STYLES = `
-/* A dropdown: a pane of the glass hanging just under its button, as wide as what's in it (never wider than the screen), holding a short
-   list of choices. It grows from the button's end, or from its start when it hangs from there (from-start). */
+/* A dropdown: a pane of the glass hanging just under its button (above it, is-above, where PLACE_SCRIPT puts it there), as wide as what's in it
+   (never wider than the screen), holding a short list of choices. It grows from the button's end, or from its start when it hangs from there (from-start). */
 .dropdown { position: fixed; z-index: 11; width: max-content; max-width: calc(100vw - 2 * var(--pad-frame)); padding: var(--pad-inner-pane); --pad-words: var(--pad-inside-words); --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .dropdown.from-start { transform-origin: top left; }
 .dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
+.dropdown.is-above { transform-origin: bottom right; }
+.dropdown.is-above.from-start { transform-origin: bottom left; }
+.dropdown.is-above.shut { transform: translateY(6px) scale(0.98); }
 /* Its own words (its head's) keep its margin, --pad-words in from its padding: as far in as the choices' words, which sit that far into
    each choice. The head's rule is as long as the rules between the choices. */
 .dropdown-head { display: flex; flex-direction: column; padding: var(--pad-words) var(--pad-words) var(--gap-words-control); margin-bottom: var(--gap-control-stack); border-bottom: var(--divider); }
@@ -208,6 +244,7 @@ const DROPDOWN_STYLES = `
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dropdown-choice > .tag { margin-left: auto; }
+.dropdown-choice > span.dropdown-out { display: flex; margin-left: auto; overflow: visible; }
 /* Pointed at, a choice takes a wash of the words' own color: darker on light glass, lighter on smoked, so it shows on either. */
 .dropdown-choice:hover, .dropdown-choice.is-pointed, .dropdown-choice:focus-visible, .dropdown-choice.is-focused { --face-color: var(--wash); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
@@ -222,12 +259,17 @@ const PANE_STYLES = `
 .glass-pane { display: flex; flex-direction: column; max-width: 100%; }
 .glass-pane.full { width: 100%; }
 .glass-pane.fit { width: fit-content; }
+/* Phones: a fit pane lines up with the header like every other pane, however little is in it. */
+@media (max-width: 760px) { .glass-pane.fit { width: 100%; } }
+/* Started low (a game's page): on a phone the art behind shows above the pane. The screen's room less what the pane's first part uses from the top of the page
+   (--started-low-used, STARTED_LOW_SCRIPT: down to the end of its runner's block) and a block's gap above the screen's foot (and a phone's home bar), at most a third of the screen. The screen
+   is the small one (svh), so the pane never moves when a browser's bars do; without the script it starts where it would. */
+@media (max-width: 760px) { .glass-pane.is-started-low { margin-top: clamp(0px, calc(100svh - var(--started-low-used, 100svh) - var(--gap-block-block) - env(safe-area-inset-bottom, 0px)), 34svh); } }
 .glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
-   edge of its own sits there, and its words keep the pane's margin, --pad-words further in (layout.ts places them). */
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-frame);
-  --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
+   edge of its own sits there, and its words keep the pane's margin, --pad-words further in (tokens.ts sets both, once). */
+.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
 .glass-pane > .pane-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 16px); }
@@ -242,11 +284,7 @@ const PANE_STYLES = `
 /* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 /* Its own words only: zero specificity, so any component's words (a field's error and hint) keep their own color. */
-:where(.glass-pane) p { margin: 0; color: var(--ink-2); }
-/* Headings and paragraphs in a pane, a tray or a sheet keep its margin at its sides wherever they sit (layout.ts's edge rules give its top
-   and bottom); inside anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's
-   own padding wins over this. */
-:where(.glass-pane > .pane-in, .tray, .sheet-in) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
+:where(.glass-pane, .sheet-in) p { margin: 0; color: var(--ink-2); }
 `;
 
 const COVER_STYLES = `
@@ -283,9 +321,10 @@ const COVER_STYLES = `
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
-/* What's under a cover is words, so it keeps the pane's words margin (--pad-words) in from the art's edges. With a title it belongs to the
-   cover above it: just under the orange line, with more room after it before the next row. */
-.cover-meta { padding-inline: var(--pad-words); }
+/* What's under a cover is words, so a cover with them is a bare group (tokens.ts's BARE_GROUPS): the cover, its title and players now are one
+   unit, flush with each other (the title at the art's left edge, the count at its right), and the whole unit keeps the pane's words margin
+   (--pad-words past the frame gap) from the surface's edge, at its start, end and foot, with nothing placed apart. With a title it belongs
+   to the cover above it: just under the orange line, with more room after it before the next row. */
 .cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
@@ -335,7 +374,7 @@ component({
   name: "Glass pane",
   slug: "glass-pane",
   group: "panes",
-  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking.",
+  summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. It's as wide as what holds it, or as wide as what's in it, its paragraphs running to a reading width at most; never a width of its own. Its content scrolls inside it rather than shrinking. A game's page starts its pane lower on a phone (isStartedLow), so the game's art shows above it.",
   styles: PANE_STYLES,
   render: glassPane,
   examples: [
@@ -468,11 +507,13 @@ export interface SheetOptions {
   action?: string;
   /**
    * Where it sits: "center" over the dimmed page (report a game, add a key); "foot" risen from the screen's foot over a running game, which
-   * stays in view and isn't dimmed (a buy sheet). On a phone both rise from the foot.
+   * stays in view and isn't dimmed (a buy sheet). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
    */
   placement?: "center" | "foot";
   /** Open in place rather than over the page: the gallery's still copy. */
   isShown?: boolean;
+  /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
+  isCompact?: boolean;
 }
 
 /**
@@ -527,6 +568,55 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
     function done() { clearTimeout(timer); sheet.removeEventListener("transitionend", end); if (!sheet.classList.contains("is-leaving")) return; sheet.classList.remove("is-leaving"); close.apply(sheet, closeArguments); }
     sheet.addEventListener("transitionend", end);
   }
+  // On a wide screen a sheet opened by a button hangs from it like a dropdown (zaismaPlace): toward the middle of the window, under it or above it,
+  // kept inside the window, and following it as the page scrolls or the window changes; a phone keeps its sheet at the foot (the CSS).
+  var wide = window.matchMedia("(min-width: 761px)"), anchors = new Map(), GAP_PX = 8, EDGE_PX = 16;
+  // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
+  // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
+  var pressed = null, showModal = HTMLDialogElement.prototype.showModal;
+  document.addEventListener("click", function (event) { var button = event.target.closest && event.target.closest("button, a, [role='button']"); pressed = button ? { button: button, at: performance.now() } : null; }, true);
+  HTMLDialogElement.prototype.showModal = function () {
+    var wasOpen = this.open;
+    showModal.apply(this, arguments);
+    if (!wasOpen && this.matches(".sheet")) { hold(this); place(this); focusSheet(this); }
+  };
+  // Focus moves into a sheet as it opens (a screen reader and the keyboard need it there), but a ring only ever shows for the keyboard: opened by a
+  // press (a mouse, a touch), the sheet takes the focus itself, no ring, and Tab goes on to its first control; opened from the keyboard, the browser's
+  // choice (its first control, or the one marked autofocus) stands. Closing returns the focus to the opening button as the browser does.
+  function focusSheet(sheet) {
+    if (window.zaismaInput && window.zaismaInput.isKeyboard()) return;
+    sheet.setAttribute("tabindex", "-1");
+    sheet.focus({ preventScroll: true });
+  }
+  function hold(sheet) {
+    var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
+    if (!opener || sheet.matches(".in-place") || opener.closest("[popover]") || sheet.contains(opener)) return;
+    anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
+    sheet.classList.add("is-anchored");
+  }
+  function place(sheet) {
+    var held = anchors.get(sheet);
+    if (!held || !sheet.open || !wide.matches) return;
+    var rect = held.opener.isConnected ? held.opener.getBoundingClientRect() : held.rect;
+    if (rect.width || rect.height) held.rect = rect; else rect = held.rect;
+    var windowWidth = document.documentElement.clientWidth, windowHeight = window.innerHeight;
+    if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) { sheet.close(); return; }
+    sheet.style.setProperty("--sheet-max-height", (windowHeight - 2 * EDGE_PX) + "px");
+    var spot = window.zaismaPlace(rect, { width: sheet.offsetWidth, height: sheet.offsetHeight }, { roomRect: { left: 0, top: 0, right: windowWidth, bottom: windowHeight }, gapPx: GAP_PX, edgePx: EDGE_PX });
+    sheet.style.setProperty("--sheet-left", Math.round(spot.leftPx) + "px");
+    sheet.style.setProperty("--sheet-top", Math.round(spot.topPx) + "px");
+    sheet.classList.toggle("is-above", spot.isAbove); sheet.classList.toggle("is-at-end", spot.isAtEnd);
+  }
+  function placeAll() { anchors.forEach(function (held, sheet) { place(sheet); }); }
+  window.addEventListener("resize", placeAll);
+  window.addEventListener("scroll", placeAll, { passive: true, capture: true });
+  document.addEventListener("close", function (event) {
+    var sheet = event.target;
+    if (!anchors.has(sheet)) return;
+    anchors.delete(sheet);
+    sheet.classList.remove("is-anchored", "is-above", "is-at-end");
+    sheet.style.removeProperty("--sheet-left"); sheet.style.removeProperty("--sheet-top"); sheet.style.removeProperty("--sheet-max-height");
+  }, true);
   HTMLDialogElement.prototype.close = function () { if (isLeaving(this)) leave(this, arguments); else close.apply(this, arguments); };
   document.addEventListener("cancel", function (event) { if (event.target.matches && isLeaving(event.target)) { event.preventDefault(); leave(event.target, []); } }, true);
   document.addEventListener("submit", function (event) {
@@ -563,6 +653,8 @@ const SHEET_STYLES = `
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
+/* The sheet itself takes the focus when a press opened it (SHEET_SCRIPT): no ring, a ring is for the keyboard. */
+.sheet:focus-visible { outline: none; }
 .sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
@@ -578,7 +670,7 @@ const SHEET_STYLES = `
 /* A sheet is a pane: it pads at the frame gap and its words keep the pane's margin (--pad-words). It's one form, its head (the title, and
    Close in the top end corner, taking the corner's cut, Pane parts' head), its body and its buttons at its foot. Only the body scrolls, so
    the head and the buttons stay in view, and Close keeps its corner. */
-.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
+.sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; min-height: 0; overflow-y: auto; margin: 0; }
 .sheet-in :where(p, .sheet-text) { max-width: var(--size-reading); }
 .sheet-in > .pane-parts, .sheet-in > .pane-parts > .pane-body { flex: 1 1 auto; min-height: 0; }
 .sheet-title { margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
@@ -587,19 +679,34 @@ const SHEET_STYLES = `
 .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding-inline: var(--pad-frame); }
 /* With its rail showing, the body keeps room for it along its right edge. */
 .sheet-body.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
-/* With no buttons under it, the body's last words are at the sheet's foot and keep its margin there. */
-.pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body > :is(p, h3, .stack-cell.is-words):last-child { padding-bottom: var(--pad-words); }
 .sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
 .sheet-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
-  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
-@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } }
+@media (min-width: 761px) {
+  /* Opened by a button on a wide screen (SHEET_SCRIPT sets where): it hangs from the button like a dropdown, under it or above it where there's no
+     room, and comes in from the button's side. The page behind it is dimmed only a little, and not at all over a running game (at the foot). */
+  .sheet.is-anchored:not(.in-place) { inset: auto; left: var(--sheet-left); top: var(--sheet-top); margin: 0; max-height: var(--sheet-max-height); transform-origin: 0 0; }
+  .sheet.is-anchored.is-at-end:not(.in-place) { transform-origin: 100% 0; }
+  .sheet.is-anchored.is-above:not(.in-place) { transform-origin: 0 100%; }
+  .sheet.is-anchored.is-above.is-at-end:not(.in-place) { transform-origin: 100% 100%; }
+  .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
+  .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
+  @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
+  /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. */
+  .sheet.is-compact { width: 320px; }
+  .sheet.is-compact .sheet-in, .sheet.is-compact .sheet-body { gap: var(--gap-control-stack); }
+  .sheet.is-compact .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
+  .sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
+  .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity 0.2s, overlay 0.2s allow-discrete, display 0.2s allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
 const reportBody = (idPrefix: string) =>
@@ -611,12 +718,17 @@ component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
     { label: "Try it: from its button (on a short screen its title and Send report stay while the reasons scroll)", markup: html`${cutButton("Report this game", { type: "button", controls: "example-sheet-try" })}${reportSheet("example-sheet-try")}` },
     { label: "Open", markup: reportSheet("example-sheet-shown", { isShown: true }), isWide: true, isStill: true },
+    {
+      label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
+      isStill: true,
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "block", markup: qrCode({ id: "example-sheet-compact-qr", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true }) }, { kind: "block", markup: codeField({ id: "example-sheet-compact-link", label: "Link", code: "https://zaisma.com/g/ashen-crown" }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+    },
     {
       label: "A long title",
       isStill: true,
@@ -661,6 +773,25 @@ export function notice(options: NoticeOptions): Raw {
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${textButton("Undo", { type: "submit" })}</form>`;
   return html`<div class="notice glass ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem ? "alert" : "status"}" data-notice="${options.tone}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="menu">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text">${options.text}</span>${undo}${isProblem ? cutButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) : ""}</div>`;
 }
+
+/**
+ * A pane started low (isStartedLow) says how much of the page its first part uses: from the top of the page down to the end of the block that
+ * holds its runner (Play and Details). The CSS makes the rest of the screen, less a block's gap, the pane's top margin, so Play never starts
+ * below the fold. It's set as soon as the pane is on the page and again whenever the pane changes size (a note above Play appears, the fonts
+ * arrive), each time before the browser paints: the size watcher runs between layout and paint, and any change it makes is laid out again first.
+ */
+export const STARTED_LOW_SCRIPT = `/* panes started low */(function () {
+  function place(pane) {
+    // The pane's own stack, and the one of its cells that holds the runner (Play, with Details under it).
+    var runner = pane.querySelector(".run-wrap"), inside = pane.querySelector(":scope > .pane-in > .layout-stack") || pane.querySelector(":scope > .pane-in");
+    var part = runner && inside && Array.prototype.find.call(inside.children, function (cell) { return cell.contains(runner); });
+    if (!part) return;
+    var marginPx = parseFloat(getComputedStyle(pane).marginTop) || 0;
+    pane.style.setProperty("--started-low-used", Math.round(part.getBoundingClientRect().bottom + window.scrollY - marginPx) + "px");
+  }
+  window.zaismaWatch.each(".glass-pane.is-started-low", function (pane) { place(pane); window.zaismaWatch.size(pane, function () { place(pane); }); });
+})();
+`;
 
 /**
  * Notices: one that's done leaves after 4 s, or 8 s with Undo (it waits while you point at it); a problem leaves when its close button is
@@ -709,7 +840,7 @@ component({
    little as it arrives and fades up as it leaves. A done one carries a green tick, a problem the warning in the marked color and a close
    button. Its height is a small control's and the room round it, so a notice with Close or Undo is as tall as one without. */
 .notice { position: fixed; z-index: 30; top: calc(var(--under-header, 96px) + var(--notice-shift, 0px)); left: 0; right: 0; width: max-content; max-width: calc(100% - 2 * var(--pad-pane)); margin: 0 auto;
-  display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-tray); --glass-tint: var(--glass-top);
+  display: flex; align-items: center; gap: var(--gap-words-words); min-height: calc(var(--control-height-small) + 2 * var(--pad-inner-pane)); padding: var(--pad-inner-pane) var(--pad-pane); --glass-tint: var(--glass-top);
   font: var(--type-words); color: var(--ink);
   transition: var(--glass-transition), opacity 0.3s, transform 0.3s cubic-bezier(.2,.8,.2,1), top 0.3s cubic-bezier(.2,.8,.2,1); }
 @starting-style { .notice { opacity: 0; transform: translateY(-8px); } }
@@ -781,7 +912,7 @@ component({
    and Close are a row at its end, slanting toward each other, one height, its words' first line on their center line. Narrower than
    ${BANNER_SIDE_BY_SIDE_LEAST_PX}px (by its own width), its words take the whole width, Close sits in the top end corner beside their first
    line, and the button goes under them, as wide as the strip. */
-.banner { width: 100%; container-type: inline-size; padding: var(--pad-frame); --pad-words: calc(var(--pad-pane) - var(--pad-frame)); color: var(--ink); }
+.banner { width: 100%; container-type: inline-size; color: var(--ink); }
 .banner-in { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--gap-words-control); margin: 0; }
 .banner-words { display: flex; align-items: flex-start; gap: var(--gap-words-words); min-width: 0; padding: var(--pad-words); font: var(--type-words); }
 .banner-in:is(.has-action, .has-close) > .banner-words { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }

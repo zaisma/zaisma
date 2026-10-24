@@ -3,7 +3,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { addTesterLink, createAccount, createApiKey, gameBySlug } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { GAME } from "../../apps/site/src/schemas.ts";
-import { recheckLinks } from "../../apps/site/src/game-links.ts";
+import { developerLinks, leavingCard, recheckLinks } from "../../apps/site/src/game-links.ts";
+import { LINK_BRAND_ICON_PATHS } from "../../apps/site/src/link-icons.ts";
+import { pageProblems } from "./page-rules.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageDataOf, pageScriptNames, pageScriptText } from "../strict-scripts.ts";
 import { letPublish } from "../helpers.ts";
@@ -207,8 +209,9 @@ describe("the game page asks for a link's address", () => {
   it("puts the leaving card on the game page, which opens links only after the player's tap", async () => {
     const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
     expect(page).toContain('id="link-ask"');
-    expect(page).toContain("You're leaving Zaisma");
-    expect(page).toContain("This link can't be opened here.");
+    expect(page).toContain('id="link-closed"');
+    expect(page).toContain("You&#39;re leaving Zaisma");
+    expect(page).toContain("This link can&#39;t be opened here.");
     expect(page).toContain("Back to the game");
     expect(pageScriptNames(page)).toContain("game-links");
     const scripts = await pageScriptText(page, (path) => SELF.fetch(`${SITE}${path}`));
@@ -233,8 +236,12 @@ describe("the developer's links on the game page", () => {
   ];
   const linksOnPage = async (cookie?: string) => {
     const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: cookie ? { cookie: `${cookie}; __Host-zaisma_in=1` } : {} })).text();
-    return [...page.matchAll(/<a class="dev-link brand-([a-z_]+)" href="([^"]+)"[^>]*>.*?<span>([^<]+)<\/span><\/a>/g)].map((match) => [match[1], match[2], match[3]]);
+    return [...developerLinksOf(page).matchAll(/<a class="list-row is-link" href="([^"]+)" target="_blank" rel="noopener noreferrer"[^>]*>.*?<span class="list-row-lead">(.*?)<\/span><span class="list-row-words"><span class="list-row-title">([^<]+)<\/span>/g)].map((match) => [brandOf(match[2]!), match[1], match[3]]);
   };
+  /** The developer's links list on a page, or "" when it has none. */
+  const developerLinksOf = (page: string) => /<ul class="list-rows" aria-label="The developer&#39;s links">[\s\S]*?<\/ul>/.exec(page)?.[0] ?? "";
+  /** Which site's mark a row leads with: a known site's own, else the globe (any other site). */
+  const brandOf = (lead: string) => Object.entries(LINK_BRAND_ICON_PATHS).find(([, path]) => lead.includes(`d="${path}"`))?.[0] ?? "website";
 
   it("shows the links marked for the page, each in its site's look, only to players they open for", async () => {
     await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE } });
@@ -257,7 +264,12 @@ describe("the developer's links on the game page", () => {
     await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE.slice(0, 1) } });
     expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).toContain('target="_blank" rel="noopener noreferrer"');
     await api("/games/sky-hopper", { method: "PATCH", body: { links: LINKS.slice(1) } });
-    expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).not.toContain('class="dev-links"');
+    expect(developerLinksOf(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text())).toBe("");
+  });
+
+  it("are only gallery components, as the leaving sheets are", () => {
+    expect(pageProblems(developerLinks(ON_PAGE.slice(0, 4).map((link) => ({ ...link, review_reason: null, checked_at_ms: null }))).toString())).toEqual([]);
+    expect(pageProblems(leavingCard("Sky Hopper").html)).toEqual([]);
   });
 });
 

@@ -40,6 +40,11 @@ export interface GlassPaneOptions {
   paneWidth: "full" | "fit";
   body: Raw;
   label?: string;
+  /**
+   * On a phone the pane starts lower on the screen, so the art behind it shows above it, as a console game hub lets it fill the screen
+   * with the title and Play below (the game's page). It never starts so low that the pane's first part, Play included, runs off the screen.
+   */
+  isStartedLow?: boolean;
 }
 
 /**
@@ -47,7 +52,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
 }
 
 /**
@@ -157,6 +162,8 @@ export interface SheetMarkupOptions {
   placement?: "center" | "foot";
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
+  /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
+  isCompact?: boolean;
 }
 
 /**
@@ -172,7 +179,7 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
     foot: buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${parts}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${parts}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isCompact ? " is-compact" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -417,9 +424,13 @@ component({
   summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
-   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
-.backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; background: ${BACKDROP_STILL}; }
-.backdrop.is-framed { position: absolute; }
+   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
+   gets (lvh), not the visible one, and on a phone or tablet it reaches a bleed past the top and the bottom as well: a browser's bars showing or hiding
+   never resize or redraw it, and never uncover a strip of the page's own color, whichever of the two edges they move (a phone's browser reports
+   the large window late, or short, while its bars move). */
+.backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; border: 0; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
+@media (pointer: coarse), (max-width: 760px) { .backdrop { --backdrop-bleed: 100px; } }
+.backdrop.is-framed { --backdrop-bleed: 0px; position: absolute; inset: 0; height: 100%; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -446,7 +457,7 @@ component({
   name: "Shader background",
   slug: "shader-background",
   group: "foundations",
-  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and bends the light under the glass for any shader: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge.",
+  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up. A shader drawn in the page bends the light under the glass: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge. A game's own shader runs in a frame on the game's site, which can't redraw a bend in the frame the page scrolls in, so behind Zaisma's glass it shows as drawn, never bent.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
 /* Its lines run on sideways where the frame is narrow, fading at the side with more (data-fades-sideways), never cut off. */

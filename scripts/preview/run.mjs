@@ -97,7 +97,7 @@ if (!existsSync(signInKeyFile)) {
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
 const siteSettings = {
-  SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20",
+  SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
   // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC: "30",
@@ -186,6 +186,9 @@ function querySql(sql) {
     database.close();
   }
 }
+
+/** The fixed token of Rocket Lab's "My team" tester link: the page /t/<token> is in CHECKED_PAGES (apps/site/src/components/checked-pages.ts). */
+const TEAM_TESTER_TOKEN = "7e57ed00dcafe0a1b2c3";
 
 /**
  * Waits until the compress Worker has answered every Brotli job the site queued (preview_compress_jobs, noted by
@@ -691,9 +694,10 @@ Zaisma preview is running. Nothing here touches the live site.
                   full Four in a Row room, Quiet_Comet on a game that isn't out yet, Swift_Otter in a private Arena
                   room, Red_Lantern in Cave Crew, which doesn't take joins; Appear offline at the top;
                   sign in as Moss_Runner to be one of them)
-  Join switches   ${SITE}/g/arena  ("Private room"),  ${SITE}/g/cave-crew  ("This game doesn't take joins"; its Rooms
-                  tab ends without "Press Play and the game finds you one", which ${SITE}/g/four-in-a-row#rooms says),
+  Join switches   ${SITE}/g/arena  ("Private room"),  ${SITE}/g/cave-crew  ("This game doesn't take joins"),
                   ${SITE}/dashboard/cave-crew/details  (the Join box, off)
+  Room list paging  ${SITE}/g/four-in-a-row#rooms  (6 rooms, Load more twice; small rooms, Watch beside Join, matches in
+                  progress last with Join grayed)
   Free-use heads-up  ${SITE}/dashboard  (Four in a Row's card: 80% of free hours used)
   Friends playing ${SITE}/g/shard-dodge  and  ${SITE}/g/four-in-a-row  (signed in: who's playing it, under the title, with Join)
   Blocked         ${SITE}/friends#blocked  (Loud_Hornet, an ex-friend you blocked, with Unblock)
@@ -1089,6 +1093,9 @@ async function seed() {
   await approveNewest(secret.slug);
   const { tester: team } = await api("POST", `/games/${secret.slug}/testers`, { name: "My team", version_choice: "newest_passed", ends_at: new Date(Date.now() + 14 * 86400_000).toISOString() });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
+  // "My team" gets a fixed token (20 lowercase hex, like the real ones), so the layout check can list its page, /t/<token>, in CHECKED_PAGES.
+  runSql(`UPDATE tester_links SET token = '${TEAM_TESTER_TOKEN}' WHERE id = '${team.id}'`);
+  team.link_url = `${new URL(team.link_url).origin}/t/${TEAM_TESTER_TOKEN}`;
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: new URL(tester.link_url).pathname, team: new URL(team.link_url).pathname, arena: new URL(arena.link_url).pathname }));
   // Star Haul: a game with a $2 budget that used it this month, so its hosting is paused (seedHolds writes the month).
   await api("POST", "/games", { title: "Star Haul", slug: "star-haul", description: "Haul cargo between stations before the pirates catch you.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] });
@@ -1650,9 +1657,12 @@ async function seedProfiles(go, form, people) {
  * online. Arena keeps a room with space for its room list. The rooms show in the games' room lists too.
  * The game's Join switches: Swift_Otter is in an Arena room the game made private, and Red_Lantern in
  * Cave Crew, which turned Join off. Four in a Row joins players by itself (quickJoin), and it and Cave
- * Crew have more open rooms than a list shows, so only Four in a Row's says Play finds you one.
+ * Crew have more rooms than a list's first page, so each has a Load more.
  * Spectators: Arena's room has 2 watching (its Rooms tab), and Kit_Spark's full room takes spectators,
- * so Watch stays live beside a grayed Join.
+ * so Watch stays live beside a Full room. Four in a Row's Rooms tab (/g/four-in-a-row#rooms) is the one to
+ * page through: 6 rooms, then two presses of Load more (20, then the last 9), small rooms of 1 of 2 players
+ * (some taking spectators, so Watch sits beside Join) and, last, matches in progress with Join grayed
+ * ("In a match"), two of them with Watch live.
  */
 function seedFriendsNow() {
   const later = 4102444800000;
@@ -1664,9 +1674,9 @@ function seedFriendsNow() {
     `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, friend_joins_enabled, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${playerCount}, ${maximumPlayerCount}, 1, ${isFriendJoinable ? 1 : 0}, '${country}', '${continent}', ${later}, ${later} ${ifMade}`,
     `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${player(name)}, ${later}, ${later} ${ifMade}`,
   ];
-  // Quiet rooms with one player each, past the 50 a room list shows; codes from the room code letters.
-  const quietRooms = (slug, prefix, maximumPlayerCount) =>
-    Array.from({ length: 52 }, (_, i) => `('${prefix}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(i / 32)]}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[i % 32]}', 1, ${maximumPlayerCount})`).map(
+  // Quiet rooms with one player each, more than the first page of a room list holds; codes from the room code letters.
+  const quietRooms = (slug, prefix, maximumPlayerCount, roomCount = 52) =>
+    Array.from({ length: roomCount }, (_, i) => `('${prefix}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(i / 32)]}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[i % 32]}', 1, ${maximumPlayerCount})`).map(
       (values) => `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, column1, column2, column3, 1, 'NL', 'EU', ${later}, ${later} FROM (VALUES ${values})`,
     );
   const sql = [
@@ -1686,10 +1696,16 @@ function seedFriendsNow() {
     ...room("arena", "SWFTTR", 3, 8, "NL", "EU", "Swift_Otter", false),
     ...room("cave-crew", "RDLNTN", 2, 16, "GB", "EU", "Red_Lantern"),
     `UPDATE games SET friend_joins_enabled = 0 WHERE slug = 'cave-crew'`,
-    // More open rooms than a list shows; only Four in a Row joins players by itself.
-    ...quietRooms("four-in-a-row", "QWRT", 2),
+    // More rooms than a list's first page: 30 small ones in Four in a Row (35 rooms in all, so two presses of Load more reach the end), 52 in Cave Crew.
+    ...quietRooms("four-in-a-row", "QWRT", 2, 30),
     ...quietRooms("cave-crew", "QCVX", 16),
-    `UPDATE games SET quick_joined_at_ms = ${Date.now()} WHERE slug = 'four-in-a-row'`,
+    // Matches in progress (closed, not taking new players) in Four in a Row: listed last, Join grayed. Two take spectators (Watch live), two don't.
+    ...["MTCH22", "MTCH23", "MTCH24", "MTCH25"].map(
+      (roomCode) => `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) SELECT ${game("four-in-a-row")}, '${roomCode}', 2, 2, 0, 'US', 'NA', ${later}, ${later} ${ifMade}`,
+    ),
+    `UPDATE live_rooms SET spectator_count = 3, maximum_spectator_count = 20 WHERE room_code IN ('MTCH22', 'MTCH23')`,
+    // Some of the small rooms take spectators too, so Watch sits beside Join.
+    `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
   ];
   runSql(sql.join("; "));
 }

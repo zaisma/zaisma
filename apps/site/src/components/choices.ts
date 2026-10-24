@@ -82,7 +82,7 @@ const LONG_STYLES = `
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.long:not(.is-disabled):hover textarea { --face-color: var(--field-hover); }
-.field.long textarea:focus, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
+.field.long textarea:focus-visible, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
 .field.long textarea::placeholder { color: var(--muted); }
 /* Past 12 lines it scrolls, and its words keep clear of its rail, laid over its end. */
 .field.long textarea.is-scrolling { padding-right: calc(var(--pad-inside-words) + 16px); }
@@ -145,6 +145,8 @@ export interface SelectFieldOptions {
   /** It can't be changed now: its pick shows, and its form sends nothing for it. */
   isDisabled?: boolean;
   error?: string;
+  /** data-* attributes on the hidden field it sends, as on a button: what a page's script reads when a pick changes it ({ label: "Mode" } is data-label="Mode"). */
+  dataAttributes?: Record<string, string>;
   /** The gallery's fixed states: focused, or open with its list under it, or above it where there's no room below. */
   state?: "is-focused" | "is-open" | "is-open-above";
 }
@@ -169,20 +171,27 @@ export function selectField(options: SelectFieldOptions): ControlMarkup {
   const opens = isOpen || options.isDisabled ? raw("") : html` popovertarget="${id}-list"`;
   return controlMarkup(html`<div class="cut-field" data-select><label id="${id}-label" for="${id}">${options.label}</label>
 ${isAbove ? list : ""}<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${opens}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
-${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}>
+${isAbove ? "" : list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
 ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
 /**
- * Select fields: the list opens as a popover (over everything, never clipped by the pane it's in) just under its field, or above it when
- * there's no room below, as wide as the field. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
+ * Select fields: the list opens as a popover, moved out to the page so no pane's glass is round it (over everything, never clipped by the pane it's in) attached to its field, as wide as it:
+ * under it, or above it where zaismaPlace (panes.ts's PLACE_SCRIPT) puts it, and following it as the page scrolls. The arrow keys move through it, a letter jumps to a choice, Enter or a press picks one and
  * closes it, Esc or a press elsewhere closes it. A pick sets the hidden field and sends it a change event.
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
-  var GAP_PX = 6;
+  var GAP_PX = 6, EDGE_PX = 8, owners = new WeakMap();
   window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), box = list.querySelector('[role="listbox"]'), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field"), value = root.querySelector(".select-value");
     if (!list.hasAttribute("popover")) return;
+    // Lifted out of the pane it's in to the page itself, so no pane's glass, clip or filter is round it: it paints and blurs over everything
+    // in every browser (Safari draws glass inside glass unblurred, so rows below showed through it). A list left by a field gone from the page goes,
+    // even when its field's replacement (a panel the page refreshed) has the same id: a button opens the first list of its id, so a left one must never stay.
+    document.querySelectorAll("body > .select-list").forEach(function (left) { var owner = owners.get(left); if (owner && !owner.isConnected) left.remove(); });
+    if (root.closest(".smoke")) list.classList.add("smoke");
+    owners.set(list, root);
+    document.body.appendChild(list);
     var options = Array.prototype.slice.call(box.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
     function picked() { return options.findIndex(function (o) { return o.getAttribute("aria-selected") === "true"; }); }
     function setActive(i) {
@@ -191,12 +200,15 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       box.setAttribute("aria-activedescendant", options[active].id);
       var o = options[active], top = o.offsetTop; if (top < box.scrollTop) box.scrollTop = top; else if (top + o.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + o.offsetHeight - box.clientHeight;
     }
-    // Under the field, or above it when there's more room there and not enough below; it slides in from the field's side.
+    // Attached to the field, as wide as it: under it or above it where zaismaPlace puts it, inside the window, following the field as the page
+    // scrolls or the window changes, and gone once the field has left the window.
     function place() {
-      var r = field.getBoundingClientRect(), height = list.offsetHeight, below = window.innerHeight - r.bottom - GAP_PX, isAbove = below < height && below < r.top;
-      list.style.width = r.width + "px"; list.style.left = r.left + "px";
-      list.style.top = (isAbove ? r.top - GAP_PX - height : r.bottom + GAP_PX) + "px";
-      list.classList.toggle("is-above", isAbove);
+      var r = field.getBoundingClientRect();
+      if (!field.isConnected || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > document.documentElement.clientWidth) { list.hidePopover(); return; }
+      list.style.width = r.width + "px";
+      var spot = window.zaismaPlace(r, { width: r.width, height: list.offsetHeight }, { gapPx: GAP_PX, edgePx: EDGE_PX });
+      list.style.left = Math.round(spot.leftPx) + "px"; list.style.top = Math.round(spot.topPx) + "px";
+      list.classList.toggle("is-above", spot.isAbove);
     }
     function pick(i) {
       options.forEach(function (o, j) { o.setAttribute("aria-selected", String(j === i)); });
@@ -209,7 +221,14 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
     list.addEventListener("toggle", function (event) {
       var isOpen = event.newState === "open";
       button.setAttribute("aria-expanded", String(isOpen)); field.classList.toggle("is-open", isOpen);
-      if (isOpen) { place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true }); }
+      if (isOpen && !root.isConnected) { list.hidePopover(); list.remove(); return; }
+      if (isOpen) {
+        // The page's own light or dark, and the hue of the glass where the field is, which the list no longer inherits.
+        var themed = root.closest("[data-theme-choice]");
+        if (themed && themed !== document.documentElement) list.setAttribute("data-theme-choice", themed.getAttribute("data-theme-choice")); else list.removeAttribute("data-theme-choice");
+        list.style.setProperty("--glass-hue", getComputedStyle(root).getPropertyValue("--glass-hue"));
+        place(); setActive(Math.max(0, picked())); box.focus({ preventScroll: true });
+      }
     });
     window.zaismaWatch.resize(function () { if (list.matches(":popover-open")) place(); });
     window.zaismaWatch.scroll(function () { if (list.matches(":popover-open")) place(); });
@@ -275,7 +294,7 @@ component({
 .select-sizes > span { display: block; white-space: nowrap; }
 .field.select:not(.is-disabled):hover .select-button { --face-color: var(--field-hover); }
 .select-button:focus-visible, .field.select.is-focused .select-button, .field.select.is-open .select-button { outline: none; --face-color: var(--field-focus); }
-.field.select:focus-within > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.field.select:has(:focus-visible) > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
@@ -287,13 +306,15 @@ component({
 .select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); padding: 4px; border: 0; color: var(--ink);
   display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
+@supports not (overlay: auto) { .select-list { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
 /* Closed, it takes no room and no presses: it fades out toward the field, then goes. */
 .select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } .select-list.is-above:popover-open { transform: translateY(6px); } }
 .select-list.in-place { position: relative; display: flex; width: 100%; }
 /* It scrolls with no fade, so the pick's orange line always shows in full: its rail and a choice cut at its edge say there's more. */
-.select-options { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
+.select-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; outline: none; }
 .select-options.own-scroll.shows-rail { padding-right: 18px; }
 .select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px calc(var(--pad-inside-words) - 4px) 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); text-wrap: pretty; --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
@@ -313,6 +334,7 @@ component({
     { label: "Picked: try it", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
     { label: "Nothing picked yet", markup: examplePane(selectField({ id: "example-select-placeholder", name: "room_region", label: "Where rooms run", choices: REGIONS, placeholder: "Pick a region" })) },
     { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest", icon: "globe" })) },
+    { label: "With a data attribute a script reads: a room list's filter", markup: examplePane(selectField({ id: "example-select-filter", name: "room_mode", label: "Mode", choices: [{ label: "Any", choiceValue: "" }, { label: "Classic", choiceValue: "Classic" }, { label: "Hardcore", choiceValue: "Hardcore" }], dataAttributes: { label: "Mode" } })) },
     { label: "Focused", markup: examplePane(selectField({ id: "example-select-focused", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-focused" })), isStill: true },
     { label: "Open", markup: examplePane(selectField({ id: "example-select-open", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "europe", state: "is-open" })), isStill: true },
     { label: "Open above, with no room below", markup: examplePane(selectField({ id: "example-select-above", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "asia-pacific", state: "is-open-above" })), isStill: true },
@@ -448,6 +470,8 @@ export interface ChoiceCardsOptions {
   name: string;
   /** The question, as the group's legend. */
   label: string;
+  /** The legend is for screen readers only: a heading above already asks the question (How do you play?). */
+  isLabelHidden?: boolean;
   choices: ChoiceCard[];
   pickedValue?: string;
   /** Unique on the page. Defaults to choice-<name>. */
@@ -475,7 +499,7 @@ export function choiceCards(options: ChoiceCardsOptions): Raw {
   const cards = options.isCompact
     ? html`<div class="choice-list cut-carved" data-cut-line="10">${CUT_LINE}<div class="choice-list-in" data-own-fade>${options.choices.map(card)}</div></div>`
     : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
-  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
+  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend${options.isLabelHidden ? raw(' class="sr"') : ""}>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
 
 const VISIBILITIES: ChoiceCard[] = [

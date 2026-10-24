@@ -1,11 +1,11 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
+import { checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
 import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
 import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screensPane, screensPicker } from "./components/screens.ts";
-import { CHECKED_PAGES } from "./components/checked-pages.ts";
+import { CHECKED_PAGES, type CheckedPageName } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
@@ -94,11 +94,11 @@ export function designPage(env: Env, url: URL): Response | null {
   const main = html`<h1 class="group-name">${COMPONENT_GROUPS.find((each) => each.group === group)!.name}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}`;
   // The layout group's Screens example frames the example page.
-  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, main, frames: group === "layout" ? ["'self'"] : [] });
+  return galleryPage(env, { group, theme, path: `${url.pathname}${url.search}`, title: COMPONENT_GROUPS.find((each) => each.group === group)!.name, checkedPage: `Gallery: ${group}`, main, frames: group === "layout" ? ["'self'"] : [] });
 }
 
 /** A page of the gallery: its bar with light or dark and the groups, the groups down its side, and what it shows. */
-function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean }): Response {
+function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryTheme; path: string; title: string; checkedPage: CheckedPageName; main: Raw; scripts?: PageScript[]; frames?: string[]; isIndexHidden?: boolean }): Response {
   const { group, theme } = options;
   const components = COMPONENTS();
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
@@ -107,6 +107,7 @@ function galleryPage(env: Env, options: { group: ComponentGroup; theme: GalleryT
 <html lang="en">
 <head>
 ${head(`${options.title} · Design · Zaisma`, group, options.scripts)}
+${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
@@ -135,11 +136,14 @@ ${stylesAppliedTag()}
  */
 function screensPage(env: Env, url: URL): Response {
   const theme = themeOf(url);
+  // States asked for by name (forms and all), then pages by their path.
+  const states = url.searchParams.getAll("state").flatMap((name) => CHECKED_PAGES.filter((page) => page.name === name && !page.isOnSignInSite));
   const asked = url.searchParams.getAll("page").map((path) => path.trim()).filter(isSitePath);
-  const paths = asked.length ? asked : ["/design/example"];
-  const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path)?.name ?? path;
-  const main = html`<h1 class="group-name">Screens</h1>${screensPicker(paths[0]!)}${paths.map((path) => screensPane({ path, title: titleOf(path) }))}`;
-  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", main, frames: ["'self'"], isIndexHidden: true });
+  const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path && !page.stepsToTake)?.name ?? path;
+  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
+  const panes = shown.length ? shown : [{ path: "/design/example", title: titleOf("/design/example") }];
+  const main = html`<h1 class="group-name">Screens</h1>${screensPicker(panes[0]!.path)}${panes.map((pane) => screensPane(pane))}`;
+  return galleryPage(env, { group: "layout", theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isIndexHidden: true });
 }
 
 export const GALLERY_STYLES = `

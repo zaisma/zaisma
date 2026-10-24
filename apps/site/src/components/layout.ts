@@ -1,5 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { CONTROL_HEIGHTS, type ControlHeight, type ControlMarkup } from "./control-markup.ts";
+import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -46,9 +47,14 @@ type LayoutGap = "control-row-boxes" | "control-stack" | "words-control" | "word
 /** What an item is to the spacing table: a control with words of its own is a block. */
 const spacedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.hasOwnWords ? "block" : layoutItem.kind);
 
+/** A block that's a row of controls and nothing else (row() marks its controls' height). */
+const isControlRow = (layoutItem: LayoutItem): boolean => layoutItem.kind === "block" && /^<div class="layout-row[^"]*"[^>]*? data-control-height=/.test(layoutItem.markup.html);
+
 /** The gap between two things one under the other. */
 function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
   const kinds = [spacedKind(above), spacedKind(below)];
+  // A control over a row of controls (Play over Details, Share and Report), or under one: still controls stacked.
+  if ((kinds[0] === "control" && isControlRow(below)) || (kinds[1] === "control" && isControlRow(above))) return "control-stack";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "words" && kinds[1] === "words") return "words-words";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-stack";
@@ -72,11 +78,14 @@ export interface StackOptions {
   items: LayoutItem[];
   /** What the group is, for a screen reader, when it's one thing to them. */
   label?: string;
+  /** data-* attributes a page's script reads ({ count: "2" } is data-count="2"), names in lowercase words joined by dashes. */
+  dataAttributes?: Record<string, string>;
 }
 
 /** Things one under another, each gap picked from what's on each side of it. In a pane, controls fill its width. */
 export function stack(options: StackOptions): Raw {
-  return html`<div class="layout-stack"${groupLabel(options.label)}>${options.items.map((layoutItem, itemIndex) => {
+  const dataMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  return html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${options.items.map((layoutItem, itemIndex) => {
     const above = options.items[itemIndex - 1];
     return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   })}</div>`;
@@ -255,15 +264,20 @@ const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-co
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
 const HEIGHT_HOLDERS = [".cut-btn", ".guest-btn", ".glass-btn", ".text-btn", ".run-wrap > .run", ".cut-field > .field", ".find", ".tab-switch", ".steps"];
 
-/** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), and not a script, a template or a form's hidden field. */
-const SHOWN = ':not([hidden], .holds-only-hidden, script, template, input[type="hidden"])';
+/** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
+const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';
 
 /**
  * Components whose own words sit at their top (a field's label, a table's caption) or their foot (a field's hint), as [the component,
  * its words, or nothing when its words are all of it]: at a pane's edge, those words keep its margin.
  */
-const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""]];
-const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""]];
+/**
+ * Bare groups (tokens.ts's BARE_GROUPS) take the margin as a whole unit at a surface's top and foot edge: the unit itself, or the grid or
+ * track holding units (which tokens.ts insets at its sides). The unit is padded, never its words.
+ */
+const BARE_UNITS: [string, string][] = [...BARE_GROUPS.map((group): [string, string] => [group, ""]), [`:is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")}))`, ""]];
+const WORDS_AT_TOP: [string, string][] = [[":is(.cut-field, .bday, .choices, .slider, .table, .usage, .chart, .glance)", ":first-child"], [".toggle", ".toggle-words"], [".check", ""], [".progress", ".progress-words"], [".folded", ".folded-head"], [".numbers", ""], ...BARE_UNITS];
+const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [".qr-code", ".qr-caption"], [":is(.chart, .glance)", ":last-child"], [".toggle", ".toggle-words"], [".check", ""], [".folded:not([open])", ".folded-head"], [".numbers", ""], ...BARE_UNITS];
 
 /**
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
@@ -272,7 +286,7 @@ const WORDS_AT_FOOT: [string, string][] = [[".cut-field", "p:last-child"], [":is
 function edgeWords(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
-  const selectors = [0, 1, 2, 3].flatMap((depthCount) => {
+  const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead.
     const into = ` > *${end}${BESIDE_CONTROLS}`.repeat(depthCount) + " > ";
     return [
@@ -285,21 +299,29 @@ function edgeWords(edge: "top" | "bottom"): string {
       // A component whose words are its whole (Numbers) takes the margin itself.
       ...own.flatMap(([component, words]) => (words ? [`${into}${component}${end} > ${words}`, `${into}.layout-row${end} > .row-cell > ${component} > ${words}`] : [`${into}${component}${end}`])),
     ];
-  });
-  return PANE_CONTENT.flatMap((pane) => selectors.map((selector) => `${pane}${selector}`)).join(",\n");
+  };
+  return PANE_CONTENT.filter((pane) => pane.edges.includes(edge))
+    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => selectorsOf(depthCount).map((selector) => `${pane.holder}${selector}`)).flat()).join(",\n");
 }
 
 /** What places its own words: a row with controls on one line and a pane's foot with a corner control (on the control's center line), and a pane's head. */
 const BESIDE_CONTROLS = ":not(.layout-row[data-control-height]:not(.is-wrapped), .pane-head, .pane-foot[data-control-height])";
 
-/** What holds a pane's content, a tray's and a sheet's: the edges its words and rows measure from. */
-const PANE_CONTENT = [".glass-pane > .pane-in", ".tray", ".sheet-in"];
+/**
+ * What holds a surface's content (tokens.ts's WORDS_HOLDERS), the edges its words and rows measure from, and how deep in the first and last of
+ * what it holds the edge rules look. A sheet's body, with no buttons under it, is where its words end.
+ */
+const PANE_CONTENT: { holder: string; depthCount: number; edges: ("top" | "bottom")[]; isForRows: boolean }[] = [
+  ...WORDS_HOLDERS.map((holder) => ({ holder, depthCount: holder === ".playing-card-in" ? 2 : 5, edges: ["top", "bottom"] as ("top" | "bottom")[], isForRows: true })),
+  { holder: ".pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body", depthCount: 3, edges: ["bottom"], isForRows: false },
+];
 
 /** The rows at a pane's top or bottom edge, however deep in the first or last of what it holds. */
 function edgeRows(edge: "top" | "bottom"): string {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
-  return PANE_CONTENT.flatMap((pane) => [0, 1, 2, 3].map((depthCount) => `${pane}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
+  return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
+    .flatMap((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`)).join(",\n");
 }
 
 export const STACK_STYLES = `
@@ -315,8 +337,10 @@ ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-
 .stack-cell.is-words { padding-inline: var(--pad-words); }
 /* Inside words that already keep the margin, nothing takes it again. */
 :is(.stack-cell, .row-cell, .grid-cell, .pane-foot-start).is-words > *, .pane-head-words > * { --pad-words: 0px; }
-${edgeWords("top")} { padding-top: var(--pad-words); }
-${edgeWords("bottom")} { padding-bottom: var(--pad-words); }
+/* Room a sideways track keeps for what lifts in it (.layout-track sets it); none elsewhere. */
+:root { --edge-room: 0px; }
+${edgeWords("top")} { padding-top: calc(var(--pad-words) + var(--edge-room)); }
+${edgeWords("bottom")} { padding-bottom: calc(var(--pad-words) + var(--edge-room)); }
 `;
 
 export const ROW_STYLES = `
@@ -336,6 +360,8 @@ ${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-con
 .layout-row[data-control-height]:not(.is-on-field-boxes) { align-items: flex-start; }
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :first-child { padding-top: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
 .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-words > :last-child { padding-bottom: max(0px, calc((var(--row-control-height) - 1lh) / 2)); }
+/* A block beside a field's box (a check beside Sort by) sits on the box's center line too, not at its foot. */
+.layout-row.is-on-field-boxes:not(.is-wrapped) > .row-cell.is-block { min-height: var(--row-control-height); }
 ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${gap}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${gap}); }`).join("\n")}
 /* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
    and reaches past the row's end like any last cell. */
@@ -359,8 +385,9 @@ ${GAP_TOKENS.map((gap) => `.layout-row > .row-cell.gap-end-${gap} { margin-inlin
 .layout-row.widths-equal > .row-cell.fills { min-width: var(--equal-cell-width, auto); }
 .layout-row.is-measuring > .row-cell { flex: none !important; min-width: 0 !important; }
 /* A row that can't fit on one line is a stack of its controls (is-wrapped, ROW_LAYOUT_SCRIPT): each fills its own line, as controls fill a
-   pane's width, and none is left short at a line's start. Words stay as wide as they are. */
+   pane's width, and none is left short at a line's start (and reaches past the line's end as the last control of a row does, whatever follows it). Words stay as wide as they are. */
 .layout-row.is-wrapped > .row-cell.is-control, .layout-row.is-wrapped > .row-cell.is-control.fills { flex: 1 1 100%; min-width: 0; }
+.layout-row.is-wrapped > .row-cell.is-control { margin-inline-end: var(--gap-control-row-boxes); }
 .layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
@@ -391,8 +418,10 @@ export const TRACK_STYLES = `
 /* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
    track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
-.layout-track { --fade-sideways-px: 48px; container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
-  padding: var(--gap-words-control) 0; margin: calc(-1 * var(--gap-words-control)) 0; }
+.layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
+  padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
+/* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
+.layout-track:has(> .screenshot) { gap: var(--gap-control-stack); }
 .layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 

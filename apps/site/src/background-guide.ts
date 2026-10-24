@@ -137,7 +137,7 @@ export function backgroundGuideBody(): Raw {
 
 export function backgroundGuidePage(env: Env, viewer: Viewer): Response {
   // The worlds' shaders come from a cached script, too long to write into the page.
-  const response = layout(env, { title: `${BACKGROUND_GUIDE.title} · Zaisma`, body: html`${backgroundGuideBody()}${scriptTags(STAND_IN_BACKGROUNDS_SCRIPT)}`, nav: "developer", viewer, isRebuilt: true });
+  const response = layout(env, { title: `${BACKGROUND_GUIDE.title} · Zaisma`, body: html`${backgroundGuideBody()}${scriptTags(STAND_IN_BACKGROUNDS_SCRIPT)}`, nav: "developer", viewer, checkedPage: "Background guide" });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
 }

@@ -176,6 +176,9 @@ component({
 /* Facts: a quiet label (facts) with its words (a line's). Across: side by side while they fit, each label over its words. Down: one a line,
    the labels in a column of their own, as wide as the longest. */
 .facts { margin: 0; min-width: 0; }
+/* In a pane as wide as what's in it, facts wrap rather than widen it past a card and a half: a game's pane stays compact however many ways it's played. */
+.glass-pane.fit .facts { contain: inline-size; }
+@media (min-width: 761px) { .glass-pane.fit .facts { min-width: calc(1.5 * var(--size-card)); } }
 .facts.across { display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
 .facts.across > .fact { display: grid; gap: var(--gap-words-words); min-width: 0; }
 .facts.down { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); align-items: baseline; gap: var(--gap-words-words) var(--gap-block-block); }

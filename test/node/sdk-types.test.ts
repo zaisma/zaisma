@@ -902,6 +902,41 @@ describe("the SDK's types say what the SDK does", () => {
     expect(sdk.sockets.length).toBe(2);
   });
 
+  it("asks the Zaisma page to show \"Still there?\", hears I'm here as input, and tells the page when it's over", async () => {
+    const sdk = loadSdk();
+    const { socket } = await joinedRoom(sdk);
+    // The room answers every ping, so the connection stays open however long the clock jumps.
+    const check = () => {
+      sdk.intervals.forEach((work) => work());
+      socket.onmessage!({ data: "pong" });
+    };
+    const stillThere = () => sdk.page.posted.filter((message) => (message as { type?: string })?.type === "zaisma:still-there");
+    const startMs = Date.now();
+    vi.useFakeTimers({ now: startMs });
+    try {
+      vi.setSystemTime(startMs + 600_000);
+      check();
+      expect(stillThere()).toEqual([{ type: "zaisma:still-there", untilMs: startMs + 630_000 }]);
+      sdk.page.say({ type: "zaisma:still-there", status: "showing" });
+      // Past the second the page has to answer: it did, so the game draws nothing (this stand-in browser has no document to draw in).
+      vi.advanceTimersByTime(1500);
+      // Only the page around the game answers for the player.
+      (sdk.listeners.message ?? []).slice().forEach((listener) => listener({ origin: ON_ZAISMA.site, source: {}, data: { type: "zaisma:still-there", status: "here" } }));
+      expect(stillThere()).toHaveLength(1);
+      sdk.page.say({ type: "zaisma:still-there", status: "here" });
+      expect(stillThere()).toEqual([{ type: "zaisma:still-there", untilMs: startMs + 630_000 }, { type: "zaisma:still-there", untilMs: null }]);
+      // Asked again later, and nobody answers: the 30 seconds run out, the room hears they walked away, and the page hides its card.
+      vi.setSystemTime(startMs + 1_300_000);
+      check();
+      sdk.page.say({ type: "zaisma:still-there", status: "showing" });
+      vi.setSystemTime(startMs + 1_331_000);
+      check();
+      expect(stillThere().slice(2)).toEqual([{ type: "zaisma:still-there", untilMs: startMs + 1_330_000 }, { type: "zaisma:still-there", untilMs: null }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("what rooms send, as the game server and the rooms Worker declare it", () => {
     // What a player owns is the game server's alone, from their pass: rooms never send it to players' games.
     expect(fieldsOf("Player")).toEqual(fieldsOf("Player", GAME_SERVER).filter((name) => name !== "ownedItemNames"));

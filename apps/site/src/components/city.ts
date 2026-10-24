@@ -2736,7 +2736,9 @@ const CITY_STYLES = `
    then the camera sets off. Where it can't run (reduced motion, no WebGL, a device that can't keep up) the full still takes the
    placeholder's place instead, once it has wholly loaded, and its blur clears. The still is loaded only then. */
 /* Its height is the largest the window gets (lvh), not the visible one: a phone's address bar showing or hiding crops the stage's bottom
-   instead of resizing it, so the city never scales with the bar. */
+   instead of resizing it, so the city never scales with the bar. Its parent is isolated like the backdrop's: the page sets the color behind it
+   on html (html.ts), so the body's own would otherwise paint over it. */
+:has(> .city-stage) { isolation: isolate; }
 .city-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; background: linear-gradient(180deg, #D1DBE3 0%, #DCE2E7 37%, #DCE2E7 44%, #DCE2E9 47%, #D7DFE5 100%); }
 .city-stage.is-framed { position: absolute; inset: 0; height: auto; z-index: 0; }
 .city-stage .city { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -2803,8 +2805,6 @@ html:has(.city-page) { height: 100%; }
 .city-pane .or { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .city-pane .or::before, .city-pane .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .city-pane .note { font: var(--type-note); color: var(--muted); }
-/* How do you play?: the pane's heading is the question, so the choices' own legend is for screen readers only. */
-.city-pane .is-play-step .choices > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* Its cards sit two to a row where the pane has room: an odd one out on the last row is centred under the two above it, one column wide. */
 .city-pane .is-play-step .choice-cards { container-type: inline-size; }
 @container (min-width: 368px) {

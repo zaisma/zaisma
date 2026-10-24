@@ -1,10 +1,16 @@
-import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, testerLinkByToken, type Game, type GameLink } from "@zaisma/core";
+import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, testerLinkByToken, type Game, type GameLink, type LinkBrand } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, metalButton, raw, shownAddress, type Raw } from "./html.ts";
+import { html, raw, shownAddress, type Raw } from "./html.ts";
 import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
+import { cutButton, runButton } from "./components/actions.ts";
+import { listRows, type ListRow } from "./components/data.ts";
+import { icon } from "./components/foundations.ts";
+import { checkField, codeField } from "./components/inputs.ts";
+import { stack } from "./components/layout.ts";
+import { sheet } from "./components/panes.ts";
 
 /**
  * Registered links on the game page (docs/DECISIONS.md, "Games open outside links only through
@@ -88,30 +94,24 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
 }
 
 /**
- * The card over the game's top corner, like the sign-in ask: where a link goes, or that it can't open
- * here. Open is a real link to the address, so the browser opens the tab however long the player looked.
+ * The sheet over the running game, like the buy sheet: where a link goes, or (a sheet of its own) that it can't open here. Open is a real
+ * link to the address, so the browser opens the tab however long the player looked. Closing either sheet any way but Open is Stay.
  */
 export function leavingCard(gameTitle: string): Raw {
-  return html`<style>
-.leave .out-url{margin:0;padding:10px 12px;font-size:13px;color:var(--text-2);word-break:break-all;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
-.leave label.check{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--text-2)}
-.leave label.check input{width:16px;height:16px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
-.leave .link-part{display:grid;gap:10px}
-.leave .link-part[hidden]{display:none}
-</style>
-<aside class="keep plate bevel leave" id="link-ask" role="dialog" aria-labelledby="link-title" hidden>
-  <div class="link-part" id="link-open">
-    <strong id="link-title">You're leaving Zaisma</strong>
-    <p>${gameTitle} wants to open:</p>
-    <p class="out-url" id="link-url"></p>
-    <label class="check"><input type="checkbox" id="link-trust"> <span>Open links to <span id="link-host"></span> straight away from now on, in this browser</span></label>
-    <div class="row">${metalButton("Open", { href: "#", dataAttributes: { "link-go": "" } })}<button class="btn ghost" type="button" id="link-stay">Stay</button></div>
-  </div>
-  <div class="link-part" id="link-closed" hidden>
-    <strong id="link-closed-title">This link can't be opened here.</strong>
-    <div class="row"><button class="btn ghost" type="button" id="link-back">Back to the game</button></div>
-  </div>
-</aside>`;
+  const body = stack({
+    items: [
+      { kind: "block", markup: codeField({ id: "link-url", label: `${gameTitle} wants to open:`, code: "" }) },
+      { kind: "block", markup: checkField({ id: "link-trust", name: "is_link_site_trusted", label: "Open links to this site straight away from now on, in this browser" }) },
+    ],
+  });
+  return html`${sheet({ id: "link-ask", title: "You're leaving Zaisma", closeLabel: "Close", placement: "foot", body, buttons: [cutButton("Stay", { id: "link-stay", type: "submit", formMethod: "dialog" }), runButton("Open", { href: "#", dataAttributes: { "link-go": "" } })] })}${sheet({
+    id: "link-closed",
+    title: "This link can't be opened here.",
+    closeLabel: "Close",
+    placement: "foot",
+    body: html``,
+    buttons: [cutButton("Back to the game", { id: "link-back", type: "submit", formMethod: "dialog" })],
+  })}`;
 }
 
 /**
@@ -120,6 +120,7 @@ export function leavingCard(gameTitle: string): Raw {
  * the game still counts; if the browser holds that tab back, the card asks instead.
  */
 export const GAME_LINKS_SCRIPT = pageScript("game-links", `const linkAsk = document.getElementById("link-ask");
+const linkClosed = document.getElementById("link-closed");
 const linkGo = linkAsk.querySelector("[data-link-go]");
 const linkTrust = document.getElementById("link-trust");
 const TRUSTED_SITES = "zaisma-trusted-sites";
@@ -133,7 +134,7 @@ function closeLink(status) {
   if (!linkAsking) return;
   const asked = linkAsking;
   linkAsking = null;
-  linkAsk.hidden = true;
+  for (const linkSheet of [linkAsk, linkClosed]) if (linkSheet.open) linkSheet.close();
   tellLink(asked.requestNumber, status);
   if (frame) frame.focus();
 }
@@ -160,20 +161,18 @@ window.askLink = async (asked) => {
       }
     }
     document.getElementById("link-url").textContent = answer.destination_url;
-    document.getElementById("link-host").textContent = host;
+    document.getElementById("link-trust-label").textContent = "Open links to " + host + " straight away from now on, in this browser";
     linkGo.href = answer.destination_url;
     linkGo.target = "_blank";
     linkGo.rel = "noopener noreferrer";
-    linkGo.querySelector("span").textContent = "Open " + host.replace(/^www\\./, "");
+    // Open's words: the runner's label is its face's one span with no class.
+    linkGo.querySelector(".face > span:not([class])").textContent = "Open " + host.replace(/^www\\./, "");
     linkTrust.checked = false;
     linkTrust.dataset.host = host;
   }
-  document.getElementById("link-open").hidden = !isOpen;
-  document.getElementById("link-closed").hidden = isOpen;
-  linkAsk.setAttribute("aria-labelledby", isOpen ? "link-title" : "link-closed-title");
   const keep = document.getElementById("keep");
   if (keep) keep.hidden = true;
-  linkAsk.hidden = false;
+  (isOpen ? linkAsk : linkClosed).showModal();
   (isOpen ? linkGo : document.getElementById("link-back")).focus();
 };
 // Open: the link itself opens the tab; the tick remembers the site in this browser, as the forum does.
@@ -185,54 +184,26 @@ linkGo.addEventListener("click", () => {
   }
   setTimeout(() => closeLink("opened"));
 });
-document.getElementById("link-stay").onclick = () => closeLink("stayed");
-document.getElementById("link-back").onclick = () => closeLink("stayed");
-linkAsk.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLink("stayed"); });`);
+// Stay, Back to the game, Close, Esc or a press beside the sheet: each closes it, and the game hears the player stayed.
+for (const linkSheet of [linkAsk, linkClosed]) linkSheet.addEventListener("close", () => closeLink("stayed"));`);
 
 
-const GLOBE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.7 5.7 3.7 9s-1.2 6.3-3.7 9c-2.5-2.7-3.7-5.7-3.7-9S9.5 5.7 12 3z"/></svg>';
+/** A site's mark (Simple Icons, link-icons.ts), drawn in the row's words' color like Zaisma's own icons; any other site is a globe. */
+const brandMark = (brand: LinkBrand): Raw => (brand === "website" ? icon("globe") : raw(`<svg class="ico solid" viewBox="0 0 24 24" aria-hidden="true"><path d="${LINK_BRAND_ICON_PATHS[brand]}"/></svg>`));
 
 /**
- * The developer's links on the game page (Developer links on game pages), under the details: the
- * registered links marked for the page that this player may open (the server picked them), each a
- * button in its site's own look. They go straight to the site in a new tab: the "You're leaving
- * Zaisma" card is for links a game opens, not for our own page's.
+ * The developer's links on the game page (Developer links on game pages), under the details: the registered links marked for the page
+ * that this player may open (the server picked them), each a row with its site's mark, its words ("Wishlist on Steam") and, for a known
+ * site, its address. They go straight to the site in a new tab: the "You're leaving Zaisma" sheet is for links a game opens, not for our
+ * own page's.
  */
 export function developerLinks(links: GameLink[]): Raw | string {
-  if (!links.length) return "";
-  return html`<nav class="dev-links" aria-label="The developer's links">${links.map((link) => {
+  const rows: ListRow[] = links.flatMap((link) => {
     const destinationUrl = shownAddress(link.destination_url);
-    if (!destinationUrl) return "";
+    if (!destinationUrl) return [];
     const { brand, label } = linkBrand(destinationUrl);
-    const icon = brand === "website" ? GLOBE_ICON : `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${LINK_BRAND_ICON_PATHS[brand]}"/></svg>`;
-    return html`<a class="dev-link brand-${brand}" href="${destinationUrl}" target="_blank" rel="noopener noreferrer">${raw(icon)}<span>${label}</span></a>`;
-  })}</nav>`;
+    const host = new URL(destinationUrl).hostname.replace(/^www\./, "");
+    return [{ lead: brandMark(brand), title: label, detail: brand === "website" ? undefined : host, href: destinationUrl, isNewTab: true }];
+  });
+  return rows.length ? listRows({ label: "The developer's links", rows }) : "";
 }
-
-/** Each site's button, after its own: Steam's raised gradient, Discord's flat blurple, itch.io's red. */
-export const DEVELOPER_LINK_STYLES = `
-.dev-links{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 0}
-.dev-link{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:600;line-height:1;text-decoration:none;white-space:nowrap;transition:filter 120ms,background 120ms}
-.dev-link svg{width:16px;height:16px;flex:none}
-.dev-link:hover{filter:brightness(1.12)}
-.dev-link:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.brand-steam{color:#fff;border-radius:2px;background:linear-gradient(to right,#47bfff 5%,#1a44c2 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 3px rgba(0,0,0,.55);text-shadow:0 1px 1px rgba(0,0,0,.35)}
-.brand-steam:hover{background:linear-gradient(to right,#67cfff 5%,#2a5bd8 60%);filter:none}
-.brand-itch{color:#fff;background:#fa5c5c;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 1px 0 #c34c4c;text-shadow:0 1px 0 rgba(0,0,0,.18)}
-.brand-discord{color:#fff;background:#5865f2;border-radius:4px}
-.brand-discord:hover{background:#4752c4;filter:none}
-.brand-youtube{color:#fff;background:#ff0000;border-radius:18px}
-.brand-x{color:#fff;background:#000;border-radius:18px;box-shadow:inset 0 0 0 1px #333}
-.brand-bluesky{color:#fff;background:#0085ff;border-radius:18px}
-.brand-reddit{color:#fff;background:#ff4500;border-radius:18px}
-.brand-tiktok{color:#fff;background:#fe2c55;border-radius:4px}
-.brand-instagram{color:#fff;border-radius:8px;background:linear-gradient(45deg,#f58529,#dd2a7b 50%,#8134af)}
-.brand-patreon{color:#fff;background:#ff424d;border-radius:18px}
-.brand-kofi{color:#fff;background:#29abe0;border-radius:10px;box-shadow:0 2px 0 #1b8bb8}
-.brand-github{color:#fff;background:#24292f;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(240,246,252,.1)}
-.brand-kickstarter{color:#0f2105;background:#05ce78;border-radius:0}
-.brand-app_store,.brand-google_play{color:#fff;background:#000;border-radius:8px;box-shadow:inset 0 0 0 1px #a6a6a6}
-.brand-twitch{color:#fff;background:#9146ff;border-radius:4px}
-.brand-gumroad{color:#000;background:#ff90e8;border-radius:4px;box-shadow:inset 0 0 0 1px #000,3px 3px 0 #000}
-.brand-website{color:var(--text);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000;font-family:var(--display);font-weight:500}
-`;

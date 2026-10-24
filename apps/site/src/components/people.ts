@@ -78,7 +78,9 @@ component({
   summary: "Someone on Zaisma named on a page: a game's developer, a post's author, a friend in a room. Their picture in its frame, their name a quiet link to their profile, a line about them, and at most one thing to do at the end. A list of people is List rows, each led by their picture.",
   styles: `
 /* A person: the picture, then the name over a quiet line, a word's gap from it; one control at the end, on the row's center line. A long name
-   wraps where it must, never cut. */
+   wraps where it must, never cut. Its name and line are bare words, so a person is a bare group (tokens.ts's BARE_GROUPS): picture, name and
+   line move together, the whole row the words margin in from the surface's edge (--pad-words past the frame gap, top and bottom included
+   where it meets them), so the picture lines up with the words and the rows' pictures and icons round it, not at the frame gap. */
 .person { display: flex; align-items: center; gap: var(--gap-words-control); min-width: 0; }
 .person-words { flex: 1 1 auto; display: grid; gap: 0; min-width: 0; }
 .person-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--gap-words-words); min-width: 0; font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; }

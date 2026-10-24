@@ -3,6 +3,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, glassPane, icon } from "./foundations.ts";
 import { cutButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
+import { qrCodeSvg } from "@zaisma/core";
 
 /*
  * Inputs: the fields (fields.ts), the switch (switch.ts) and the choices (choices.ts) are re-exported from here, so pages import every
@@ -239,7 +240,7 @@ component({
 .file-drop.is-disabled .file-drop-input { cursor: default; }
 .file-drop.is-disabled .file-drop-words label { color: var(--muted); }
 .file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
-.file-drop:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
+.file-drop:has(:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
 /* What's picked: a row for each file, its words keeping the pane's margin all round (so the last row's keep it at a pane's foot), its name
    whole, on more lines where it's long; while one uploads, a line along its foot fills as it goes. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -273,6 +274,11 @@ export interface CodeFieldOptions {
   id?: string;
   /** The gallery's fixed states: focused, or just copied. */
   state?: "is-focused" | "is-copied";
+  /**
+   * A secret on a screen others may see (a streamer's room code): its code is blurred until a page script takes is-masked off the field,
+   * and Copy still copies it.
+   */
+  isMasked?: boolean;
 }
 
 /**
@@ -285,7 +291,7 @@ export function codeField(options: CodeFieldOptions): Raw {
   const isCommand = / /.test(options.code.trim());
   const code = isCommand ? options.code.split(" ").map((word, wordIndex) => html`${wordIndex ? " " : ""}<span class="code-word">${word}</span>`) : options.code;
   const isCopied = options.state === "is-copied";
-  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
+  return html`<div class="cut-field code-field${isCopied ? " is-copied" : ""}${options.isMasked ? " is-masked" : ""}"><span class="code-head"><span class="code-label" id="${id}-label">${options.label}</span><span class="code-copied" role="status">${isCopied ? "Copied" : ""}</span></span><div class="field code cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10">${CUT_LINE}<code class="code-text" id="${id}" tabindex="0" aria-labelledby="${id}-label">${code}</code>${cutButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id })}</div></div>`;
 }
 
 /** Copy: the field's whole code goes to the clipboard, and "Copied" shows over its end for a moment; clicking the code selects all of it. */
@@ -304,7 +310,7 @@ export const COPY_SCRIPT = `/* code fields */(function () {
     }
     // Where the clipboard isn't open to the page, the code is selected and copied the old way.
     function byHand() { selectAll(text); try { if (document.execCommand("copy")) done(); } catch (error) {} }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.textContent).then(done, byHand);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text.getAttribute("data-code") || text.textContent).then(done, byHand);
     else byHand();
   });
 })();
@@ -333,7 +339,9 @@ component({
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
 .code-word { display: inline-block; max-width: 100%; }
 .code-text:focus-visible { outline: none; }
-.field.code:focus-within > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+/* Masked: the code's letters blur into their own glow, unreadable, until the page shows them; Copy still copies them. */
+.code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
+.field.code:has(:focus-visible) > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
 @media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--control-height-regular)) / 2); } }
 `,
@@ -345,5 +353,56 @@ component({
     { label: "One long token", markup: examplePane(codeField({ id: "example-code-secret", label: "Webhook signing secret", code: "whsec_4b9f02d7e1c86a35f0d2b7194ce6a8d3f51b0e9c27a4d6f8b13e5c0a9d7f2e64" })) },
     { label: "Copied", markup: examplePane(codeField({ id: "example-code-copied", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-copied" })), isStill: true },
     { label: "Keyboard focus", markup: examplePane(codeField({ id: "example-code-focused", label: "Your new API key", code: "zk_live_8f3a91c2e74b5d06a1f9c3e8b27d4a60", state: "is-focused" })), isStill: true },
+    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(codeField({ id: "example-code-masked", label: "Link", code: "https://zaisma.com/g/ashen-crown?room=K7PQ2M", isMasked: true })), isStill: true },
+  ],
+});
+
+export interface QrCodeOptions {
+  /** Unique on the page: the picture's, for a page script to point it at a link (its caption is <id>-caption). */
+  id: string;
+  /** What a screen reader says for it: "QR code for this link". */
+  label: string;
+  /** The line under it: "Scan to play". */
+  caption: string;
+  /** The QR code's picture (an SVG Zaisma serves). Left out, a page script sets it. */
+  imageUrl?: string;
+  /** A secret on a screen others may see (a streamer's room): blurred until a page script takes is-masked off it. */
+  isMasked?: boolean;
+  /** On a wide screen, smaller, with its line beside it (a compact sheet's): a phone camera still reads it at that size. On a phone it's as wide as the room allows. */
+  isCompact?: boolean;
+}
+
+/** A QR code: a link as a picture any phone's camera reads, on white whatever the glass, with a line under it saying what it opens. */
+export function qrCode(options: QrCodeOptions): Raw {
+  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isCompact ? " is-compact" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
+}
+
+/** The gallery's QR code: a stand-in game's address, made as Zaisma makes every game's. */
+export const STAND_IN_QR_CODE = `data:image/svg+xml,${encodeURIComponent(qrCodeSvg("https://zaisma.com/g/ashen-crown"))}`;
+
+component({
+  name: "QR code",
+  slug: "qr-code",
+  group: "inputs",
+  summary: "A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on white whatever the glass, with a line saying what it opens.",
+  styles: `
+/* A QR code: the picture on white with a quiet margin of white round it, so any phone's camera reads it on light glass or smoked, as wide as
+   the room allows up to 220px; its line under it in the label's words. Masked, it blurs until the page shows it. */
+.qr-code { display: grid; justify-items: center; gap: var(--gap-words-control); margin: 0; min-width: 0; }
+.qr-picture { display: block; width: min(220px, 100%); height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
+.qr-caption { font: var(--type-label); color: var(--ink); text-align: center; }
+.qr-code.is-masked > .qr-picture { filter: blur(8px); }
+/* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
+@media (min-width: 761px) {
+  .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }
+  .qr-code.is-compact > .qr-picture { width: 104px; }
+  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline-end: var(--pad-words); }
+}
+`,
+  render: qrCode,
+  examples: [
+    { label: "A game's link", markup: examplePane(qrCode({ id: "example-qr-game", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE })) },
+    { label: "Compact, on a wide screen: smaller, its line beside it", markup: examplePane(qrCode({ id: "example-qr-compact", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true })) },
+    { label: "Masked, for a streamer: blurred until shown", markup: examplePane(qrCode({ id: "example-qr-masked", label: "QR code for this link", caption: "Scan to join this match", imageUrl: STAND_IN_QR_CODE, isMasked: true })), isStill: true },
   ],
 });

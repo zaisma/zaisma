@@ -35,6 +35,29 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     if (kind === "resize") { hasResizeListener = true; window.addEventListener("resize", function () { runBatched(resizeCallbacks.slice()); }); }
     else { hasScrollListener = true; window.addEventListener("scroll", function () { runBatched(scrollCallbacks.slice()); }, { passive: true, capture: true }); }
   }
+  // The selectors of what scrolls: the browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest. Found once.
+  var scrollSelectorList = null;
+  function scrollSelectors() {
+    if (scrollSelectorList) return scrollSelectorList;
+    var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"];
+    function visit(rules) {
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i], style = rule.style;
+        if (style && rule.selectorText && /auto|scroll|var\\(/.test(style.overflowY + " " + style.getPropertyValue("overflow"))) selectors.push(rule.selectorText);
+        if (rule.cssRules) visit(rule.cssRules);
+      }
+    }
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) { try { visit(sheet.cssRules); } catch (error) { /* a sheet from another site */ } });
+    scrollSelectorList = selectors;
+    return selectors;
+  }
+  // What a selector matches under a root. A rule for a pseudo-element (::before) can't be asked for: the element it's on is.
+  function matching(root, selector) {
+    var matched;
+    try { matched = root.querySelectorAll(selector); } catch (error) { try { matched = root.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return []; } }
+    return Array.from(matched);
+  }
+  function isScrolling(box) { return box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
     size: function (element, callback, batch) {
@@ -55,24 +78,20 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
-      // The browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest.
-      var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"], found = new Set();
-      function visit(rules) {
-        for (var i = 0; i < rules.length; i++) {
-          var rule = rules[i], style = rule.style;
-          if (style && rule.selectorText && /auto|scroll|var\\(/.test(style.overflowY + " " + style.getPropertyValue("overflow"))) selectors.push(rule.selectorText);
-          if (rule.cssRules) visit(rule.cssRules);
-        }
-      }
-      Array.prototype.forEach.call(document.styleSheets, function (sheet) { try { visit(sheet.cssRules); } catch (error) { /* a sheet from another site */ } });
-      selectors.forEach(function (selector) {
-        var matched;
-        // A rule for a pseudo-element (::before) can't be asked for: the element it's on is.
-        try { matched = document.querySelectorAll(selector); } catch (error) { try { matched = document.querySelectorAll(selector.replace(/::[a-z-]+(\\([^)]*\\))?/g, "")); } catch (again) { return; } }
-        matched.forEach(function (box) { if (box !== document.body && document.body.contains(box) && /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) found.add(box); });
-      });
+      var found = new Set();
+      scrollSelectors().forEach(function (selector) { matching(document, selector).forEach(function (box) { if (isScrolling(box)) found.add(box); }); });
       scrollBoxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
       return scrollBoxes;
+    },
+    // The same for what was added to the page later (a list the page swaps in): the element and what's inside it that scrolls.
+    scrollBoxesIn: function (root) {
+      var found = new Set();
+      scrollSelectors().forEach(function (selector) {
+        var boxes = matching(root, selector);
+        try { if (root.matches(selector)) boxes.unshift(root); } catch (error) { /* a selector for a pseudo-element */ }
+        boxes.forEach(function (box) { if (isScrolling(box)) found.add(box); });
+      });
+      return Array.from(found);
     },
     each: function (selector, callback) {
       var wired = new WeakSet();
@@ -167,12 +186,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     pass.isMeasured = true;
     document.querySelectorAll("[data-cut-line], [data-glass]").forEach(function (el) { pass.rects.set(el, el.getBoundingClientRect()); pass.sizes.set(el, [el.offsetWidth, el.offsetHeight]); });
     document.querySelectorAll("[data-cut-line]").forEach(function (el) { groupIn(holderOf(el)).push(el); });
-    // Boxes that scroll inside a pane, for the controls in them (contentRectOf), read with everything else, before anything is drawn.
-    document.querySelectorAll("body .own-scroll").forEach(function (el) { pass.scrollers.set(el, { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }); });
+    // Boxes that scroll inside a pane, down (.own-scroll) or sideways (a track), for the controls in them (contentRectOf), read with
+    // everything else, before anything is drawn.
+    document.querySelectorAll("body .own-scroll, body .layout-track").forEach(function (el) { pass.scrollers.set(el, readScroll(el)); });
   }
+  function readScroll(el) { return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }; }
   function scrollOf(el) {
     var read = pass.scrollers.get(el);
-    if (!read) { read = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }; pass.scrollers.set(el, read); }
+    if (!read) { read = readScroll(el); pass.scrollers.set(el, read); }
     return read;
   }
   function groupIn(holder) {
@@ -341,7 +362,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
     // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
-    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
+    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll"), track = el.parentElement && el.parentElement.closest(".layout-track");
+    // A track (a row that scrolls sideways) runs the holder on by what's scrolled out of view to either side, so the first in it takes the
+    // pane's corner at the start, the last the one at the end, and every one between is square, wherever the row is scrolled to.
+    if (track && track !== holder && holder.contains(track)) {
+      var along = scrollOf(track);
+      if (along.scrollWidth > along.clientWidth + 1) p = { top: p.top, bottom: p.bottom, left: p.left - along.scrollLeft, right: p.right + along.scrollWidth - along.clientWidth - along.scrollLeft };
+    }
     if (!scroller || scroller === holder || !holder.contains(scroller)) return p;
     var scrolled = scrollOf(scroller);
     if (scrolled.scrollHeight <= scrolled.clientHeight + 1) return p;
@@ -575,6 +602,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   };
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;
+  // How the page was last used, keyboard or pointer (a mouse, a touch, a pen): a ring only ever shows for the keyboard (:focus-visible), so a sheet
+  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (SHEET_SCRIPT).
+  window.zaismaInput = (function () {
+    var isKeyboard = false;
+    document.addEventListener("keydown", function (event) { if (!/^(Shift|Control|Alt|Meta|AltGraph|CapsLock)$/.test(event.key)) isKeyboard = true; }, true);
+    ["pointerdown", "mousedown", "touchstart"].forEach(function (name) { document.addEventListener(name, function () { isKeyboard = false; }, true); });
+    return { isKeyboard: function () { return isKeyboard; } };
+  })();
   var done = typeof WeakSet === "function" ? new WeakSet() : { has: function () { return false; }, add: function () {} };
   function apply(root) {
     if (!root.querySelectorAll) return;

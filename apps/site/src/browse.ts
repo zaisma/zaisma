@@ -4,8 +4,8 @@ import { glassPane } from "./components/foundations.ts";
 import { grid, stack, type LayoutItem } from "./components/layout.ts";
 import { loadMore } from "./components/navigation.ts";
 import { emptyState } from "./components/data.ts";
-import { gameCover } from "./components/panes.ts";
 import { dividerWords } from "./components/reading.ts";
+import { gameCard } from "./components/playing.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
@@ -14,6 +14,7 @@ import { GAME_SEARCH, html, layout, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
+import type { CheckedPageName } from "./components/checked-pages.ts";
 
 /**
  * Browse (/games): every listed game in one grid of covers on Zaisma's own glass, with players now under each, a calm search tool you find
@@ -135,7 +136,7 @@ export function browseHref(query: Partial<BrowseQuery>): string {
 
 const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
   kind: "block",
-  markup: gameCover({
+  markup: gameCard({
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
@@ -143,7 +144,6 @@ const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
     hasHighPriority: coverIndex === 0,
-    isTitleShown: true,
   }),
 });
 
@@ -153,6 +153,16 @@ function otherDevicesWords(games: BrowseGame[]): string {
   for (const game of games) deviceCounts.set(game.devices.join(","), (deviceCounts.get(game.devices.join(",")) ?? 0) + 1);
   const mostCommon = [...deviceCounts].sort((first, second) => second[1] - first[1])[0]?.[0] ?? "computer";
   return madeFor(mostCommon.split(","));
+}
+
+/**
+ * Which state on the checks' list this Browse is (components/checked-pages.ts). The sort and the page number don't change how it's laid
+ * out, and no games at all (never so in the preview, which has games) counts as Games.
+ */
+function browseState(query: BrowseQuery, isSignedIn: boolean, gameCount: number): CheckedPageName {
+  if (query.searchText) return gameCount ? "Games, a search" : "Games, nothing found";
+  if (query.filter !== "all") return gameCount ? (query.filter === "multiplayer" ? "Games, multiplayer" : "Games, one genre") : "Games, an empty genre";
+  return isSignedIn ? "Games, signed in" : "Games";
 }
 
 /** The results: this page's covers for the viewer's device, then those for others after their divider, then Load more or nothing. */
@@ -216,7 +226,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     isPrivate: Boolean(viewer.account),
     nav: "browse",
     viewer,
-    isRebuilt: true,
+    checkedPage: browseState(query, viewer.account !== null && viewer.account !== undefined, games.length),
     search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.filter !== "all" ? { filter: query.filter } : {}) } },
     body: html`${body}${scriptTags(BROWSE_SCRIPT)}`,
   });

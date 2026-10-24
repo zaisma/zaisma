@@ -1,5 +1,6 @@
-import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { env, SELF } from "cloudflare:test";
+import { beforeAll, describe, expect, it } from "vitest";
+import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { COMPONENT_GROUPS, component } from "../../apps/site/src/components/component.ts";
@@ -12,6 +13,7 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
+import { CHECKED_PAGES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
@@ -36,6 +38,7 @@ import layoutGallerySource from "../../apps/site/src/components/layout-gallery.t
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
 import citySource from "../../apps/site/src/components/city.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
+import playingSource from "../../apps/site/src/components/playing.ts?raw";
 import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
@@ -44,7 +47,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource,
   "design-page.ts": galleryPageSource,
 };
@@ -66,6 +69,45 @@ const page = async (path: string) => {
   const response = await SELF.fetch(`${SITE}${path}`);
   return { response, text: await response.text() };
 };
+
+/**
+ * The page a state only forms and links reach shows (checked-pages.ts, stepsToTake): each form sent as a browser would, with its hidden
+ * fields, the cookies its answers set and their redirects followed. Null when the steps lead off the site (a stand-in sign-in a test has none of).
+ */
+async function pageAfterSteps(path: string, steps: readonly StepToTake[]): Promise<string | null> {
+  const cookies = new Map<string, string>();
+  const go = async (address: string, init: { method?: string; body?: URLSearchParams } = {}): Promise<string | null> => {
+    for (let hopCount = 0; hopCount < 5; hopCount++) {
+      if (new URL(address).origin !== SITE) return null;
+      const cookie = [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+      const headers: Record<string, string> = { cookie, ...(init.body ? { "content-type": "application/x-www-form-urlencoded", origin: SITE } : {}) };
+      const response = await SELF.fetch(address, { ...init, headers, redirect: "manual" });
+      for (const line of response.headers.getSetCookie()) {
+        const pair = line.split(";")[0]!;
+        cookies.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
+      }
+      const location = response.headers.get("location");
+      if (!location) return response.text();
+      address = new URL(location, address).href;
+      init = {};
+    }
+    throw new Error(`${path}: redirected more than 5 times`);
+  };
+  let text = await go(`${SITE}${path}`);
+  for (const step of steps) {
+    if (text === null) return null;
+    if ("path" in step) {
+      text = await go(`${SITE}${step.path}`);
+      continue;
+    }
+    const markup = [...text.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/g)].map((match) => match[0]).find((each) => each.includes(`action="${step.formAction}"`));
+    if (!markup) throw new Error(`${path}: no form is sent to ${step.formAction}`);
+    const body = new URLSearchParams([...markup.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((match) => [match[1]!, match[2]!.replaceAll("&amp;", "&")]));
+    for (const [name, value] of Object.entries(step.fieldValues)) body.set(name, value.replaceAll(UNIQUE_WORD, crypto.randomUUID().slice(0, 8)));
+    text = await go(`${SITE}${step.formAction}`, { method: "POST", body });
+  }
+  return text;
+}
 
 describe("the gallery", () => {
   it("reads every component's source: none is left out of the checks below", () => {
@@ -486,7 +528,9 @@ describe("components", () => {
     expect(BACKDROP_SCRIPT).not.toContain("gl_FragColor");
     // Fewer frames when nobody's touched the page for a while, and a game's frame is told, since it never sees the page's input.
     expect(BACKDROP_SCRIPT).toContain(`IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000}`);
-    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: panes, isIdle: isIdle }");
+    // It's told no glass: a frame can't redraw a bend in the frame the page scrolls in, so it bends nothing under glass, and a scroll tells it nothing.
+    expect(BACKDROP_SCRIPT).toContain("postMessage({ panes: [], isIdle: isIdle }");
+    expect(BACKDROP_SCRIPT).not.toContain("isScrolling");
   });
 
   it("open the Developer and Forum tabs only on a developer page", () => {
@@ -570,6 +614,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="foot glass"', "the footer"],
   ['class="banner glass"', "a banner"],
   ['class="top glass', "the header"],
+  ['class="playing-bar glass', "the bar beside a running game"],
+  ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="gallery-index glass', "the gallery's index"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
@@ -604,10 +650,12 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // A pane that starts low on a phone: the room above it is the viewport left over, not spacing.
+  ".glass-pane.is-started-low | margin-top",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right",
+  ".glass-pane > .pane-in.own-scroll.shows-rail | padding-right", ".list-rows.is-capped.shows-rail | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
@@ -620,7 +668,7 @@ const NOT_SPACING = new Set<string>([
   ".code-text | padding",
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
-  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
   '.find input[type="search"] | padding', ".bday-field | gap",
   ".bday-field | padding", ".bday-chev | margin-right",
@@ -695,10 +743,37 @@ function matchesSubject(element: Element, subject: string): boolean {
 }
 
 describe("pages", () => {
-  // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md). Pages signed in are checked
-  // where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every page is measured in Chrome by
-  // npm run layout:check (scripts/layout-check.mjs).
-  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/developers/backgrounds", "/oauth/authorize?client_id=nope"];
+  // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md), on every state the layout
+  // check measures (components/checked-pages.ts) that a plain visit shows: states seen signed in, on a developer's site or after a form are
+  // checked where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every one is measured in Chrome
+  // by npm run layout:check (scripts/layout-check.mjs).
+  // One live, listed game, so the Browse states that need a game to show (a genre, multiplayer, a search for "farm") are those states here too.
+  beforeAll(async () => {
+    await createAccount(env.DB, { id: "design-dev", username: "Field_Works", ageBand: "18+" });
+    const owner = await personOwner(env.DB, "design-dev");
+    const game = await createGame(env.DB, { slug: "design-farm", title: "Farm Lords", description: "About Farm Lords.", ownerId: owner.id, visibility: "listed" });
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, patch_notes, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', '', ?, 0)").bind("v-design-farm", game.id, "games/design-farm/v1", Date.now()).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, genres = 'strategy', play_modes = ? WHERE id = ?")
+      .bind("v-design-farm", '[{"mode":"online","minimum_player_count":2,"maximum_player_count":8,"play_style":"together"}]', game.id)
+      .run();
+  });
+  // A step through Cloudflare's bot check or a sign-in provider is taken only in Chrome, where the preview's stand-ins answer it;
+  // accounts.test.ts renders those answers.
+  const needsStandIns = (each: (typeof CHECKED_PAGES)[number]) =>
+    (each.stepsToTake ?? []).some((step) => ("fieldValues" in step ? "turnstile_token" in step.fieldValues : step.path.startsWith("/signin/with/")));
+  // A game's pages show the preview's test games (scripts/preview), which this test doesn't make; npm run layout:check measures them there.
+  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/");
+  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each) && !needsPreviewGames(each));
+  const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
+
+  it("are only gallery components in every state a form shows too, and each says the state it's listed as", async () => {
+    for (const state of PUBLIC_STATES) {
+      const text = state.stepsToTake ? await pageAfterSteps(state.path, state.stepsToTake) : (await page(state.path)).text;
+      if (text === null) continue;
+      expect(text.match(/<meta name="checked-page" content="([^"]*)">/)?.[1]?.replaceAll("&#39;", "'"), state.name).toBe(state.stateBeforeSetUp ?? state.name);
+      expect(pageProblems(text), state.name).toEqual([]);
+    }
+  });
 
   it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
     for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);

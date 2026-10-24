@@ -29,6 +29,8 @@ export interface CutFieldOptions {
   hint?: string;
   /** "numeric": a phone shows its number pad (a code). */
   inputMode?: "numeric";
+  /** What it must match to be sent, as a regular expression (a room code's six letters and numbers); a page script says what's wrong. */
+  pattern?: string;
   /** A password that starts shown (Show pressed). */
   isPasswordShown?: boolean;
   /** Can be read, selected and copied but not changed here: carved into the glass, with nothing to type. */
@@ -48,7 +50,7 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const className = ["field", "cut-carved", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return controlMarkup(html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id, isDisabled: options.isDisabled }) : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? cutButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id, isDisabled: options.isDisabled }) : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -450,8 +452,8 @@ const FIELD_STYLES = `
 .field:has(> input)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
   box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field:has(> input):hover::before { --face-color: var(--field-hover); }
-.field:has(> input:focus)::before, .field.is-focused::before { --face-color: var(--field-focus); }
-.field input:focus, .field.is-focused input { outline: none; border: 0; }
+.field:has(> input:focus-visible)::before, .field.is-focused::before { --face-color: var(--field-focus); }
+.field input:focus-visible, .field.is-focused input { outline: none; border: 0; }
 :is(.field, .find) > input { --fade-start: 0px; --fade-end: 0px; }
 :is(.field, .find).more-left > input { --fade-start: 24px; }
 :is(.field, .find).more-right > input { --fade-end: 24px; }
@@ -461,10 +463,10 @@ const FIELD_STYLES = `
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
-.field:focus-within, .field.is-focused { color: var(--ink); }
+.field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
-.field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
@@ -506,6 +508,7 @@ component({
       markup: examplePane(cutField({ id: "example-password-error", name: "password", label: "Password", type: "password", icon: "lock", text: "sofia", hint: "At least 8 characters. A few words you'll remember work well.", error: "That's 5 characters. Use at least 8." })),
     },
     { label: "A long value", markup: examplePane(cutField({ id: "example-email-long", name: "email", label: "Email", type: "email", icon: "mail", text: "sofia.lindqvist-montgomery@northern-lights-studio.example" })) },
+    { label: "A code it must match: a room's", markup: examplePane(cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true })) },
     { label: "No icon", markup: examplePane(cutField({ id: "example-title", name: "title", label: "Title", type: "text", text: "Ashen Crown" })) },
     { label: "Read-only", markup: examplePane(cutField({ id: "example-username-read-only", name: "username", label: "Username", type: "text", icon: "person", text: "liam_hart", isReadOnly: true })) },
     { label: "Can't change now", markup: examplePane(cutField({ id: "example-email-disabled", name: "email", label: "Email", type: "email", icon: "mail", text: "emma@example.com", isDisabled: true })), isStill: true },
@@ -534,12 +537,12 @@ component({
   box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .find:hover::before { --face-color: var(--field-hover); }
 .find input::placeholder { color: var(--muted); }
-.find input:focus, .find.is-focused input { outline: none; }
-.find:has(> input:focus)::before, .find.is-focused::before { --face-color: var(--field-focus); }
-.find:focus-within, .find.is-focused { color: var(--ink); }
+.find input:focus-visible, .find.is-focused input { outline: none; }
+.find:has(> input:focus-visible)::before, .find.is-focused::before { --face-color: var(--field-focus); }
+.find:has(:focus-visible), .find.is-focused { color: var(--ink); }
 .find > .cut-line { z-index: 4; }
 .find > .cut-line polygon { stroke: var(--field-outline); }
-.find:focus-within > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
 /* Clear: only once something's typed, and then what's typed stops short of it: its width (46px) and its inset on each side. */

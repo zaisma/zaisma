@@ -5,6 +5,8 @@ import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { IMAGE, QR_CODE } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
+import { shareDialog } from "../../apps/site/src/share-cards.ts";
+import { pageProblems } from "./page-rules.ts";
 
 // Share cards, search and QR codes (docs/DECISIONS.md, "Share cards" and "QR codes"): what a game
 // link and a room link unfold into, what search engines read, the sitemap, the QR code on the page and
@@ -164,6 +166,7 @@ describe("QR codes", () => {
     const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
     expect(page).toContain('id="share-dialog"');
     expect(page).toContain('id="share-qr"');
+    expect(page).toContain('id="share-link"');
     const code = await SELF.fetch(`${SITE}/g/sky-hopper/qr-code.svg?room=K7PQ2M`);
     expect(code.headers.get("content-type")).toBe("image/svg+xml");
     expect(code.headers.get("content-security-policy")).toContain("sandbox");
@@ -172,6 +175,16 @@ describe("QR codes", () => {
     expect(await (await SELF.fetch(`${SITE}/g/sky-hopper/qr-code.svg?room=https://elsewhere`)).text()).toBe(qrCodeSvg(`${SITE}/g/sky-hopper`));
     await env.DB.prepare("UPDATE games SET visibility = 'draft' WHERE slug = 'sky-hopper'").run();
     expect((await SELF.fetch(`${SITE}/g/sky-hopper/qr-code.svg`)).status).toBe(404);
+  });
+
+  it("sit in a Share sheet made only of gallery components, with none on a tester link's", () => {
+    const withCode = shareDialog("Sky Hopper", true).html;
+    expect(withCode).toMatch(/^<dialog class="sheet glass( is-compact)?" id="share-dialog"/);
+    for (const id of ["share-qr", "share-qr-caption", "share-reveal", "share-room", "share-room-code", "share-link", "share-more"]) expect(withCode).toContain(`id="${id}"`);
+    expect(pageProblems(withCode)).toEqual([]);
+    const tester = shareDialog("Sky Hopper", false).html;
+    expect(tester).not.toContain('id="share-qr"');
+    expect(pageProblems(tester)).toEqual([]);
   });
 
   it("come through the API and MCP for developers, with the same code", async () => {
@@ -194,11 +207,14 @@ describe("room codes in the game bar", () => {
     expect(single).not.toContain('id="room-dialog"');
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'sky-hopper'").run();
     const rooms = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-    expect(rooms).toContain('id="room-open"');
-    // The plate shows this room's code (filled in once the game says it's in one) and joins another by its code.
+    expect(rooms).toMatch(/id="room-open"[^>]*aria-controls="room-dialog"/);
+    // The sheet shows this room's code (filled in once the game says it's in one) and joins another by its code.
+    expect(rooms).toMatch(/<dialog class="sheet glass placement-foot" id="room-dialog"/);
     expect(rooms).toContain('id="room-here" hidden');
-    expect(rooms).toMatch(/<form method="get" action="\/g\/sky-hopper"><label for="bar-join-code">/);
-    expect(rooms).toContain('name="room" required');
+    expect(rooms).toMatch(/id="room-code-shown"[\s\S]*?id="room-code-text"/);
+    expect(rooms).toContain('<label for="bar-join-code">Join a room by its code</label>');
+    expect(rooms).toMatch(/<input id="bar-join-code" name="room" type="text"/);
+    expect(rooms).toMatch(/<button class="shell [^"]*" id="room-join" type="submit"/);
   });
 });
 

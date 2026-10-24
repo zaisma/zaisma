@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { cutButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
 import { html, raw } from "../../apps/site/src/markup.ts";
-import { paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
+import { grid, paneParts, row, stack } from "../../apps/site/src/components/layout.ts";
+import { gameCard, playingCard } from "../../apps/site/src/components/playing.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { checkPages, chromeToRun, LAYOUT_CHECK_PAGES, LAYOUT_CHECK_SIZES, LAYOUT_CHECK_THEMES, layoutCheckShard, previewSites } from "../../scripts/layout-check.mjs";
 
@@ -69,5 +70,31 @@ describe.skipIf(!sites)("the layout check", () => {
     const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
     const square = failures.filter((failure) => /square in a cut corner/.test(failure.check));
     expect(square.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(1);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a bare group closer to the pane's edge than the words margin, naming the card, and passes a grid of game cards as it is", async () => {
+    // A grid of game cards as the components make it (inset as one unit), and once with its inset taken away, as a page's own style might.
+    const cards = () => grid({ itemSize: "cover", items: ["kestrel", "verdant"].map((slug) => ({ kind: "block" as const, markup: gameCard({ title: slug === "kestrel" ? "Kestrel" : "Verdant", imageUrl: `/design/covers/${slug}.webp`, href: `#${slug}`, facts: { playerCount: 12 } }) })) }).html;
+    const pane = (grids: string) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>More</h2>` }, { kind: "block", markup: raw(grids) }] }) }).html;
+    const markup = pane(cards()) + pane(cards()).replace('class="layout-grid', 'style="padding-inline:0" class="layout-grid');
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const close = failures.filter((failure) => /bare group closer to the pane's edge/.test(failure.check));
+    expect(close.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBeGreaterThan(0);
+    expect(close.every((failure) => /Kestrel|Verdant/.test(failure.element))).toBe(true);
+    // Only the second pane's first card is at the edge: the first pane's cards keep the margin.
+    expect(close.length).toBeLessThan(3);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
+    // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
+    const card = (id: string) => playingCard({ id, title: "Keep your progress", body: raw("<p>Sign in to keep what you've done.</p>"), isShown: true, isInPlace: true }).html;
+    const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: [{ name: "1440 x 900", widthPx: 1440, heightPx: 900, isPhone: false }], themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const close = failures.filter((failure) => /words closer to the pane's edge than its margin/.test(failure.check));
+    expect(close.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBeGreaterThan(0);
+    expect(close.every((failure) => /close-card|Keep your progress|Sign in to keep/.test(`${failure.element} ${failure.said}`))).toBe(true);
+    expect(close.some((failure) => /fine-card/.test(`${failure.element} ${failure.said}`))).toBe(false);
   }, 300_000);
 });

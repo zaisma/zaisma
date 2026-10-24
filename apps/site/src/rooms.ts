@@ -1,36 +1,59 @@
-import { checkText, gameBySlug, hasSpace, hasWatchSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
+import { checkText, gameBySlug, hasSpace, hasWatchSpace, leaveOut, listRoomPage, MAXIMUM_PAGE_ROOM_COUNT, readIsHidingFullRoomsParameter, readLabelParameter, readLeftParameter, readRoomOrderParameter, type Game, type ListedRoom, type RoomOrder, type RoomPage } from "@zaisma/core";
 import type { Env } from "./env.ts";
-import { html, raw, securityHeaders, type Raw } from "./html.ts";
+import { html, securityHeaders, type Raw } from "./html.ts";
+import { cutButton } from "./components/actions.ts";
+import { emptyState, listRows, type ListRow } from "./components/data.ts";
+import { checkField, cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
+import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
+import { loadMore } from "./components/navigation.ts";
 import { playingNowCounts } from "./plays.ts";
 
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
- * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows the code,
- * where the room runs (a country flag and code) and how full it is, never who's in it. Flags are
- * flag-icons (MIT), rendered small into brand/flags. Join is an ordinary room link, so the
- * game decides what happens next, as with invites.
+ * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows the room's
+ * name and labels, where it runs (its country, in words) and how full it is, never who's in it. Join is
+ * an ordinary room link, so the game decides what happens next, as with invites.
  */
 
 /** The game runs on Zaisma rooms and its developer lists them on the page. */
 export const roomsOnPage = (game: Game) => game.multiplayer_mode !== "none" && game.room_browsing === "page";
 
-export function pageRooms(env: Env, game: Game, request: Request, pick: { region?: string | null; labels?: Record<string, string> | null } = {}): Promise<RoomList> {
-  return listRooms(env.DB, game.id, {
+/**
+ * A page of the game's rooms: the first rows (rowCount, SHOWN_ROOM_COUNT unless a refresh keeps more shown), or the page that starts at
+ * cursor (LOAD_MORE_ROOM_COUNT rooms), in the region and with the labels picked, in the order picked and with full rooms left out or not.
+ */
+export function pageRooms(env: Env, game: Game, request: Request, pick: { region?: string | null; labels?: Record<string, string> | null; roomOrder?: RoomOrder | null; isHidingFullRooms?: boolean; cursor?: string | null; rowCount?: number } = {}): Promise<RoomPage> {
+  return listRoomPage(env.DB, game.id, {
     country: request.cf?.country as string | undefined,
     continent: request.cf?.continent as string | undefined,
     region: pick.region,
     labels: pick.labels,
+    roomOrder: pick.roomOrder,
+    isHidingFullRooms: pick.isHidingFullRooms,
+    cursor: pick.cursor,
+    pageRoomCount: pick.rowCount ?? (pick.cursor ? LOAD_MORE_ROOM_COUNT : SHOWN_ROOM_COUNT),
     cacheDurationSec: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
   });
 }
 
-/** Rows shown before "Show more"; the list is sorted, so these are the best ones to join. */
-const FIRST_ROOM_COUNT = 10;
+/** Rows the list holds when the page opens, and the most rows in view before it scrolls inside itself; it's sorted, so these are the best ones to join. */
+const SHOWN_ROOM_COUNT = 6;
+
+/** Rooms each press of Load more adds. */
+const LOAD_MORE_ROOM_COUNT = 20;
+
+/** The most rows a refresh keeps showing: past it, the page's script stops replacing the list by itself, so the rooms the player loaded stay. */
+export const MAXIMUM_REFRESHED_ROOM_COUNT = MAXIMUM_PAGE_ROOM_COUNT;
+
+/** The orders the list can be in, as the order select says them. */
+const ROOM_ORDER_CHOICES: { label: string; choiceValue: RoomOrder }[] = [
+  { label: "Best to join", choiceValue: "best_to_join" },
+  { label: "Most players", choiceValue: "most_players" },
+  { label: "Fewest players", choiceValue: "fewest_players" },
+];
 
 /** The number on the Rooms tab: the rooms the list shows, full ones too, in the region and labels picked. */
-export const tabCount = (list: RoomList) => (list.openRoomCount > 99 ? "99+" : String(list.openRoomCount));
-
-const plural = (itemCount: number, one: string, many: string) => (itemCount === 1 ? `1 ${one}` : `${itemCount} ${many}`);
+export const tabCount = (list: Pick<RoomPage, "openRoomCount">) => (list.openRoomCount > 99 ? "99+" : String(list.openRoomCount));
 
 /** Text players may have typed, shown only if it passes Zaisma's text filter. */
 const fine = (text: string) => checkText(text).isAllowed;
@@ -41,111 +64,148 @@ function shownText(room: ListedRoom): { name: string | null; labels: [string, st
 }
 
 /**
- * The Rooms panel's contents, also sent on its own to refresh the panel. "Press Play and the game finds
- * you one" only for a game that joins players by itself (isQuickJoining).
+ * The Rooms section's contents, also sent on its own to refresh it (into #rooms-list): the region switch and label filters, the rooms as
+ * list rows (the first page: open rooms best first, then matches in progress) and a Load more under them while there are more. Its first
+ * element carries what the page's script reads: data-count (the number by Rooms), data-playing (for "playing now") and data-shown (the
+ * region, labels, order and full-rooms setting it shows).
  */
-export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list: RoomList, picked: Record<string, string> = {}, ticketPlayerCount = 0): Raw {
+export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Record<string, string> = {}, ticketPlayerCount = 0): Raw {
   const slug = game.slug;
-  const open = list.rooms.filter((room) => room.isOpen);
-  const { playerCount, roomCount, closedRoomCount } = list.playing;
+  const { playerCount } = list.playing;
   const region = list.region ? list.regions.find((entry) => entry.region === list.region) : null;
-  const head = playerCount
-    ? html`<p class="rooms-head"><span class="badge">${playerCount} playing now</span><span class="muted">in ${plural(roomCount, "room", "rooms")}</span></p>`
-    : "";
-  // Regions to pick from, once rooms run in more than one: each with how many rooms it has.
-  const regions =
-    list.regions.length > 1 || (list.region && list.regions.length)
-      ? html`<div class="seg regions" role="group" aria-label="Region"><button type="button" data-region="" aria-pressed="${String(!list.region)}">All</button>${list.regions.map(
-          (entry) => html`<button type="button" data-region="${entry.region}" title="${entry.name}" aria-pressed="${String(list.region === entry.region)}">${entry.region}<small>${entry.roomCount}</small></button>`,
-        )}</div>`
-      : "";
-  // Labels worth filtering by, with only the values that pass the filter.
+  const items: LayoutItem[] = [];
+  // Regions to pick from, once rooms run in more than one: each with how many rooms it has. The page's script reads data-region.
+  if (list.regions.length > 1 || (list.region && list.regions.length)) {
+    const tabs: SwitchTab[] = [
+      { label: "All", isCurrent: !list.region, extra: html` data-region=""` },
+      ...list.regions.map((entry) => ({ label: entry.name, badgeCount: entry.roomCount, isCurrent: list.region === entry.region, extra: html` data-region="${entry.region}"` })),
+    ];
+    items.push({ kind: "control", markup: tabSwitch({ label: "Region", switchSize: "small", isFramed: true, tabs }) });
+  }
+  // Labels worth filtering by, with only the values that pass the filter. The page's script reads data-label on the field a pick changes.
   const filters = list.filters
     .filter((labelFilter) => fine(labelFilter.label))
     .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
     .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
-  const filterBar = filters.length
-    ? html`<div class="filters">${filters.map(
-        (labelFilter) => html`<label class="filter"><span>${labelFilter.label}</span><select data-label="${labelFilter.label}"><option value="">Any</option>${labelFilter.values.map(
-          (labelValue) => html`<option${picked[labelFilter.label] === labelValue ? raw(" selected") : ""}>${labelValue}</option>`,
-        )}</select></label>`,
-      )}</div>`
-    : "";
+  if (filters.length) {
+    const fields = filters.map((labelFilter, filterIndex): LayoutItem => ({
+      kind: "control",
+      markup: selectField({
+        id: `rooms-label-${filterIndex}`,
+        name: `room_label_${filterIndex}`,
+        label: labelFilter.label,
+        choices: [{ label: "Any", choiceValue: "" }, ...labelFilter.values.map((labelValue) => ({ label: labelValue, choiceValue: labelValue }))],
+        pickedValue: picked[labelFilter.label] ?? "",
+        dataAttributes: { label: labelFilter.label },
+      }),
+    }));
+    items.push({ kind: "block", markup: row({ widths: "fit", items: fields }) });
+  }
+  // The order and the full-rooms box, once there's more than one room to order (or one is in use, so it can be undone). The page's script
+  // reads them by their names, room_order and is_hiding_full_rooms.
+  const { roomOrder, isHidingFullRooms } = list;
+  if (list.rooms.length > 1 || roomOrder !== "best_to_join" || isHidingFullRooms) {
+    items.push(
+      {
+        kind: "block",
+        markup: row({
+          widths: "fit",
+          items: [
+            { kind: "control", markup: selectField({ id: "rooms-order", name: "room_order", label: "Sort by", choices: ROOM_ORDER_CHOICES, pickedValue: roomOrder }) },
+            { kind: "block", markup: checkField({ id: "rooms-hide-full", name: "is_hiding_full_rooms", checkValue: "true", label: "Hide full rooms", isChecked: isHidingFullRooms }) },
+          ],
+        }),
+      },
+    );
+  }
   const filtered = Object.keys(picked).length > 0;
-  const hiddenRoomCount = open.length - FIRST_ROOM_COUNT;
   const empty = filtered
     ? "No open rooms like that right now. Pick something else, or press Play to start."
+    : isHidingFullRooms
+      ? "No open rooms with space right now. Show full rooms too, or press Play to start."
     : region || list.region
-    ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
-    : closedRoomCount
-      ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
-      : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${Math.max(playerCount, ticketPlayerCount)}" data-shown="${shownKey(list.region, picked)}">
-${head}
-${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
-${open.length ? html`<ol class="rooms${open.some(hasWatchSpace) ? " watchable" : ""}">${open.map((room, i) => roomRow(slug, room, i >= FIRST_ROOM_COUNT))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
-${hiddenRoomCount > 0 ? html`<button class="btn ghost rooms-all" type="button">Show ${plural(hiddenRoomCount, "more room", "more rooms")}</button>` : ""}
-${list.moreOpenRoomCount > 0 ? html`<p class="muted rooms-more">And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}</p>` : ""}
-${closedRoomCount && open.length ? html`<p class="muted rooms-more">Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.</p>` : ""}
-</div>`;
+        ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
+        : "Nobody's in an open room right now. Press Play to start.";
+  items.push(
+    list.rooms.length
+      ? { kind: "block", markup: listRows({ id: ROOMS_LIST_ID, label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: list.rooms.map((room) => roomRow(slug, room)) }) }
+      : { kind: "block", markup: emptyState({ title: "No open rooms", text: empty }) },
+  );
+  if (list.nextCursor) items.push({ kind: "block", markup: moreRooms(slug, list, picked) });
+  return stack({ items, dataAttributes: { count: String(tabCount(list)), playing: String(Math.max(playerCount, ticketPlayerCount)), shown: shownKey(list.region, picked, roomOrder, isHidingFullRooms) } });
 }
 
-/** Which region and labels a panel shows, so the page knows when to load another. */
-export const shownKey = (region: string | null, picked: Record<string, string>) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}`;
+/** The rooms' list on the page, which Load more adds the next rooms to. */
+const ROOMS_LIST_ID = "rooms-rows";
 
-function roomRow(slug: string, room: ListedRoom, later: boolean): Raw {
-  const space = hasSpace(room);
+/** Load more under the rooms: the next page's address carries the region, labels, order and full-rooms setting the list shows. */
+const moreRooms = (slug: string, list: RoomPage, picked: Record<string, string>): Raw => {
+  const query = new URLSearchParams({ cursor: list.nextCursor! });
+  if (list.region) query.set("region", list.region);
+  if (Object.keys(picked).length) query.set("labels", JSON.stringify(picked));
+  if (list.roomOrder !== "best_to_join") query.set("room_order", list.roomOrder);
+  if (list.isHidingFullRooms) query.set("is_hiding_full_rooms", "true");
+  return loadMore({ href: `/g/${slug}/rooms?${query}`, label: "Load more", listId: ROOMS_LIST_ID });
+};
+
+/** Which region, labels, order and full-rooms setting a panel shows, so the page knows when to load another. The page's script builds the same key (roomsKey). */
+export const shownKey = (region: string | null, picked: Record<string, string>, roomOrder: RoomOrder, isHidingFullRooms: boolean) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}|${roomOrder}|${isHidingFullRooms}`;
+
+/** The order and full-rooms setting a request asks for (room_order, is_hiding_full_rooms): anything else is the default. */
+export const readRoomPick = (query: URLSearchParams) => ({ roomOrder: readRoomOrderParameter(query.get("room_order")), isHidingFullRooms: readIsHidingFullRoomsParameter(query.get("is_hiding_full_rooms")) });
+
+/**
+ * A room's row: its name and labels (or how full it is, when it has neither), then how full, how many watch and where it runs, in words;
+ * Join (or Full), Watch for a room that takes spectators, and Report for a room with a name or labels to report. A match in progress that
+ * isn't taking new players ends in "In a match", with Join shown grayed and off; Watch stays live where it takes spectators. The code stays
+ * in the links.
+ */
+function roomRow(slug: string, room: ListedRoom): ListRow {
   const filled = `${room.playerCount} of ${room.maximumPlayerCount} ${room.maximumPlayerCount === 1 ? "player" : "players"}`;
-  const meter = html`<span class="seats" aria-hidden="true">${Array.from({ length: Math.min(room.maximumPlayerCount, MAXIMUM_SEAT_COUNT) }, (_, i) => raw(i < lit(room) ? '<i class="on"></i>' : "<i></i>"))}</span>`;
   const { name, labels } = shownText(room);
-  const named = Boolean(name || labels.length);
-  const tags = labels.length ? html`<span class="labels">${labels.map(([labelName, labelValue], i) => html`${i ? " · " : ""}<span title="${labelName}">${labelValue}</span>`)}</span>` : "";
-  // A named room leads with its name, others with how full they are; labels go underneath. The code stays in the link.
-  const main = html`<span class="title">${name ? html`<strong class="name">${name}</strong>` : html`<span class="count">${filled}</span>`}${tags}</span>`;
-  const label = `Join ${name ? `“${name}”` : "a room"} with ${filled}${room.location ? ` in ${room.location.countryName}` : ""}`;
-  const said = [name, labels.map(([, labelValue]) => labelValue).join(", ")].filter(Boolean).join(", ");
-  return html`<li class="room plate${later ? " later" : ""}${named ? " named" : ""}">
-<span class="main">${main}</span>
-<span class="fill">${meter}${name ? html`<span class="small-count">${filled}</span>` : ""}${room.spectatorCount > 0 ? html`<span class="watching">· ${room.spectatorCount} watching</span>` : ""}</span>
-<span class="where">${room.location ? html`<img class="flag" src="/flags/${room.location.countryCode.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${room.location.countryName}">${room.location.countryCode}</abbr>` : ""}</span>
-<span class="doors">${space ? html`<a class="btn" href="/g/${slug}?room=${room.roomCode}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}${hasWatchSpace(room) ? html`<a class="btn ghost" href="/g/${slug}?room=${room.roomCode}&watch=1" aria-label="Watch ${name ? `“${name}”` : "a room"} with ${filled}">Watch</a>` : ""}</span>
-<span class="act">${named ? html`<button class="report-room" type="button" data-report-room="${room.roomCode}" data-room-name="${said}" title="Report this room's name" aria-label="Report the room “${said}”">${raw(ICON_REPORT)}</button>` : ""}</span>
-</li>`;
+  const labelValues = labels.map(([, labelValue]) => labelValue);
+  const title = [name, ...labelValues].filter(Boolean).join(" · ") || filled;
+  const detail = [title === filled ? "" : filled, room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
+  const said = [name, labelValues.join(", ")].filter(Boolean).join(", ");
+  const actions: ControlMarkup[] = [
+    ...(hasSpace(room) ? [cutButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [cutButton("Join", { type: "button", isSmall: true, isDisabled: true })]),
+    ...(hasWatchSpace(room) ? [cutButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
+    // The page's script (report.ts) opens the report with the room's code and what it's called.
+    ...(said ? [cutButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
+  ];
+  return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : room.isOpen ? "Full" : "In a match", action: actions.length > 1 ? actions : actions[0] };
 }
 
-// The same mark as Report in the game page's menu.
-const ICON_REPORT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></svg>`;
-
-/** Most seats the meter draws. A bigger room's seats each stand for a share of its places. */
-const MAXIMUM_SEAT_COUNT = 16;
-
-/** Seats lit: one per player, or the share that's full in a bigger room (one if anyone's in, all only when full). */
-export function lit(room: { playerCount: number; maximumPlayerCount: number }): number {
-  if (room.maximumPlayerCount <= MAXIMUM_SEAT_COUNT) return room.playerCount;
-  if (room.playerCount >= room.maximumPlayerCount) return MAXIMUM_SEAT_COUNT;
-  return Math.min(MAXIMUM_SEAT_COUNT - 1, Math.max(room.playerCount > 0 ? 1 : 0, Math.round((room.playerCount / room.maximumPlayerCount) * MAXIMUM_SEAT_COUNT)));
-}
-
-/** A box for a room code a friend shared. It opens the same room link an invite does. */
+/** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  return html`<form class="code-join" method="get" action="/g/${slug}">
-<label for="room-code">Have a room code?</label>
-<input id="room-code" name="room" required maxlength="6" minlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" placeholder="ABC234" title="6 letters and numbers, like ABC234">
-<button class="btn" type="submit">Join</button>
-</form>`;
+  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Za-hj-np-z]{6}", isRequired: true });
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: cutButton("Join", { type: "submit" }) }] })}</form>`;
 }
 
-/** GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen. */
+/**
+ * GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen: its first rows (shown_row_count of them, so a
+ * refresh keeps the rooms already loaded). With cursor, only the page that starts there: its rows in a list of the panel's id and the Load
+ * more for the page after, which Load more adds to the list.
+ */
 export async function roomsFragment(env: Env, slug: string, request: Request): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
   const shown = game && game.review_status === "live" && game.live_version_id && game.visibility !== "draft" && game.visibility !== "private" && roomsOnPage(game);
   if (!shown) return new Response("", { status: 404, headers: { "Cache-Control": "no-store" } });
   const query = new URL(request.url).searchParams;
   const picked = readLabelParameter(query.get("labels")) ?? {};
-  const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked });
+  const headers = securityHeaders(env, { "Cache-Control": "private, max-age=10" });
+  const cursor = query.get("cursor");
+  if (cursor !== null) {
+    const next = await pageRooms(env, game, request, { region: query.get("region"), labels: picked, ...readRoomPick(query), cursor });
+    const rows = listRows({ id: ROOMS_LIST_ID, label: "Open rooms", rows: next.rooms.map((room) => roomRow(slug, room)) });
+    return new Response(String(html`${rows}${next.nextCursor ? moreRooms(slug, next, picked) : ""}`), { headers });
+  }
+  const shownRowCount = Math.floor(Number(query.get("shown_row_count")));
+  const rowCount = Number.isFinite(shownRowCount) ? Math.max(SHOWN_ROOM_COUNT, Math.min(MAXIMUM_REFRESHED_ROOM_COUNT, shownRowCount)) : SHOWN_ROOM_COUNT;
+  const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked, ...readRoomPick(query), rowCount });
   // The page says which room this player just left, so they don't see themselves in it while lists catch up.
   const left = readLeftParameter(query.get("left"));
   // "Playing now" under the title is the larger of the rooms' players and the browsers playing (plays.ts).
   const body = roomsPanel(game, left ? leaveOut(list, left) : list, picked, (await playingNowCounts(env)).get(game.id) ?? 0);
-  return new Response(String(body), { headers: securityHeaders(env, { "Cache-Control": "private, max-age=10" }) });
+  return new Response(String(body), { headers });
 }

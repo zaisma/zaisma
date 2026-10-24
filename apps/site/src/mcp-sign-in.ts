@@ -370,7 +370,7 @@ async function connectPage(env: Env, checked: Allowed, account: Account, error?:
   return layout(env, {
     title: `Connect ${name} to your games · Zaisma`,
     isPrivate: true,
-    isRebuilt: true,
+    checkedPage: "Connect an app",
     viewer: { account },
     // The answer goes on to the app, which a page's form-action has to allow.
     formTargets: [backTo.origin],

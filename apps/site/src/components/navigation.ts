@@ -306,26 +306,33 @@ export const RAIL_SCRIPT = `/* rail */(function () {
   // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
   // Every box's style is read before any rail goes in: a rail put in between would make the next read work out the whole page's styles
   // again, once a box (a page of fields has over a hundred).
-  var railedBoxes = window.zaismaWatch.scrollBoxes().map(function (box) {
-    var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
-    if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return null;
-    if (getComputedStyle(box).scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return null;
-    var parent = box.parentElement; if (!parent || parent === document.body) return null;
-    return { box: box, isControl: isControl, isParentStatic: getComputedStyle(parent).position === "static" };
-  });
-  railedBoxes.forEach(function (railed) {
-    if (!railed) return;
-    if (railed.isParentStatic) railed.box.parentElement.style.position = "relative";
-    railed.box.insertAdjacentHTML("afterend", '<div class="rail"' + (railed.isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
-  });
-  // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
-  // phones too, whose own sideways scrollbars hide.
-  document.querySelectorAll("[data-side-rail]").forEach(function (box) {
-    if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
-    // Cut by the edge rule like anything near a pane's corner, so along a pane's foot its ends follow the corners.
-    box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" data-cut-line="0" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
-  });
+  function addRails(scrollBoxes, within) {
+    var railedBoxes = scrollBoxes.map(function (box) {
+      var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
+      if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return null;
+      if (getComputedStyle(box).scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return null;
+      var parent = box.parentElement; if (!parent || parent === document.body) return null;
+      return { box: box, isControl: isControl, isParentStatic: getComputedStyle(parent).position === "static" };
+    });
+    railedBoxes.forEach(function (railed) {
+      if (!railed) return;
+      if (railed.isParentStatic) railed.box.parentElement.style.position = "relative";
+      railed.box.insertAdjacentHTML("afterend", '<div class="rail"' + (railed.isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+    });
+    // A box that scrolls sideways and asks for it (data-side-rail: a table, a chart) gets the same rail laid on its side, under it: shown on
+    // phones too, whose own sideways scrollbars hide.
+    within.querySelectorAll("[data-side-rail]").forEach(function (box) {
+      if (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail")) return;
+      // Cut by the edge rule like anything near a pane's corner, so along a pane's foot its ends follow the corners.
+      box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" data-cut-line="0" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+    });
+  }
+  var wiredBars = new WeakSet();
+  // Each rail is wired once: the page's, those of the boxes found at the start and those of boxes added later.
+  function wireRails() {
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
+    if (wiredBars.has(bar)) return;
+    wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
@@ -514,6 +521,23 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     bar.addEventListener("pointerup", release); bar.addEventListener("pointercancel", end);
     layout(); wake();
   });
+  }
+  addRails(window.zaismaWatch.scrollBoxes(), document);
+  wireRails();
+  // A list the page swaps in later (the rooms on a game's page) gets its rail the same way, never the browser's own scrollbar.
+  window.zaismaWatch.page(function (changes) {
+    var scrollBoxes = [], hasSideBox = false;
+    changes.forEach(function (change) {
+      Array.prototype.forEach.call(change.addedNodes || [], function (node) {
+        if (node.nodeType !== 1 || !node.isConnected || node.closest(".rail, svg, .edge, .cut-line")) return;
+        window.zaismaWatch.scrollBoxesIn(node).forEach(function (box) { if (scrollBoxes.indexOf(box) < 0) scrollBoxes.push(box); });
+        if (node.matches("[data-side-rail]") || node.querySelector("[data-side-rail]")) hasSideBox = true;
+      });
+    });
+    if (!scrollBoxes.length && !hasSideBox) return;
+    addRails(scrollBoxes, document);
+    wireRails();
+  });
 })();
 `;
 
@@ -577,9 +601,13 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       box.classList.toggle("is-scrollable", canScroll[i]);
       window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
-    var found = window.zaismaWatch.scrollBoxes().filter(function (box) {
+    fadeBoxes(window.zaismaWatch.scrollBoxes());
+  }
+  function fadeBoxes(scrollBoxes) {
+    var found = scrollBoxes.filter(function (box) {
       return !(box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade"));
     });
+    boxes = boxes.filter(function (box) { return box.isConnected; });
     found.forEach(function (box) {
       box.classList.add("scroll-fades"); boxes.push(box);
       var queued = false;
@@ -589,6 +617,17 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     syncAll(found);
   }
   find();
+  // A box added later (a list the page swaps in) fades its words the same way.
+  window.zaismaWatch.page(function (changes) {
+    var added = [];
+    changes.forEach(function (change) {
+      Array.prototype.forEach.call(change.addedNodes || [], function (node) {
+        if (node.nodeType !== 1 || !node.isConnected || node.closest(".rail, svg, .edge, .cut-line")) return;
+        window.zaismaWatch.scrollBoxesIn(node).forEach(function (box) { if (added.indexOf(box) < 0) added.push(box); });
+      });
+    });
+    if (added.length) fadeBoxes(added);
+  });
   window.zaismaWatch.resize(function () { syncAll(boxes); });
   // Rows that scroll sideways fade over a side with more past it, and start where the one you're on shows whole.
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -769,10 +808,11 @@ component({
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
-/* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. */
+/* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. Its words are all of
+   it, so they keep a pane's margin from its edge. */
 .foot {
   position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block);
-  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-inner-pane);
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); padding: var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
   clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
@@ -784,7 +824,7 @@ component({
 .foot p { margin: 0 0 0 auto; }
 /* On a phone it stacks, centered: the mark, the links on centered lines as many as fit, then the license. */
 @media (max-width: 760px) {
-  .foot { flex-direction: column; align-items: center; padding: var(--pad-pane); text-align: center; }
+  .foot { flex-direction: column; align-items: center; text-align: center; }
   .foot nav { justify-content: center; width: 100%; }
   .foot p { margin: 0; }
 }
@@ -1153,6 +1193,8 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
         var into = document.getElementById(id), more = next.getElementById(id);
         if (!into || !more || !more.children.length) return;
         Array.prototype.slice.call(more.children).forEach(function (child) { into.appendChild(document.importNode(child, true)); });
+        // A list that scrolls inside itself (capped list rows) fades and shows its rail from how far it can scroll: more rows means that changed.
+        into.dispatchEvent(new Event("scroll"));
         var hidden = into.closest("[hidden]");
         if (hidden) hidden.hidden = false;
       });

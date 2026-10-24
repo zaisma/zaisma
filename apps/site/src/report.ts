@@ -3,13 +3,19 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
-import { html, layout, metalButton, raw, scriptTags } from "./html.ts";
+import { html, layout, pageData, scriptTags, type Raw } from "./html.ts";
+import { cutButton, runButton, textLink } from "./components/actions.ts";
+import { checkField, choiceCards, longField, type ChoiceCard } from "./components/choices.ts";
+import { doneState } from "./components/data.ts";
+import { row, stack } from "./components/layout.ts";
+import { glassPane } from "./components/foundations.ts";
+import { banner, sheet } from "./components/panes.ts";
+import { readingText } from "./components/reading.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Viewer } from "./viewer.ts";
 
 /**
- * Reporting a game or a player. On the game page it's a plate that slides in beside the game (up
- * from the bottom on phones), so the game keeps running and stays in view. Games hand a player
+ * Reporting a game or a player. On the game page it's a sheet over the game, which keeps running. Games hand a player
  * report over from the SDK's safety panel (a zaisma:report message), so every report looks the
  * same and carries the room and the player's temporary ID. Nothing about the person reporting is
  * kept. Without JavaScript, /g/<slug>/report is a plain form.
@@ -40,131 +46,75 @@ const PLAYER_WHYS: [PlayerReportReason, string, string][] = [
   ["other", PLAYER_REPORT_REASONS.other, ""],
 ];
 
-const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-const ICON_CLOSE = svg('<path d="M6 6l12 12M18 6L6 18"/>');
-const ICON_NEXT = svg('<path d="M9 5l7 7-7 7"/>');
-const ICON_SENT = svg('<path d="M4.5 12.5l5 5 10-11"/>');
+const reasonChoices = (whys: [string, string, string][]): ChoiceCard[] => whys.map(([reason, label, hint]) => ({ choiceValue: reason, label, ...(hint ? { text: hint } : {}) }));
 
-const why = (reason: string, label: string, hint: string) =>
-  html`<button type="button" class="why" data-reason="${reason}" data-label="${label}"><span><strong>${label}</strong>${hint ? html`<small>${hint}</small>` : ""}</span>${raw(ICON_NEXT)}</button>`;
-
-/** The report plate for the game page, with its styles and script. */
-export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
+/**
+ * The report sheet for the game page, with its script. One form: what's wrong (the game's reasons, or a player's when a game hands
+ * one over), anything else to say, the picture of the game, then a done state in its place once it's sent. Report links
+ * (a[data-report]) and a room's report button (data-report-room) open it.
+ */
+export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): Raw {
   const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
-  return html`<style>
-/* Report: a plate that slides in beside the game. The game keeps running and stays in view, and the
-   shade only deepens toward the plate. */
-dialog.sheet{position:fixed;inset:12px 12px 12px auto;margin:0;width:min(400px,calc(100vw - 24px));height:auto;max-width:none;max-height:none;flex-direction:column;overflow:hidden;
-  --cut:36px;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);animation:sheet-in 220ms cubic-bezier(.2,.8,.2,1)}
-dialog.sheet[open]{display:flex}
-dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4,5,7,.6));-webkit-backdrop-filter:none;backdrop-filter:none}
-.sheet [hidden]{display:none!important}
-.sheet-head{display:flex;align-items:flex-start;gap:12px;padding:22px 22px 16px;
-  background:linear-gradient(#000,#000) bottom left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom 1px left/100% 1px no-repeat}
-.sheet-head>div{flex:1;min-width:0}
-.sheet-head h2{margin:0;font-size:24px;line-height:1.15;overflow-wrap:anywhere}
-.sheet-sub{margin:6px 0 0;color:var(--muted);font-size:14px}
-.sheet-head .x{flex:none;width:40px;height:40px;margin-right:24px;padding:0;justify-content:center}
-.sheet-body{flex:1;min-height:0;overflow:auto;padding:16px 16px 20px}
-.whys{display:grid;gap:8px}
-.why[hidden]{display:none}
-/* Each reason is a plate you press; the chevron says it leads on. */
-.why,.picked{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:10px 14px 10px 16px;border:0;text-align:left;color:var(--text);font:inherit;cursor:pointer;
-  background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
-.why span,.picked span{flex:1;min-width:0;display:grid;gap:2px}
-.why strong,.picked strong{font-family:var(--display);font-size:16px;font-weight:600}
-.why small{color:var(--muted);font-size:13px;line-height:1.35}
-.why svg{width:16px;height:16px;flex:none;color:var(--muted)}
-.why:hover,.picked:hover{background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#3a3f48,#2a2e35)}
-.why:hover svg{color:var(--text)}
-.why:focus-visible,.picked:focus-visible{outline:none;box-shadow:inset 0 0 0 2px #e9ebee}
-/* The chosen reason rides on a chrome rail, like the open tab. */
-.picked{padding-left:20px}
-.picked::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--chrome);box-shadow:0 0 12px rgba(225,230,240,.35)}
-.picked .change{flex:none;font-family:var(--display);font-size:13px;font-weight:500;color:var(--muted)}
-.picked:hover .change{color:var(--text)}
-.sheet form{display:grid;gap:14px}
-.sheet textarea{width:100%;min-height:120px;resize:vertical}
-/* The picture of the game sits in a machined bezel, like the game page's; unticked, it grays out. */
-.report-pic{margin:0;display:grid;gap:10px}
-.report-pic .frame{display:block;padding:3px;background:linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
-.report-pic img{display:block;width:100%;max-height:190px;object-fit:contain;background:#000;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);transition:opacity 140ms,filter 140ms}
-.report-pic.off img{opacity:.3;filter:grayscale(1)}
-.sheet .tick{display:flex;align-items:center;gap:10px;color:var(--text-2);font-size:14px;cursor:pointer}
-.sheet .tick input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:#d7dbe0}
-.sheet .note{margin:0;font-size:14px;color:var(--warn)}
-.sheet-fine{margin:0;color:var(--muted);font-size:13px}
-.sheet .error{margin:0}
-.sheet-foot{margin:16px 2px 0;color:var(--muted);font-size:13px}
-.sent{display:grid;gap:10px;justify-items:start;padding-top:6px}
-.sent .mark{display:grid;place-items:center;width:52px;height:52px;color:var(--ok);background:var(--brush) 0 0/320px 320px,var(--face-hi);
-  box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000,0 0 22px rgba(95,211,141,.16)}
-.sent .mark svg{width:26px;height:26px}
-.sent h3{margin:6px 0 0;font-size:22px}
-.sent p{margin:0 0 8px;color:var(--text-2)}
-@keyframes sheet-in{from{opacity:0;transform:translateX(28px)}}
-@keyframes sheet-up{from{opacity:.4;transform:translateY(48px)}}
-/* Phones: the same plate comes up from the bottom. */
-@media (max-width:640px){
-  dialog.sheet{inset:auto 0 0 0;width:100%;max-height:88dvh;animation-name:sheet-up}
-  dialog.sheet::backdrop{background:linear-gradient(180deg,rgba(4,5,7,0) 25%,rgba(4,5,7,.65))}
-  .sheet-head{padding:18px 18px 14px}
-  .sheet-body{padding:14px 12px 20px}
-}
-/* Landscape phones keep the game's full height: the plate stays at the side. */
-@media (orientation:landscape) and (max-height:500px){
-  dialog.sheet{inset:8px 8px 8px auto;width:min(380px,62vw);max-height:none;animation-name:sheet-in}
-  .sheet-head{padding:14px 18px 12px}
-}
-@media (prefers-reduced-motion:reduce){dialog.sheet{animation:none}}
-</style>
-<dialog id="report" class="sheet" aria-labelledby="report-title" data-config="${JSON.stringify(config)}">
-  <div class="sheet-head">
-    <div><h2 id="report-title">Report ${game.title}</h2><p class="sheet-sub" id="report-sub">We don't record who you are.</p></div>
-    <button class="ctl x" type="button" data-close title="Close" aria-label="Close">${raw(ICON_CLOSE)}</button>
-  </div>
-  <div class="sheet-body">
-    <section data-step="why" aria-label="What's wrong">
-      <div class="whys" data-for="game">${GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
-    </section>
-    <form data-step="tell" hidden>
-      <button type="button" class="picked" data-back><span><strong id="report-picked"></strong></span><span class="change">Change</span></button>
-      <label>Anything else we should know? (optional)<textarea name="details" maxlength="2000" rows="4"></textarea></label>
-      <figure class="report-pic" id="report-pic" hidden>
-        <span class="frame"><img id="report-pic-img" alt="The game when you opened Report"></span>
-        <label class="tick"><input type="checkbox" name="picture" checked>Include this picture of the game</label>
-      </figure>
-      <p class="note plate" id="report-hold" hidden>These go straight to a person.</p>
-      <p class="sheet-fine" id="report-context"></p>
-      <p class="error" id="report-error" role="alert" hidden></p>
-      <div class="row">${metalButton("Send report", { id: "report-send", type: "submit" })}<button class="btn ghost" type="button" data-back>Back</button></div>
-    </form>
-    <section class="sent" data-step="sent" aria-live="polite" hidden>
-      <span class="mark bevel-s">${raw(ICON_SENT)}</span>
-      <h3>Thanks for the report</h3>
-      <p id="report-sent-text"></p>
-      <button class="btn" type="button" data-close>Back to the game</button>
-    </section>
-  </div>
-</dialog>
+  const gameWhys = GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer);
+  const tell = stack({
+    items: [
+      { kind: "words", markup: html`<p id="report-sub">We don't record who you are.</p>` },
+      { kind: "block", id: "report-reasons-game", markup: choiceCards({ id: "report-reason-game", name: "reason", label: "What's wrong", choices: reasonChoices(gameWhys), isCompact: true }) },
+      { kind: "block", id: "report-reasons-player", isHidden: true, markup: choiceCards({ id: "report-reason-player", name: "reason", label: "What did they do?", choices: reasonChoices(PLAYER_WHYS), isCompact: true }) },
+      { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 3, maximumCharacterCount: 2000, placeholder: "What did you see, and where in the game?" }) },
+      {
+        kind: "block",
+        id: "report-pic",
+        isHidden: true,
+        markup: stack({
+          items: [
+            { kind: "block", markup: readingText({ markup: html`<p><img id="report-pic-img" alt="The game when you opened Report"></p>` }) },
+            { kind: "block", markup: checkField({ id: "report-picture", name: "picture", label: "Include this picture of the game", isChecked: true }) },
+          ],
+        }),
+      },
+      { kind: "block", id: "report-hold", isHidden: true, markup: banner({ text: "These go straight to a person.", icon: "person" }) },
+      { kind: "words", markup: html`<p id="report-context"></p>` },
+      { kind: "block", markup: html`<p class="field-error" id="report-error" role="alert" hidden></p>` },
+      {
+        kind: "words",
+        id: "report-notices",
+        markup: html`<p>Someone copied your work? ${textLink("Send a copyright notice", "/legal/dmca", { isNewTab: true })}<br>A game falsely says you committed a crime? ${textLink("Send a defamation notice", "/legal/defamation", { isNewTab: true })}</p>`,
+      },
+    ],
+  });
+  const body = stack({
+    items: [
+      { kind: "block", id: "report-tell", markup: tell },
+      { kind: "block", id: "report-sent", isHidden: true, markup: html`<div role="status">${doneState({ title: "Thanks for the report", text: "We'll look at it soon." })}</div>` },
+    ],
+  });
+  return html`${sheet({
+    id: "report",
+    title: `Report ${game.title}`,
+    body,
+    closeLabel: "Close",
+    buttons: [cutButton("Back to the game", { id: "report-done", type: "submit", formMethod: "dialog", isHidden: true }), runButton("Send report", { id: "report-send", type: "submit" })],
+  })}
+${pageData("report-data", config)}
 ${scriptTags(REPORT_SHEET_SCRIPT)}`;
 }
 
-// The report plate's script. What it needs from the page (the game's slug, title and origin, and which
-// reasons go straight to a person) comes in the plate's data-config.
+// The report sheet's script. What it needs from the page (the game's slug, title and origin, and which reasons go straight to a
+// person) comes in the report-data block.
 const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   const sheet = document.getElementById("report");
-  const C = JSON.parse(sheet.dataset.config);
+  const C = JSON.parse(document.getElementById("report-data").textContent);
   const form = sheet.querySelector("form");
-  const send = document.getElementById("report-send");
   const $ = (id) => document.getElementById(id);
+  const send = $("report-send"), done = $("report-done");
   const ROOM_REASONS = ["child_safety", "sexual", "real_people", "illegal", "other"];
   // about: a player a game handed over; aboutRoom: a room from the Rooms list ({ code, name }).
-  let about = null, aboutRoom = null, reason = "", label = "";
+  let about = null, aboutRoom = null, reason = "";
   // A picture of the game, taken when the player opens the menu or Report; sent only if they keep it ticked.
   let picture = null, asked = 0;
+  const frame = () => document.getElementById("game");
+  const reasons = () => $(about ? "report-reasons-player" : "report-reasons-game");
   function takePicture() {
     const f = frame();
     picture = null;
@@ -173,68 +123,79 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     f.contentWindow.postMessage({ type: "zaisma:picture-request", id: String(asked) }, C.gameOrigin);
   }
   function showPicture() {
-    const fig = $("report-pic");
+    const pic = $("report-pic");
     // Never with child safety, illegal content or a sexual report about a player: we don't want to receive images like that.
-    fig.hidden = !picture || (about ? reason === "sexual" : C.hold.includes(reason));
-    if (!fig.hidden) $("report-pic-img").src = picture;
-    fig.classList.toggle("off", !form.picture.checked);
+    pic.hidden = !picture || (about ? reason === "sexual" : C.hold.includes(reason));
+    if (!pic.hidden) $("report-pic-img").src = picture;
   }
-  form.picture.addEventListener("change", showPicture);
   const menuButton = document.getElementById("menu");
   if (menuButton) menuButton.addEventListener("click", takePicture);
   const roomCode = () => { const c = (new URLSearchParams(location.search).get("room") || "").toUpperCase(); return /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(c) ? c : ""; };
-  const frame = () => document.getElementById("game");
-  function step(name) {
-    sheet.querySelectorAll("[data-step]").forEach((el) => (el.hidden = el.dataset.step !== name));
-    const first = name === "why" ? sheet.querySelector("[data-step=why] .whys:not([hidden]) .why") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] .btn");
-    if (first) first.focus();
+  function firstReason() { return reasons().querySelector(".choice-card:not([hidden]) input"); }
+  // The form, or the done state in its place once it's sent.
+  function showSent(isSent) {
+    $("report-tell").hidden = isSent;
+    $("report-sent").hidden = !isSent;
+    send.hidden = isSent;
+    done.hidden = !isSent;
   }
   // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name.
   function open(player, room) {
     about = player || null;
     aboutRoom = room || null;
+    reason = "";
     // From the menu, keep the picture taken when it opened; otherwise take one now. A room's name needs none.
     if (aboutRoom) picture = null;
     else if (about || Date.now() - asked > 30000) takePicture();
-    const menu = document.getElementById("menu-dialog");
-    if (menu && menu.open) menu.close();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     $("report-title").textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
     $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
-    sheet.querySelectorAll("[data-for]").forEach((el) => (el.hidden = (el.dataset.for === "player") !== Boolean(about)));
+    $("report-reasons-game").hidden = Boolean(about);
+    $("report-reasons-player").hidden = !about;
     // A room's name is words: only the reasons words can break, and no copyright note.
-    sheet.querySelectorAll("[data-for=game] .why").forEach((b) => (b.hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(b.dataset.reason)));
-    sheet.querySelectorAll(".sheet-foot[data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
+    $("report-reasons-game").querySelectorAll(".choice-card").forEach((card) => (card.hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(card.querySelector("input").value)));
+    $("report-notices").hidden = Boolean(about) || Boolean(aboutRoom);
     form.reset();
+    form.details.placeholder = about ? "What did they do?" : "What did you see, and where in the game?";
+    $("report-hold").hidden = true;
+    const code = about ? about.code : roomCode();
+    $("report-context").textContent = aboutRoom ? "We'll include the room's name and code." : about ? "We'll include their temporary player ID and the room code." : "We'll include the version you're playing" + (code ? " and the room code." : ".");
     $("report-error").hidden = true;
+    showPicture();
+    showSent(false);
     if (!sheet.open) sheet.showModal();
-    step("why");
+    const first = firstReason();
+    if (first) first.focus();
   }
-  function close() { if (sheet.open) sheet.close(); }
   sheet.addEventListener("close", () => { const f = frame(); if (f) f.focus(); });
-  sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) return close();
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.hasAttribute("data-close")) return close();
-    if (b.hasAttribute("data-back")) return step("why");
-    if (b.dataset.reason) {
-      reason = b.dataset.reason;
-      label = b.dataset.label;
-      $("report-picked").textContent = label;
-      form.details.placeholder = about ? "What did they do?" : reason === "player" ? "Who was it, and what did they do?" : reason === "broken" ? "What happened, and where in the game?" : "What did you see, and where in the game?";
-      $("report-hold").hidden = Boolean(about) || Boolean(aboutRoom) || !C.hold.includes(reason);
-      const code = about ? about.code : roomCode();
-      $("report-context").textContent = aboutRoom ? "We'll include the room's name and code." : about ? "We'll include their temporary player ID and the room code." : "We'll include the version you're playing" + (code ? " and the room code." : ".");
-      showPicture();
-      step("tell");
-    }
+  form.addEventListener("change", (e) => {
+    if (e.target.name !== "reason") return;
+    reason = e.target.value;
+    $("report-error").hidden = true;
+    form.details.placeholder = about ? "What did they do?" : reason === "player" ? "Who was it, and what did they do?" : reason === "broken" ? "What happened, and where in the game?" : "What did you see, and where in the game?";
+    $("report-hold").hidden = Boolean(about) || Boolean(aboutRoom) || !C.hold.includes(reason);
+    showPicture();
+  });
+  // Enter in a field sends the report: the sheet's first submit button is its Close, which the browser would press.
+  form.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.target instanceof HTMLInputElement) || send.hidden) return;
+    e.preventDefault();
+    form.requestSubmit(send);
   });
   form.addEventListener("submit", async (e) => {
+    // Close and Back to the game close the sheet (formmethod="dialog").
+    if (e.submitter && e.submitter.getAttribute("formmethod") === "dialog") return;
     e.preventDefault();
     if (send.getAttribute("aria-busy") === "true") return;
-    send.setAttribute("aria-busy", "true");
     $("report-error").hidden = true;
+    if (!reason) {
+      $("report-error").textContent = "Choose what the problem is.";
+      $("report-error").hidden = false;
+      const first = firstReason();
+      if (first) first.focus();
+      return;
+    }
+    send.setAttribute("aria-busy", "true");
     const body = { reason, details: form.details.value, room: aboutRoom ? aboutRoom.code : about ? about.code : roomCode() };
     if (aboutRoom) body.about = "room";
     if (about) body.player = { id: about.id, name: about.name };
@@ -252,16 +213,20 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     }
     // A player report Zaisma looks at itself, or one passed to the game's developer.
     const passed = about && !C.zaisma.includes(reason);
-    $("report-sent-text").textContent = data.is_game_hidden ? "The game is hidden while we check it." : data.is_update_paused ? "The latest update is paused while we check it." : about ? (about.fromGame ? about.name + " is muted for you. " : "") + (passed ? "Block them to keep them away in every game. We've passed this to the game's developer." : "A person at Zaisma will look at it soon.") : "We'll look at it soon.";
+    showSent(true);
+    $("report-sent").querySelector(".state-text").textContent = data.is_game_hidden ? "The game is hidden while we check it." : data.is_update_paused ? "The latest update is paused while we check it." : about ? (about.fromGame ? about.name + " is muted for you. " : "") + (passed ? "Block them to keep them away in every game. We've passed this to the game's developer." : "A person at Zaisma will look at it soon.") : "We'll look at it soon.";
+    done.focus();
     // The game mutes a player once they're reported.
     const f = frame();
     if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", player: about.id }, C.gameOrigin);
-    step("sent");
   });
-  // Report links open the plate; without JavaScript they lead to the form page.
-  document.querySelectorAll("a[data-report]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); open(null); }));
-  // A room in the Rooms list, reported for its name or labels (the list refreshes, so listen on the page).
+  // Report links open the sheet: any marked data-report, and any to this game's report page (the menu's Report choice); without
+  // JavaScript they lead to the form page. A room in the Rooms list is reported for its name or labels. Both listen on the page,
+  // since the menu and the list can change.
+  const reportLinks = 'a[data-report], a[href="/g/' + C.slug + '/report"]';
   document.addEventListener("click", (e) => {
+    const link = e.target.closest && e.target.closest(reportLinks);
+    if (link) { e.preventDefault(); return open(null); }
     const b = e.target.closest && e.target.closest("[data-report-room]");
     if (!b || !/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(b.dataset.reportRoom)) return;
     open(null, { code: b.dataset.reportRoom, name: (b.dataset.roomName || "").slice(0, 80) });
@@ -274,7 +239,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     if (d.type === "zaisma:picture") {
       if (d.id === String(asked) && typeof d.picture === "string" && d.picture.startsWith("data:image/jpeg;base64,") && d.picture.length < 2000000) {
         picture = d.picture;
-        if (sheet.open && !form.hidden) showPicture();
+        if (sheet.open && !$("report-tell").hidden) showPicture();
       }
       return;
     }
@@ -285,7 +250,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     open({ id: p.id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 40) : "a player", code, fromGame: true });
     e.source.postMessage({ type: "zaisma:report-open" }, C.gameOrigin);
   });
-  // The Players plate in the bar hands a player over the same way, from Zaisma's own page.
+  // The Players sheet hands a player over the same way, from Zaisma's own page.
   window.addEventListener("zaisma:open-report", (e) => {
     const p = e.detail || {};
     if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;
@@ -297,30 +262,41 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
 /** Private, draft and not-yet-published games can be reported too, but the form never shows their name. */
 const isPublic = (game: Game) => game.review_status !== "pending" && game.visibility !== "draft" && game.visibility !== "private";
 
-/** The form without JavaScript. */
-/** viewer: who is looking, for the header only (the report never records who sent it). */
+/**
+ * The form without JavaScript: the sheet's reasons and field on a pane of their own, sent as a plain form post. Every game reason is
+ * offered, since a private game's form mustn't say whether it has players to report.
+ * viewer: who is looking, for the header only (the report never records who sent it).
+ */
 export async function reportForm(env: Env, slug: string, error = "", httpStatus = 200, viewer?: Viewer): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
   const named = game && isPublic(game);
+  const fields = stack({
+    items: [
+      ...(error ? [{ kind: "words" as const, markup: html`<p class="field-error" role="alert">${error}</p>` }] : []),
+      { kind: "block", markup: choiceCards({ id: "report-reason", name: "reason", label: "What's the problem?", choices: reasonChoices(GAME_WHYS), isCompact: true }) },
+      { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Details (optional)", rowCount: 3, maximumCharacterCount: 2000, placeholder: "What did you see, and where in the game?" }) },
+      {
+        kind: "words",
+        markup: html`<p>Copyright claims need a formal notice: see the ${textLink("DMCA page", "/legal/dmca")}. So does a game that falsely says you committed a crime: see ${textLink("Defamation notices", "/legal/defamation")}.</p>`,
+      },
+      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: runButton("Send report", { type: "submit" }) }, { kind: "control", markup: cutButton("Cancel", { href: `/g/${slug}` }) }] }) },
+    ],
+  });
   const response = layout(env, {
     viewer,
+    checkedPage: "Report a game",
     title: named ? `Report ${game.title}` : "Report a game",
-    body: html`<h1>${named ? html`Report “${game.title}”` : "Report a game"}</h1>
-<p class="lead">Tell us what's wrong. We don't record who you are.</p>
-${error ? html`<p class="note">${error}</p>` : ""}
-<form class="stack" method="post">
-  <label>What's the problem?
-    <select name="reason" required>
-      <option value="">Choose one</option>
-      ${Object.entries(REPORT_REASONS).map(([reason, label]) => html`<option value="${reason}">${label}</option>`)}
-    </select>
-  </label>
-  <label>Details (optional)
-    <textarea name="details" maxlength="2000" placeholder="What did you see, and where in the game?"></textarea>
-  </label>
-  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>. So does a game that falsely says you committed a crime: see <a href="/legal/defamation">Defamation notices</a>.</p>
-  <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${slug}">Cancel</a></div>
-</form>`,
+    body: glassPane({
+      paneWidth: "fit",
+      label: named ? `Report ${game.title}` : "Report a game",
+      body: stack({
+        items: [
+          { kind: "words", markup: html`<h1>${named ? html`Report “${game.title}”` : "Report a game"}</h1>` },
+          { kind: "words", markup: html`<p>Tell us what's wrong. We don't record who you are.</p>` },
+          { kind: "block", markup: html`<form method="post">${fields}</form>` },
+        ],
+      }),
+    }),
   });
   const page = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of viewer?.cookies ?? []) page.headers.append("Set-Cookie", cookie);
@@ -328,7 +304,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
 }
 
 /**
- * A report, from the plate (JSON) or the plain form. Every game can be reported, whatever its
+ * A report, from the sheet (JSON) or the plain form. Every game can be reported, whatever its
  * visibility; an address that isn't a game gets the same thanks, so this can't be used to find
  * private games. Reports about child safety or illegal content hide a live game straight away.
  */
@@ -345,11 +321,21 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     if (body.error) return reportForm(env, slug, body.error, httpStatus);
     const response = layout(env, {
       title: "Thanks for the report",
-      body: html`<h1>Thanks for the report</h1><p class="lead">${body.is_game_hidden ? "The game is hidden while we check it." : body.is_update_paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p><a class="btn ghost" href="/">Back to games</a>`,
+      checkedPage: "A message",
+      body: glassPane({
+        paneWidth: "fit",
+        body: stack({
+          items: [
+            { kind: "words", markup: html`<h1>Thanks for the report</h1>` },
+            { kind: "words", markup: html`<p>${body.is_game_hidden ? "The game is hidden while we check it." : body.is_update_paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p>` },
+            { kind: "control", markup: cutButton("Back to games", { href: "/", isFullWidth: true }) },
+          ],
+        }),
+      }),
     });
     return new Response(response.body, { status: httpStatus, headers: response.headers });
   };
-  // Only our own pages send the plate's reports.
+  // Only our own pages send the sheet's reports.
   if (fromSheet && request.headers.get("origin") !== new URL(request.url).origin) return reply(403, { error: "Not allowed from here." });
 
   // Rate limit by connection address. It's checked by Cloudflare and never stored.
@@ -410,7 +396,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   return reply(200, { has_reported: true, is_game_hidden: hidden, is_update_paused: paused === "update" });
 }
 
-/** A picture of the game from the plate: a JPEG data URL, at most 1.5 MB. Anything else is dropped. */
+/** A picture of the game from the sheet: a JPEG data URL, at most 1.5 MB. Anything else is dropped. */
 function pictureBytes(dataUrl: unknown): Uint8Array | null {
   const prefix = "data:image/jpeg;base64,";
   if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix) || dataUrl.length > 2_100_000) return null;

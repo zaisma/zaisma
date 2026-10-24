@@ -3,6 +3,9 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
+import { cutButton } from "./components/actions.ts";
+import { glanceFacts } from "./components/data.ts";
+import { row, type LayoutItem } from "./components/layout.ts";
 
 /**
  * What friends see of each other right now (docs/DECISIONS.md, "What friends see of each other"):
@@ -11,8 +14,8 @@ import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts"
  *
  *   POST /api/presence                  a page on screen checks in: { game_slug } on a game page
  *                                       while playing, else {}; { left_game_slug } as it closes
- *   GET  /g/:slug/friends               the friends playing that game, for its page to show under
- *                                       the title: faces, "Alex and Mia are playing" and Join (empty when none)
+ *   GET  /g/:slug/friends               the friends playing that game, for its page to show: their
+ *                                       pictures, "Alex and Mia are playing" and Join (empty when none)
  */
 export async function handleFriendsNow(request: Request, env: Env, path: string): Promise<Response | null> {
   const playingMatch = path.match(/^\/g\/([a-z0-9-]+)\/friends$/);
@@ -83,11 +86,26 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
   return html`${doors.join ? joinButton(slug, doors.join) : ""}${doors.watch ? watchButton(slug, doors.watch) : ""}`;
 }
 
-/** Under a game page's title: the friends playing it, "Alex and Mia are playing", and Join. */
+/**
+ * On a game's page (into #friends-here): the friends playing it, their pictures and "Liam and Sofia are playing", with Join, and Watch for a
+ * game that takes spectators; a door that won't work says why in its place (Room full).
+ */
 function friendsHere(slug: string, here: FriendsInGame): Raw {
-  const names = here.friends.map((friend) => friend.name);
-  const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
-  return html`<span class="faces">${here.friends.slice(0, 5).map((friend) => face(friend, "sm"))}</span><span class="said">${said}</span>${joinAndWatch(slug, here)}`;
+  const doors: LayoutItem[] = [];
+  const refusals = new Set<string>();
+  for (const [door, words, query] of [[here.join, "Join", ""], [here.watch, "Watch", "&watch=1"]] as const) {
+    if (!door) continue;
+    if (door.refusal) refusals.add(joinRefusalText(door));
+    // Watch is its eye alone, so it stays on the friends' line on a phone.
+    else doors.push({ kind: "control", markup: cutButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true, ...(words === "Watch" ? { icon: "eye", isLabelHidden: true } : {}) }) });
+  }
+  return row({
+    widths: "lead-fills",
+    items: [
+      { kind: "block", markup: glanceFacts({ friends: here.friends.map((friend) => ({ username: friend.name })), friendsRefusalNotes: [...refusals] }) },
+      ...doors,
+    ],
+  });
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */
@@ -116,7 +134,7 @@ ${now.playing.length
 <style>${raw(NOW_STYLES)}</style>`;
 }
 
-/** A grayed Join: its reason shows on hover, or on a tap (which focuses it). */
+/** A grayed Join on /friends and profiles (Steel): its reason shows on hover, or on a tap (which focuses it). */
 export const JOIN_OFF_STYLES = `.join-off{position:relative;display:inline-flex;cursor:not-allowed;outline:none}
 .join-off .btn{opacity:.45;pointer-events:none}
 .join-off:hover .btn,.join-off:focus .btn{opacity:.6}

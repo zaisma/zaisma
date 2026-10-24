@@ -45,7 +45,11 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
   const answer = (method: string, path: string, body: unknown, httpStatus = 200) => answers.unshift({ method, path, answer: { httpStatus, body } });
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const documentListeners: Record<string, (() => void)[]> = {};
-  const element = () => ({ hidden: true, textContent: "", classList: { toggle() {} }, querySelector: () => ({ focus() {} }), focus() {}, onclick: null as null | (() => void) });
+  // Its words go in its own <p> (querySelector("p")); the stand-in is its own <p>, so they land in its textContent.
+  const element = () => {
+    const stand = { hidden: true, textContent: "", classList: { toggle() {} }, querySelector: (): unknown => stand, focus() {}, onclick: null as null | (() => void) };
+    return stand;
+  };
   const elements: Record<string, ReturnType<typeof element> | { textContent: string }> = {
     "saves-data": { textContent: JSON.stringify({ api: API, root: `${FRAME_ORIGIN}/`, query: "", frameOrigin: FRAME_ORIGIN, slug: "owl-game", offerAfter: 300000, isAccountOfferEnabled }) },
     "save-status": element(),
@@ -428,7 +432,9 @@ describe("the game domain's saves script, past the save limit", () => {
     await playing(page, { level: "3" });
     page.fromGame({ step: "over_limit" });
     expect(page.told("pause")).toHaveLength(1);
-    expect(page.elements["save-status"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
+    // The Keep card isn't showing, so the word comes as a card over the game that stays until the next one.
+    expect(page.elements["save-toast"]!.textContent).toBe("This game's save is over 5 MB, so it stays on this device.");
+    expect((page.elements["save-toast"] as { hidden: boolean }).hidden).toBe(false);
     // Paused: a later save isn't sent to the account.
     page.fromGame({ step: "save", text: saveTextOf({ level: "4" }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -507,10 +513,13 @@ describe("the game page's answer to a game without cloud saves here", async () =
     const window: Record<string, unknown> = hasSavesScript
       ? { savesRequest: (request: Message) => handedToSavesScript.push(request), offerAccount: () => handedToSavesScript.push({ type: "offerAccount" }) }
       : {};
+    const addEventListener = (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener);
+    // The page script reaches the window's listeners both bare and as window.addEventListener.
+    window.addEventListener = addEventListener;
     const globals: Record<string, unknown> = {
       window,
       document: new Proxy({ getElementById: (id: string) => elements[id] ?? anything(), cookie: "" } as Record<string, unknown>, { get: (target, key) => (key in target ? target[key as string] : anything()) }),
-      addEventListener: (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener),
+      addEventListener,
     };
     for (const name of ["location", "history", "navigator", "localStorage", "sessionStorage", "matchMedia", "scrollTo", "BroadcastChannel", "requestAnimationFrame", "IntersectionObserver", "screen", "countPlay"]) globals[name] = anything();
     // The saves script's functions are page globals, so the page script calls them by name.
