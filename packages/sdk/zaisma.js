@@ -813,8 +813,8 @@
     if (!this._queue.length || !this._canSend() || this._flushTimer !== null) return;
     var room = this;
     var ws = this._ws;
-    function send(count) {
-      room._queue.splice(0, count).forEach(function (payload) { ws.send(payload); });
+    function send(sendCount) {
+      room._queue.splice(0, sendCount).forEach(function (payload) { ws.send(payload); });
       room._sentAtMs = Date.now();
     }
     send(FLUSH_NOW_COUNT);

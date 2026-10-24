@@ -178,12 +178,12 @@ describe("sandboxed game servers", () => {
     const receiptKey = await loadSigningKey(e.RECEIPT_SIGNING_KEY!);
     const player = await join("ticket-booth", "TKTBTH");
     player.say(await signTestReceipt(receiptKey, "ticket-booth", e.ISSUER));
-    expect(await player.next()).toEqual({ type: "message", data: { purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z", purchaseStatus: "completed", itemName: "gold_crown" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z", purchaseStatus: "completed", itemName: "gold_crown" } });
     player.say(await signTestReceipt(receiptKey, "other-booth", e.ISSUER));
-    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_game" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { errorName: "ReceiptError", errorCode: "wrong_game" } });
     // A pass is refused as one, though receipt checks here hold only the receipt keys.
     player.say((await newPass("ticket-booth")).pass);
-    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_kind" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { errorName: "ReceiptError", errorCode: "wrong_kind" } });
   });
 
   it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {
