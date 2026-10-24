@@ -589,6 +589,8 @@ const PRIVACY = `
 <h2>Games</h2>
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to ask for your personal details.</p>
 <p>Some games run online play on their developer's own servers, named in the game's menu. Those servers see your connection address, as any website you visit does, and what the game sends them. They never get your email or your age.</p>
+<h2>Buying in games</h2>
+<p>When you buy something in a game, payment goes through Stripe. When you save a card, Stripe keeps it and Zaisma keeps its brand, its last four digits and the email for receipts; the developer you buy from gets the payment, never a card they can charge again. We keep what you bought and when, so it stays yours on any device.</p>
 <h2>If you make games</h2>
 <p>What you and your API keys do to your games (uploads, publishes, database and save changes, secrets and the rest) is kept in each game's history for as long as the game, with who did it and from where, so you can see it. Each change also keeps its connection address for 90 days, shown only to you, so a report of illegal material can be traced to whoever uploaded it. Keep where my account is used from turns that off, except for uploads: a version's or an image's upload keeps its address for 90 days either way. To tell you when a key is used from somewhere new, we keep a fingerprint of each network and country it's used from, never shown, until it's gone unused for 90 days.</p>
 <h2>Backups</h2>
@@ -597,6 +599,7 @@ const PRIVACY = `
 <ul>
 <li><strong>Cloudflare</strong> runs our servers, stores games, sends the email codes you ask for, and checks that a real browser opened a game's page, made an account, typed a password on a new device or asked for an email code. It sees your connection address to deliver pages and stop abuse; we keep it only where this page says. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. When you sign in, we pass it your connection address, so its limits on tries count you and not everyone at once, and it keeps that address with each sign-in. Your browser never talks to it directly.</li>
+<li><strong>Stripe</strong> takes payments when you buy something in a game, and keeps the cards you save. The developer you buy from gets the payment through their own Stripe account, with the email for receipts.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 <li><strong>Backblaze</strong> keeps Zaisma's nightly backup, in the United States. It only stores the copies, encrypted.</li>
 </ul>
