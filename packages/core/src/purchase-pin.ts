@@ -34,9 +34,9 @@ export async function isPurchasePin(pin: string, storedHash: string): Promise<bo
   const expected = fromBase64Url(hashText);
   const actual = await derive(pin, fromBase64Url(saltText), iterationCount);
   if (actual.length !== expected.length) return false;
-  let differenceBits = 0;
-  for (let i = 0; i < actual.length; i++) differenceBits |= actual[i]! ^ expected[i]!;
-  return differenceBits === 0;
+  let mismatchNumber = 0;
+  for (let i = 0; i < actual.length; i++) mismatchNumber |= actual[i]! ^ expected[i]!;
+  return mismatchNumber === 0;
 }
 
 async function derive(pin: string, salt: Uint8Array, iterationCount: number): Promise<Uint8Array> {
