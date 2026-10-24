@@ -1728,14 +1728,14 @@
   /** The player's purchases the game hasn't marked handled yet, oldest first, at most 50 at a time. */
   function unhandledPurchases() {
     if (!config.rooms) return Promise.reject(notOnZaisma("Purchases come from Zaisma, so they work only in games played on Zaisma."));
-    return player().then(function (mine) {
+    return getPass().then(function (mine) {
       return post("/v1/items/unhandled", { gameSlug: config.game, pass: mine.pass });
     }).then(function (answer) { return answer.purchases; });
   }
   function markPurchaseHandled(purchaseId) {
     if (typeof purchaseId !== "string" || purchaseId.indexOf("purchase_") !== 0 || purchaseId.length > 80) return Promise.reject(codedError("bad_purchase_id", "purchaseId isn't a purchase's ID, like \"purchase_8f2k1x\": it's the id of the purchase \"purchase\" or \"refund\" gave the game."));
     if (!config.rooms) return Promise.reject(notOnZaisma("Purchases come from Zaisma, so they work only in games played on Zaisma."));
-    return player().then(function (mine) {
+    return getPass().then(function (mine) {
       return post("/v1/items/handled", { gameSlug: config.game, pass: mine.pass, purchaseId: purchaseId });
     }).then(function () { return undefined; });
   }

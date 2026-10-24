@@ -35,7 +35,13 @@ const ROOM_TYPES = new Set(["Room", "Rooms"]);
  * Interface.field for one written in place) and the new value. Its declaration must say "More values may
  * come", so games written for v1 already treat it as something to expect.
  */
-const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [];
+const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
+  // Zaisma.items.markHandled and unhandled.
+  { union: "ErrorCode", value: "bad_purchase_id" },
+  { union: "ErrorCode", value: "no_purchase" },
+  { union: "ErrorCode", value: "already_handled" },
+  { union: "ErrorCode", value: "handled_by_server" },
+];
 
 const MORE_VALUES_NOTE = "More values may come";
 
