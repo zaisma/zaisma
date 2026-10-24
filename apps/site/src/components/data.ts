@@ -67,6 +67,8 @@ export interface GlanceFacts {
   updatesHref?: string;
   /** Friends playing it now. */
   friends?: { username: string }[];
+  /** Why their room can't be joined or watched from here ("Room full"), each a tag at the end of the friends' line. */
+  friendsRefusalNotes?: string[];
   /** Why it may not suit this device ("Needs a keyboard"), for a game made for others; said instead of when you played or friends. */
   deviceNote?: string;
 }
@@ -76,7 +78,7 @@ export function glanceFacts(facts: GlanceFacts): Raw {
   const nowMs = Date.now();
   const friends = facts.friends ?? [];
   return html`<ul class="glance">${facts.deviceNote ? html`<li>${icon("info")}<span>${facts.deviceNote}</span></li>` : ""}${facts.playerCount !== undefined ? html`<li>${icon("people")}<span><b>${facts.playerCount.toLocaleString("en-US")}</b> playing now</span></li>` : ""}${
-    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><b>${nameList(friends.map((friend) => friend.username))}</b> ${friends.length > 1 ? "are" : "is"} playing</span></li>` : ""
+    friends.length ? html`<li class="friends">${pictureRow(friends.map((friend) => friend.username), "sm")}<span><span class="glance-whole"><b>${nameList(friends.map((friend) => friend.username))}</b><span>\u00a0${friends.length > 1 ? "are" : "is"} playing</span></span>${(facts.friendsRefusalNotes ?? []).map((note) => html` <span class="glance-fact">${tag(note, "plain")}</span>`)}</span></li>` : ""
   }${facts.playedAtMs !== undefined ? html`<li>${icon("clock")}<span>You played ${keepUnits(ago(nowMs - facts.playedAtMs))}</span></li>` : ""}${
     facts.updatedAtMs !== undefined ? html`<li>${tag("Updated", "new")}<span>${keepUnits(ago(nowMs - facts.updatedAtMs))}${facts.updatesHref ? html`\u00a0· <span class="glance-fact">${textLink("What's new", facts.updatesHref)}</span>` : ""}</span></li>` : ""
   }</ul>`;
@@ -94,6 +96,13 @@ export const GLANCE_STYLES = `
 .glance .ico { color: var(--muted); stroke-width: 1.5; }
 /* A link after the facts goes onto the next line whole, never split. */
 .glance-fact { display: inline-block; }
+/* "Liam and Sofia are playing" stays on one line, so a row it leads (with Join or Watch) can't squeeze it a word to a line; a tag after it
+   goes under it instead, and names too long for the line end in an ellipsis, "are playing" always shown. */
+.glance-whole { display: inline-flex; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
+.glance li > :last-child { min-width: 0; }
+.glance-whole > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
+.row-cell:not(:last-child) > .glance { padding-inline-end: 0; }
 `;
 
 component({

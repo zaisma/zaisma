@@ -5,7 +5,6 @@ import { tile } from "./home.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
 import { cutButton } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
-import { tag } from "./components/foundations.ts";
 import { row, type LayoutItem } from "./components/layout.ts";
 
 /**
@@ -97,13 +96,13 @@ function friendsHere(slug: string, here: FriendsInGame): Raw {
   for (const [door, words, query] of [[here.join, "Join", ""], [here.watch, "Watch", "&watch=1"]] as const) {
     if (!door) continue;
     if (door.refusal) refusals.add(joinRefusalText(door));
-    else doors.push({ kind: "control", markup: cutButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true }) });
+    // Watch is its eye alone, so it stays on the friends' line on a phone.
+    else doors.push({ kind: "control", markup: cutButton(words, { href: `${joinPath(slug, door)}${query}`, isSmall: true, ...(words === "Watch" ? { icon: "eye", isLabelHidden: true } : {}) }) });
   }
   return row({
     widths: "lead-fills",
     items: [
-      { kind: "block", markup: glanceFacts({ friends: here.friends.map((friend) => ({ username: friend.name })) }) },
-      ...[...refusals].map((refusal): LayoutItem => ({ kind: "words", markup: tag(refusal, "plain") })),
+      { kind: "block", markup: glanceFacts({ friends: here.friends.map((friend) => ({ username: friend.name })), friendsRefusalNotes: [...refusals] }) },
       ...doors,
     ],
   });

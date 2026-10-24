@@ -428,7 +428,7 @@ component({
    gets (lvh), not the visible one, and on a phone or tablet it reaches a bleed past the top and the bottom as well: a browser's bars showing or hiding
    never resize or redraw it, and never uncover a strip of the page's own color, whichever of the two edges they move (a phone's browser reports
    the large window late, or short, while its bars move). */
-.backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
+.backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; border: 0; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
 @media (pointer: coarse), (max-width: 760px) { .backdrop { --backdrop-bleed: 100px; } }
 .backdrop.is-framed { --backdrop-bleed: 0px; position: absolute; inset: 0; height: 100%; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */

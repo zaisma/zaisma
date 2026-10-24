@@ -180,6 +180,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
         var r = lineBox(glyphs, el), scroller = scrollerIn(el, pane);
         // Words running on past what scrolls sideways round them are measured where they show.
         if (scroller) { var s = scroller.getBoundingClientRect(); if (r.left < s.left - TOLERANCE_PX || r.right > s.right + TOLERANCE_PX) return false; }
+        // Words that end in an ellipsis (a long name) are measured where they show, up to the ellipsis.
+        if (getComputedStyle(el).textOverflow === "ellipsis") { var shown = el.getBoundingClientRect(); r = { left: Math.max(r.left, shown.left), right: Math.min(r.right, shown.right), top: r.top, bottom: r.bottom, width: Math.min(r.right, shown.right) - Math.max(r.left, shown.left), height: r.height }; }
         var d = distances(r), wordsAt = { left: Math.max(gap.left + words, marginPx), right: Math.max(gap.right + words, marginPx), top: Math.max(gap.top + words, marginPx), bottom: Math.max(gap.bottom + words, marginPx) };
         // Words beside a control sit on its center line rather than at the margin above or below them (checked below), and words beside
         // anything else with an edge (a swatch, a box) line up with it the same way.
