@@ -74,7 +74,7 @@ const purchaseJson = (purchase: Purchase, receipt: string | null) => ({
   purchase_status: purchase.purchase_status,
   player_id: purchase.player_id,
   game_account_id: purchase.game_account_id,
-  price_minor_units: purchase.price_minor_units,
+  paid_minor_units: purchase.paid_minor_units,
   currency_code: purchase.currency_code,
   refunded_minor_units: purchase.refunded_minor_units,
   purchased_at: purchase.purchased_at_ms === null ? null : iso(purchase.purchased_at_ms),

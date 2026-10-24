@@ -1,9 +1,11 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
+import { generateSigningKey, loadSigningKey } from "@zaisma/game-server/internal";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { GameServerObject } from "../../apps/rooms/src/game-server.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";
+import { signTestReceipt } from "../helpers.ts";
 
 // Requests from a game to its own game server's onRequest, outside any room (apps/rooms/src/game-server.ts).
 
@@ -104,6 +106,37 @@ describe("game server requests", () => {
     expect(errors.find((error) => error.occurrence_count === 2)!.message).toMatch(/^the shop is closed \(zaisma-server\.js:\d+:\d+\)$/);
     expect(errors.map((error) => error.message).join("\n")).toMatch(/isn't plain JSON/);
     expect(errors.map((error) => error.message).join("\n")).toMatch(/over 1 MB/);
+  });
+
+  it("check a purchase's receipt with server.verifyReceipt: its claims for this game, and a reason for anything else", async () => {
+    await addGame("receipt-shop", "export default { onRequest: (player, request, server) => server.verifyReceipt(request.receipt).catch((error) => ({ errorName: error.name, errorCode: error.code })) };");
+    const receiptKey = await loadSigningKey(e.RECEIPT_SIGNING_KEY!);
+    const answerTo = async (receipt: string) => (await send("receipt-shop", { receipt })).body.answer;
+    expect(await answerTo(await signTestReceipt(receiptKey, "receipt-shop", e.ISSUER))).toMatchObject({ aud: "receipt-shop", purchase_id: "purchase_8f3k2m9q1x7c4v6b0n5z", purchase_status: "completed", item_name: "gold_crown", receipt_version_number: 1 });
+    // Refunded receipts are still genuine: the game reads purchase_status.
+    expect(await answerTo(await signTestReceipt(receiptKey, "receipt-shop", e.ISSUER, { purchase_status: "refunded" }))).toMatchObject({ purchase_status: "refunded" });
+    // Another game's receipt, a pass, a receipt from a stranger's key, one from the wrong issuer, and plain nonsense.
+    expect(await answerTo(await signTestReceipt(receiptKey, "other-shop", e.ISSUER))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_game" });
+    // A pass is refused as one, though receipt checks here hold only the receipt keys.
+    expect(await answerTo((await newPass("receipt-shop")).pass)).toEqual({ errorName: "ReceiptError", errorCode: "wrong_kind" });
+    expect(await answerTo(await signTestReceipt(await loadSigningKey(await generateSigningKey()), "receipt-shop", e.ISSUER))).toEqual({ errorName: "ReceiptError", errorCode: "unknown_key" });
+    expect(await answerTo(await signTestReceipt(receiptKey, "receipt-shop", "https://rooms.elsewhere.test"))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_issuer" });
+    expect(await answerTo(await signTestReceipt(receiptKey, "receipt-shop", e.ISSUER, { receipt_version_number: 2 }))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_version" });
+    expect(await answerTo("not.a.receipt")).toEqual({ errorName: "ReceiptError", errorCode: "malformed" });
+  });
+
+  it("check a receipt signed with a retired receipt key while it stays listed", async () => {
+    await addGame("old-receipt-shop", "export default { onRequest: (player, request, server) => server.verifyReceipt(request.receipt).then((claims) => claims.purchase_id, (error) => error.code) };");
+    const retired = await loadSigningKey(await generateSigningKey());
+    const receipt = await signTestReceipt(retired, "old-receipt-shop", e.ISSUER);
+    const original = e.RETIRED_RECEIPT_PUBLIC_KEYS;
+    try {
+      expect((await send("old-receipt-shop", { receipt })).body.answer).toBe("unknown_key");
+      e.RETIRED_RECEIPT_PUBLIC_KEYS = JSON.stringify([retired.publicKey]);
+      expect((await send("old-receipt-shop", { receipt })).body.answer).toBe("purchase_8f3k2m9q1x7c4v6b0n5z");
+    } finally {
+      e.RETIRED_RECEIPT_PUBLIC_KEYS = original;
+    }
   });
 
   it("need onRequest", async () => {

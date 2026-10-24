@@ -39,7 +39,7 @@ npm test
 npm run test:affected   # only the tests your change can reach
 ```
 
-To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and two queues (scans and compressed copies; names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` and `PLAYER_TAG_KEY` secrets (`openssl rand -base64 32` makes the second), point `SUPABASE_URL` at your Supabase project for accounts and set the site's `SUPABASE_SECRET_KEY` secret (the site is the only thing that talks to Supabase; turn its publishable key off), onboard your domain to Cloudflare Email Sending for email codes (and set `EMAIL_FROM`), set the site's `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`, and deploy `apps/rooms`, `apps/games`, `apps/compress` and `apps/site`, in that order (the site reaches games' databases through a service binding to the rooms Worker, `zaisma-rooms`).
+To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and two queues (scans and compressed copies; names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY`, `RECEIPT_SIGNING_KEY` and `PLAYER_TAG_KEY` secrets (`node scripts/rooms-key.mjs | npx wrangler secret put RECEIPT_SIGNING_KEY --config apps/rooms/wrangler.jsonc`, the same for the pass key, and `openssl rand -base64 32` makes the player tag key), point `SUPABASE_URL` at your Supabase project for accounts and set the site's `SUPABASE_SECRET_KEY` secret (the site is the only thing that talks to Supabase; turn its publishable key off), onboard your domain to Cloudflare Email Sending for email codes (and set `EMAIL_FROM`), set the site's `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`, and deploy `apps/rooms`, `apps/games`, `apps/compress` and `apps/site`, in that order (the site reaches games' databases through a service binding to the rooms Worker, `zaisma-rooms`).
 
 ### Multiplayer
 
@@ -67,6 +67,7 @@ export default {
 // room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId, delivery }), room.sendBytes(playerId, bytes, { delivery }),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
 // await room.database.query(sql, values), await room.database.batch([{ sql, values }])  (the game database, below)
+// await room.verifyReceipt(receipt)  (a purchase's signed receipt, checked; server.verifyReceipt the same)
 ```
 
 Names follow [`docs/NAMING.md`](docs/NAMING.md): whole words, with the unit in the name. A game server with an option it doesn't take doesn't start, and says which ones it does take (`unknown_option`); the SDK refuses options and events it doesn't take the same way. Every message between a game and its room says its `type`, and a game's own messages travel in `data`; rooms count messages, not their size, so whole words cost nothing.
@@ -407,7 +408,7 @@ A game opens its store, Patreon, Steam page or Discord with `await Zaisma.links.
 
 ### Items players own
 
-A game lists what it sells or grants as items (`set_item`, or `zaisma items set <slug> items.json` from a file kept beside the game): permanent ones a player owns for good on every device, and consumables the game counts. Prices are the game's own, in any of Stripe's currencies with a price per country if you like, and Zaisma takes no cut. A player's pass lists the items they own, so `Zaisma.items.owns("skin_red-dragon")` in the game and `player.ownedItemNames` on any game server need no extra call, and every purchase or grant has a receipt any server checks with `verifyReceipt`. See "Items and purchases" in `docs/DEVELOPER-API.md`.
+A game lists what it sells or grants as items (`set_item`, or `zaisma items set <slug> items.json` from a file kept beside the game): permanent ones a player owns for good on every device, and consumables the game counts. Prices are the game's own, in any of Stripe's currencies with a price per country if you like, and Zaisma takes no cut. A player's pass lists the items they own, so `Zaisma.items.owns("skin_red-dragon")` in the game and `player.ownedItemNames` on any game server need no extra call, and every purchase or grant has a signed receipt a game server checks in one call, `room.verifyReceipt(receipt)` or `server.verifyReceipt(receipt)`, in Zaisma rooms or on your own server. See "Items and purchases" in `docs/DEVELOPER-API.md`.
 
 ### How games are kept safe
 

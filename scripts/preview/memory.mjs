@@ -9,7 +9,9 @@
 //   (vitest.config.ts asks for its turn before anything runs), so a place in line outlives the command that asked for it, and it
 //   starts by itself once a preview stops, sleeps or shrinks, or a test run ends. Wakes go first: someone is at a page. A test
 //   run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), and waits only when not even one does.
-//   One preview or test run may always run on its own, even over the cap.
+//   One preview or test run may always run on its own, even over the cap. A run that waits costs the line nothing (its alive
+//   processes aren't counted), one that can never fit beside the awake previews doesn't hold the ones behind it, and a Workers test
+//   run that can never fit beside an awake preview isn't queued: it ends at once with workers_tests_while_preview_awake.
 //   PREVIEW_MEMORY_CAP_BYTES sets the cap for one shell, memory_cap_bytes in LINE_DIRECTORY/settings.json for the machine,
 //   and without either it's 3/8 of this machine's memory (3 GB on an 8 GB Mac). 0 is no cap. macOS only: elsewhere (GitHub's
 //   check, one preview a runner) there's no cap and no line.
@@ -174,27 +176,50 @@ const isComing = (entry, nowMs) => entry.turn_given_at_ms !== null && (entry.kin
  * capBytes 0 is no cap.
  */
 export function nextTurn({ entries, previews, testRuns = [], capBytes, awakeSizeBytes, nowMs = Date.now() }) {
-  const sizeAt = (offset) => previews.find((preview) => preview.offset === offset)?.sizeBytes ?? 0;
-  const runSizeOf = (pid) => testRuns.find((run) => run.pid === pid)?.sizeBytes ?? 0;
+  // A waiting entry costs nothing: its processes are alive (a waiting test run's npm and vitest, a waiting start's run.mjs) but
+  // hold nothing of what it asked for, so they're left out of what's in use. A waiting wake's preview is up and counts.
+  const isWaiting = (entry) => entry.turn_given_at_ms === null;
+  const waitingTestPids = new Set(entries.filter((entry) => entry.kind === "test" && isWaiting(entry)).map((entry) => entry.pid));
+  const waitingStartOffsets = new Set(entries.filter((entry) => entry.kind === "start" && isWaiting(entry)).map((entry) => entry.offset));
+  const countedPreviews = previews.filter((preview) => !(waitingStartOffsets.has(preview.offset) && !preview.isListening));
+  const countedTestRuns = testRuns.filter((run) => !waitingTestPids.has(run.pid));
+  const sizeAt = (offset) => countedPreviews.find((preview) => preview.offset === offset)?.sizeBytes ?? 0;
+  const runSizeOf = (pid) => countedTestRuns.find((run) => run.pid === pid)?.sizeBytes ?? 0;
   const measuredOf = (entry) => (entry.kind === "test" ? runSizeOf(entry.pid) : sizeAt(entry.offset));
   const expectedOf = (entry) => (entry.kind === "test" ? testRunSizeBytes(entry.worker_count ?? 1, entry.is_node_only) : awakeSizeBytes);
-  const usedBytes = previews.reduce((sum, preview) => sum + preview.sizeBytes, 0) + testRuns.reduce((sum, run) => sum + run.sizeBytes, 0);
+  const usedBytes = countedPreviews.reduce((sum, preview) => sum + preview.sizeBytes, 0) + countedTestRuns.reduce((sum, run) => sum + run.sizeBytes, 0);
+  // What previews alone hold, which no test run's end gives back.
+  const previewBytes = countedPreviews.reduce((sum, preview) => sum + preview.sizeBytes, 0);
   const coming = entries.filter((entry) => isComing(entry, nowMs));
   const keptBytes = coming.reduce((sum, entry) => sum + Math.max(0, expectedOf(entry) - measuredOf(entry)), 0);
-  const [first] = waitingInOrder(entries);
-  if (!first) return { turnPid: null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes: 0, isAlone: false };
-  const isAlone = !coming.length && !previews.some((preview) => preview.isAwake && preview.offset !== first.offset);
-  const roomBytes = capBytes - usedBytes - keptBytes + measuredOf(first);
-  if (first.kind === "test") {
-    const fileSizeBytes = testRunSizeBytes(1, first.is_node_only) - TEST_RUN_SIZE_BYTES;
-    const fittingCount = capBytes === 0 ? first.requested_worker_count : Math.min(first.requested_worker_count, Math.floor((roomBytes - TEST_RUN_SIZE_BYTES) / fileSizeBytes));
-    const workerCount = isAlone ? Math.max(1, fittingCount) : fittingCount;
-    const neededBytes = Math.max(0, testRunSizeBytes(Math.max(1, workerCount), first.is_node_only) - measuredOf(first));
-    return { turnPid: workerCount >= 1 ? first.pid : null, turnWorkerCount: workerCount >= 1 ? workerCount : null, usedBytes, keptBytes, neededBytes, isAlone };
+  const waiting = waitingInOrder(entries);
+  if (!waiting.length) return { turnPid: null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes: 0, isAlone: false };
+  // The first in line that fits gets the turn. One that can never fit beside the previews up (a Workers run beside an awake
+  // preview under a small cap) is passed over, so it doesn't hold the ones behind it forever; one that only has to wait for
+  // memory still holds its place, so order is kept.
+  let firstResult = null;
+  for (const entry of waiting) {
+    const isAlone = !coming.length && !countedPreviews.some((preview) => preview.isAwake && preview.offset !== entry.offset);
+    const roomBytes = capBytes - usedBytes - keptBytes + measuredOf(entry);
+    let result;
+    let neverFits = false;
+    if (entry.kind === "test") {
+      const fileSizeBytes = testRunSizeBytes(1, entry.is_node_only) - TEST_RUN_SIZE_BYTES;
+      const fittingCount = capBytes === 0 ? entry.requested_worker_count : Math.min(entry.requested_worker_count, Math.floor((roomBytes - TEST_RUN_SIZE_BYTES) / fileSizeBytes));
+      const workerCount = isAlone ? Math.max(1, fittingCount) : fittingCount;
+      const neededBytes = Math.max(0, testRunSizeBytes(Math.max(1, workerCount), entry.is_node_only) - measuredOf(entry));
+      neverFits = capBytes !== 0 && !isAlone && previewBytes + testRunSizeBytes(1, entry.is_node_only) > capBytes;
+      result = { turnPid: workerCount >= 1 ? entry.pid : null, turnWorkerCount: workerCount >= 1 ? workerCount : null, usedBytes, keptBytes, neededBytes, isAlone };
+    } else {
+      const neededBytes = Math.max(0, awakeSizeBytes - sizeAt(entry.offset));
+      const fits = capBytes === 0 || isAlone || usedBytes + keptBytes + neededBytes <= capBytes;
+      result = { turnPid: fits ? entry.pid : null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes, isAlone };
+    }
+    firstResult ??= result;
+    if (result.turnPid !== null) return result;
+    if (!neverFits) break;
   }
-  const neededBytes = Math.max(0, awakeSizeBytes - sizeAt(first.offset));
-  const fits = capBytes === 0 || isAlone || usedBytes + keptBytes + neededBytes <= capBytes;
-  return { turnPid: fits ? first.pid : null, turnWorkerCount: null, usedBytes, keptBytes, neededBytes, isAlone };
+  return firstResult;
 }
 
 /**
@@ -216,6 +241,11 @@ export async function waitForTurn({ kind, offset = null, folder, requestedWorker
       capBytes = memoryCap({ directory }).capBytes;
     } catch {}
     const status = await withLock(() => lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory }), { directory });
+    // A Workers run that can never fit beside the awake previews is answered at once, not queued.
+    if (!status.isTurn && kind === "test" && !isNodeOnly && status.awakePreviewBytes > 0 && status.awakePreviewBytes + testRunSizeBytes(1, false) > capBytes) {
+      await leaveLine((entry) => entry.pid === process.pid, { directory });
+      throw new Error(`workers_tests_while_preview_awake: a preview is awake (${sizeText(status.awakePreviewBytes)}) and a Workers test run needs at least ${sizeText(testRunSizeBytes(1, false))}, which never fits under the ${sizeText(capBytes)} memory cap. While a preview is awake, the Workers tests go to GitHub: push, open the pull request as a draft, and let its check run them (the slice-tests skill). Node tests still run here: name only test/node files, or --project=node. npm run preview:list shows the previews.`);
+    }
     if (status.isTurn) {
       const waitedMs = Date.now() - askedAtMs;
       const filesText = kind === "test" ? `, ${status.workerCount === 1 ? "one file at a time" : `${status.workerCount} files at once`}` : "";
@@ -279,6 +309,7 @@ function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, ca
     keptBytes: measurement.kept_bytes,
     neededBytes: Math.max(0, (kind === "test" ? testRunSizeBytes(1, isNodeOnly) : (line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES)) - ownSizeBytes),
     isAlone: measurement.is_alone,
+    awakePreviewBytes: measurement.previews.filter((preview) => preview.is_awake).reduce((sum, preview) => sum + preview.size_bytes, 0),
   };
 }
 
