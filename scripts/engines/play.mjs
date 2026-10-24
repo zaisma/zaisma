@@ -19,7 +19,7 @@ import { engineSamples } from "./samples.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
-const REPORT_TIMEOUT_MS = 45_000;
+const REPORT_TIMEOUT_MS = 20_000;
 // The first Chrome with Document-Isolation-Policy, which games need for threads.
 const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
@@ -140,7 +140,7 @@ async function play(chrome, sample) {
       // Chrome says a preload wasn't used a few seconds after the page loaded.
       await wait(3000);
       // Zaisma measured how it ran: a report with its load time and seconds of frames, its first 10 seconds in. It's waited for up to
-      // REPORT_TIMEOUT_MS: on a busy runner a big build's first frames come slowly (the preview may still be making its Brotli copies).
+      // REPORT_TIMEOUT_MS; the preview made every Brotli copy before it said it was ready, so nothing else holds its runtime.
       let measured = null;
       for (const waitedAt = Date.now(); !measured && Date.now() - waitedAt < REPORT_TIMEOUT_MS; await wait(1000)) {
         const { result } = await send("Runtime.evaluate", { expression: "JSON.stringify((window.zaismaPerformanceReports || []).find((report) => report.loading_duration_sec !== null && report.measured_duration_sec > 0) || null)", returnByValue: true });
