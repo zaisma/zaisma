@@ -158,11 +158,6 @@ describe("game server requests", () => {
     expect(error!.message).toMatch(/^Didn't start: This game server has no setup\(\), so it can't run rooms/);
   });
 
-  it("from a game server that knows it runs in Zaisma rooms (checkChat refuses there)", async () => {
-    await addGame("runtime-shop", "export default { onRequest: () => ({ isZaismaRoomsSandbox: globalThis.isZaismaRoomsSandbox === true }) };", { multiplayerMode: "own" });
-    expect((await send("runtime-shop", { type: "which" })).body).toEqual({ answer: { isZaismaRoomsSandbox: true } });
-  });
-
   it("only with a good pass, from the game's own page", async () => {
     await addGame("checked-shop", LEADERBOARD);
     expect(await send("checked-shop", { type: "leaderboard" }, "not.a.pass")).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_pass" } } });
@@ -211,7 +206,7 @@ describe("game server requests", () => {
     const forget = () => runInDurableObject(objectOf(gameId), (object: GameServerObject) => void ((object as unknown as { hosting: null }).hosting = null));
     await forget();
     const refused = await send("busy-shop", { type: "leaderboard" });
-    expect(refused).toMatchObject({ httpStatus: 429, body: { error: { code: "hosting_paused", message: "This game's hosting is paused. It starts again when the month resets or its developer adds credit." } } });
+    expect(refused).toMatchObject({ httpStatus: 403, body: { error: { code: "hosting_paused", message: "This game's hosting is paused. It starts again when the month resets or its developer adds credit." } } });
     // Credit came in: the site's job cleared the pause.
     await e.DB.prepare("UPDATE game_hosting_months SET paused_at_ms = NULL, paused_reason = NULL WHERE game_id = ?").bind(gameId).run();
     await forget();

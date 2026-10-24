@@ -107,7 +107,7 @@ export default {
   maximumPlayerCount: 4,
   setup: (setupData) => ({ count: 0 }),
   onJoin(state, player, room) { room.send(player.id, { hi: player.name, players: room.players.length }); },
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "add") { state.count++; room.broadcast({ count: state.count }); }
     if (message === "fetch") fetch("https://example.com").then(() => room.broadcast("reached the internet"), () => {});
     if (message === "spin") for (;;) {}
@@ -168,7 +168,7 @@ describe("sandboxed game servers", () => {
       `export default {
   maximumPlayerCount: 4,
   setup: () => ({}),
-  async onMessage(state, player, message, room) {
+  async onMessage(state, player, room, message) {
     const answer = await room.verifyReceipt(message).then((claims) => ({ purchaseId: claims.purchase_id, purchaseStatus: claims.purchase_status, itemName: claims.item_name }), (error) => ({ errorName: error.name, errorCode: error.code }));
     room.send(player.id, answer);
     return state;
@@ -193,11 +193,11 @@ describe("sandboxed game servers", () => {
   maximumPlayerCount: 100,
   ticksPerSec: 60,
   setup: () => ({ said: [], toldCount: 0 }),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "bad") throw new Error("bad input");
     state.said.push(message);
   },
-  onBytes(state, player, bytes, room) {
+  onBytes(state, player, room, bytes) {
     state.said.push("bytes " + bytes.join(","));
   },
   onTick(state, tickDurationSec, room) {
@@ -233,7 +233,7 @@ describe("sandboxed game servers", () => {
       "hushed",
       `export default {
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "private") room.setFriendJoinsEnabled(false);
     room.send(player.id, { friendJoinsEnabled: room.friendJoinsEnabled });
   },
@@ -257,7 +257,7 @@ describe("sandboxed game servers", () => {
       "walled",
       `export default {
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     const other = room.players.find((each) => each.id !== player.id);
     if (message === "check" && other) room.send(player.id, { passesHaveBlockBetween: room.hasBlockBetween(player.id, other.id), passesAreFriends: room.areFriends(player.id, other.id) });
   },
@@ -277,7 +277,7 @@ describe("sandboxed game servers", () => {
       "pinged",
       `export default {
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     room.send(player.id, { pingDurationMs: room.pingDurationMs(player.id), nobodyPingDurationMs: room.pingDurationMs("nobody"), serverTimeMs: room.serverTimeMs() });
   },
 };`,
@@ -301,7 +301,7 @@ describe("sandboxed game servers", () => {
       `export default {
   reconnectTimeoutSec: 20,
   setup: () => ({}),
-  onAway(state, player, room, reason) { room.broadcast({ away: player.id, reason, awayReason: room.awayReason(player.id) }); },
+  onAway(state, player, room, awayInfo) { room.broadcast({ away: player.id, reason: awayInfo.reason, awayReason: room.awayReason(player.id) }); },
   onBack(state, player, room) { room.broadcast({ back: player.id, awayReason: room.awayReason(player.id) }); },
   onLeave(state, player, room) { room.broadcast({ left: player.id }); },
 };`,
@@ -323,7 +323,7 @@ describe("sandboxed game servers", () => {
   stateSyncEnabled: true,
   setup: () => ({ turn: 0, hands: {} }),
   onJoin(state, player) { state.hands[player.id] = ["A", "K"]; },
-  onMessage(state, player, message) { if (message === "draw") state.hands[player.id].push("Q"); },
+  onMessage(state, player, _room, message) { if (message === "draw") state.hands[player.id].push("Q"); },
   stateView: (state, viewer, room) => ({ myHand: state.hands[viewer.id] || [], cardCounts: Object.fromEntries(Object.entries(state.hands).map(([id, hand]) => [id, hand.length])), players: room.players.length }),
 };`,
     );
@@ -357,7 +357,7 @@ describe("sandboxed game servers", () => {
       "aimer",
       `export default {
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "bad") room.broadcast({ type: "aim" }, { delivery: "lossy" });
     else if (message === "keyless") room.broadcast({ type: "aim" }, { delivery: "latest_only" });
     else if (message === "keyless-code") { try { room.broadcast({ type: "aim" }, { delivery: "latest_only" }); } catch (error) { room.broadcast({ type: "caught", code: error.code }); } }
@@ -370,7 +370,7 @@ describe("sandboxed game servers", () => {
     a.say("keyless");
     // The error reaches the game's code with the same code RoomCore gives it.
     a.say("keyless-code");
-    expect(await a.next()).toEqual({ type: "message", data: { type: "caught", code: "bad_option" }, fromPlayerId: null });
+    expect(await a.next()).toEqual({ type: "message", data: { type: "caught", code: "bad_room_call" }, fromPlayerId: null });
     a.say(45);
     expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 }, fromPlayerId: null });
     a.ws.close(1000);
@@ -407,7 +407,7 @@ describe("sandboxed game servers", () => {
   setup: () => ({ tickCount: 0, restored: null }),
   onTick(state) { state.tickCount++; },
   onRestored(state, restoreInfo, room) { state.restored = { ...restoreInfo, awayReasons: room.players.map((player) => room.awayReason(player.id)) }; },
-  onMessage(state, player, message, room) { if (message === "how") room.send(player.id, { tickCount: state.tickCount, restored: state.restored }); },
+  onMessage(state, player, room, message) { if (message === "how") room.send(player.id, { tickCount: state.tickCount, restored: state.restored }); },
   onBack(state, player, room) { room.broadcast({ back: player.id }); },
 };`,
     );
@@ -444,9 +444,9 @@ describe("sandboxed game servers", () => {
 
     // The game lists no hosts, so the fetch is refused and nothing is broadcast (test/rooms/reach.test.ts has the rest).
     a.say("fetch");
-    // Nothing of ours inside the sandbox: no bindings or data, only the flag that says it runs in Zaisma rooms (checkChat reads it).
+    // Nothing of ours inside the sandbox: no bindings, data or flags.
     a.say("who");
-    expect((await a.next()).data).toEqual({ globals: "undefined", keys: ["isZaismaRoomsSandbox"] });
+    expect((await a.next()).data).toEqual({ globals: "undefined", keys: [] });
 
     // A crash loses that one message; the room and its state carry on. (So does a loop that never
     // ends, cut off by the CPU limit, but only Cloudflare enforces that: locally it would hang the test.)
@@ -529,7 +529,7 @@ describe("sandboxed game servers", () => {
         setup: () => ({}),
         onJoin(state, player, room) { room.send(player.id, { hi: player.name }); },
         onSpectatorJoin(state, spectator, room) { room.send(spectator.id, { watching: room.spectators.length, players: room.players.length }); },
-        onMessage(state, player, message, room) {
+        onMessage(state, player, room, message) {
           if (message === "all") room.broadcast({ to: "everyone" });
           if (message === "players") room.broadcast({ to: "players" }, { audience: "players" });
           if (message === "spectators") room.broadcast({ to: "spectators" }, { audience: "spectators" });
@@ -565,7 +565,7 @@ describe("sandboxed game servers", () => {
       `export default {
   maximumPlayerCount: 3,
   setup: () => ({}),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     const other = room.players.find((each) => each.id !== player.id);
     if (message === "pass") {
       room.send(other.id, { how: "send", roomCodeType: typeof room.roomCode }, { fromPlayerId: player.id });
@@ -610,11 +610,12 @@ describe("sandboxed game servers", () => {
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
     expect(row).toMatchObject({ kind: "crash" });
-    expect(row!.message).toContain('canJoin answered the text "Welcome!", so the player was turned away. Answer true (or nothing) to let them in');
+    expect(row!.message).toContain('canJoin answered the text "Welcome!", so the player was turned away. Answer true to let them in');
+    expect(row!.message).toContain("(bad_handler_answer)");
   });
 
-  it("waits for an async canJoin, and lets in a player when it answers nothing", async () => {
-    await addSandboxGame("asyncy", `export default { setup: () => ({}), async canJoin(state, player, room, joinData) { if (!joinData) return { refusalMessage: "Pick a team." }; }, onJoin(state, player, room, joinData) { room.send(player.id, joinData); } };`);
+  it("waits for an async canJoin, and lets in a player when it answers true", async () => {
+    await addSandboxGame("asyncy", `export default { setup: () => ({}), async canJoin(state, player, room, joinData) { if (!joinData) return { refusalMessage: "Pick a team." }; return true; }, onJoin(state, player, room, joinData) { room.send(player.id, joinData); } };`);
     expect(await knock("asyncy", "ABCDEF")).toEqual({ type: "error", code: "refused", message: "Pick a team." });
     const a = await join("asyncy", "ABCDEF", { team: "red" });
     expect((await a.next()).data).toEqual({ team: "red" });
@@ -650,7 +651,7 @@ describe("sandboxed game servers", () => {
       `export default {
         setup: () => ({}),
         canJoin(state, player, room, joinData) { return (joinData && joinData.password === "docks") || { refusalMessage: "Wrong password." }; },
-        onMessage(state, player, message, room) {
+        onMessage(state, player, room, message) {
           const other = room.players.find((p) => p.id !== player.id);
           if (message === "kick" && other) room.kick(other.id, { message: "Too rough.", keepOut: true });
           if (message === "out") room.kick(player.id);
@@ -688,7 +689,7 @@ describe("sandboxed game servers", () => {
         setup: () => ({ locked: false }),
         canJoin(state, player, room, joinData, joinInfo) { return !(state.locked && joinInfo.fromRoomCode) || { refusalMessage: "This area is locked." }; },
         onJoin(state, player, room, joinData, joinInfo) { if (joinInfo.fromRoomCode) room.send(player.id, { arrived: joinData, fromRoomCode: joinInfo.fromRoomCode }); },
-        onMessage(state, player, message, room) {
+        onMessage(state, player, room, message) {
           if (message === "lock") state.locked = true;
           if (typeof message === "string" && message.startsWith("go ")) room.moveTo(message.slice(3), { playerIds: [player.id], joinData: { door: "north" } });
           return state;
@@ -792,13 +793,13 @@ describe("a real-time game server in the sandbox", () => {
     const asked: { method: string; queued?: any[] }[] = [];
     const server = await wrapSession(async () => tickingSession(asked, { isFailing: false }) as never, () => {});
     await server.setup!(null);
-    for (const said of ["one", "two", "three"]) expect(server.onMessage!(undefined, PLAYER, said, ROOM)).toBeUndefined();
+    for (const said of ["one", "two", "three"]) expect(server.onMessage!(undefined, PLAYER, ROOM, said)).toBeUndefined();
     expect(asked).toEqual([]);
     await server.onTick!(undefined, 1 / 60, ROOM);
     expect(asked.map((each) => [each.method, each.queued!.map((input) => input.payload)])).toEqual([["tick", ["one", "two", "three"]]]);
     expect(await server.stateCopy()).toMatchObject({ said: ["one", "two", "three"], tickCount: 1 });
     // Messages that came before a join go first, with the join's call.
-    server.onMessage!(undefined, PLAYER, "four", ROOM);
+    server.onMessage!(undefined, PLAYER, ROOM, "four");
     await server.onJoin!(undefined, PLAYER, ROOM, null, { fromRoomCode: null, isReturning: false, isSpectator: false });
     expect(asked.at(-1)).toMatchObject({ method: "call onJoin", queued: [{ hook: "onMessage", payload: "four" }] });
     expect(server.stats.callCount).toBe(3);
@@ -806,7 +807,7 @@ describe("a real-time game server in the sandbox", () => {
 
   it("sends only what changed in the room since the last call", async () => {
     const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
-    const { RoomCore } = await import("@zaisma/game-server");
+    const { RoomCore } = await import("@zaisma/game-server/internal");
     const asked: { method: string; roomChanges?: any }[] = [];
     const server = await wrapSession(async () => tickingSession(asked, { isFailing: false }) as never, () => {});
     const core = new RoomCore(server, { roomCode: "K7Q2MX", send: () => {}, close: () => {} });
@@ -907,4 +908,155 @@ describe("spectators in Zaisma rooms", () => {
     expect(await closed).toBe(4000);
     expect(await rowOnce("SELECT COUNT(*) AS room_count FROM live_rooms WHERE game_id = ?", (row) => row.room_count === 0)).toEqual({ room_count: 0 });
   });
+});
+
+describe("mistakes in a sandboxed game server's code", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+  });
+
+  /** The game's recorded errors, once there are this many. */
+  async function errorsOf(gameId: string, count: number, maximumTries = 100): Promise<string[]> {
+    for (let tries = 0; tries < maximumTries; tries++) {
+      const { results } = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = ? ORDER BY first_at_ms, rowid").bind(gameId).all<{ message: string }>();
+      if (results.length >= count) return results.map((row) => row.message);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return [];
+  }
+
+  it("throw in the handler with a code and the call as the field, as on the Node runner", async () => {
+    await addSandboxGame(
+      "coded",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, room, message) {
+    const caught = (call) => { try { call(); return null; } catch (error) { return { name: error.name, code: error.code, field: error.field }; } };
+    room.send(player.id, {
+      kick: caught(() => room.kick(player.id, { nope: 1 })),
+      moveTo: caught(() => room.moveTo("not a room code", { playerIds: [player.id] })),
+      roomCode: caught(() => room.reserve({ playerIds: [player.id], roomCode: "ABCDEF" })),
+    });
+  },
+};`,
+    );
+    const a = await join("coded", "ABCDEF");
+    a.say("go");
+    expect((await a.next()).data).toEqual({
+      kick: { name: "GameServerError", code: "bad_room_call", field: "room.kick" },
+      moveTo: { name: "GameServerError", code: "bad_room_call", field: "room.moveTo" },
+      roomCode: { name: "GameServerError", code: "bad_room_call", field: "room.reserve" },
+    });
+    a.ws.close(1000);
+  });
+
+  it("stop a game that reserves over and over with room_call_limit", async () => {
+    await addSandboxGame(
+      "reserver",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, room) {
+    let code = null;
+    try { for (let i = 0; i < 100; i++) room.reserve({ playerIds: [player.id] }); } catch (error) { code = [error.code, error.field]; }
+    room.send(player.id, { code });
+  },
+};`,
+    );
+    const a = await join("reserver", "ABCDEF");
+    a.say("go");
+    expect((await a.next()).data).toEqual({ code: ["room_call_limit", "room.reserve"] });
+    a.ws.close(1000);
+  });
+
+  it("keep canJoin's room to reading: its calls throw room_call_unavailable", async () => {
+    await addSandboxGame(
+      "readonly",
+      `export default {
+  setup: () => ({}),
+  canJoin(state, player, room) {
+    try { room.broadcast("x"); return false; } catch (error) { return error.code === "room_call_unavailable" && error.field === "room.broadcast" && room.roomCode.length === 6; }
+  },
+  onJoin(state, player, room) { room.send(player.id, "in"); },
+};`,
+    );
+    const a = await join("readonly", "ABCDEF");
+    expect((await a.next()).data).toBe("in");
+    a.ws.close(1000);
+  });
+
+  it("keep stateView's room to reading: its calls throw room_call_unavailable", async () => {
+    await addSandboxGame(
+      "viewonly",
+      `export default {
+  stateSyncEnabled: true,
+  setup: () => ({}),
+  stateView(state, viewer, room) {
+    let thrown = null;
+    try { room.broadcast("x"); } catch (error) { thrown = [error.code, error.field]; }
+    return { thrown, roomCode: room.roomCode };
+  },
+};`,
+    );
+    const a = await join("viewonly", "STATEA");
+    expect(await a.nextState()).toEqual({ type: "state", full: { thrown: ["room_call_unavailable", "room.broadcast"], roomCode: "STATEA" } });
+    a.ws.close(1000);
+  });
+
+  it("log a room call the room refuses when it runs it, in the game's errors", async () => {
+    await addSandboxGame(
+      "afterend",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, room) { room.end("bye"); room.reserve({ playerIds: [player.id] }); },
+};`,
+    );
+    const a = await join("afterend", "ABCDEF");
+    a.say("go");
+    const errors = await errorsOf("gafterend", 1);
+    expect(errors.join("\n")).toMatch(/room\.reserve was called after this room ended.*\(room_call_unavailable\)/);
+    a.ws.close(1000);
+  });
+
+  it("log a bad_handler_answer, keep the state, and log a canJoin that answers nothing", async () => {
+    await addSandboxGame(
+      "answers",
+      `export default {
+  setup: () => ({ count: 0 }),
+  canJoin(state, player, room, joinData) { if (joinData && joinData.nothing) return; return true; },
+  onMessage(state, player, room, message) {
+    if (message === "five") return 5;
+    room.send(player.id, { count: state.count });
+    return { count: state.count + 1 };
+  },
+};`,
+    );
+    const a = await join("answers", "ABCDEF");
+    a.say("up");
+    expect((await a.next()).data).toEqual({ count: 0 });
+    a.say("five");
+    a.say("up");
+    expect((await a.next()).data).toEqual({ count: 1 });
+    expect(await knock("answers", "ABCDEF", { nothing: true })).toMatchObject({ type: "error", code: "refused" });
+    const errors = await errorsOf("ganswers", 2);
+    expect(errors.some((line) => line.includes("onMessage answered 5") && line.includes("(bad_handler_answer)"))).toBe(true);
+    expect(errors.some((line) => line.includes("canJoin answered nothing") && line.includes("(bad_handler_answer)"))).toBe(true);
+    a.ws.close(1000);
+  });
+
+  it("drop the room calls past 1000 in one go and log one room_call_limit", async () => {
+    await addSandboxGame(
+      "flood",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, room) { for (let i = 0; i < 1500; i++) room.send(player.id, i); },
+};`,
+    );
+    const a = await join("flood", "ABCDEF");
+    a.say("go");
+    // The room writes a new error within a minute, or when its last player leaves.
+    for (let heard = 0; heard < 1000; heard++) await a.next();
+    a.ws.close(1000);
+    const errors = await errorsOf("gflood", 1, 400);
+    expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
+  }, 30_000);
 });

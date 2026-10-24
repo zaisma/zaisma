@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
-// @ts-expect-error plain JavaScript runner without type declarations
-import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
-import { generateSigningKey, loadSigningKey, signPass, type PublicKey, type Server } from "../../packages/game-server/src/internal.ts";
+import { startServer } from "../../packages/game-server/bin/node.js";
+// @ts-expect-error plain JavaScript without type declarations
+import { localDatabase } from "../../packages/game-server/bin/node-parts.js";
+import { REQUEST_ERROR_HTTP_STATUS, generateSigningKey, loadSigningKey, signPass, type PublicKey, type Server } from "../../packages/game-server/src/internal.ts";
 import { signTestReceipt } from "../helpers.ts";
 
 // Requests to onRequest on the developer's own server: the same address and answers as Zaisma rooms (test/rooms/requests.test.ts).
@@ -20,9 +21,9 @@ async function pass(sub: string, aud = "shop") {
 
 type KeyList = (refresh?: boolean) => Promise<PublicKey[]>;
 async function serve(gameServer: object, { keys = async () => [signing.publicKey], receiptKeys = async () => [receiptSigning.publicKey] }: { keys?: KeyList; receiptKeys?: KeyList } = {}) {
-  const own = startServer({ server: gameServer, game: "shop", port: 0, origins: [ORIGIN], issuer: ISS, keys, receiptKeys, database: localDatabase(":memory:") });
-  await new Promise((resolve) => own.wss.once("listening", resolve));
-  const portNumber = (own.wss.address() as { port: number }).port;
+  const own = startServer({ gameServer: gameServer, gameSlug: "shop", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: keys, loadReceiptKeys: receiptKeys, database: localDatabase(":memory:") });
+  await new Promise((resolve) => own.httpServer.once("listening", resolve));
+  const portNumber = (own.httpServer.address() as { port: number }).port;
   const send = async (request: unknown, givenPass?: string, origin = ORIGIN, path = "/v1/requests/shop") => {
     const response = await fetch(`http://localhost:${portNumber}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain" }, body: JSON.stringify({ pass: givenPass ?? (await pass("player_ana")), request }) });
     return { httpStatus: response.status, body: (await response.json().catch(() => null)) as any, allowedOrigin: response.headers.get("access-control-allow-origin") };
@@ -95,23 +96,23 @@ describe("Node runner requests", () => {
 
   it("check a receipt in a room with room.verifyReceipt", async () => {
     const own = startServer({
-      server: {
+      gameServer: {
         setup: () => ({}),
-        async onMessage(state: unknown, player: { id: string }, message: string, room: { verifyReceipt(receipt: string): Promise<{ purchase_id: string }>; send(playerId: string, data: unknown): void }) {
+        async onMessage(state: unknown, player: { id: string }, room: { verifyReceipt(receipt: string): Promise<{ purchase_id: string }>; send(playerId: string, data: unknown): void }, message: string) {
           room.send(player.id, await room.verifyReceipt(message).then((claims) => ({ purchaseId: claims.purchase_id }), (error: { code: string }) => ({ errorCode: error.code })));
           return state;
         },
       },
-      game: "shop",
+      gameSlug: "shop",
       port: 0,
       origins: [ORIGIN],
-      issuer: ISS,
-      keys: async () => [signing.publicKey],
-      receiptKeys: async () => [receiptSigning.publicKey],
+      issuerUrl: ISS,
+      loadPassKeys: async () => [signing.publicKey],
+      loadReceiptKeys: async () => [receiptSigning.publicKey],
       roomStateFile: null,
     });
-    await new Promise((resolve) => own.wss.once("listening", resolve));
-    const socket = new WebSocket(`ws://localhost:${(own.wss.address() as { port: number }).port}/v1/rooms/shop/ABCDEF`, { origin: ORIGIN });
+    await new Promise((resolve) => own.httpServer.once("listening", resolve));
+    const socket = new WebSocket(`ws://localhost:${(own.httpServer.address() as { port: number }).port}/v1/rooms/shop/ABCDEF`, { origin: ORIGIN });
     const inbox: any[] = [];
     const waiters: ((message: any) => void)[] = [];
     socket.on("message", (raw) => {
@@ -170,5 +171,12 @@ describe("Node runner requests", () => {
     expect(await first).toMatchObject({ type: "error", code: "game_unavailable" });
     socket.close();
     await own.close();
+  });
+});
+
+describe("request errors' HTTP statuses", () => {
+  it("answer hosting_paused with 403, since it isn't a rate limit, and slow_down with 429", () => {
+    expect(REQUEST_ERROR_HTTP_STATUS.hosting_paused).toBe(403);
+    expect(REQUEST_ERROR_HTTP_STATUS.slow_down).toBe(429);
   });
 });

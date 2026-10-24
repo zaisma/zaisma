@@ -28,7 +28,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** The runner as its own process, like a developer starts it, so a crash shows as the process ending. */
 async function startRunner() {
   const port = await freePort();
-  const child = spawn("node", [runner, "relay", "--game", "arena", "--port", String(port), "--origin", "", "--database", join(folder, `${port}.sqlite`), "--room-state", join(folder, `${port}-rooms.sqlite`)], { stdio: "ignore" });
+  const child = spawn("node", [runner, "relay", "--game", "arena", "--port", String(port), "--origin", "", "--database-file", join(folder, `${port}.sqlite`), "--room-state-file", join(folder, `${port}-rooms.sqlite`)], { stdio: "ignore" });
   started.push(child);
   let exitCode: number | null = null;
   child.on("exit", (code) => (exitCode = code ?? -1));

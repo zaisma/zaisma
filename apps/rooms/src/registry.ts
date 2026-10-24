@@ -1,4 +1,4 @@
-import { defineGameServer, relay, type GameServer } from "@zaisma/game-server";
+import { defineGameServer, relay, type GameServer } from "@zaisma/game-server/internal";
 import arena from "../../../examples/arena/server.ts";
 import { SANDBOX } from "./sandbox.ts";
 import fourInARow from "../../../examples/four-in-a-row/server.ts";

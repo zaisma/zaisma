@@ -179,7 +179,7 @@ const arena: GameServer<State> = {
     await server.database.query("DELETE FROM best_scores WHERE player_id NOT IN (SELECT player_id FROM best_scores ORDER BY best_score DESC LIMIT 100)");
   },
 
-  onMessage(state, player, message) {
+  onMessage(state, player, room, message) {
     const body = state.bodies[player.id];
     if (!body || !message || typeof message !== "object") return;
     const sent = message as PlayerMessage;
