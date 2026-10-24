@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import roomsWorker, { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import roomsWranglerText from "../../apps/rooms/wrangler.jsonc?raw";
-import { HOSTING_PAUSED_END_MESSAGE, areFriends, canChat, hasBlockBetween, verifyPass } from "@zaisma/game-server";
+import { HOSTING_PAUSED_END_MESSAGE, areFriends, canChat, hasBlockBetween, loadSigningKey, verifyPass } from "@zaisma/game-server";
 import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -170,7 +170,7 @@ describe("rooms", () => {
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "block_tag_ids", "exp", "friend_tag_ids", "iat", "iss", "kind", "player_tag", "sub", "who_can_chat"]);
+    expect(Object.keys(claims).sort()).toEqual(["aud", "block_tag_ids", "exp", "friend_tag_ids", "iat", "iss", "kind", "owned_item_names", "player_tag", "sub", "who_can_chat"]);
     expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", who_can_chat: "friends", friend_tag_ids: [] });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
@@ -211,7 +211,7 @@ describe("rooms", () => {
     expect(claims.owned_item_names).toEqual(["gold_crown"]);
     // A guest's pass owns nothing.
     const guestClaims = JSON.parse(atob((await getPass("arena")).pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(guestClaims).not.toHaveProperty("owned_item_names");
+    expect(guestClaims.owned_item_names).toEqual([]);
 
     // Players' games never hear what anyone owns; the room keeps it for its game server through a sleep.
     const c = await connect("arena", "CRWNS2");
@@ -627,6 +627,17 @@ describe("rooms", () => {
     const body = await res.json<{ keys: JsonWebKey[] }>();
     expect(body.keys[0]).toMatchObject({ kty: "OKP", crv: "Ed25519" });
     expect(body.keys[0]).not.toHaveProperty("d");
+  });
+
+  it("publishes the receipt key at its own address, apart from the pass key, never a private part", async () => {
+    const passKeyId = (await signingKey(e)).publicKey.kid;
+    const receiptKeyId = (await loadSigningKey(e.RECEIPT_SIGNING_KEY!)).publicKey.kid;
+    expect(passKeyId).not.toBe(receiptKeyId);
+    const passKeys = await (await SELF.fetch(`${R}/.well-known/jwks.json`)).json<{ keys: { kid: string }[] }>();
+    expect(passKeys.keys.map((key) => key.kid)).toEqual([passKeyId]);
+    const receiptKeys = await (await SELF.fetch(`${R}/.well-known/receipt-jwks.json`)).json<{ keys: { kid: string }[] }>();
+    expect(receiptKeys.keys.map((key) => key.kid)).toEqual([receiptKeyId]);
+    for (const key of [...passKeys.keys, ...receiptKeys.keys]) expect(key).not.toHaveProperty("d");
   });
 
   it("makes room codes only for games with a game server", async () => {

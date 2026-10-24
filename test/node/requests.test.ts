@@ -2,21 +2,25 @@ import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
-import { generateSigningKey, loadSigningKey, signPass, type Server } from "../../packages/game-server/src/index.ts";
+import { generateSigningKey, loadSigningKey, signPass, type PublicKey, type Server } from "../../packages/game-server/src/index.ts";
+import { signTestReceipt } from "../helpers.ts";
 
 // Requests to onRequest on the developer's own server: the same address and answers as Zaisma rooms (test/rooms/requests.test.ts).
 
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://shop.zaismausercontent.com";
 const signing = await loadSigningKey(await generateSigningKey());
+// The receipt key Zaisma publishes at its own address (/.well-known/receipt-jwks.json), apart from the pass key: receipts are signed with it, never the pass key.
+const receiptSigning = await loadSigningKey(await generateSigningKey());
 
 async function pass(sub: string, aud = "shop") {
   const nowSec = Math.floor(Date.now() / 1000);
   return signPass(signing, { sub, name: "Swift Fox 42", aud, iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 });
 }
 
-async function serve(gameServer: object) {
-  const own = startServer({ server: gameServer, game: "shop", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], database: localDatabase(":memory:") });
+type KeyList = (refresh?: boolean) => Promise<PublicKey[]>;
+async function serve(gameServer: object, { keys = async () => [signing.publicKey], receiptKeys = async () => [receiptSigning.publicKey] }: { keys?: KeyList; receiptKeys?: KeyList } = {}) {
+  const own = startServer({ server: gameServer, game: "shop", port: 0, origins: [ORIGIN], issuer: ISS, keys, receiptKeys, database: localDatabase(":memory:") });
   await new Promise((resolve) => own.wss.once("listening", resolve));
   const portNumber = (own.wss.address() as { port: number }).port;
   const send = async (request: unknown, givenPass?: string, origin = ORIGIN, path = "/v1/requests/shop") => {
@@ -52,6 +56,95 @@ describe("Node runner requests", () => {
     const { own, send } = await serve(SHOP);
     expect(await send({ type: "add", coinCount: 5 })).toEqual({ httpStatus: 200, body: { answer: { playerId: "player_ana", coinCount: 5 } }, allowedOrigin: ORIGIN });
     expect((await send({ type: "wallet" })).body).toEqual({ answer: { playerId: "player_ana", coinCount: 5 } });
+    await own.close();
+  });
+
+  it("check a purchase's receipt with server.verifyReceipt, the same answers as on Zaisma", async () => {
+    const { own, send } = await serve({ onRequest: (player: unknown, request: { receipt: string }, server: Server) => server.verifyReceipt(request.receipt).catch((error: { name: string; code: string }) => ({ errorName: error.name, errorCode: error.code })) });
+    const answerTo = async (receipt: string) => (await send({ receipt })).body.answer;
+    expect(await answerTo(await signTestReceipt(receiptSigning, "shop", ISS))).toMatchObject({ aud: "shop", purchase_id: "purchase_8f3k2m9q1x7c4v6b0n5z", purchase_status: "completed", item_name: "gold_crown" });
+    expect(await answerTo(await signTestReceipt(receiptSigning, "moon-base", ISS))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_game" });
+    // A pass is signed with the pass key, which isn't a receipt key.
+    expect(await answerTo(await pass("player_ana"))).toEqual({ errorName: "ReceiptError", errorCode: "unknown_key" });
+    expect(await answerTo(await signTestReceipt(await loadSigningKey(await generateSigningKey()), "shop", ISS))).toEqual({ errorName: "ReceiptError", errorCode: "unknown_key" });
+    expect(await answerTo(await signTestReceipt(receiptSigning, "shop", "https://rooms.elsewhere.test"))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_issuer" });
+    expect(await answerTo("not.a.receipt")).toEqual({ errorName: "ReceiptError", errorCode: "malformed" });
+    await own.close();
+  });
+
+  it("fetch Zaisma's receipt keys again once when a receipt's key is new, and no more", async () => {
+    let fetchCount = 0;
+    const published: PublicKey[] = [];
+    const { own, send } = await serve(
+      { onRequest: (player: unknown, request: { receipt: string }, server: Server) => server.verifyReceipt(request.receipt).then(() => "ok", (error: { code: string }) => error.code) },
+      {
+        receiptKeys: async (refresh = false) => {
+          fetchCount += refresh ? 1 : 0;
+          return refresh ? [receiptSigning.publicKey] : published;
+        },
+      },
+    );
+    const receipt = await signTestReceipt(receiptSigning, "shop", ISS);
+    expect((await send({ receipt })).body.answer).toBe("ok");
+    expect(fetchCount).toBe(1);
+    const stranger = await signTestReceipt(await loadSigningKey(await generateSigningKey()), "shop", ISS);
+    expect((await send({ receipt: stranger })).body.answer).toBe("unknown_key");
+    expect(fetchCount).toBe(2);
+    await own.close();
+  });
+
+  it("check a receipt in a room with room.verifyReceipt", async () => {
+    const own = startServer({
+      server: {
+        setup: () => ({}),
+        async onMessage(state: unknown, player: { id: string }, message: string, room: { verifyReceipt(receipt: string): Promise<{ purchase_id: string }>; send(playerId: string, data: unknown): void }) {
+          room.send(player.id, await room.verifyReceipt(message).then((claims) => ({ purchaseId: claims.purchase_id }), (error: { code: string }) => ({ errorCode: error.code })));
+          return state;
+        },
+      },
+      game: "shop",
+      port: 0,
+      origins: [ORIGIN],
+      issuer: ISS,
+      keys: async () => [signing.publicKey],
+      receiptKeys: async () => [receiptSigning.publicKey],
+      roomStateFile: null,
+    });
+    await new Promise((resolve) => own.wss.once("listening", resolve));
+    const socket = new WebSocket(`ws://localhost:${(own.wss.address() as { port: number }).port}/v1/rooms/shop/ABCDEF`, { origin: ORIGIN });
+    const inbox: any[] = [];
+    const waiters: ((message: any) => void)[] = [];
+    socket.on("message", (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === "probe") return socket.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
+      const waiter = waiters.shift();
+      waiter ? waiter(message) : inbox.push(message);
+    });
+    const next = async (type: string) => {
+      for (;;) {
+        const message = inbox.length ? inbox.shift() : await new Promise<any>((resolve) => waiters.push(resolve));
+        if (message.type === type) return message;
+      }
+    };
+    const nextMessage = async () => (await next("message")).data;
+    await new Promise((resolve) => socket.on("open", resolve));
+    socket.send(JSON.stringify({ type: "hello", pass: await pass("player_ana") }));
+    await next("welcome");
+    const say = (data: unknown) => socket.send(JSON.stringify({ type: "message", data }));
+    say(await signTestReceipt(receiptSigning, "shop", ISS));
+    expect(await nextMessage()).toEqual({ purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z" });
+    say(await signTestReceipt(receiptSigning, "moon-base", ISS));
+    expect(await nextMessage()).toEqual({ errorCode: "wrong_game" });
+    socket.close();
+    await own.close();
+  });
+
+  it("never take a token signed with a receipt key for a pass, even with a pass's claims and issuer", async () => {
+    const { own, send } = await serve({ onRequest: (player: { id: string }) => ({ playerId: player.id }) });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const forged = await signPass(receiptSigning, { sub: "player_ana", name: "Swift Fox 42", aud: "shop", iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 });
+    expect(await send({}, forged)).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_pass" } } });
+    expect((await send({})).httpStatus).toBe(200);
     await own.close();
   });
 

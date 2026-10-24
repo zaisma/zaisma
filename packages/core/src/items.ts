@@ -460,7 +460,8 @@ export interface Purchase {
   game_account_id: string | null;
   purchase_source: PurchaseSource;
   purchase_status: PurchaseStatus;
-  price_minor_units: number | null;
+  /** What the purchase paid, in the currency's minor units: null for a grant. An item's own price is its price_minor_units. */
+  paid_minor_units: number | null;
   currency_code: string | null;
   refunded_minor_units: number;
   stripe_payment_intent_id: string | null;
@@ -469,7 +470,7 @@ export interface Purchase {
   refunded_at_ms: number | null;
 }
 
-const PURCHASE_COLUMNS = "id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, price_minor_units, currency_code, refunded_minor_units, stripe_payment_intent_id, created_at_ms, purchased_at_ms, refunded_at_ms";
+const PURCHASE_COLUMNS = "id, game_id, item_name, item_kind, item_count, player_id, game_account_id, purchase_source, purchase_status, paid_minor_units, currency_code, refunded_minor_units, stripe_payment_intent_id, created_at_ms, purchased_at_ms, refunded_at_ms";
 
 export async function purchaseById(database: D1Database, gameId: string, purchaseId: string): Promise<Purchase | null> {
   return database.prepare(`SELECT ${PURCHASE_COLUMNS} FROM purchases WHERE id = ? AND game_id = ?`).bind(purchaseId, gameId).first<Purchase>();
@@ -532,7 +533,7 @@ export function newGrant(
     game_account_id: grant.gameAccountId,
     purchase_source: "grant",
     purchase_status: "completed",
-    price_minor_units: null,
+    paid_minor_units: null,
     currency_code: null,
     refunded_minor_units: 0,
     stripe_payment_intent_id: null,
@@ -561,7 +562,7 @@ export async function recordGrant(database: D1Database, grant: Purchase): Promis
 /** Takes a completed purchase or grant back: refunded (the developer's call) or charged_back (the card's). False when it wasn't completed. */
 export async function takeBack(database: D1Database, purchaseId: string, purchaseStatus: "refunded" | "charged_back", nowMs: number): Promise<boolean> {
   const changed = await database
-    .prepare("UPDATE purchases SET purchase_status = ?, refunded_minor_units = COALESCE(price_minor_units, 0), refunded_at_ms = ? WHERE id = ? AND purchase_status = 'completed'")
+    .prepare("UPDATE purchases SET purchase_status = ?, refunded_minor_units = COALESCE(paid_minor_units, 0), refunded_at_ms = ? WHERE id = ? AND purchase_status = 'completed'")
     .bind(purchaseStatus, nowMs, purchaseId)
     .run();
   return changed.meta.changes > 0;

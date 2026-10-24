@@ -14,7 +14,7 @@
 //   2. deploys rooms, games, photodna (with PhotoDNA's SDK from Julius's machine), compress and site, in that order;
 //   3. checks that npm has the command-line tool's version: a GitHub workflow
 //      (.github/workflows/publish-cli.yml) publishes it from main, never ship;
-//   4. loads a game page, the MCP, a game's files and the rooms' keys on the live site, and runs the
+//   4. loads a game page, the MCP, a game's files and the rooms' pass and receipt keys on the live site, and runs the
 //      security checks in scripts/ship-checks.mjs (headers, http, the private check game, R2 buckets,
 //      /admin); a door that opens is SHIP FAIL, fixed before anything else.
 // It also brings the main checkout's main up to date, when that is a clean fast-forward, and then links the private
@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyEnginesProof, checkState, enginesBaseCommits, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
-import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl, securityTxtProblems } from "./ship-checks.mjs";
+import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
 // Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
@@ -333,6 +333,19 @@ if (missingQueues.length && !isDryRun) {
   say(`Queues made: ${missingQueues.join(", ")}.`);
 }
 
+// Secrets a Worker can't run without, checked before anything deploys: rooms signs receipts with
+// RECEIPT_SIGNING_KEY, and without it every purchase read answers receipts_unavailable.
+const REQUIRED_SECRETS = { "zaisma-rooms": ["PASS_SIGNING_KEY", "RECEIPT_SIGNING_KEY"] };
+for (const [workerName, secretNames] of Object.entries(REQUIRED_SECRETS)) {
+  const listed = runWrangler(["secret", "list", "--name", workerName, "--format", "json"]);
+  if (listed.exitCode !== 0) {
+    say(listed.output.trim());
+    finish("FAIL", `${shortSha}: couldn't list ${workerName}'s secrets (above); nothing deployed.`, 1);
+  }
+  const missingSecrets = secretNames.filter((name) => !listed.output.includes(`"${name}"`));
+  if (missingSecrets.length) finish("FAIL", `${shortSha}: ${workerName} has no ${missingSecrets.join(" or ")}: put it with \`node scripts/rooms-key.mjs | npx wrangler secret put ${missingSecrets[0]} --config apps/rooms/wrangler.jsonc\`; nothing deployed.`, 1);
+}
+
 // The command-line tool on npm.
 const cliVersion = JSON.parse(readFileSync(join(shipCopy, "packages/cli/package.json"), "utf8")).version;
 
@@ -410,7 +423,7 @@ const mcpInitialize = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initializ
 // The wrangler calls are synchronous, so they run before any fetch starts and no timeout fires while they block.
 const bucketResults = checkBuckets(runWrangler);
 const ok = (isGood) => (response, body) => (isGood(response, body) ? [] : ["unexpected answer"]);
-const [gamePage, mcp, gameFiles, rooms, securityTxt, cliResult, securityResults] = await Promise.all([
+const [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt, cliResult, securityResults] = await Promise.all([
   checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe"))),
   // With a key: a real MCP session starts. Without one: the MCP answers with its structured no_key error.
   zaismaKey
@@ -418,12 +431,14 @@ const [gamePage, mcp, gameFiles, rooms, securityTxt, cliResult, securityResults]
     : checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: mcpInitialize }, ok((response, body) => response.status === 401 && body.includes('"no_key"')), { passNote: " (its no_key answer, as expected without ZAISMA_KEY)" }),
   // The game's page opens at its version's own address: followed there.
   checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { isSameOriginRedirectFollowed: true }),
-  checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && body.includes('"keys"'))),
+  checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
+  // It answers 503 when RECEIPT_SIGNING_KEY isn't set or a receipt setting doesn't load: then receipts answer receipts_unavailable.
+  checkUrl("receipt keys", `${ROOMS_URL}/.well-known/receipt-jwks.json`, {}, ok((response, body) => response.status === 200 && publishedKeyCount(body) >= 1)),
   checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
   checkCliOnNpm(cliVersion),
   checkSecurityAddresses({ zaismaKey }),
 ]);
-const checks = [gamePage, mcp, gameFiles, rooms, securityTxt];
+const checks = [gamePage, mcp, gameFiles, rooms, receiptKeys, securityTxt];
 const securityChecks = [...bucketResults, ...securityResults];
 for (const result of [...checks, cliResult, ...securityChecks]) say(`  ${result.isPass ? "✓" : "✗"} ${result.note}`);
 

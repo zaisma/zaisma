@@ -7,3 +7,5 @@ GAME_ORIGIN=http://localhost:8788
 GAME_DOMAIN=
 # Make a local signing key with: node -e "import('./packages/game-server/src/pass.ts').then(async m => console.log(await m.generateSigningKey()))"
 PASS_SIGNING_KEY=
+# A second key, made the same way, signs receipts only.
+RECEIPT_SIGNING_KEY=

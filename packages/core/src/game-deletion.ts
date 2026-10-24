@@ -126,7 +126,8 @@ export async function isSlugRetired(database: D1Database, slug: string): Promise
  * The last step, once the game's files, saves and storage are gone: every row about the game, children
  * before what they point at, then the game and its deletion. Confirmed chat is kept for its report until
  * its own expiry, and security events are an account's own log, so neither goes; forum topics stay
- * without their game, and players' purchases stay too: their purchase history lives in their account.
+ * without their game, and players' purchases stay too: their purchase history lives in their account, so
+ * they keep the game's slug and title to name it by.
  */
 export function gameRowDeletions(database: D1Database, gameId: string): D1PreparedStatement[] {
   const deleteFrom = (table: string) => database.prepare(`DELETE FROM ${table} WHERE game_id = ?`).bind(gameId);
@@ -134,6 +135,9 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     database.prepare("UPDATE games SET live_version_id = NULL, game_server_schedules_version_id = NULL WHERE id = ?").bind(gameId),
     database.prepare("UPDATE forum_topics SET game_id = NULL WHERE game_id = ?").bind(gameId),
     database.prepare("UPDATE presences SET game_id = NULL, game_seen_at_ms = NULL WHERE game_id = ?").bind(gameId),
+    database
+      .prepare("UPDATE purchases SET deleted_game_slug = (SELECT slug FROM games WHERE id = ?1), deleted_game_title = (SELECT title FROM games WHERE id = ?1) WHERE game_id = ?1")
+      .bind(gameId),
     database.prepare("DELETE FROM performance_checks WHERE version_id IN (SELECT id FROM versions WHERE game_id = ?)").bind(gameId),
     ...[
       "play_days", "play_returns", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",

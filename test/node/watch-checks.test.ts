@@ -58,7 +58,8 @@ describe("runWatchChecks", () => {
       // A game's page opens at its version's own address.
       if (url === "https://arena.zaismausercontent.com/") return new Response(null, { status: 302, headers: { location: "/_zaisma/versions/version_1/" } });
       if (url === "https://arena.zaismausercontent.com/_zaisma/versions/version_1/") return new Response("<html>");
-      if (url === "https://rooms.zaisma.com/.well-known/jwks.json") return Response.json({ keys: [] });
+      if (url === "https://rooms.zaisma.com/.well-known/jwks.json") return Response.json({ keys: [{ kid: "pass" }] });
+      if (url === "https://rooms.zaisma.com/.well-known/receipt-jwks.json") return Response.json({ keys: [{ kid: "receipt" }] });
       if (url === "https://zaisma.com/mcp") return new Response('{"error":{"code":"no_key"}}', { status: 401 });
       if (url === "https://zaisma.com/signin") return new Response("Sign in", { status: 400 });
       throw new Error(`unexpected ${url}`);
@@ -66,11 +67,23 @@ describe("runWatchChecks", () => {
     return asked;
   };
 
-  it("passes when the five answer as they do on a healthy site", async () => {
+  it("passes when the six answer as they do on a healthy site", async () => {
     const asked = answers();
     const results = await runWatchChecks();
-    expect(results.map((result: { name: string; isPass: boolean }) => [result.name, result.isPass])).toEqual([["game page", true], ["game files", true], ["rooms", true], ["MCP", true], ["sign-in", true]]);
-    expect(asked).toHaveLength(6);
+    expect(results.map((result: { name: string; isPass: boolean }) => [result.name, result.isPass])).toEqual([["game page", true], ["game files", true], ["rooms", true], ["receipt keys", true], ["MCP", true], ["sign-in", true]]);
+    expect(asked).toHaveLength(7);
+  });
+
+  it("fails receipt keys when rooms can't publish them, as without RECEIPT_SIGNING_KEY", async () => {
+    vi.useFakeTimers();
+    try {
+      answers({ "https://rooms.zaisma.com/.well-known/receipt-jwks.json": Response.json({ error: { code: "receipts_unavailable" } }, { status: 503 }) });
+      const running = runWatchChecks();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect((await running).find((result: { name: string }) => result.name === "receipt keys")).toMatchObject({ isPass: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails a check after a second try, naming it and its answer", async () => {
