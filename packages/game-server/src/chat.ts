@@ -14,7 +14,7 @@
 
 import { OutsideCallError } from "./outside-calls.ts";
 
-/** Why a message was stopped. The same reasons as Zaisma.filterText, plus chat_paused and not_allowed_to_chat. */
+/** Why a message was stopped. The same reasons as Zaisma.checkChat, plus chat_paused and not_allowed_to_chat. */
 export type ChatCheckReason = "contact_details" | "personal_details" | "slur" | "sexual" | "chat_paused" | "unchecked" | "too_long" | "not_allowed_to_chat";
 
 export interface ChatCheck {

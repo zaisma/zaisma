@@ -1,0 +1,84 @@
+{
+  "name": "unity-idbfs-and-skipped-unitycache",
+  "stored_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"/idbfs\",\"version\":21,\"stores\":[{\"name\":\"FILE_DATA\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[{\"name\":\"timestamp\",\"keyPath\":\"timestamp\",\"unique\":false,\"multiEntry\":false}],\"records\":[[\"/idbfs/0c5c2a3f9e\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":16893}],[\"/idbfs/0c5c2a3f9e/PlayerPrefs\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"UFJFRlMBAAA=\"]}}],[\"/idbfs/0c5c2a3f9e/slot1.sav\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"AP8QIA==\"]}}]]}]}]}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"/idbfs\",\"version\":21,\"stores\":[{\"name\":\"FILE_DATA\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[{\"name\":\"timestamp\",\"keyPath\":\"timestamp\",\"unique\":false,\"multiEntry\":false}],\"records\":[[\"/idbfs/0c5c2a3f9e\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":16893}],[\"/idbfs/0c5c2a3f9e/PlayerPrefs\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"UFJFRlMBAAA=\"]}}],[\"/idbfs/0c5c2a3f9e/slot1.sav\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"AP8QIA==\"]}}]]}]}]}",
+  "sha256": "6f0652c1075140c53538057620f87c9996387cfdf2769fdd019ad5913ba6c701",
+  "size_bytes": 647,
+  "projection": {
+    "local_storage_items": {},
+    "missing_keys": [],
+    "indexeddb_databases": [
+      {
+        "name": "/idbfs",
+        "version": 21,
+        "stores": [
+          {
+            "name": "FILE_DATA",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [
+              {
+                "name": "timestamp",
+                "keyPath": "timestamp",
+                "unique": false,
+                "multiEntry": false
+              }
+            ],
+            "records": [
+              [
+                "/idbfs/0c5c2a3f9e",
+                {
+                  "timestamp": {
+                    "$z": [
+                      "date",
+                      1790856000000
+                    ]
+                  },
+                  "mode": 16893
+                }
+              ],
+              [
+                "/idbfs/0c5c2a3f9e/PlayerPrefs",
+                {
+                  "timestamp": {
+                    "$z": [
+                      "date",
+                      1790856000000
+                    ]
+                  },
+                  "mode": 33206,
+                  "contents": {
+                    "$z": [
+                      "view",
+                      "Uint8Array",
+                      "UFJFRlMBAAA="
+                    ]
+                  }
+                }
+              ],
+              [
+                "/idbfs/0c5c2a3f9e/slot1.sav",
+                {
+                  "timestamp": {
+                    "$z": [
+                      "date",
+                      1790856000000
+                    ]
+                  },
+                  "mode": 33206,
+                  "contents": {
+                    "$z": [
+                      "view",
+                      "Uint8Array",
+                      "AP8QIA=="
+                    ]
+                  }
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

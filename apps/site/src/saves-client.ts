@@ -1,3 +1,4 @@
+import { EMPTY_SAVE_TEXT } from "@zaisma/core";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -21,6 +22,8 @@ import { pageScript } from "./page-scripts.ts";
  * account's save is in place, so a device that couldn't take it never sends its own.
  * When this device last played is remembered per game as { sha256, played_at_ms }: the time its save
  * last changed, as far as this page saw (null when it never saw a change; the account's progress wins then).
+ * A record from before v1 saves holds the hash of the older format, which no v1 save matches: it counts
+ * as both having played on, so whichever progress wins, the other is kept as an earlier version.
  * A developer's change (through the API, saves-api.ts) always wins: when the game's next save finds the
  * account moved on, or when the player comes back to the tab, the game reloads with it, and this device's
  * progress since its last save is kept as an earlier version. A game opening later takes it like any newer save.
@@ -53,7 +56,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   const offerBar = document.getElementById("keep-bar");
   const offerLink = document.getElementById("keep-link");
   const toast = document.getElementById("save-toast");
-  let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, updated_at, changed_by_kind, save_data }
+  let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, saved_at, changed_by_kind, save_data }
   let synced = null;      // the save text the game and the account both have
   let paused = true;
   let forceCloud = false;
@@ -70,8 +73,16 @@ export const SAVES_SCRIPT = pageScript("saves", `
   let pendingConflict = null;  // a conflict the game hasn't listened for yet
   let applying = null;    // a developer's change while the game domain puts it in place under the running game
   let isRestoringCopy = false; // the game is going back to an earlier version (Zaisma.saves.restoreCopy)
+  let versionId = null;   // the game version the game domain says it was served from (its last hello or save), a label on each save
+  // A save with nothing in it, exactly as canonicalSave in packages/core/src/saves.ts writes it.
+  const EMPTY_SAVE_TEXT = ${JSON.stringify(EMPTY_SAVE_TEXT)};
 
-  const canonical = (data) => { const out = {}; Object.keys(data).sort().forEach((k) => (out[k] = data[k])); return JSON.stringify(out); };
+  // A save as one text, the same as canonicalSave on the server: all three keys in this order, localStorage keys sorted.
+  const canonical = (save) => {
+    const items = {};
+    Object.keys(save.local_storage_items).sort().forEach((k) => Object.defineProperty(items, k, { value: save.local_storage_items[k], enumerable: true, writable: true, configurable: true }));
+    return JSON.stringify({ save_format_version_number: 1, local_storage_items: items, indexeddb_databases: save.indexeddb_databases });
+  };
   const sha = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
   const marker = (tag, value) => {
     try {
@@ -79,8 +90,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
       localStorage.setItem("zaisma:save:" + tag, JSON.stringify(value));
     } catch { return null; }
   };
-  const ago = (updatedAt) => {
-    const m = Math.round((Date.now() - Date.parse(updatedAt)) / 60000);
+  const ago = (savedAt) => {
+    const m = Math.round((Date.now() - Date.parse(savedAt)) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
   // Green when progress is reaching the account, amber when it isn't.
@@ -93,14 +104,17 @@ export const SAVES_SCRIPT = pageScript("saves", `
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast.hidden = true), 8000);
   };
-  // The account's progress wins: keep this device's as an earlier version on the account. Answers the copy's ID, or null.
-  const keepDevice = (text) =>
-    text && text !== "{}"
-      ? fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, save_json: text }), credentials: "same-origin" })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((out) => (out && out.save_copy_id) || null)
-          .catch(() => null)
-      : Promise.resolve(null);
+  // The account's progress wins: keep this device's as an earlier version on the account, dated when this device
+  // last played it (played_at; null when that isn't known). Answers the copy's ID, or null.
+  const keepDevice = (text) => {
+    if (!text || text === EMPTY_SAVE_TEXT) return Promise.resolve(null);
+    const p = played();
+    const body = { keep: true, save_json: text, version_id: versionId, played_at: p && p.played_at_ms ? new Date(p.played_at_ms).toISOString() : null };
+    return fetch(SAVES.api, { method: "PUT", body: JSON.stringify(body), credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((out) => (out && out.save_copy_id) || null)
+      .catch(() => null);
+  };
   const playedKey = "zaisma:played:" + SAVES.slug;
   const played = (value) => {
     try {
@@ -116,14 +130,14 @@ export const SAVES_SCRIPT = pageScript("saves", `
     else if (was.sha256 !== hash) played({ sha256: hash, played_at_ms: Date.now() });
   }
   // Whether this device's progress was played after the account's was saved. Not known: the account's wins.
-  const deviceIsNewer = (updatedAt) => {
+  const deviceIsNewer = (savedAt) => {
     const p = played();
-    return Boolean(p && p.played_at_ms && updatedAt && p.played_at_ms > Date.parse(updatedAt));
+    return Boolean(p && p.played_at_ms && savedAt && p.played_at_ms > Date.parse(savedAt));
   };
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
   // To the game itself (the SDK), not the game domain's saves script.
   const toGame = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage(msg, SAVES.frameOrigin);
-  const copyFields = (copy) => ({ id: copy.id, savedAt: copy.saved_at, copyReason: copy.copy_reason, sizeBytes: copy.size_bytes, isCurrentSave: copy.is_current_save });
+  const copyFields = (copy) => ({ id: copy.id, savedAt: copy.saved_at, copyReason: copy.copy_reason, sizeBytes: copy.size_bytes, isCurrentSave: copy.is_current_save, versionId: copy.version_id ?? null });
   async function copyById(saveCopyId) {
     if (!saveCopyId) return null;
     const res = await fetch(SAVES.api + "/copies", { credentials: "same-origin" }).catch(() => null);
@@ -133,13 +147,13 @@ export const SAVES_SCRIPT = pageScript("saves", `
   }
   const sendEvent = (eventName, event) => toGame({ type: "zaisma:saves-event", eventName, event });
 
-  // Two progresses differed and one was set aside: the game hears which won and where the other is kept,
-  // now if it listens, or once it does. keeping answers the kept copy's ID; no copy, no conflict.
-  async function conflicted(winningProgress, keeping) {
+  // Two progresses differed and one was set aside: the game hears which won ("this_device" or "account") and
+  // where the other is kept, now if it listens, or once it does. keeping answers the kept copy's ID; no copy, no conflict.
+  async function conflicted(winnerKind, keeping) {
     const opened = openCount;
     const keptSaveCopy = await copyById(await keeping);
     if (!keptSaveCopy || opened !== openCount) return;
-    const event = { winningProgress, keptSaveCopy };
+    const event = { winnerKind, keptSaveCopy };
     if (listening.has("conflict")) sendEvent("conflict", event);
     else pendingConflict = event;
   }
@@ -218,7 +232,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   };
 
   function maybeOffer() {
-    if (!guest || !guestText || guestText === "{}") return;
+    if (!guest || !guestText || guestText === EMPTY_SAVE_TEXT) return;
     if (offerBar) offerBar.hidden = false;
     if (offerLink) offerLink.hidden = false;
     say("Your progress is only saved in this browser.");
@@ -288,7 +302,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       tell({ step: "sync", text: guestText });
       say("Progress saves to your account.");
       pop("Your progress now saves to your account.");
-    } else if (deviceIsNewer(c.updated_at)) {
+    } else if (deviceIsNewer(c.saved_at)) {
       // Both have progress, and this device's was played more recently: it replaces the account's, which is kept
       // as an earlier version (the game hears the conflict once that save is stored).
       paused = false;
@@ -302,7 +316,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       keptBeforeReload = guestText;
       forceCloud = true;
       openThroughRestore();
-      conflicted("other_device", keeping);
+      conflicted("account", keeping);
       pop("You're signed in. Your account's progress in this game is newer, so the game reloaded with it.");
     }
   }
@@ -324,7 +338,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
       return tell({ step: "restore", action: "keep" });
     }
     const localHash = await sha(text);
-    const empty = text === "{}";
+    const empty = text === EMPTY_SAVE_TEXT;
     // The first time this page sees this device's save: from now on a change to it counts as playing.
     if (!played()) played({ sha256: localHash, played_at_ms: null });
     // A marker from before version_number and sha256 matches neither, so the most recently played wins.
@@ -342,8 +356,8 @@ export const SAVES_SCRIPT = pageScript("saves", `
     else if (mark && mark.sha256 === localHash) use = "cloud";
     else {
       // Both played on since they last matched: the progress played most recently wins, the other is kept.
-      use = deviceIsNewer(c.updated_at) ? "local" : "cloud";
-      if (use === "cloud") conflicted("other_device", keepDevice(text));
+      use = deviceIsNewer(c.saved_at) ? "local" : "cloud";
+      if (use === "cloud") conflicted("account", keepDevice(text));
       else replacing = true; // The game hears the conflict once its save replaced the account's (store).
     }
     forceCloud = false;
@@ -370,15 +384,15 @@ export const SAVES_SCRIPT = pageScript("saves", `
     }
     synced = canonical(c.save_data);
     marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
-    played({ sha256: c.sha256, played_at_ms: Date.parse(c.updated_at) || null });
+    played({ sha256: c.sha256, played_at_ms: Date.parse(c.saved_at) || null });
     paused = false;
-    say("Progress saves to your account. Last saved " + ago(c.updated_at) + ".");
+    say("Progress saves to your account. Last saved " + ago(c.saved_at) + ".");
   }
 
   async function store(text) {
     if (paused) return;
     if (saving) { queued = text; return; }
-    const body = JSON.stringify({ base_version_number: cloud.version_number, save_json: text, ...(replacing ? { replace: true } : {}) });
+    const body = JSON.stringify({ base_version_number: cloud.version_number, save_json: text, version_id: versionId, ...(replacing ? { replace: true } : {}) });
     saving = fetch(SAVES.api, { method: "PUT", body, credentials: "same-origin", keepalive: body.length < 60000 }).catch(() => null);
     const opened = openCount;
     const res = await saving;
@@ -406,12 +420,12 @@ export const SAVES_SCRIPT = pageScript("saves", `
       // A developer's change is never a conflict, and a game that listens for it takes it in place.
       if (out.changed_by_kind === "developer" && listening.has("developerChange")) {
         takeDeveloperChange(text);
-      } else if (out.changed_by_kind === "developer" || !deviceIsNewer(out.updated_at)) {
+      } else if (out.changed_by_kind === "developer" || !deviceIsNewer(out.saved_at)) {
         const keeping = keepDevice(text);
         keptBeforeReload = text;
         forceCloud = true;
         openThroughRestore();
-        if (out.changed_by_kind !== "developer") conflicted("other_device", keeping);
+        if (out.changed_by_kind !== "developer") conflicted("account", keeping);
       } else {
         cloud.version_number = out.version_number;
         replacing = true;
@@ -443,7 +457,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     const res = await fetch(SAVES.api + "?version", { credentials: "same-origin" }).catch(() => null);
     const out = res && res.ok ? await res.json().catch(() => null) : null;
     if (!out || out.version_number === cloud.version_number || paused || saving) return;
-    if (out.changed_by_kind !== "developer" && deviceIsNewer(out.updated_at)) return;
+    if (out.changed_by_kind !== "developer" && deviceIsNewer(out.saved_at)) return;
     paused = true;
     tell({ step: "pause" });
     // This device's progress was saved when the tab was hidden, so there's nothing of it to keep here.
@@ -480,13 +494,13 @@ export const SAVES_SCRIPT = pageScript("saves", `
     cloud = c;
     synced = canonical(c.save_data);
     marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
-    played({ sha256: c.sha256, played_at_ms: Date.parse(c.updated_at) || null });
+    played({ sha256: c.sha256, played_at_ms: Date.parse(c.saved_at) || null });
     paused = false;
     tell({ step: "sync", text: synced });
-    say("Progress saves to your account. Last saved " + ago(c.updated_at) + ".");
+    say("Progress saves to your account. Last saved " + ago(c.saved_at) + ".");
     const keptSaveCopyId = await taking.keeping;
     const keptSaveCopy = keptSaveCopyId ? await copyById(keptSaveCopyId) : null;
-    if (opened === openCount && listening.has("developerChange")) sendEvent("developerChange", { changedAt: c.updated_at, keptSaveCopy });
+    if (opened === openCount && listening.has("developerChange")) sendEvent("developerChange", { savedAt: c.saved_at, keptSaveCopy });
   }
 
   // --- The game's own save screens (Zaisma.saves), handed over by the game page's script ---
@@ -558,6 +572,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
+    if ((m.step === "hello" || m.step === "save") && "versionId" in m) versionId = typeof m.versionId === "string" ? m.versionId : null;
     if (m.step === "save" && typeof m.text === "string") notePlayed(m.text);
     // A game page starting: its game listens again if it wants the events.
     if (m.step === "hello" && m.phase === "game") listening.clear();

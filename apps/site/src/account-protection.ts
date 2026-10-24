@@ -19,7 +19,7 @@ export const PROTECT_WORDS = "Add a passkey or an email so only you can sign in,
 export async function isProtectionOfferDue(env: Env, account: Account, email: string | null, nowMs = Date.now()): Promise<boolean> {
   if (email || account.protection_offered_at_ms !== null) return false;
   const due = await env.DB.prepare(
-    "SELECT EXISTS (SELECT 1 FROM saves WHERE account_id = ?1 AND updated_at_ms <= ?2) AND NOT EXISTS (SELECT 1 FROM passkeys WHERE account_id = ?1) AS is_due",
+    "SELECT EXISTS (SELECT 1 FROM saves WHERE account_id = ?1 AND saved_at_ms <= ?2) AND NOT EXISTS (SELECT 1 FROM passkeys WHERE account_id = ?1) AS is_due",
   )
     .bind(account.id, nowMs - PROTECTION_OFFER_SAVE_AGE_MS)
     .first<{ is_due: number }>();

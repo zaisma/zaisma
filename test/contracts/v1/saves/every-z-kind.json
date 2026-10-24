@@ -1,0 +1,529 @@
+{
+  "name": "every-z-kind",
+  "stored_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"game-data\",\"version\":3,\"stores\":[{\"name\":\"keys\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[-1.5,\"negative number\"],[3,\"number\"],[{\"$z\":[\"date\",1790856000000]},\"date\"],[\"alpha\",\"string\"],[\"beta\",\"string\"],[{\"$z\":[\"bytes\",\"AQI=\"]},\"binary\"],[[1,\"a\"],\"array of a number\"],[[\"a\"],\"array\"]]},{\"name\":\"players\",\"keyPath\":\"id\",\"autoIncrement\":true,\"indexes\":[{\"name\":\"byName\",\"keyPath\":\"name\",\"unique\":true,\"multiEntry\":false},{\"name\":\"byTag\",\"keyPath\":\"tags\",\"unique\":false,\"multiEntry\":true}],\"records\":[[1,{\"id\":1,\"name\":\"Ada\",\"tags\":[\"a\",\"b\"]}],[2,{\"id\":2,\"name\":\"Ben\",\"tags\":[\"b\"]}],[3,{\"name\":\"Cleo\",\"tags\":[],\"id\":3}]]},{\"name\":\"settings\",\"keyPath\":\"meta.id\",\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"audio\",{\"meta\":{\"id\":\"audio\"},\"volume\":0.5}]]},{\"name\":\"slots\",\"keyPath\":[\"world\",\"slot\"],\"autoIncrement\":false,\"indexes\":[{\"name\":\"byWorld\",\"keyPath\":[\"world\"],\"unique\":false,\"multiEntry\":false}],\"records\":[[[\"cave\",1],{\"world\":\"cave\",\"slot\":1,\"hp\":4}],[[\"forest\",2],{\"world\":\"forest\",\"slot\":2,\"hp\":10}]]},{\"name\":\"values\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"BigInt64Array\",{\"$z\":[\"view\",\"BigInt64Array\",\"//////////8AAAAAAAAAQA==\"]}],[\"BigUint64Array\",{\"$z\":[\"view\",\"BigUint64Array\",\"//////////8=\"]}],[\"DataView\",{\"$z\":[\"view\",\"DataView\",\"CQgH\"]}],[\"Float32Array\",{\"$z\":[\"view\",\"Float32Array\",\"AADAPwAAAIA=\"]}],[\"Float64Array\",{\"$z\":[\"view\",\"Float64Array\",\"GC1EVPshCUAAAAAAAADw/w==\"]}],[\"Int16Array\",{\"$z\":[\"view\",\"Int16Array\",\"AID/fw==\"]}],[\"Int32Array\",{\"$z\":[\"view\",\"Int32Array\",\"/////////38=\"]}],[\"Int8Array\",{\"$z\":[\"view\",\"Int8Array\",\"gAB/\"]}],[\"Uint16Array\",{\"$z\":[\"view\",\"Uint16Array\",\"//8=\"]}],[\"Uint32Array\",{\"$z\":[\"view\",\"Uint32Array\",\"/////w==\"]}],[\"Uint8Array\",{\"$z\":[\"view\",\"Uint8Array\",\"AP8=\"]}],[\"Uint8ClampedArray\",{\"$z\":[\"view\",\"Uint8ClampedArray\",\"AP8=\"]}],[\"array-buffer\",{\"$z\":[\"bytes\",\"AAEC/v8=\"]}],[\"bigint\",{\"$z\":[\"bigint\",\"12345678901234567890\"]}],[\"blob\",{\"$z\":[\"blob\",\"application/octet-stream\",\"AQID\"]}],[\"date\",{\"$z\":[\"date\",1790856000000]}],[\"file\",{\"$z\":[\"file\",\"text/plain\",\"aGVsbG8=\",\"notes.txt\",1790856000000]}],[\"infinity\",{\"$z\":[\"num\",\"Infinity\"]}],[\"invalid-date\",{\"$z\":[\"date\",{\"$z\":[\"num\",\"NaN\"]}]}],[\"map\",{\"$z\":[\"map\",[[\"level\",3],[1,{\"deep\":{\"$z\":[\"num\",\"-0\"]}}],[{\"$z\":[\"date\",0]},\"epoch\"]]]}],[\"negative-infinity\",{\"$z\":[\"num\",\"-Infinity\"]}],[\"negative-zero\",{\"$z\":[\"num\",\"-0\"]}],[\"nested\",{\"list\":[1,{\"$z\":[\"num\",\"-0\"]},{\"$z\":[\"undef\"]},\"x\"],\"isOn\":true,\"nothing\":null}],[\"not-a-number\",{\"$z\":[\"num\",\"NaN\"]}],[\"own-z-key\",{\"$z\":[\"obj\",{\"$z\":\"the game's own field\",\"nested\":{\"$z\":[\"obj\",{\"$z\":[\"num\",\"1\"]}]}}]}],[\"regexp\",{\"$z\":[\"regexp\",\"^z(a|i)+sma$\",\"dgimsuy\"]}],[\"set\",{\"$z\":[\"set\",[\"sword\",7,null]]}],[\"undefined\",{\"$z\":[\"undef\"]}],[\"view-at-an-offset\",{\"$z\":[\"view\",\"Uint8Array\",\"Higy\"]}]]}]}]}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"game-data\",\"version\":3,\"stores\":[{\"name\":\"keys\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[-1.5,\"negative number\"],[3,\"number\"],[{\"$z\":[\"date\",1790856000000]},\"date\"],[\"alpha\",\"string\"],[\"beta\",\"string\"],[{\"$z\":[\"bytes\",\"AQI=\"]},\"binary\"],[[1,\"a\"],\"array of a number\"],[[\"a\"],\"array\"]]},{\"name\":\"players\",\"keyPath\":\"id\",\"autoIncrement\":true,\"indexes\":[{\"name\":\"byName\",\"keyPath\":\"name\",\"unique\":true,\"multiEntry\":false},{\"name\":\"byTag\",\"keyPath\":\"tags\",\"unique\":false,\"multiEntry\":true}],\"records\":[[1,{\"id\":1,\"name\":\"Ada\",\"tags\":[\"a\",\"b\"]}],[2,{\"id\":2,\"name\":\"Ben\",\"tags\":[\"b\"]}],[3,{\"name\":\"Cleo\",\"tags\":[],\"id\":3}]]},{\"name\":\"settings\",\"keyPath\":\"meta.id\",\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"audio\",{\"meta\":{\"id\":\"audio\"},\"volume\":0.5}]]},{\"name\":\"slots\",\"keyPath\":[\"world\",\"slot\"],\"autoIncrement\":false,\"indexes\":[{\"name\":\"byWorld\",\"keyPath\":[\"world\"],\"unique\":false,\"multiEntry\":false}],\"records\":[[[\"cave\",1],{\"world\":\"cave\",\"slot\":1,\"hp\":4}],[[\"forest\",2],{\"world\":\"forest\",\"slot\":2,\"hp\":10}]]},{\"name\":\"values\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[],\"records\":[[\"BigInt64Array\",{\"$z\":[\"view\",\"BigInt64Array\",\"//////////8AAAAAAAAAQA==\"]}],[\"BigUint64Array\",{\"$z\":[\"view\",\"BigUint64Array\",\"//////////8=\"]}],[\"DataView\",{\"$z\":[\"view\",\"DataView\",\"CQgH\"]}],[\"Float32Array\",{\"$z\":[\"view\",\"Float32Array\",\"AADAPwAAAIA=\"]}],[\"Float64Array\",{\"$z\":[\"view\",\"Float64Array\",\"GC1EVPshCUAAAAAAAADw/w==\"]}],[\"Int16Array\",{\"$z\":[\"view\",\"Int16Array\",\"AID/fw==\"]}],[\"Int32Array\",{\"$z\":[\"view\",\"Int32Array\",\"/////////38=\"]}],[\"Int8Array\",{\"$z\":[\"view\",\"Int8Array\",\"gAB/\"]}],[\"Uint16Array\",{\"$z\":[\"view\",\"Uint16Array\",\"//8=\"]}],[\"Uint32Array\",{\"$z\":[\"view\",\"Uint32Array\",\"/////w==\"]}],[\"Uint8Array\",{\"$z\":[\"view\",\"Uint8Array\",\"AP8=\"]}],[\"Uint8ClampedArray\",{\"$z\":[\"view\",\"Uint8ClampedArray\",\"AP8=\"]}],[\"array-buffer\",{\"$z\":[\"bytes\",\"AAEC/v8=\"]}],[\"bigint\",{\"$z\":[\"bigint\",\"12345678901234567890\"]}],[\"blob\",{\"$z\":[\"blob\",\"application/octet-stream\",\"AQID\"]}],[\"date\",{\"$z\":[\"date\",1790856000000]}],[\"file\",{\"$z\":[\"file\",\"text/plain\",\"aGVsbG8=\",\"notes.txt\",1790856000000]}],[\"infinity\",{\"$z\":[\"num\",\"Infinity\"]}],[\"invalid-date\",{\"$z\":[\"date\",{\"$z\":[\"num\",\"NaN\"]}]}],[\"map\",{\"$z\":[\"map\",[[\"level\",3],[1,{\"deep\":{\"$z\":[\"num\",\"-0\"]}}],[{\"$z\":[\"date\",0]},\"epoch\"]]]}],[\"negative-infinity\",{\"$z\":[\"num\",\"-Infinity\"]}],[\"negative-zero\",{\"$z\":[\"num\",\"-0\"]}],[\"nested\",{\"list\":[1,{\"$z\":[\"num\",\"-0\"]},{\"$z\":[\"undef\"]},\"x\"],\"isOn\":true,\"nothing\":null}],[\"not-a-number\",{\"$z\":[\"num\",\"NaN\"]}],[\"own-z-key\",{\"$z\":[\"obj\",{\"$z\":\"the game's own field\",\"nested\":{\"$z\":[\"obj\",{\"$z\":[\"num\",\"1\"]}]}}]}],[\"regexp\",{\"$z\":[\"regexp\",\"^z(a|i)+sma$\",\"dgimsuy\"]}],[\"set\",{\"$z\":[\"set\",[\"sword\",7,null]]}],[\"undefined\",{\"$z\":[\"undef\"]}],[\"view-at-an-offset\",{\"$z\":[\"view\",\"Uint8Array\",\"Higy\"]}]]}]}]}",
+  "sha256": "0759f8bd97535b3978247f80359489583e136d4b636f7d0dfc6f848ba06e1b5a",
+  "size_bytes": 2886,
+  "projection": {
+    "local_storage_items": {},
+    "missing_keys": [],
+    "indexeddb_databases": [
+      {
+        "name": "game-data",
+        "version": 3,
+        "stores": [
+          {
+            "name": "keys",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [],
+            "records": [
+              [
+                -1.5,
+                "negative number"
+              ],
+              [
+                3,
+                "number"
+              ],
+              [
+                {
+                  "$z": [
+                    "date",
+                    1790856000000
+                  ]
+                },
+                "date"
+              ],
+              [
+                "alpha",
+                "string"
+              ],
+              [
+                "beta",
+                "string"
+              ],
+              [
+                {
+                  "$z": [
+                    "bytes",
+                    "AQI="
+                  ]
+                },
+                "binary"
+              ],
+              [
+                [
+                  1,
+                  "a"
+                ],
+                "array of a number"
+              ],
+              [
+                [
+                  "a"
+                ],
+                "array"
+              ]
+            ]
+          },
+          {
+            "name": "players",
+            "keyPath": "id",
+            "autoIncrement": true,
+            "indexes": [
+              {
+                "name": "byName",
+                "keyPath": "name",
+                "unique": true,
+                "multiEntry": false
+              },
+              {
+                "name": "byTag",
+                "keyPath": "tags",
+                "unique": false,
+                "multiEntry": true
+              }
+            ],
+            "records": [
+              [
+                1,
+                {
+                  "id": 1,
+                  "name": "Ada",
+                  "tags": [
+                    "a",
+                    "b"
+                  ]
+                }
+              ],
+              [
+                2,
+                {
+                  "id": 2,
+                  "name": "Ben",
+                  "tags": [
+                    "b"
+                  ]
+                }
+              ],
+              [
+                3,
+                {
+                  "name": "Cleo",
+                  "tags": [],
+                  "id": 3
+                }
+              ]
+            ]
+          },
+          {
+            "name": "settings",
+            "keyPath": "meta.id",
+            "autoIncrement": false,
+            "indexes": [],
+            "records": [
+              [
+                "audio",
+                {
+                  "meta": {
+                    "id": "audio"
+                  },
+                  "volume": 0.5
+                }
+              ]
+            ]
+          },
+          {
+            "name": "slots",
+            "keyPath": [
+              "world",
+              "slot"
+            ],
+            "autoIncrement": false,
+            "indexes": [
+              {
+                "name": "byWorld",
+                "keyPath": [
+                  "world"
+                ],
+                "unique": false,
+                "multiEntry": false
+              }
+            ],
+            "records": [
+              [
+                [
+                  "cave",
+                  1
+                ],
+                {
+                  "world": "cave",
+                  "slot": 1,
+                  "hp": 4
+                }
+              ],
+              [
+                [
+                  "forest",
+                  2
+                ],
+                {
+                  "world": "forest",
+                  "slot": 2,
+                  "hp": 10
+                }
+              ]
+            ]
+          },
+          {
+            "name": "values",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [],
+            "records": [
+              [
+                "BigInt64Array",
+                {
+                  "$z": [
+                    "view",
+                    "BigInt64Array",
+                    "//////////8AAAAAAAAAQA=="
+                  ]
+                }
+              ],
+              [
+                "BigUint64Array",
+                {
+                  "$z": [
+                    "view",
+                    "BigUint64Array",
+                    "//////////8="
+                  ]
+                }
+              ],
+              [
+                "DataView",
+                {
+                  "$z": [
+                    "view",
+                    "DataView",
+                    "CQgH"
+                  ]
+                }
+              ],
+              [
+                "Float32Array",
+                {
+                  "$z": [
+                    "view",
+                    "Float32Array",
+                    "AADAPwAAAIA="
+                  ]
+                }
+              ],
+              [
+                "Float64Array",
+                {
+                  "$z": [
+                    "view",
+                    "Float64Array",
+                    "GC1EVPshCUAAAAAAAADw/w=="
+                  ]
+                }
+              ],
+              [
+                "Int16Array",
+                {
+                  "$z": [
+                    "view",
+                    "Int16Array",
+                    "AID/fw=="
+                  ]
+                }
+              ],
+              [
+                "Int32Array",
+                {
+                  "$z": [
+                    "view",
+                    "Int32Array",
+                    "/////////38="
+                  ]
+                }
+              ],
+              [
+                "Int8Array",
+                {
+                  "$z": [
+                    "view",
+                    "Int8Array",
+                    "gAB/"
+                  ]
+                }
+              ],
+              [
+                "Uint16Array",
+                {
+                  "$z": [
+                    "view",
+                    "Uint16Array",
+                    "//8="
+                  ]
+                }
+              ],
+              [
+                "Uint32Array",
+                {
+                  "$z": [
+                    "view",
+                    "Uint32Array",
+                    "/////w=="
+                  ]
+                }
+              ],
+              [
+                "Uint8Array",
+                {
+                  "$z": [
+                    "view",
+                    "Uint8Array",
+                    "AP8="
+                  ]
+                }
+              ],
+              [
+                "Uint8ClampedArray",
+                {
+                  "$z": [
+                    "view",
+                    "Uint8ClampedArray",
+                    "AP8="
+                  ]
+                }
+              ],
+              [
+                "array-buffer",
+                {
+                  "$z": [
+                    "bytes",
+                    "AAEC/v8="
+                  ]
+                }
+              ],
+              [
+                "bigint",
+                {
+                  "$z": [
+                    "bigint",
+                    "12345678901234567890"
+                  ]
+                }
+              ],
+              [
+                "blob",
+                {
+                  "$z": [
+                    "blob",
+                    "application/octet-stream",
+                    "AQID"
+                  ]
+                }
+              ],
+              [
+                "date",
+                {
+                  "$z": [
+                    "date",
+                    1790856000000
+                  ]
+                }
+              ],
+              [
+                "file",
+                {
+                  "$z": [
+                    "file",
+                    "text/plain",
+                    "aGVsbG8=",
+                    "notes.txt",
+                    1790856000000
+                  ]
+                }
+              ],
+              [
+                "infinity",
+                {
+                  "$z": [
+                    "num",
+                    "Infinity"
+                  ]
+                }
+              ],
+              [
+                "invalid-date",
+                {
+                  "$z": [
+                    "date",
+                    {
+                      "$z": [
+                        "num",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              [
+                "map",
+                {
+                  "$z": [
+                    "map",
+                    [
+                      [
+                        "level",
+                        3
+                      ],
+                      [
+                        1,
+                        {
+                          "deep": {
+                            "$z": [
+                              "num",
+                              "-0"
+                            ]
+                          }
+                        }
+                      ],
+                      [
+                        {
+                          "$z": [
+                            "date",
+                            0
+                          ]
+                        },
+                        "epoch"
+                      ]
+                    ]
+                  ]
+                }
+              ],
+              [
+                "negative-infinity",
+                {
+                  "$z": [
+                    "num",
+                    "-Infinity"
+                  ]
+                }
+              ],
+              [
+                "negative-zero",
+                {
+                  "$z": [
+                    "num",
+                    "-0"
+                  ]
+                }
+              ],
+              [
+                "nested",
+                {
+                  "list": [
+                    1,
+                    {
+                      "$z": [
+                        "num",
+                        "-0"
+                      ]
+                    },
+                    {
+                      "$z": [
+                        "undef"
+                      ]
+                    },
+                    "x"
+                  ],
+                  "isOn": true,
+                  "nothing": null
+                }
+              ],
+              [
+                "not-a-number",
+                {
+                  "$z": [
+                    "num",
+                    "NaN"
+                  ]
+                }
+              ],
+              [
+                "own-z-key",
+                {
+                  "$z": [
+                    "obj",
+                    {
+                      "$z": "the game's own field",
+                      "nested": {
+                        "$z": [
+                          "obj",
+                          {
+                            "$z": [
+                              "num",
+                              "1"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ],
+              [
+                "regexp",
+                {
+                  "$z": [
+                    "regexp",
+                    "^z(a|i)+sma$",
+                    "dgimsuy"
+                  ]
+                }
+              ],
+              [
+                "set",
+                {
+                  "$z": [
+                    "set",
+                    [
+                      "sword",
+                      7,
+                      null
+                    ]
+                  ]
+                }
+              ],
+              [
+                "undefined",
+                {
+                  "$z": [
+                    "undef"
+                  ]
+                }
+              ],
+              [
+                "view-at-an-offset",
+                {
+                  "$z": [
+                    "view",
+                    "Uint8Array",
+                    "Higy"
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
