@@ -85,21 +85,18 @@ export const SAVES_SCRIPT = pageScript("saves", `
   };
   // Where progress goes, in the Keep your progress card.
   let toastTimer = null;
-  // What happened to the account's save: in the Keep card while it shows (a guest's), otherwise a card that stays until the next word.
+  // What happened to the account's save: in the Keep card while it shows (a guest's), otherwise a card over the game for a few seconds.
   const say = (text) => {
     if (status && offer && !offer.hidden) { (status.querySelector("p") || status).textContent = text; status.hidden = false; return; }
-    if (!toast) return;
-    clearTimeout(toastTimer);
-    (toast.querySelector("p") || toast).textContent = text;
-    toast.hidden = false;
+    pop(text);
   };
-  const pop = (text) => {
+  function pop(text) {
     if (!toast) return;
     (toast.querySelector("p") || toast).textContent = text;
     toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast.hidden = true), 8000);
-  };
+  }
   // The account's progress wins: keep this device's as an earlier version on the account. Answers the copy's ID, or null.
   const keepDevice = (text) =>
     text && text !== "{}"
@@ -231,6 +228,9 @@ export const SAVES_SCRIPT = pageScript("saves", `
     say("Your progress is only saved in this browser.");
     // The card by itself, after a while, unless the game picks the moment instead. Either way it shows once a visit.
     if (offered || !SAVES.isAccountOfferEnabled || playedMs < SAVES.offerAfter || !offer) return;
+    // Never over the game's own ask to sign in: the offer waits until that card is gone.
+    const ask = document.getElementById("sign-in-ask");
+    if (ask && !ask.hidden) return;
     offered = true;
     if (!isQuiet()) offer.hidden = false;
   }

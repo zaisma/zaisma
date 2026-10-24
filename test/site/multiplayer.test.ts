@@ -210,9 +210,9 @@ describe("room browsing on the game page", () => {
     const list = await roomsList();
     expect(list).toContain('<button type="button" data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count">12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
-    // Past the first ten, rows wait hidden for Show all (the page's script shows them).
-    expect(list.match(/<li hidden>/g)).toHaveLength(3);
-    expect(list).toMatch(/id="rooms-all"[^>]*>[\s\S]*?Show 3 more rooms/);
+    // Every row is there, the list scrolling inside itself past six.
+    expect(list).toContain('class="list-rows is-capped" style="--shown-row-count:6"');
+    expect(list).not.toContain("<li hidden>");
     expect(list).toContain('data-count="13"');
     expect(pageProblems(list)).toEqual([]);
 

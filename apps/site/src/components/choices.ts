@@ -289,6 +289,8 @@ component({
 .select-list { position: fixed; inset: auto; margin: 0; max-height: min(320px, 50vh); padding: 4px; border: 0; color: var(--ink);
   display: flex; flex-direction: column; --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
+/* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
+@supports not (overlay: auto) { .select-list { transition: var(--glass-transition), opacity 0.2s, transform 0.3s cubic-bezier(.2,.8,.2,1); } }
 /* Closed, it takes no room and no presses: it fades out toward the field, then goes. */
 .select-list:not(:popover-open):not(.in-place) { display: none; opacity: 0; transform: translateY(-6px); pointer-events: none; }
 .select-list.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }

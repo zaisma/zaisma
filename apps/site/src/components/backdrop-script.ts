@@ -47,6 +47,20 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
    */
   var isListStale = true, isPlaceStale = true, candidates = [], watched = typeof WeakSet === "function" ? new WeakSet() : null;
   function markPlaceStale() { isPlaceStale = true; wake(); }
+  /*
+   * Scrolling: the browser moves the glass at once, on its own, but a backdrop that stays put under the page (a fixed one) can only move the
+   * light it bends under the glass a frame late, and a game's frame, a page away, several (a heavy shader most): that bent light would show
+   * for a moment beside each pane, where the pane was. So while the page scrolls, a fixed backdrop bends nothing under its glass, and bends
+   * it again once the page has held still for SCROLL_SETTLE_MS. A finger moving counts too, so it's gone before the first frame that scrolls.
+   * A backdrop that scrolls with its glass (the gallery's framed ones) keeps bending and placing it every frame.
+   */
+  var SCROLL_SETTLE_MS = 150, isScrolling = false, scrollTimer = 0;
+  function scrolling() {
+    clearTimeout(scrollTimer); scrollTimer = setTimeout(settled, SCROLL_SETTLE_MS);
+    if (!isScrolling) { isScrolling = true; markPlaceStale(); return; }
+    if (layers.some(function (layer) { return !layer.isFixed && layer.isInView; })) markPlaceStale();
+  }
+  function settled() { isScrolling = false; markPlaceStale(); }
   function hostOf(el) { return el.closest(":has(> .backdrop)"); }
   function readList() {
     isListStale = false; isPlaceStale = true;
@@ -67,8 +81,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   // Each layer's panes, in its shader's pixels from its bottom left (a frame's in CSS pixels), smallest first (a pane over a tray bends the light under it).
   function placeGlass(layer) {
     var box = layer.canvas.getBoundingClientRect(), host = layer.canvas.parentElement, scale = layer.isOuter ? 1 : (layer.drawnWidth || layer.canvas.width) / Math.max(1, box.width), found = [];
+    var isBare = isScrolling && layer.isFixed;
     candidates.forEach(function (el) {
-      if (el.glassHost !== host) return;
+      if (isBare || el.glassHost !== host) return;
       var r = el.getBoundingClientRect();
       if (r.width < 24 || r.height < 24 || r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) return;
       found.push({ el: el, r: r, area: r.width * r.height });
@@ -344,7 +359,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     running = false;
     // A hidden page draws nothing; showing it again wakes the loop.
     if (document.hidden) return;
-    // At most 30 frames a second (15 when idle), but at once when the glass over it has moved (a scroll), so what's under a pane never trails it.
+    // At most 30 frames a second (15 when idle), but at once when the glass over it has moved, so what's under a pane never trails it.
     var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
     if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
     // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
@@ -386,7 +401,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   // A game's own frame or picture: nothing to draw here, only the glass over it to place, tell and measure.
   function setUpOuter(el, kind) {
-    var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null };
+    var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null, isFixed: getComputedStyle(el).position === "fixed" };
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
     if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markPlaceStale(); } }; window.addEventListener("message", layer.onMessage); }
@@ -420,7 +435,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var isFramed = canvas.classList.contains("is-framed");
     // In view as it's set up, read once, until its observer says (below): one far down the page isn't drawn, or compiled, for its first frame.
     var isInView = inViewAtStart && inViewAtStart.has(canvas) ? inViewAtStart.get(canvas) : isInViewNow(canvas);
-    var layer = { canvas: canvas, isInView: isInView, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
+    var layer = { canvas: canvas, isInView: isInView, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness, isFixed: getComputedStyle(canvas).position === "fixed" };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
@@ -478,7 +493,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
   };
   // The glass's places: a scroll or resize moves them, and the page's own changes may add, remove, open or shut a piece of glass.
-  window.zaismaWatch.scroll(markPlaceStale);
+  window.zaismaWatch.scroll(scrolling);
+  ["touchmove", "wheel"].forEach(function (type) { window.addEventListener(type, scrolling, { passive: true, capture: true }); });
   window.zaismaWatch.resize(markPlaceStale);
   // Only changes to glass itself count: a class on a tab or the rail changing as you point doesn't make the list stale.
   function hasGlass(node) { return node.nodeType === 1 && (node.hasAttribute("data-glass") || Boolean(node.querySelector("[data-glass]"))); }

@@ -33,9 +33,9 @@ import { cutField } from "./components/fields.ts";
 import { glanceFacts } from "./components/data.ts";
 import { glassPane, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem } from "./components/layout.ts";
-import { banner, dropdown, gameCover, sheet } from "./components/panes.ts";
+import { banner, dropdown, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { playingBar, playingCard, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
+import { gameCard, playingBar, playingCard, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
 import { facts, readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
@@ -52,6 +52,7 @@ import { profilePath } from "./profiles.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
+import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
 import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH } from "./security-policy.ts";
 
@@ -188,7 +189,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     ? html`<p id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. ${textLink("Make one free", `/join?next=${accountNext}`)} or ${textLink("sign in", `/signin?next=${accountNext}`)}${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
     : null;
   const gamePane = glassPane({
-    paneWidth: "full",
+    paneWidth: "fit",
     label: game.title,
     body: stack({
       items: [
@@ -226,7 +227,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${updates.results.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCover({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, imageUrl: otherGame.cover ?? null, href: `/g/${otherGame.slug}`, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined } }) })) }) }])]
       : []),
   ];
   const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`), closeLabel: "Close" }));
@@ -323,8 +324,9 @@ ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
 ${multiplayer ? blockSheet({ gameOrigin }) : ""}
 ${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}` }) : ""}
 ${keepCard}
-${saves ? playingCard({ id: "save-toast", body: html`<p></p>` }) : ""}
+${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words", markup: html`<p></p>` }] }) }) : ""}
 ${signInCard}
+${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
@@ -362,6 +364,7 @@ ${isClosed
           ...(saves ? [SAVES_SCRIPT] : []),
           ...(accountRequirement !== "none" ? [ACCOUNT_GATE_SCRIPT] : []),
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
+          ...(multiplayer ? [STILL_THERE_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
           GAME_UPDATES_SCRIPT,
@@ -735,13 +738,6 @@ function leftRoom() {
   try { sessionStorage.setItem(leftKey, JSON.stringify({ code: inRoom.code, at: Date.now(), joined: inRoom.at })); } catch {}
   inRoom = null;
 }
-// "Show more" stays open across updates.
-function showAllRooms() {
-  if (roomsPanel.dataset.showingAll !== "true") return;
-  document.querySelectorAll("#rooms-rows > li[hidden]").forEach((row) => (row.hidden = false));
-  const showAll = document.getElementById("rooms-all");
-  if (showAll) showAll.hidden = true;
-}
 async function refreshRooms(force) {
   // The automatic refresh waits while nobody's looking; a pick the player just made always loads.
   if (!roomsPanel || (!isRoomsSeen && !force) || frame || (document.hidden && !force)) return;
@@ -758,7 +754,6 @@ async function refreshRooms(force) {
     const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
     if (!res.ok) return;
     list.innerHTML = await res.text();
-    showAllRooms();
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
     if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector("b").textContent = playing.toLocaleString("en-US"); }
@@ -788,11 +783,7 @@ if (roomsPanel) {
     if (pick) {
       roomsRegion = pick.dataset.region;
       try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
-      delete roomsPanel.dataset.showingAll;
       refreshRooms(true);
-    } else if (e.target.closest("#rooms-all")) {
-      roomsPanel.dataset.showingAll = "true";
-      showAllRooms();
     }
   });
   roomsPanel.addEventListener("change", (e) => {
@@ -800,7 +791,6 @@ if (roomsPanel) {
     if (!pick) return;
     if (pick.value) roomsLabels[pick.dataset.label] = pick.value;
     else delete roomsLabels[pick.dataset.label];
-    delete roomsPanel.dataset.showingAll;
     refreshRooms(true);
   });
 }

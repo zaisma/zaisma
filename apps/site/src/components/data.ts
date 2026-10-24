@@ -290,8 +290,9 @@ export type ListRow = ListRowParts & ({ href: string; action?: never } | { href?
 const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.map((markup) => ({ kind: "control" as const, markup })) });
 
 /** List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole. */
-export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
-  return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+export function listRows(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number }): Raw {
+  const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
+  return html`<ul class="list-rows${options.shownRowCount ? " is-capped" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
     const inside = html`${row.lead ? html`<span class="list-row-lead">${row.lead}</span>` : ""}<span class="list-row-words"><span class="list-row-title">${row.title}</span>${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
@@ -319,6 +320,8 @@ component({
    A row may lead with a picture or an icon, take a second line of details, and, when it isn't a link, end in a button. */
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
 .list-rows > li + li { border-top: var(--divider); }
+/* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. */
+.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); overflow-y: auto; overscroll-behavior: contain; }
 .list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px var(--pad-inside-words); color: var(--ink); text-decoration: none; }
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }

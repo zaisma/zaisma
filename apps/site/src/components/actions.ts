@@ -345,7 +345,8 @@ component({
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.is-full { display: flex; width: 100%; }
-.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height); padding: 0 24px;
+.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; min-width: 0; height: var(--control-height);
+  --face-padding: 24px; --face-shift: 0px; padding: 0 calc(var(--face-padding) - var(--face-shift)) 0 calc(var(--face-padding) + var(--face-shift));
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   --face-color: var(--btn); background: var(--face-color); clip-path: var(--cut-shape);
   transition: --face-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
@@ -354,15 +355,19 @@ component({
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { padding: 0 28px; font-size: 17px; }
-.cut-btn.small > .face { padding: 0 14px; }
+.cut-btn.big > .face { --face-padding: 28px; font-size: 17px; }
+.cut-btn.small > .face { --face-padding: 14px; }
+/* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
+   slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
+.cut-btn > .face[data-slanted="start"] { --face-shift: calc(var(--control-slant) / 4); }
+.cut-btn > .face[data-slanted="end"] { --face-shift: calc(var(--control-slant) / -4); }
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
 /* An icon alone centers in what shows of the button: a slanted end gives up half its slant. */
 .cut-btn.icon-only > .face[data-slanted~="start"] { padding-left: calc(var(--control-slant) / 2); }
 .cut-btn.icon-only > .face[data-slanted~="end"] { padding-right: calc(var(--control-slant) / 2); }
-.cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
+.cut-btn.in-well > .face { height: 30px; --face-padding: 14px; color: var(--ink-2); }
 .cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-color: var(--btn-hover); }
 /* Pointed: it lifts toward you and casts its shade. In a well of its own it only brightens, since the well is its shade. */
@@ -394,7 +399,7 @@ component({
 .cut-btn .face > .loader { position: relative; z-index: 2; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
 @media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--control-height-regular)) / 2); } }
-@media (max-width: 760px) { .cut-btn.big > .face { padding: 0 20px; } }
+@media (max-width: 760px) { .cut-btn.big > .face { --face-padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-color 0.2s, color 0.2s; } }
 `,
   render: cutButton,

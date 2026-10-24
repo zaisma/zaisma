@@ -232,6 +232,8 @@ const PANE_STYLES = `
 .glass-pane { display: flex; flex-direction: column; max-width: 100%; }
 .glass-pane.full { width: 100%; }
 .glass-pane.fit { width: fit-content; }
+/* Phones: a fit pane lines up with the header like every other pane, however little is in it. */
+@media (max-width: 760px) { .glass-pane.fit { width: 100%; } }
 .glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
@@ -252,7 +254,7 @@ const PANE_STYLES = `
 /* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 /* Its own words only: zero specificity, so any component's words (a field's error and hint) keep their own color. */
-:where(.glass-pane) p { margin: 0; color: var(--ink-2); }
+:where(.glass-pane, .sheet-in) p { margin: 0; color: var(--ink-2); }
 /* Headings and paragraphs in a pane, a tray or a sheet keep its margin at its sides wherever they sit (layout.ts's edge rules give its top
    and bottom); inside anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's
    own padding wins over this. */
@@ -605,7 +607,7 @@ const SHEET_STYLES = `
 ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
-  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }

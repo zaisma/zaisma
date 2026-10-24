@@ -206,7 +206,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     list.hidden = !others.length;
     const note = $("players-note");
     note.textContent = !room
-      ? HAS_ZAISMA_ROOMS || hasSeenRoom ? "Players show here once you're in a room." : "This game keeps its own player list. Mute, block and report are in its menu."
+      ? HAS_ZAISMA_ROOMS || hasSeenRoom ? "Players show here once you're in a room." : "Players show here once the game says who's playing with you. Until then, mute, block and report are in its own menu."
       : others.length ? "" : "Nobody else is here yet.";
     note.hidden = !note.textContent;
     const watching = $("players-watching");

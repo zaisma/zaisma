@@ -46,9 +46,14 @@ type LayoutGap = "control-row-boxes" | "control-stack" | "words-control" | "word
 /** What an item is to the spacing table: a control with words of its own is a block. */
 const spacedKind = (layoutItem: LayoutItem): "words" | "control" | "block" => (layoutItem.kind === "control" && layoutItem.markup.hasOwnWords ? "block" : layoutItem.kind);
 
+/** A block that's a row of controls and nothing else (row() marks its controls' height). */
+const isControlRow = (layoutItem: LayoutItem): boolean => layoutItem.kind === "block" && /^<div class="layout-row[^"]*"[^>]*? data-control-height=/.test(layoutItem.markup.html);
+
 /** The gap between two things one under the other. */
 function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
   const kinds = [spacedKind(above), spacedKind(below)];
+  // A control over a row of controls (Play over Details, Share and Report), or under one: still controls stacked.
+  if ((kinds[0] === "control" && isControlRow(below)) || (kinds[1] === "control" && isControlRow(above))) return "control-stack";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "words" && kinds[1] === "words") return "words-words";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-stack";

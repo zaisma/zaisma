@@ -2,11 +2,12 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
-import { EDGE, logo } from "./foundations.ts";
-import { row, stack } from "./layout.ts";
+import { CUT_LINE, EDGE, logo } from "./foundations.ts";
+import { grid, row, stack } from "./layout.ts";
+import { gameCover, type GameCoverOptions } from "./panes.ts";
 
 /*
- * A game's page: its screenshots, and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
+ * A game's page: its screenshots, the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
  * the left edge of a landscape phone) and a card over its corner when something needs the player (keep your progress, sign in). Everything
  * else on the page steps aside: the header, the background, the page's panes and the footer. The page's script turns it on by putting
  * is-playing on <html> and adding the game's frame (class game-frame) to the body.
@@ -53,9 +54,22 @@ export interface ScreenshotOptions {
   sheetId: string;
 }
 
-/** A screenshot in a game's row of them: the picture, cut like a pane's corner, which opens large in a sheet. */
+/**
+ * A screenshot in a game's row of them: the picture set in a carved well, cut like a game card's, which opens large in a sheet. The well and
+ * the picture both follow the edge rule, so the one at the start of the row takes the pane's corner there, the one at its end the pane's
+ * other corner, and every one between is square, wherever the row is scrolled to.
+ */
 export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></button>`;
+  html`<button class="screenshot cut-carved" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="screenshot-picture" data-cut-line="0"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></span></button>`;
+
+/** A game card's options: a game cover's, less what only a cover alone takes (its title is always shown; no list keeps one in focus). */
+export type GameCardOptions = Omit<GameCoverOptions, "isTitleShown" | "isCurrent">;
+
+/**
+ * A game in a list of games (Browse, More from a developer): its cover, the orange line under it, its title beneath at the start of the row
+ * with players now, and what else concerns you under that, kept at the words margin. Every list of games uses it, so they all look the same.
+ */
+export const gameCard = (options: GameCardOptions): Raw => gameCover({ ...options, isTitleShown: true });
 
 /** A screenshot large, as a sheet's body: as big as the screen allows, whole. */
 export const screenshotLarge = (imageUrl: string, label: string): Raw => html`<img class="screenshot-large" src="${imageUrl}" alt="${label}" loading="lazy" decoding="async">`;
@@ -114,11 +128,14 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 @media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
 @media (prefers-reduced-motion: reduce) { .playing-card, html.is-playing .game-frame { animation: none; } }
 
-/* Screenshots: the picture fills a cut slab; pointed at, it comes a little closer. Large, it's whole, as big as the screen allows. */
-.screenshot { display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; overflow: hidden; background: var(--well); cursor: zoom-in; clip-path: var(--cut-shape); }
-.screenshot img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
+/* Screenshots: a carved well like a game card's, the picture filling it up to its rim (2px); pointed at, the picture comes a little closer.
+   Large, it's whole, as big as the screen allows. */
+.screenshot { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); cursor: zoom-in; clip-path: var(--cut-shape); }
+.screenshot-picture { position: absolute; inset: 2px; display: block; overflow: hidden; clip-path: var(--cut-shape); }
+.screenshot img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s cubic-bezier(.2,.8,.2,1); }
 .screenshot:hover img { transform: scale(1.03); }
-.screenshot:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.screenshot:focus-visible { outline: none; }
+.screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .screenshot-large { display: block; width: min(1280px, calc(100vw - 6 * var(--pad-pane))); max-height: 70dvh; object-fit: contain; }
 @media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
 
@@ -137,11 +154,36 @@ component({
   name: "Screenshot",
   slug: "screenshot",
   group: "data",
-  summary: "A game's screenshot in its row of them, cut like a pane's corner; it opens large in a sheet, whole, as big as the screen allows.",
+  summary: "A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.",
   styles: "",
   render: screenshot,
   examples: [
     { label: "In a row", markup: html`<div style="width:280px">${screenshot({ imageUrl: "/design/covers/neon-drift.webp", label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>` },
+  ],
+});
+
+component({
+  name: "Game card",
+  slug: "game-card",
+  group: "panes",
+  summary: "A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.",
+  styles: "",
+  render: gameCard,
+  examples: [
+    {
+      label: "In a list",
+      markup: grid({
+        itemSize: "cover",
+        items: [
+          { kind: "block", markup: gameCard({ title: "Kestrel", imageUrl: "/design/covers/kestrel.webp", href: "#kestrel", facts: { playerCount: 12480 } }) },
+          { kind: "block", markup: gameCard({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 } }) },
+          { kind: "block", markup: gameCard({ title: "Neon Drift", imageUrl: "/design/covers/neon-drift.webp", href: "#neon-drift", facts: {} }) },
+        ],
+      }),
+      isWide: true,
+    },
+    { label: "Made for another device", markup: html`<div style="width:280px">${gameCard({ title: "Hollow Tide", imageUrl: "/design/covers/hollow-tide.webp", href: "#hollow-tide", facts: { playerCount: 38, deviceNote: "Needs a keyboard" } })}</div>` },
+    { label: "No cover yet", markup: html`<div style="width:280px">${gameCard({ title: "The Last Lighthouse Keeper", imageUrl: null, href: "#game-card", facts: { playerCount: 38 } })}</div>` },
   ],
 });
 

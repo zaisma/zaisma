@@ -417,9 +417,10 @@ component({
   summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
-   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. */
-.backdrop { position: fixed; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; pointer-events: none; background: ${BACKDROP_STILL}; }
-.backdrop.is-framed { position: absolute; }
+   Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
+   gets (lvh), not the visible one: a phone's address bar showing or hiding only covers its bottom, and never resizes or redraws it. */
+.backdrop { position: fixed; inset: 0 0 auto 0; z-index: -1; display: block; width: 100%; height: 100vh; height: 100lvh; pointer-events: none; background: ${BACKDROP_STILL}; }
+.backdrop.is-framed { position: absolute; inset: 0; height: 100%; }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }

@@ -356,6 +356,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Folded part** (`foldedPart(options: FoldedPartOptions)`, `reading.ts`): Something that belongs on the page but out of the way, behind its title and how many are in it: earlier versions, blocked people, preview links. Pressing the title opens it in place.
   - `options`: `title: string`, `entryCount?: number`, `body: Raw`, `isOpen?: boolean`, `id?: string`
 - **Divider with words** (`dividerWords(words: string)`, `reading.ts`): A hairline across a pane with a word or two in its middle, between two ways to do one thing: or, between signing in with a password and with a passkey.
+- **Game card** (`gameCard(options: GameCardOptions)`, `playing.ts`): A game in a list of games, like Browse or More from a developer: its cover, its title beneath with players now, and what else concerns you under that.
 - **Playing card** (`playingCard(options: PlayingCardOptions)`, `playing.ts`): A card over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). The game keeps running and stays in view.
   - `options`: `id: string`, `title?: string`, `body: Raw`, `isShown?: boolean`, `isInPlace?: boolean`
 
@@ -369,7 +370,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`, `deviceNote?: string`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point; a row to read may end in a button.
-  - `options`: `rows: ListRow[]`, `id?: string`, `label?: string`
+  - `options`: `rows: ListRow[]`, `id?: string`, `label?: string`, `shownRowCount?: number`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.
   - `options`: `title: string`, `text: string`, `action?: ControlMarkup`
 - **Problem state** (`problemState(options: StateNoteOptions)`, `data.ts`): Where content couldn't come: what went wrong in plain words, and what to do about it, like Try again.
@@ -396,7 +397,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `username: string`, `href: string`, `note?: string`, `pictureSize?: "sm" | "md"`, `presence?: "online" | "playing"`, `marks?: Raw`, `end?: ControlMarkup`
 - **Post** (`post(options: PostOptions)`, `people.ts`): What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.
   - `options`: `author: { username: string; href: string }`, `postedAtMs: number`, `body: Raw`, `marks?: Raw`, `actions?: ControlMarkup[]`
-- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, cut like a pane's corner; it opens large in a sheet, whole, as big as the screen allows.
+- **Screenshot** (`screenshot(options: ScreenshotOptions)`, `playing.ts`): A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.
   - `options`: `imageUrl: string`, `label: string`, `sheetId: string`
 
 <!-- catalog:end -->

@@ -978,8 +978,9 @@ declare namespace Zaisma {
     moved: (roomCode: string) => void;
     /**
      * "Still there?": true when it's time to ask, after idleTimeoutSec without input. Listening replaces
-     * Zaisma's small "Still there?" plate (restyle the plate with CSS on #zaisma-still-there instead, if you
-     * like). false: they answered, or the 30 seconds are up and the room is told they walked away.
+     * Zaisma's own "Still there?": a card beside the game on its zaisma.com page, and elsewhere a small
+     * plate in the game (restyle the plate with CSS on #zaisma-still-there instead, if you like). false:
+     * they answered, or the 30 seconds are up and the room is told they walked away.
      */
     idle: (isAsking: boolean) => void;
     /**

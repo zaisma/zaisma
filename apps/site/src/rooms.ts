@@ -1,7 +1,7 @@
 import { checkText, gameBySlug, hasSpace, hasWatchSpace, isQuickJoining, leaveOut, listRooms, readLabelParameter, readLeftParameter, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
-import { cutButton, textButton } from "./components/actions.ts";
+import { cutButton } from "./components/actions.ts";
 import { emptyState, listRows, type ListRow } from "./components/data.ts";
 import { cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
 import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
@@ -28,8 +28,8 @@ export function pageRooms(env: Env, game: Game, request: Request, pick: { region
   });
 }
 
-/** Rows shown before "Show more"; the list is sorted, so these are the best ones to join. */
-const FIRST_ROOM_COUNT = 10;
+/** Rows in view before the list scrolls inside itself; it's sorted, so these are the best ones to join. */
+const SHOWN_ROOM_COUNT = 6;
 
 /** The number on the Rooms tab: the rooms the list shows, full ones too, in the region and labels picked. */
 export const tabCount = (list: RoomList) => (list.openRoomCount > 99 ? "99+" : String(list.openRoomCount));
@@ -84,7 +84,6 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
     items.push({ kind: "block", markup: row({ widths: "fit", items: fields }) });
   }
   const filtered = Object.keys(picked).length > 0;
-  const hiddenRoomCount = open.length - FIRST_ROOM_COUNT;
   const empty = filtered
     ? "No open rooms like that right now. Pick something else, or press Play to start."
     : region || list.region
@@ -94,11 +93,9 @@ export function roomsPanel(game: Pick<Game, "slug" | "quick_joined_at_ms">, list
         : "Nobody's in an open room right now. Press Play to start.";
   items.push(
     open.length
-      ? { kind: "block", markup: listRows({ id: "rooms-rows", label: "Open rooms", rows: open.map((room, roomIndex) => roomRow(slug, room, roomIndex >= FIRST_ROOM_COUNT)) }) }
+      ? { kind: "block", markup: listRows({ id: "rooms-rows", label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: open.map((room) => roomRow(slug, room)) }) }
       : { kind: "block", markup: emptyState({ title: "No open rooms", text: empty }) },
   );
-  // Show all: the page's script shows the hidden rows (#rooms-rows > li[hidden]) and hides this.
-  if (hiddenRoomCount > 0) items.push({ kind: "control", id: "rooms-all", markup: textButton(`Show ${plural(hiddenRoomCount, "more room", "more rooms")}`, { type: "button", icon: "chevron-down" }) });
   const notes = [
     list.moreOpenRoomCount > 0 ? `And ${plural(list.moreOpenRoomCount, "more room", "more rooms")} with fewer players.${isQuickJoining(game) ? " Press Play and the game finds you one." : ""}` : "",
     closedRoomCount && open.length ? `Plus ${plural(closedRoomCount, "match", "matches")} in progress that ${closedRoomCount === 1 ? "isn't" : "aren't"} taking new players.` : "",
@@ -114,7 +111,7 @@ export const shownKey = (region: string | null, picked: Record<string, string>) 
  * A room's row: its name and labels (or how full it is, when it has neither), then how full, how many watch and where it runs, in words;
  * Join (or Full), Watch for a room that takes spectators, and Report for a room with a name or labels to report. The code stays in the links.
  */
-function roomRow(slug: string, room: ListedRoom, isLater: boolean): ListRow {
+function roomRow(slug: string, room: ListedRoom): ListRow {
   const filled = `${room.playerCount} of ${room.maximumPlayerCount} ${room.maximumPlayerCount === 1 ? "player" : "players"}`;
   const { name, labels } = shownText(room);
   const labelValues = labels.map(([, labelValue]) => labelValue);
@@ -127,7 +124,7 @@ function roomRow(slug: string, room: ListedRoom, isLater: boolean): ListRow {
     // The page's script (report.ts) opens the report with the room's code and what it's called.
     ...(said ? [cutButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
   ];
-  return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : "Full", action: actions.length > 1 ? actions : actions[0], isHidden: isLater || undefined };
+  return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : "Full", action: actions.length > 1 ? actions : actions[0] };
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */

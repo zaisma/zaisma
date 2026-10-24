@@ -167,12 +167,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     pass.isMeasured = true;
     document.querySelectorAll("[data-cut-line], [data-glass]").forEach(function (el) { pass.rects.set(el, el.getBoundingClientRect()); pass.sizes.set(el, [el.offsetWidth, el.offsetHeight]); });
     document.querySelectorAll("[data-cut-line]").forEach(function (el) { groupIn(holderOf(el)).push(el); });
-    // Boxes that scroll inside a pane, for the controls in them (contentRectOf), read with everything else, before anything is drawn.
-    document.querySelectorAll("body .own-scroll").forEach(function (el) { pass.scrollers.set(el, { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }); });
+    // Boxes that scroll inside a pane, down (.own-scroll) or sideways (a track), for the controls in them (contentRectOf), read with
+    // everything else, before anything is drawn.
+    document.querySelectorAll("body .own-scroll, body .layout-track").forEach(function (el) { pass.scrollers.set(el, readScroll(el)); });
   }
+  function readScroll(el) { return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }; }
   function scrollOf(el) {
     var read = pass.scrollers.get(el);
-    if (!read) { read = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }; pass.scrollers.set(el, read); }
+    if (!read) { read = readScroll(el); pass.scrollers.set(el, read); }
     return read;
   }
   function groupIn(holder) {
@@ -341,7 +343,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
     // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
-    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll");
+    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll"), track = el.parentElement && el.parentElement.closest(".layout-track");
+    // A track (a row that scrolls sideways) runs the holder on by what's scrolled out of view to either side, so the first in it takes the
+    // pane's corner at the start, the last the one at the end, and every one between is square, wherever the row is scrolled to.
+    if (track && track !== holder && holder.contains(track)) {
+      var along = scrollOf(track);
+      if (along.scrollWidth > along.clientWidth + 1) p = { top: p.top, bottom: p.bottom, left: p.left - along.scrollLeft, right: p.right + along.scrollWidth - along.clientWidth - along.scrollLeft };
+    }
     if (!scroller || scroller === holder || !holder.contains(scroller)) return p;
     var scrolled = scrollOf(scroller);
     if (scrolled.scrollHeight <= scrolled.clientHeight + 1) return p;
