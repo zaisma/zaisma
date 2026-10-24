@@ -924,6 +924,30 @@ describe("the account page", () => {
     expect((await signIn(new Browser(), { username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/");
   });
 
+  it("opens nothing with a sign-in code sent to an address the account has since left", async () => {
+    const owner = new Browser();
+    await join(owner);
+    const id = await idOf("Night_Owl");
+    // Someone with the old inbox asks for a code, and the owner moves the account to a new address before it's used.
+    await new Browser().go("/signin/email", { email: "fox@example.com", turnstile_token: "email_code" });
+    const oldCode = codeSentTo("fox@example.com");
+    await owner.go("/account/email", { email: "new@example.com", turnstile_token: "email_code" });
+    await owner.go("/account/email/code", { email: "new@example.com", code: codeSentTo("new@example.com") });
+    expect(users.get("new@example.com")).toBe(id);
+    const stranger = new Browser();
+    expect((await stranger.go("/signin/code", { email: "fox@example.com", code: oldCode })).status).toBe(400);
+    expect(await (await stranger.go("/account")).text()).not.toContain("Night_Owl");
+
+    // And again once the email is taken off altogether.
+    await new Browser().go("/signin/email", { email: "new@example.com", turnstile_token: "email_code" });
+    const lastCode = codeSentTo("new@example.com");
+    expect((await owner.go("/account/email/remove", {})).headers.get("location")).toBe("/account?email-removed#signing-in");
+    const another = new Browser();
+    expect((await another.go("/signin/code", { email: "new@example.com", code: lastCode })).status).toBe(400);
+    expect(await (await another.go("/account")).text()).not.toContain("Night_Owl");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM email_codes WHERE account_id = ?").bind(id).first<{ count: number }>()).toEqual({ count: 0 });
+  });
+
   it("changes the username, keeping what was typed and suggesting free ones when it's taken", async () => {
     await join(new Browser(), null, "Taken_Name");
     const b = new Browser();
@@ -2922,6 +2946,42 @@ describe("passkeys", () => {
     // A top-level const or let can't be declared twice on a page, so running it again would throw.
     expect(PASSKEY_SCRIPT.sourceText).not.toMatch(/^(const|let) /m);
   });
+  /** The challenge cookie a browser holds, as its name and value. */
+  const pkCookie = (b: Browser): [string, string] => [...b.jar].find(([name]) => name.endsWith("zaisma_pk"))!;
+  it("takes a passkey tap or sign-in once, even from a passkey that never counts its uses", async () => {
+    const b = new Browser();
+    await join(b);
+    const device = await addPasskey(b);
+
+    // A passkey sign-in sent again with the same cookie and body, as a copy of the request would, opens nothing.
+    const first = new Browser();
+    const { data } = await api(first, "/api/passkeys/signin/options");
+    const signInBody = { ...(await device.get(String(data.challenge), { count: 0 })), next: "/account" };
+    const challengeCookie = pkCookie(first);
+    expect((await api(first, "/api/passkeys/signin", signInBody)).status).toBe(200);
+    const again = new Browser();
+    again.jar.set(...challengeCookie);
+    expect((await api(again, "/api/passkeys/signin", signInBody)).status).toBe(400);
+    expect(await (await again.go("/account")).text()).not.toContain("fox@example.com");
+
+    // A key-making tap sent twice makes one key.
+    const tap = await tapFor(b, device, "key");
+    const keyCookie = pkCookie(b);
+    const keyForm = () => new URLSearchParams({ name: "My laptop", access_level: "full", game_scope: "all", passkey_id: tap.id, client_data_json: tap.clientDataJSON, authenticator_data: tap.authenticatorData, signature: tap.signature, user_handle: "" });
+    const countKeys = async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM api_keys").first<{ count: number }>())!.count;
+    const keysBefore = await countKeys();
+    await b.go("/account/keys", keyForm());
+    expect(await countKeys()).toBe(keysBefore + 1);
+    b.jar.set(...keyCookie);
+    await b.go("/account/keys", keyForm());
+    expect(await countKeys()).toBe(keysBefore + 1);
+
+    // And a challenge nobody asked this server for is no challenge: a cookie of the page's own making does nothing.
+    const forged = new Browser();
+    forged.jar.set(challengeCookie[0], "in.not-issued-by-this-server");
+    expect((await api(forged, "/api/passkeys/signin", { ...(await device.get("not-issued-by-this-server", { count: 0 })), next: "/account" })).status).toBe(400);
+  });
+
   it("adds a passkey after a recent sign-in, then signs back in with it", async () => {
     const b = new Browser();
     await join(b);
