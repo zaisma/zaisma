@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GameServerError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, restoreInfoOf, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
+import { GameServerError, ReceiptError, RoomCore, addTraffic, bytesFrame, defineGameServer, isRoomCode, noTraffic, readJoinAnswer, relay, restoreInfoOf, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -2040,5 +2040,28 @@ describe("Kept rooms", () => {
     expect(restoreInfoOf(weekAgoMs, nowMs, "version_one", true)).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 0, savedVersionId: "version_one" });
     expect(restoreInfoOf(weekAgoMs, nowMs, "version_one")).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 7 * 24 * 3600, savedVersionId: "version_one" });
     expect(restoreInfoOf(weekAgoMs, nowMs, null, false).lostDurationSec).toBe(7 * 24 * 3600);
+  });
+});
+
+describe("room.verifyReceipt", () => {
+  it("rejects with a plain Error, not a ReceiptError, where the runtime has no receipt keys", async () => {
+    const { t } = transport();
+    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[3] | null = null;
+    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, message, handlerRoom) => void (givenRoom = handlerRoom) }), t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.receive("a", msg("hello"));
+    const failure = await givenRoom!.verifyReceipt("x").catch((thrown: unknown) => thrown);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(ReceiptError);
+    expect((failure as Error).message).toMatch(/Receipts can't be checked here/);
+  });
+
+  it("uses the transport's check where it has one", async () => {
+    const { t } = transport();
+    let givenRoom: Parameters<NonNullable<GameServer["onMessage"]>>[3] | null = null;
+    const room = new RoomCore(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}), onMessage: (s, p, message, handlerRoom) => void (givenRoom = handlerRoom) }), { ...t, verifyReceipt: async (receipt) => ({ purchase_id: receipt }) as never });
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.receive("a", msg("hello"));
+    expect(await givenRoom!.verifyReceipt("purchase_1")).toEqual({ purchase_id: "purchase_1" });
   });
 });

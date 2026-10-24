@@ -11,11 +11,12 @@
  */
 
 import type { GameDatabase } from "./database.ts";
+import type { ReceiptClaims } from "./pass.ts";
 import type { Player } from "./room.ts";
 
 /**
- * What onRequest and onSchedule reach besides what they're given: the game's own database, the same
- * one its rooms use, and its secrets.
+ * What onRequest, onSchedule and onWebhook reach besides what they're given: the game's own database, the
+ * same one its rooms use, its secrets, and receipt checks.
  */
 export interface Server {
   database: GameDatabase;
@@ -24,6 +25,8 @@ export interface Server {
    * (set_secret) and never shown again, or the environment variables on your own server.
    */
   secrets: Readonly<Record<string, string>>;
+  /** Check a purchase's receipt, as room.verifyReceipt does: the runtime fills in Zaisma's keys and this game. */
+  verifyReceipt(receipt: string): Promise<ReceiptClaims>;
 }
 
 export const REQUEST_LIMITS = {

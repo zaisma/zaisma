@@ -24,8 +24,9 @@ function isNodeOnlyRun(argv: string[]): boolean {
   return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout)\//.test(file));
 }
 
-// A throwaway pass signing key for tests. The real one is a Worker secret.
+// Throwaway pass and receipt signing keys for tests. The real ones are Worker secrets.
 const passKey = await generateSigningKey();
+const receiptKey = await generateSigningKey();
 
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
@@ -38,8 +39,8 @@ const roomsDatabaseWorker = {
   durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true }, GAME_SECRETS: { className: "GameSecretsObject", useSQLite: true } },
   // The site's own D1, by its ID: a game's database counts its kept rooms (kept_rooms) toward its storage.
   d1Databases: { DB: "bffea7a7-f905-4eaf-84f2-97b1fb6bf932" },
-  // Purchases' receipts are signed as the rooms tests' passes are.
-  bindings: { PASS_SIGNING_KEY: passKey, ISSUER: "https://rooms.zaisma.test" },
+  // Purchases' receipts are signed with the rooms tests' receipt key.
+  bindings: { PASS_SIGNING_KEY: passKey, RECEIPT_SIGNING_KEY: receiptKey, ISSUER: "https://rooms.zaisma.test" },
 };
 
 // And PhotoDNA matching in the photodna Worker (its container can't run in tests): a stand-in that's always down.
@@ -154,6 +155,7 @@ const roomsBindings = {
   GAME_ORIGIN: "https://games.zaisma.test",
   GAME_DOMAIN: "",
   PASS_SIGNING_KEY: passKey,
+  RECEIPT_SIGNING_KEY: receiptKey,
   ROOM_LIST_CACHE_SECONDS: "0",
   PLAYING_NOW_CACHE_SECONDS: "0",
   // Cloudflare's relay and its analytics answer from the stand-in above.
@@ -204,8 +206,8 @@ export default defineConfig({
         STRIPE_SECRET_KEY: "sk_test_zaisma",
         STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
         STRIPE_PRO_PRICE_ID: "price_test_pro",
-        // The pass key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
-        TEST_PASS_SIGNING_KEY: passKey,
+        // The receipt key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
+        TEST_RECEIPT_SIGNING_KEY: receiptKey,
         // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).
         BACKUP_ENDPOINT: "https://backups.zaisma.test",
         BACKUP_KEY_ID: "test-backup-key-id",
