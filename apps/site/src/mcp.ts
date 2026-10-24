@@ -186,7 +186,7 @@ const details = {
   room_browsing: {
     enum: ROOM_BROWSING,
     description:
-      "For games on Zaisma rooms: where open rooms are listed so players can join them. page (the default): on the game page and to the game through Zaisma.rooms.list(). game: only to the game, for games with their own lobby or server browser. off: nowhere; room codes and invite links still work. Single rooms can be hidden with joinRoom({ isListed: false }) or room.setListed(false).",
+      "For games on Zaisma rooms: where open rooms are listed so players can join them. page (the default): on the game page and to the game through Zaisma.rooms.list(). game: only to the game, for games with their own lobby or server browser. off: nowhere; room codes and invite links still work. Rooms start out unlisted: a game lists one with joinRoom({ isListed: true }) or room.setListed(true), and quickJoin lists the rooms it makes.",
   },
   account_requirement: {
     enum: ACCOUNT_REQUIREMENTS,

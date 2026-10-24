@@ -33,7 +33,7 @@ import {
 import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, isHostingPaused, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
-import { SANDBOX, errorLine, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
+import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import { signingKey, type Env } from "./index.ts";
@@ -166,6 +166,8 @@ export class Room extends DurableObject<Env> {
   private isBroken = false;
   /** Set once the game server failed to start and the game's errors say so, so a room that keeps failing writes it once. */
   private hasRecordedStartError = false;
+  /** Set while the game's sandboxed game server failed its last start on Zaisma's side: the room answers busy (try again), not gone. */
+  private hasStartFailed = false;
   /** What the game's own server printed in this room, waiting to go to the game's logs (logs.ts). */
   private logs: LogWriter | null = null;
   private hasEnded = false;
@@ -307,7 +309,8 @@ export class Room extends DurableObject<Env> {
     }
     if (this.isKept) await this.wakeKeptOnLiveVersion();
     const server = await this.load();
-    if (!server) return new Response("This game isn't available right now", { status: 404 });
+    // 404 when the game is gone or its game server can't start (no file, or its own code refuses); a start that failed on Zaisma's side answers 503, which the Worker says as busy so the SDK tries again.
+    if (!server) return new Response("This game isn't available right now", { status: this.hasStartFailed ? 503 : 404 });
 
     this.dropStaleHellos();
     const maximumSocketCount = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + (server.maximumSpectatorCount ?? 0) + SPARE_SOCKET_COUNT;
@@ -1241,9 +1244,10 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Load the game server: a built-in one, or the game's own in its sandbox. A sandbox that can't
-   * open (no game server file, or it fails to start) leaves the room unavailable, like a takedown,
-   * and the game's errors say why (once per room), like an option the game server doesn't take.
+   * Load the game server: a built-in one, or the game's own in its sandbox. A version with no game
+   * server file, or one whose code won't start (like an option the game server doesn't take), leaves the
+   * room unavailable, like a takedown (404), and the game's errors say why (once per room). A start that
+   * failed on Zaisma's side answers busy (503), so players try again.
    */
   private async load(): Promise<GameServer | null> {
     if (this.server || !this.meta) return this.server;
@@ -1256,6 +1260,7 @@ export class Room extends DurableObject<Env> {
 
   private async openSandbox(): Promise<GameServer | null> {
     if (!this.meta?.versionId) return null;
+    this.hasStartFailed = false;
     try {
       const { secrets, changedAtMs } = await secretsForGameServer(this.env, this.meta.gameId);
       this.secretsChangedAtMs = changedAtMs;
@@ -1263,6 +1268,8 @@ export class Room extends DurableObject<Env> {
       await this.logs.checkWatched();
       this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, secrets, () => this.broken(), () => this.newError(), (lines) => this.printed(lines));
     } catch (error) {
+      // The game's own mistake stays unavailable until a new version; a moment's failure of ours is tried again.
+      this.hasStartFailed = !isGameStartError(error);
       console.error("Couldn't start the game server:", error);
       this.printed(linesOf(null, `Zaisma: the game server didn't start: ${String(error instanceof Error ? error.message : error)}`));
       if (!this.hasRecordedStartError) {
@@ -1486,8 +1493,8 @@ export class Room extends DurableObject<Env> {
 
   /**
    * Move the match to a version published "now": players hear it's coming, and it switches after
-   * ROOM_LIMITS.versionUpdateNoticeSec, or, with the game server's onVersionUpdate, when it calls
-   * room.applyVersionUpdate() or after maximumVersionUpdateHoldSec. A room with nobody in it switches at once.
+   * ROOM_LIMITS.defaultVersionUpdateDelaySec, or, with the game server's onVersionUpdate, when it calls
+   * room.applyVersionUpdate() or after ROOM_LIMITS.maximumVersionUpdateDelaySec. A room with nobody in it switches at once.
    */
   private async startVersionUpdate(versionId: string, isReloading: boolean): Promise<void> {
     if (!this.meta || this.hasEnded || this.meta.versionId === versionId || this.pendingVersionUpdate?.versionId === versionId) return;

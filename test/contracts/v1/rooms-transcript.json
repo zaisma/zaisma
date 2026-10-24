@@ -3,7 +3,7 @@
   "protocolVersionNumber": 1,
   "scenes": [
     {
-      "name": "a match: hello, welcome, a game message, a full room, a new host, the end",
+      "name": "a match: hello, welcome, a game message, a full room, a new host who changes the room, the end",
       "steps": [
         {"client": "a", "connect": "room"},
         {"client": "a", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": "<pass:a>"}, "note": "No room settings: the room is unlisted, open and takes Join from friends."},
@@ -22,6 +22,10 @@
         {"client": "c", "closedWith": 4001},
         {"client": "a", "close": 1000, "note": "The host leaves: b is the host now."},
         {"client": "b", "receive": {"type": "players", "players": [{"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:b>"}},
+        {"client": "b", "send": {"type": "room", "room": {"isOpen": false}}, "note": "The new host closes the room to new players: everyone in it hears all five settings."},
+        {"client": "b", "receive": {"type": "room", "room": {"isListed": false, "isOpen": false, "friendJoinsEnabled": true, "name": null, "labels": {}}, "spectatorCount": 0}},
+        {"client": "b", "send": {"type": "room", "isOpen": true}, "note": "The settings go under room, not beside type: this one is turned away, and the room stays as it was."},
+        {"client": "b", "receive": {"type": "error", "code": "bad_message", "message": "The room couldn't read or use that message."}},
         {"client": "b", "send": {"type": "message", "data": "end"}, "note": "The game server ends the match."},
         {"client": "b", "receive": {"type": "ended", "message": "The match is over.", "endReason": "game"}},
         {"client": "b", "closedWith": 4000}

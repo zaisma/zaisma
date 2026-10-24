@@ -137,7 +137,7 @@ declare namespace Zaisma {
    * @example
    * const room = await Zaisma.joinRoom();
    * Zaisma.joinRoom({ joinData: { character: "knight" } });   // for the game server's canJoin and onJoin
-   * Zaisma.joinRoom({ isListed: false });                       // a new room that's never listed: a private match
+   * Zaisma.joinRoom({ isListed: true });                        // others find it in room lists
    * Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
    * Zaisma.joinRoom({ idleTimeoutSec: 300 });                   // ask "Still there?" after 5 minutes without input
    * Zaisma.joinRoom({ serverUrl: "wss://play.example.com" });  // your own game server
@@ -214,8 +214,8 @@ declare namespace Zaisma {
     list(): Promise<FriendList>;
     /**
      * Say which room on your own servers the player is in, or null when they left it, so their friends'
-     * Join on Zaisma takes them there: a link to your game's page with ?room=CODE&server=… that joinRoom
-     * and quickJoin follow (see {@link Rooms.linkedServerUrl}). joinRoom({ serverUrl }) does this by
+     * Join on Zaisma takes them there: a link to your game's page with ?room=CODE&server=… that
+     * joinRoom({ serverUrl }) follows (see {@link Rooms.linkedServerUrl}). joinRoom({ serverUrl }) does this by
      * itself, so call it only when your game has its own netcode. The server must be one of the game's
      * own servers, own_server_urls (error.code "unlisted_server" otherwise), and Zaisma rooms need
      * none of this. The SDK says it again every 2 minutes while the page is open, and a room it stops
@@ -681,14 +681,15 @@ declare namespace Zaisma {
   interface Rooms {
     /**
      * The room code the player's link points to (?room=CODE), or null. Check it to show a menu or a
-     * character picker first, then join with what the player picked: joinRoom and quickJoin both follow the link.
+     * character picker first, then join with what the player picked: joinRoom and quickJoin both follow a link to a Zaisma room.
      */
     readonly linkedRoomCode: string | null;
     /**
      * The game's own server the player's link points to (?server=, beside ?room=), or null: a friend's
-     * Join into a room on your own servers ({@link Friends.setRoom}). joinRoom({ serverUrl }) and quickJoin
-     * follow a linked room when the link names no server or the same one, and a Zaisma room only when
-     * it names none. Zaisma passes it on only when it's one of the game's own servers (own_server_urls).
+     * Join into a room on your own servers ({@link Friends.setRoom}). Only joinRoom({ serverUrl }) follows a
+     * link that names a server (the same one); quickJoin follows only links to Zaisma rooms, which name none. A game on
+     * its own servers joins with joinRoom({ serverUrl, roomCode: Zaisma.rooms.linkedRoomCode }), using this
+     * as serverUrl. Zaisma passes it on only when it's one of the game's own servers (own_server_urls).
      */
     readonly linkedServerUrl: string | null;
     /**

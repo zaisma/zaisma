@@ -3,7 +3,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
-import { joinedRoom, loadSdk, me, ON_ZAISMA, say, settings, type StandInSocket } from "../sdk-stand-in.ts";
+import { CORE_ROOMS, CORE_TYPES, declaredType, fieldsOf, GAME_SERVER, GAME_SERVER_REQUESTS, joinedRoom, loadSdk, me, membersOf, ON_ZAISMA, say, sdkTypeChecker, sdkTypeProgram, settings, type StandInSocket, TEXT_FILTER, TYPES, valuesOf } from "../sdk-stand-in.ts";
 
 /**
  * packages/sdk/zaisma.d.ts is the SDK's reference, so it has to say exactly what zaisma.js does. The SDK
@@ -13,53 +13,9 @@ import { joinedRoom, loadSdk, me, ON_ZAISMA, say, settings, type StandInSocket }
  */
 
 const ROOT = join(import.meta.dirname, "../..");
-const TYPES = join(ROOT, "packages/sdk/zaisma.d.ts");
 const SDK = readFileSync(join(ROOT, "packages/sdk/zaisma.js"), "utf8");
-const GAME_SERVER = join(ROOT, "packages/game-server/src/room.ts");
-const GAME_SERVER_REQUESTS = join(ROOT, "packages/game-server/src/requests.ts");
-const CORE_ROOMS = join(ROOT, "packages/core/src/rooms.ts");
-const CORE_TYPES = join(ROOT, "packages/core/src/types.ts");
-const TEXT_FILTER = join(ROOT, "packages/core/src/text-filter.ts");
 const ROOMS_WORKER = join(ROOT, "apps/rooms/src/index.ts");
-
-const program = ts.createProgram([TYPES, GAME_SERVER, GAME_SERVER_REQUESTS, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
-  target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.ES2022,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  allowImportingTsExtensions: true,
-  noEmit: true,
-  strict: true,
-  types: [],
-});
-const checker = program.getTypeChecker();
-
-/** A declaration's members: the Zaisma namespace's in zaisma.d.ts, or a module's exports. */
-function membersOf(file: string): ts.Symbol[] {
-  const source = program.getSourceFile(file)!;
-  if (file !== TYPES) return checker.getExportsOfModule(checker.getSymbolAtLocation(source)!);
-  const namespace = source.statements.find((statement): statement is ts.ModuleDeclaration => ts.isModuleDeclaration(statement) && statement.name.text === "Zaisma")!;
-  return checker.getExportsOfModule(checker.getSymbolAtLocation(namespace.name)!);
-}
-
-function declaredType(file: string, name: string): ts.Type {
-  const symbol = membersOf(file).find((member) => member.name === name && member.flags & ts.SymbolFlags.Type);
-  if (!symbol) throw new Error(`${file} declares no type ${name}`);
-  return checker.getDeclaredTypeOfSymbol(symbol);
-}
-
-/** The field names of a shape, sorted. */
-function fieldsOf(name: string, file = TYPES): string[] {
-  return checker
-    .getPropertiesOfType(declaredType(file, name))
-    .map((property) => property.name)
-    .sort();
-}
-
-/** The values of a union of string literals, sorted. */
-function valuesOf(name: string, file = TYPES): string[] {
-  const type = declaredType(file, name);
-  return (type.isUnion() ? type.types : [type]).map((part) => String((part as ts.StringLiteralType).value)).sort();
-}
+const checker = sdkTypeChecker();
 
 /** The values of a union of string literals a file declares but doesn't export, read from its source alone. */
 function valuesInSource(file: string, name: string): string[] {
@@ -109,6 +65,7 @@ function heard(room: { on: (event: string, listener: (value: unknown) => void) =
 
 describe("the SDK's types say what the SDK does", () => {
   it("compile on their own", () => {
+    const program = sdkTypeProgram();
     const source = program.getSourceFile(TYPES)!;
     const problems = [...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source)].map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
     expect(problems).toEqual([]);
@@ -1045,20 +1002,81 @@ describe("v1 room messages in the SDK", () => {
     expect(messagesOn(next).map((message) => message.data.type)).toEqual(["one", "two", "aim"]);
   });
 
-  it("keeps up to 60, drops the oldest past that and says send_queue_full once", async () => {
+  it("keeps up to 60, drops the oldest past that and says send_queue_full once an outage", async () => {
     const sdk = loadSdk();
     const { room, socket } = await joinedRoom(sdk);
     drop(socket);
     const errors: unknown[] = [];
     room.on("error", (error: unknown) => errors.push(error));
     for (let i = 0; i < 62; i++) room.send({ type: "move", i });
-    expect(errors).toEqual([{ code: "send_queue_full", message: "Up to 60 sends wait while reconnecting; older ones were dropped." }]);
+    room.send({ type: "aim" }, { delivery: "latest_only", latestKey: "aim" });
+    const full = { code: "send_queue_full", message: "Up to 60 sends wait while reconnecting; older ones were dropped." };
+    expect(errors).toEqual([full]);
     await new Promise((resolve) => setTimeout(resolve, 600));
     const next = sdk.sockets.at(-1)!;
     welcome(next);
-    const sent = messagesOn(next).map((message) => message.data.i);
-    expect(sent).toHaveLength(60);
-    expect(sent[0]).toBe(2);
+    // 50 at once, within the room's burst, then 3 every 100 ms; the latest-only one after them all.
+    expect(messagesOn(next)).toHaveLength(50);
+    const flush = sdk.intervals.at(-1)!;
+    for (let tick = 0; tick < 4; tick++) flush();
+    const sent = messagesOn(next).map((message) => message.data);
+    expect(sent.map((data) => data.i ?? data.type)).toEqual([...Array.from({ length: 60 }, (_, i) => i + 2), "aim"]);
+    // Another outage, another overflow: said again.
+    drop(next);
+    for (let i = 0; i < 61; i++) room.send({ type: "move", i });
+    expect(errors).toEqual([full, full]);
+  });
+
+  it("queues sends between the socket opening and the welcome, so none is taken for the hello", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    drop(socket);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const next = sdk.sockets.at(-1)!;
+    next.onopen!();
+    room.send({ type: "early" });
+    expect(next.sent.map((text) => JSON.parse(text).type)).toEqual(["hello"]);
+    say(next, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
+    expect(messagesOn(next).map((message) => message.data.type)).toEqual(["early"]);
+  });
+
+  it("queues sends while the player is away, and sends them once they're back", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    socket.sent.length = 0;
+    say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 300 });
+    expect(room.send({ type: "while_away" })).toBe(true);
+    expect(messagesOn(socket)).toEqual([]);
+    sdk.listeners.keydown![0]!();
+    say(socket, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
+    expect(messagesOn(socket).map((message) => message.data.type)).toEqual(["while_away"]);
+  });
+
+  it("an idle player moved to the lobby isn't away there, and hears no back", async () => {
+    const sdk = loadSdk();
+    const { room, socket } = await joinedRoom(sdk);
+    const backs: unknown[] = [];
+    room.on("back", (back: unknown) => backs.push(back));
+    say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 0 });
+    say(socket, { type: "move", roomCode: "M2X7Q3" });
+    expect(room.awayReason).toBeNull();
+    const lobby = sdk.sockets.at(-1)!;
+    welcome(lobby);
+    expect(backs).toEqual([]);
+    expect(JSON.parse(lobby.sent[0]!).room).toEqual({ isListed: false });
+  });
+
+  it("quickJoin lists the rooms it makes unless told not to", async () => {
+    const hellos: Record<string, any>[] = [];
+    for (const quickJoinOptions of [undefined, { isListed: false }]) {
+      const sdk = loadSdk(ON_ZAISMA, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ rooms: [] }) }));
+      void sdk.Zaisma.rooms.quickJoin(quickJoinOptions);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const socket = sdk.sockets.at(-1)!;
+      socket.onopen!();
+      hellos.push(JSON.parse(socket.sent[0]!));
+    }
+    expect(hellos.map((hello) => hello.room.isListed)).toEqual([true, false]);
   });
 
   it("answers false only once the room is gone, and a move clears what waited", async () => {

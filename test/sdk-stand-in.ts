@@ -4,8 +4,66 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 
-const SDK = readFileSync(join(import.meta.dirname, "../packages/sdk/zaisma.js"), "utf8");
+const ROOT = join(import.meta.dirname, "..");
+const SDK = readFileSync(join(ROOT, "packages/sdk/zaisma.js"), "utf8");
+
+// The SDK's types, read by the compiler: what the stand-in's answers are checked against.
+export const TYPES = join(ROOT, "packages/sdk/zaisma.d.ts");
+export const GAME_SERVER = join(ROOT, "packages/game-server/src/room.ts");
+export const GAME_SERVER_REQUESTS = join(ROOT, "packages/game-server/src/requests.ts");
+export const CORE_ROOMS = join(ROOT, "packages/core/src/rooms.ts");
+export const CORE_TYPES = join(ROOT, "packages/core/src/types.ts");
+export const TEXT_FILTER = join(ROOT, "packages/core/src/text-filter.ts");
+
+let program: ts.Program | null = null;
+/** One compiler over the SDK's types and the shapes rooms send, made the first time a test asks. */
+export function sdkTypeProgram(): ts.Program {
+  program ??= ts.createProgram([TYPES, GAME_SERVER, GAME_SERVER_REQUESTS, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    noEmit: true,
+    strict: true,
+    types: [],
+  });
+  return program;
+}
+export function sdkTypeChecker(): ts.TypeChecker {
+  return sdkTypeProgram().getTypeChecker();
+}
+
+/** A declaration's members: the Zaisma namespace's in zaisma.d.ts, or a module's exports. */
+export function membersOf(file: string): ts.Symbol[] {
+  const checker = sdkTypeChecker();
+  const source = sdkTypeProgram().getSourceFile(file)!;
+  if (file !== TYPES) return checker.getExportsOfModule(checker.getSymbolAtLocation(source)!);
+  const namespace = source.statements.find((statement): statement is ts.ModuleDeclaration => ts.isModuleDeclaration(statement) && statement.name.text === "Zaisma")!;
+  return checker.getExportsOfModule(checker.getSymbolAtLocation(namespace.name)!);
+}
+
+export function declaredType(file: string, name: string): ts.Type {
+  const symbol = membersOf(file).find((member) => member.name === name && member.flags & ts.SymbolFlags.Type);
+  if (!symbol) throw new Error(`${file} declares no type ${name}`);
+  return sdkTypeChecker().getDeclaredTypeOfSymbol(symbol);
+}
+
+/** The field names of a shape, sorted. */
+export function fieldsOf(name: string, file = TYPES): string[] {
+  return sdkTypeChecker()
+    .getPropertiesOfType(declaredType(file, name))
+    .map((property) => property.name)
+    .sort();
+}
+
+/** The values of a union of string literals, sorted. */
+export function valuesOf(name: string, file = TYPES): string[] {
+  const type = declaredType(file, name);
+  return (type.isUnion() ? type.types : [type]).map((part) => String((part as ts.StringLiteralType).value)).sort();
+}
+
 
 export interface StandInSocket {
   url: string;

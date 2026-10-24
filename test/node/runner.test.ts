@@ -81,6 +81,18 @@ describe("Node runner", () => {
     b.ws.close();
   });
 
+  it("lists a room only when its first hello asks for it", async () => {
+    const listed = connect(ORIGIN, "/v1/rooms/arena/LSTDAA");
+    const unlisted = connect(ORIGIN, "/v1/rooms/arena/LSTDBB");
+    await Promise.all([listed.open, unlisted.open]);
+    listed.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("a"), room: { isListed: true } });
+    unlisted.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("b") });
+    expect((await listed.next()).room.isListed).toBe(true);
+    expect((await unlisted.next()).room.isListed).toBe(false);
+    listed.ws.close();
+    unlisted.ws.close();
+  });
+
   it("takes bytes for the game server and sends bytes back, as Zaisma rooms do", async () => {
     const a = connect();
     const b = connect();
@@ -191,6 +203,14 @@ describe("Node runner", () => {
     await owl.open;
     owl.say({ type: "hello", protocolVersionNumber: 1, pass: await signPass(signing, { sub: "player_owl", aud: "arena", iss: ISS, pass_version_number: 1, kind: "account", iat: now, exp: now + 60 }) });
     expect(await owl.next()).toMatchObject({ type: "error", code: "busy" });
+    // Busy closes with the try-again code (1013), not the final one (4001).
+    expect(await owl.closed).toBe(1013);
+    // Every other refusal is final.
+    const stranger = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await stranger.open;
+    stranger.say({ type: "hello", protocolVersionNumber: 1, pass: "not-a-pass" });
+    expect(await stranger.next()).toMatchObject({ type: "error", code: "bad_pass" });
+    expect(await stranger.closed).toBe(4001);
     own.close();
   });
 

@@ -650,7 +650,16 @@ describe("rooms", () => {
     await addGame("solo", { server: null });
     const { roomCode } = await (await post("/v1/rooms", "arena")).json<{ roomCode: string }>();
     expect(roomCode).toMatch(/^[2-9A-HJ-NP-Z]{6}$/);
-    expect((await post("/v1/rooms", "solo")).status).toBe(404);
+    const refused = await post("/v1/rooms", "solo");
+    expect(refused.status).toBe(404);
+    expect(await refused.json()).toMatchObject({ error: { code: "zaisma_rooms_not_used" } });
+  });
+
+  it("says a game that doesn't use Zaisma rooms has no room list", async () => {
+    await addGame("solo-list", { server: null });
+    const list = await SELF.fetch(`${R}/v1/rooms/solo-list`, { headers: { Origin: ORIGIN } });
+    expect(list.status).toBe(404);
+    expect(await list.json()).toMatchObject({ error: { code: "zaisma_rooms_not_used" } });
   });
 
   it("relays messages between two players and tells everyone who's in", async () => {

@@ -809,8 +809,42 @@ An optional building block for real-time worlds, the same in Zaisma rooms and on
 
 - **`delivery: "reliable"`** (the default) reaches every player, in order.
 - **`delivery: "latest_only"`** may be dropped: while a player's connection is backed up, a newer latest-only message with the same `latestKey` replaces the one waiting, and the newest goes once they catch up (oldest key first, before anything newer). For positions sent every tick, or where a player aims. A player keeps up to 64 waiting, one per key; past it, the least recently replaced is dropped.
-- **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws (`bad_option` on the game server, `bad_send_option` in the SDK). Bytes have their own keys.
-- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your handler, naming what to give (`bad_send_option` in the SDK).
+- **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws: in the game (the SDK) the error's code is `bad_send_option`, and on the game server it is `bad_option`. Bytes have their own keys.
+- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your code, naming what to give: the SDK's error has the code `bad_send_option`; the game server's is a plain error with that text.
+
+### Room error codes
+
+A room answers a refusal with `{ type: "error", code, message }`, then closes the connection (`4001`, or `1013` for `busy`); a message it can't take gets the same `error` and the connection stays open. In the SDK they are `error.code` and the `error` event.
+
+| Code | Meaning |
+| --- | --- |
+| `room_full` | The room has no space for another player. |
+| `room_closed` | The room isn't taking new players (`room.setOpen(false)`). |
+| `ended` | The match is over. |
+| `too_big` | A message over 16 KB, or `joinData` over 4 KB. |
+| `too_fast` | More messages than the room takes (30 a second, burst of 60). |
+| `bad_message` | A message the room couldn't read or use. |
+| `bad_pass` | The player pass wasn't accepted; the SDK gets a new one and tries once more. |
+| `no_hello` | The first message wasn't a hello with a player pass. |
+| `not_allowed` | Only the game server or the room's host can do that. |
+| `game_unavailable` | The game can't be played right now. |
+| `busy` | The room couldn't take the player right now; the SDK tries again soon. |
+| `kept_out` | The player was removed for the rest of the match. |
+| `refused` | The game server's `canJoin` turned the player away. |
+| `room_not_running` | The room isn't running, like one with nobody playing to watch. |
+| `hosting_paused` | The game's hosting is paused this month; new rooms open again when it resets or its developer adds credit. |
+| `account_needed` | The game needs a Zaisma account for multiplayer, and the player is a guest. |
+| `game_not_open_to_player` | The account is younger than the game's minimum age. |
+| `blocked_player_here` | Someone the player blocked is in the room; `quickJoin` tries other rooms first. |
+| `other_version` | The room runs another version of the game (see Updates above). |
+| `spectators_full` | The room takes no more spectators. |
+| `spectator_cannot_send` | A spectator tried to send to the room. |
+| `already_playing` | A player in the room tried to watch it too. |
+| `bad_origin` | The connection didn't come from the game's own page. |
+| `send_queue_full` | The SDK's own: more than 60 sends waited while it reconnected, so the oldest were dropped. |
+| `bad_region` | The SDK's own: a `region` that isn't a continent code (`"AF"`, `"AN"`, `"AS"`, `"EU"`, `"NA"`, `"OC"` or `"SA"`). |
+| `bad_idle_timeout` | The SDK's own: an `idleTimeoutSec` that isn't from 30 to 86400. |
+| `zaisma_rooms_not_used` | The SDK's own: the game doesn't use Zaisma rooms, so there are none to join or list. |
 
 ### Close codes
 

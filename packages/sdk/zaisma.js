@@ -33,8 +33,15 @@
   var VERSIONS_EVENTS = ["update"];
   /** The room messages this SDK speaks (zaisma.d.ts: the wire protocol), sent in the hello. */
   var PROTOCOL_VERSION_NUMBER = 1;
-  /** Reliable sends kept while the connection isn't open or the player is away: the room's burst, so the flush never trips too_fast. */
+  /** Reliable sends kept while the connection isn't open or the player is away: a second or two of a busy game. */
   var MAXIMUM_QUEUED_SEND_COUNT = 60;
+  /**
+   * How the queue goes out once the player is in: 50 at once (the room's burst of 60, less room for what
+   * Zaisma says as it reconnects), then 3 every 100 ms (the room's 30 a second), so none comes back too_fast.
+   */
+  var FLUSH_NOW_COUNT = 50;
+  var FLUSH_STEP_COUNT = 3;
+  var FLUSH_INTERVAL_MS = 100;
   /** A send's size at most: the room's own limit for a message (too_big). */
   var MAXIMUM_SEND_SIZE_BYTES = 16 * 1024;
   /** Continent codes, for room lists and quickJoin's region. */
@@ -442,7 +449,9 @@
     this._slotTimer = null;
     // Reliable sends waiting for the connection, in order, and whether this outage already said some were dropped.
     this._queue = [];
+    this._flushTimer = null;
     this._isQueueFullSaid = false;
+    this._isWelcomed = false;
   }
   Room.prototype = Object.create(Emitter.prototype);
 
@@ -452,9 +461,9 @@
     return config.site + gamePage() + "?room=" + roomCode + (serverUrl && OWN_SERVER_URL.test(serverUrl) ? "&server=" + encodeURIComponent(serverUrl) : "");
   }
 
-  /** Whether a send goes onto the socket now: open, and the player not away. */
+  /** Whether a send goes onto the socket now: open, the room's welcome heard (before it, a send would be taken for the hello), and the player not away. */
   Room.prototype._canSend = function () {
-    return Boolean(this._ws && this._ws.readyState === 1 && !this._away);
+    return Boolean(this._ws && this._ws.readyState === 1 && this._isWelcomed && !this._away);
   };
 
   /** The room's clock now, in epoch milliseconds, estimated from its probes: Date.now() until the first one. */
@@ -505,6 +514,7 @@
     var ws = new WebSocket(this._url + (config.tester && !this._serverUrl ? "?tester=" + config.tester : ""));
     ws.binaryType = "arraybuffer";
     this._ws = ws;
+    this._isWelcomed = false;
     watch();
     ws.onopen = function () {
       room._pingAtMs = room._pongAtMs = room._heardAtMs = Date.now();
@@ -529,7 +539,9 @@
         room._probe(message);
       } else if (message.type === "welcome") {
         var wasAway = room._away;
+        var wasComing = room._coming;
         var wasRejoining = room._rejoining === true;
+        room._isWelcomed = true;
         room._rejoining = false;
         room._tries = 0;
         room._protocolVersionNumber = typeof message.protocolVersionNumber === "number" ? message.protocolVersionNumber : null;
@@ -559,8 +571,8 @@
         room._sendWaiting();
         if (room._moved || wasAway) { room._moved = false; room._emit("players", room.players); }
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
-        // Back to the seat the room held: the game hears it, with nothing to rejoin.
-        if (wasAway && !wasRejoining) {
+        // Back to the seat the room held, answering this tab's back: the game hears it, with nothing to rejoin.
+        if (wasAway && wasComing && !wasRejoining) {
           room._tellConnection();
           room._emit("back", { roomCode: room.roomCode, isSeatHeld: true, rejoin: function () { /* already in */ } });
         }
@@ -796,13 +808,27 @@
     this._isQueueFullSaid = true;
     this._emit("error", { code: "send_queue_full", message: "Up to " + MAXIMUM_QUEUED_SEND_COUNT + " sends wait while reconnecting; older ones were dropped." });
   };
-  /** Reliable sends that waited for the connection, in order. */
+  /** Reliable sends that waited for the connection, in order and at the room's pace; then the latest-only ones. */
   Room.prototype._sendQueued = function () {
-    if (!this._queue.length || !this._canSend()) return;
+    if (!this._queue.length || !this._canSend() || this._flushTimer !== null) return;
+    var room = this;
     var ws = this._ws;
-    this._queue.forEach(function (payload) { ws.send(payload); });
-    this._queue = [];
-    this._sentAtMs = Date.now();
+    function send(count) {
+      room._queue.splice(0, count).forEach(function (payload) { ws.send(payload); });
+      room._sentAtMs = Date.now();
+    }
+    send(FLUSH_NOW_COUNT);
+    if (!this._queue.length) return;
+    this._flushTimer = setInterval(function () {
+      var isGoing = !room._done && room._ws === ws && room._canSend();
+      if (isGoing) send(FLUSH_STEP_COUNT);
+      if (isGoing && room._queue.length) return;
+      clearInterval(room._flushTimer);
+      room._flushTimer = null;
+      // Done, or the connection changed under it: a new one already welcomed starts again, else its welcome will.
+      if (room._queue.length) room._sendQueued();
+      else room._sendWaiting();
+    }, FLUSH_INTERVAL_MS);
   };
 
   /** A send's latestKey when its delivery is "latest_only", or null for a reliable one. Mistakes throw, naming what to give. */
@@ -839,7 +865,7 @@
   };
   /** Latest-only sends that waited, least recently replaced first. */
   Room.prototype._sendWaiting = function () {
-    if (!this._slots.size || !this._canSend()) return;
+    if (!this._slots.size || !this._canSend() || this._queue.length) return;
     var ws = this._ws;
     this._slots.forEach(function (payload) { ws.send(payload); });
     this._slots.clear();
@@ -1011,7 +1037,9 @@
     }
     this._ws = null;
     left(this);
-    this._gone = this._coming = false;
+    // The new room takes the player as they come in: away was the old room's (awayMode "lobby" moves an idle player).
+    this._gone = this._coming = this._away = this._idleSent = false;
+    this.awayReason = null;
     var fromRoomCode = this.roomCode;
     this.roomCode = roomCode;
     this._url = this._url.replace(/[A-Z0-9]{6}$/, roomCode);

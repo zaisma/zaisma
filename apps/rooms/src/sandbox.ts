@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, stateSyncModuleSource } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, PAIR_CHANGE_COUNT, QUEUES_INPUT, ROOM_LIMITS, STATE_SYNC, SYNCS_STATE, GameServerError, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type Audience, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type RestoreInfo, type Room, type ScheduledRun, type SendOptions, type StateSyncHooks, type VersionUpdate, stateSyncModuleSource } from "@zaisma/game-server";
 import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -238,7 +238,7 @@ function delivered(given, call) {
   const options = given && typeof given === "object" ? given : {};
   if (options.delivery !== undefined && options.delivery !== "reliable" && options.delivery !== "latest_only") throw new Error(call + "'s delivery is " + JSON.stringify(options.delivery) + '. Give "reliable" (the default) or "latest_only".');
   if (options.latestKey !== undefined && (typeof options.latestKey !== "string" || options.latestKey.length > MAXIMUM_LATEST_KEY_CHARACTER_COUNT)) throw new Error(call + "'s latestKey must be text up to " + MAXIMUM_LATEST_KEY_CHARACTER_COUNT + ' characters, like "positions".');
-  if (options.delivery === "latest_only" && options.latestKey === undefined) throw new Error(call + "'s delivery is " + '"latest_only" with no latestKey. latest_only needs a latestKey: the slot this update replaces, like "position". (bad_option)');
+  if (options.delivery === "latest_only" && options.latestKey === undefined) throw Object.assign(new Error(call + "'s delivery is " + '"latest_only" with no latestKey. latest_only needs a latestKey: the slot this update replaces, like "position". (bad_option)'), { code: "bad_option" });
   if (options.fromPlayerId !== undefined && (typeof options.fromPlayerId !== "string" || !options.fromPlayerId)) throw new Error(call + "'s fromPlayerId must be a player's ID, like player.id.");
   return { delivery: options.delivery, latestKey: options.latestKey, fromPlayerId: options.fromPlayerId };
 }
@@ -679,6 +679,17 @@ export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameI
  * (docs/DEVELOPER-API.md, "A game server's logs"). The error goes in as a line of its own because a
  * game server that throws prints nothing about it.
  */
+/**
+ * Whether a game server failed to start because of the game's own code (an option it doesn't take, no
+ * setup, its code throwing, a file that isn't valid JSON), which trying again won't fix, rather than
+ * Zaisma's side (storage, secrets, the sandbox itself) failing for a moment.
+ */
+export function isGameStartError(error: unknown): boolean {
+  if (error instanceof GameServerError) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith("Game server error:") || message.endsWith("isn't valid JSON");
+}
+
 export function linesOf(answer: { logLines?: unknown; error?: unknown } | null | undefined, extraError?: string): PrintedLogLine[] {
   const lines = readPrintedLines(answer?.logLines);
   const error = extraError ?? (typeof answer?.error === "string" && answer.error ? answer.error : undefined);

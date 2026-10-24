@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -563,7 +563,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
     const refuse = (code, message) => {
       ws.send(errorMessage(code, message));
-      ws.close(REMOVED_CLOSE_CODE, code);
+      // Busy is a try-again (1013); every other refusal is final (4001).
+      ws.close(code === "busy" ? BUSY_CLOSE_CODE : REMOVED_CLOSE_CODE, code);
     };
     // Refused before the hello too, with a code the SDK reads: a browser never sees why a socket closed otherwise.
     if (!address || address[1] !== game || !isRoomCode(address[2])) return refuse("game_unavailable");

@@ -334,6 +334,7 @@ describe("sandboxed game servers", () => {
   onMessage(state, player, message, room) {
     if (message === "bad") room.broadcast({ type: "aim" }, { delivery: "lossy" });
     else if (message === "keyless") room.broadcast({ type: "aim" }, { delivery: "latest_only" });
+    else if (message === "keyless-code") { try { room.broadcast({ type: "aim" }, { delivery: "latest_only" }); } catch (error) { room.broadcast({ type: "caught", code: error.code }); } }
     else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only", latestKey: "aim" });
   },
 };`,
@@ -341,6 +342,9 @@ describe("sandboxed game servers", () => {
     const a = await join("aimer", "AMRAAB");
     a.say("bad");
     a.say("keyless");
+    // The error reaches the game's code with the same code RoomCore gives it.
+    a.say("keyless-code");
+    expect(await a.next()).toEqual({ type: "message", data: { type: "caught", code: "bad_option" }, fromPlayerId: null });
     a.say(45);
     expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 }, fromPlayerId: null });
     a.ws.close(1000);
@@ -529,6 +533,29 @@ describe("sandboxed game servers", () => {
     expect(await watcher.next()).toMatchObject({ type: "error", code: "spectator_cannot_send" });
   });
 
+  it("passes a player's message on with fromPlayerId, from send and broadcast, and knows its room code", async () => {
+    await addSandboxGame(
+      "passer",
+      `export default {
+  maximumPlayerCount: 3,
+  setup: () => ({}),
+  onMessage(state, player, message, room) {
+    const other = room.players.find((each) => each.id !== player.id);
+    if (message === "pass") {
+      room.send(other.id, { how: "send", roomCodeType: typeof room.roomCode }, { fromPlayerId: player.id });
+      room.broadcast({ how: "broadcast", roomCode: room.roomCode }, { exceptPlayerId: player.id, fromPlayerId: player.id });
+    }
+    return state;
+  },
+};`,
+    );
+    const a = await join("passer", "PASSAA");
+    const b = await join("passer", "PASSAA");
+    a.say("pass");
+    expect(await b.next()).toEqual({ type: "message", data: { how: "send", roomCodeType: "string" }, fromPlayerId: a.player.id });
+    expect(await b.next()).toEqual({ type: "message", data: { how: "broadcast", roomCode: "PASSAA" }, fromPlayerId: a.player.id });
+  });
+
   it("won't start a game server with an option it doesn't take, and tells its developer which ones it does", async () => {
     await addSandboxGame("old-names", `export default { tickRate: 20, setup: () => ({}) };`);
     const up = await SELF.fetch(`${R}/v1/rooms/old-names/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
@@ -536,6 +563,7 @@ describe("sandboxed game servers", () => {
     expect(up.status).toBe(101);
     const turnedAway = new Promise<any>((resolve) => up.webSocket!.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
     up.webSocket!.accept();
+    // The game's own code won't start: unavailable until a new version, not busy.
     expect(await turnedAway).toMatchObject({ type: "error", code: "game_unavailable" });
     const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });

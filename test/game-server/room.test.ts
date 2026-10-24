@@ -1169,7 +1169,7 @@ describe("ping and the room's clock", () => {
     expect(slow.state.left).toEqual([["a", "lost"]]);
   });
 
-  it("probes every sentBytesPerProbe sent, and drops a player maximumUnansweredSentBytes behind", () => {
+  it("probes every ROOM_TUNING.probeSentSizeBytes sent, and drops a player ROOM_TUNING.maximumUnansweredSentSizeBytes behind", () => {
     const now = 1_000_000;
     const big = "x".repeat(100 * 1024);
     const pushing = game({ onMessage: (_s: any, _p: any, data: any, room: any) => room.broadcast(data === "big" ? big : data) });
@@ -1969,6 +1969,49 @@ describe("latest-only messages", () => {
     expect(() => api.send("ana", {}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_option", field: "latestKey" }));
     expect(() => api.broadcast({}, { delivery: "latest_only" })).toThrow(expect.objectContaining({ code: "bad_option", field: "latestKey" }));
     expect(() => api.sendBytes("ana", new Uint8Array([1]), { delivery: 1 })).toThrow("room.sendBytes's delivery is 1.");
+  });
+
+  it("says who a game server's message is from with fromPlayerId, in text and in bytes, and refuses an empty one", () => {
+    const { t, sent, frames } = transport();
+    const room = new RoomCore(counter, t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
+    const api = (room as any).api;
+    api.send("b", { x: 1 }, { fromPlayerId: "a" });
+    expect(sent.b!.at(-1)).toEqual({ type: "message", data: { x: 1 }, fromPlayerId: "a" });
+    api.broadcast({ x: 2 }, { fromPlayerId: "a", exceptPlayerId: "a" });
+    expect(sent.b!.at(-1)).toEqual({ type: "message", data: { x: 2 }, fromPlayerId: "a" });
+    api.sendBytes("b", new Uint8Array([5]), { fromPlayerId: "a" });
+    expect(frames.b!.map(readFrame)).toEqual([{ fromPlayerId: "a", bytes: [5] }]);
+    api.broadcastBytes(new Uint8Array([6]), { fromPlayerId: "a" });
+    expect(readFrame(frames.b!.at(-1)!)).toEqual({ fromPlayerId: "a", bytes: [6] });
+    expect(() => api.send("b", {}, { fromPlayerId: "" })).toThrow("room.send's fromPlayerId must be a player's ID, like player.id.");
+    expect(() => api.broadcast({}, { fromPlayerId: "" })).toThrow("fromPlayerId must be a player's ID");
+    expect(() => api.sendBytes("b", new Uint8Array([1]), { fromPlayerId: "" })).toThrow("fromPlayerId must be a player's ID");
+  });
+
+  it("cuts a kick message to maximumKickMessageCharacterCount", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(counter, t);
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
+    (room as any).api.kick("b", { message: "x".repeat(ROOM_LIMITS.maximumKickMessageCharacterCount + 50) });
+    const kicked = sent.b!.at(-1);
+    expect(kicked.type).toBe("kicked");
+    expect(kicked.message).toBe("x".repeat(ROOM_LIMITS.maximumKickMessageCharacterCount));
+  });
+
+  it("counts and limits messages of a type it doesn't know, ending in too_fast", () => {
+    const room = new RoomCore(counter, transport().t, { now: () => 1_000_000 });
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.takeTraffic();
+    const before = room.messageCount;
+    let lastCode: string | null = null;
+    for (let i = 0; i < ROOM_LIMITS.maximumGameMessageBurstCount + 1; i++) lastCode = room.receive("a", JSON.stringify({ type: "from_the_future", data: i }));
+    expect(lastCode).toBe("too_fast");
+    expect(room.messageCount - before).toBe(ROOM_LIMITS.maximumGameMessageBurstCount + 1);
+    const counted = room.takeTraffic().messageTypes.find((each) => each.direction === "inbound" && each.messageType === "(zaisma)");
+    expect(counted).toMatchObject({ messageCount: ROOM_LIMITS.maximumGameMessageBurstCount + 1 });
   });
 
   it("counts reliable messages that went to a backed-up player, for get_stats' hint", () => {

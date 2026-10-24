@@ -110,7 +110,7 @@ export default {
 
 **Messages that can be dropped:** `{ delivery: "latest_only" }` on any send, from the game server or the game, marks a message only the newest of matters, like positions every tick or where a player aims: while a player's connection is backed up, a newer one with the same `latestKey` (which it needs, like `"position"`) replaces it, and the newest goes once they catch up. Zaisma's rooms carry them over the WebSocket today, and the same call moves to real datagrams once Cloudflare carries them. `get_stats` says which of your message types would gain from it (`latest_only_available`).
 
-Games without server code can use the built-in `relay` (up to 16 players), which passes each message to everyone else as `{ fromPlayerId, data }`, and bytes with their `fromPlayerId`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
+Games without server code can use the built-in `relay` (up to 16 players), which passes each message on to everyone else as it was sent (your game's `message` event gets the message, then `fromPlayerId` as its second argument), and bytes the same way. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
 #### Your game server on Zaisma
 
@@ -180,8 +180,8 @@ On the game server, `room.setListed(false)` hides a room (its code and links sti
 
 Join on the game page is an ordinary room link, so the game decides what comes first:
 
-- **Straight in:** call `joinRoom()` or `quickJoin()` when the game starts; both follow the link.
-- **A menu or character customizer first:** check `Zaisma.rooms.linkedRoomCode`, show your screen, then join with what the player picked: `joinRoom({ joinData: { character: "knight" } })` hands it to your game server's `canJoin` and `onJoin` (plain JSON, up to 4 KB; it comes from the player's browser, so check it like any message). If the room filled up meanwhile, `joinRoom` fails with `error.code === "full"` and `quickJoin` finds another.
+- **Straight in:** call `joinRoom()` or `quickJoin()` when the game starts; both follow a link to a Zaisma room; on your own servers, join with `joinRoom({ serverUrl: Zaisma.rooms.linkedServerUrl, roomCode: Zaisma.rooms.linkedRoomCode })`, since only `joinRoom({ serverUrl })` follows a link that names a server.
+- **A menu or character customizer first:** check `Zaisma.rooms.linkedRoomCode`, show your screen, then join with what the player picked: `joinRoom({ joinData: { character: "knight" } })` hands it to your game server's `canJoin` and `onJoin` (plain JSON, up to 4 KB; it comes from the player's browser, so check it like any message). If the room filled up meanwhile, `joinRoom` fails with `error.code === "room_full"` and `quickJoin` finds another.
 - **Your own lobby:** list rooms only in the game and draw them yourself from `Zaisma.rooms.list()`.
 
 #### Lobbies and matches
@@ -237,10 +237,10 @@ export default {
 ```js
 const room = await Zaisma.joinRoom({ isSpectator: Zaisma.rooms.isLinkedAsSpectator });  // in the game
 room.isSpectator;    // watching: room.send and room.sendBytes throw error.code "spectator_cannot_send"
-room.spectatorCount; // how many watch; the "room" event says when it changes
+room.spectatorCount; // how many watch; the "settings" event says when it changes
 ```
 
-A spectator gets everything the room sends everyone (`audience` picks who: `"everyone"`, the default, `"players"` or `"spectators"`, for `room.broadcast` and `room.broadcastBytes`), and `room.send(spectator.id, ...)` reaches one. They send nothing, so they can't bother players or dodge the room's limits; they're never in `room.players`, don't count toward `maximumPlayerCount` or "playing now", are never idle or away, and are free: watching isn't player time. `room.spectators` lists them, `joinInfo.isSpectator` tells `canJoin` a watcher is asking, and `room.kick` works on them too. A closed or full room can still be watched (watching a match under way is the point); a room with nobody playing can't (`no_room`), and one whose audience is full answers `watching_full`. When the last player leaves, the spectators are told the match ended.
+A spectator gets everything the room sends everyone (`audience` picks who: `"everyone"`, the default, `"players"` or `"spectators"`, for `room.broadcast` and `room.broadcastBytes`), and `room.send(spectator.id, ...)` reaches one. They send nothing, so they can't bother players or dodge the room's limits; they're never in `room.players`, don't count toward `maximumPlayerCount` or "playing now", are never idle or away, and are free: watching isn't player time. `room.spectators` lists them, `joinInfo.isSpectator` tells `canJoin` a watcher is asking, and `room.kick` works on them too. A closed or full room can still be watched (watching a match under way is the point); a room with nobody playing can't (`room_not_running`), one whose audience is full answers `spectators_full`, and a player already playing in the room answers `already_playing`. When the last player leaves, the spectators are told the match ended.
 
 On zaisma.com, Watch shows beside Join (friends playing, the Players plate, the Rooms tab) for games that take spectators, with the same rules as Join, and opens the game with `Zaisma.rooms.isLinkedAsSpectator` true. The Rooms tab and the Players plate say how many are watching, never who.
 
@@ -391,7 +391,7 @@ Blocks come the same way: `block_player_tag_ids`, the tags of up to 100 accounts
 
 #### Friends in your game
 
-`await Zaisma.friends.list()` gives a signed-in player their Zaisma friends who are playing your game right now, `{ friends: [{ id, name, username, roomCode, serverUrl, joinRefusal }] }`, so your game can draw its own list to join a friend's match, watch it or invite them: `roomCode` (and `serverUrl` on your own servers) when the player could join, else `joinRefusal` says why (`not_taking_joins`, `match_in_progress`, `room_full`, `no_room`). Friends who hide what they're playing, appear offline or play something else never reach your game, and neither does who's online. A guest gets `error.code === "account_needed"`. On your own servers, `joinRoom({ serverUrl })` tells Zaisma the room by itself, so friends' Join on zaisma.com works there too (a game with its own netcode calls `Zaisma.friends.setRoom({ serverUrl, roomCode })`, and `null` when the player leaves); Join opens your page with `?room=CODE&server=…`, which `joinRoom` and `quickJoin` follow, and your server keeps its own door. The server must be one of the game's own servers listed on its page.
+`await Zaisma.friends.list()` gives a signed-in player their Zaisma friends who are playing your game right now, `{ friends: [{ id, name, username, roomCode, serverUrl, joinRefusal }] }`, so your game can draw its own list to join a friend's match, watch it or invite them: `roomCode` (and `serverUrl` on your own servers) when the player could join, else `joinRefusal` says why (`game_not_taking_joins`, `friend_not_taking_joins`, `private_room`, `room_closed`, `room_full`, `spectators_full` or `friend_not_in_room`). Friends who hide what they're playing, appear offline or play something else never reach your game, and neither does who's online. A guest gets `error.code === "account_needed"`. On your own servers, `joinRoom({ serverUrl })` tells Zaisma the room by itself, so friends' Join on zaisma.com works there too (a game with its own netcode calls `Zaisma.friends.setRoom({ serverUrl, roomCode })`, and `null` when the player leaves); Join opens your page with `?room=CODE&server=…`: only `joinRoom({ serverUrl })` follows a link that names a server (`quickJoin` follows only links to Zaisma rooms, so an own-server game reads `Zaisma.rooms.linkedServerUrl` and calls `joinRoom` with it), and your server keeps its own door. The server must be one of the game's own servers listed on its page.
 
 ### Connections between players
 

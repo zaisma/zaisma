@@ -1007,7 +1007,7 @@ function roomBrowsingFields(current: RoomBrowsing): Raw {
 ${ROOM_BROWSING.map(
     (browsing) => html`<label class="check"><input type="radio" name="room_browsing" value="${browsing}"${current === browsing ? raw(" checked") : ""}> <span>${ROOM_BROWSING_LABELS[browsing].label}<small class="hint">${ROOM_BROWSING_LABELS[browsing].hint}</small></span></label>`,
   )}
-<p class="hint">Your game can also hide single rooms, like private matches: <code>Zaisma.joinRoom({ isListed: false })</code>, or <code>room.setListed(false)</code> from your game server.</p>
+<p class="hint">A new room starts out unlisted. Your game can list one for others to find: <code>Zaisma.joinRoom({ isListed: true })</code>, or <code>room.setListed(true)</code> from your game server. <code>Zaisma.rooms.quickJoin()</code> lists the rooms it makes.</p>
 </fieldset>`;
 }
 
