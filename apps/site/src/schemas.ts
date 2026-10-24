@@ -1,5 +1,5 @@
 import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CURRENCY_MINIMUM_PRICES, ITEM_CATEGORIES, ITEM_KINDS, PURCHASE_SOURCES, PURCHASE_STATUSES, REFUND_POLICIES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
-import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
+import { BROWSER_NAMES, DEVICE_KINDS, GRAPHICS_FAMILIES, OS_NAMES, PERFORMANCE_CHECK_LIMITS, PERFORMANCE_NOTE_CODES, PLAN_LIMITS, PLAYER_PERFORMANCE_LIMITS } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
 /**
@@ -222,7 +222,7 @@ export const PERFORMANCE_CHECK = object(
       waiting: "the version passed and waits for Chrome, usually under a minute",
       checking: "running in Chrome now",
       checked: "done; see the numbers and notes",
-      over_daily_limit: `not measured: the developer's ${PERFORMANCE_CHECK_LIMITS.maximumDailyCheckCount} checks today are used; versions are measured again from midnight UTC`,
+      over_daily_limit: `not measured: the developer's ${PLAN_LIMITS.free.maximumDailyCheckCount} checks today (${PLAN_LIMITS.pro.maximumDailyCheckCount} with Zaisma Pro) are used; versions are measured again from midnight UTC`,
       could_not_run: "Chrome couldn't run it on Zaisma's side; nothing for the developer to fix",
     }),
     checked_at: nullable(isoTime("When the run finished; null until it has.")),
@@ -427,7 +427,7 @@ export const ACCESS = object({
       forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
-      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com)."),
+      credit_access: choice(AREA_ACCESS_CHOICES.credit_access, "Hosting credit; none for keys limited to some games. read: balance, top-ups and spending. write: also start a top-up, refund one, and turn spending off or down (on or up needs the developer's passkey on zaisma.com). Also Zaisma Pro: read the plan; write: start, cancel or resume it."),
     },
     "What the key may do in each area.",
   ),
@@ -610,6 +610,38 @@ export const CREDIT = object({
       "The last 90 days, newest first.",
     ),
   }),
+});
+const PLAN_CHOICES = choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits, $10 a month" }, "The developer's plan.");
+/** One plan's daily limits, in the same words for both (get_pro). */
+const PLAN_LIMITS_SCHEMA = object({
+  maximum_large_review_count: countOf("Large reviews a day across all their games: a new game or a real change, read and judged."),
+  maximum_small_review_count: countOf("Small reviews a day across all their games: versions the AI reads."),
+  maximum_performance_check_count: countOf("Performance checks a day, from UTC midnight; past them a version just isn't measured."),
+  maximum_version_count: countOf("Versions a game can get in a day."),
+  maximum_game_size_bytes: countOf("The biggest a game's files can be together, in bytes."),
+});
+/** A developer's plan (get_pro). */
+export const PRO = object({
+  pro: object({
+    plan: PLAN_CHOICES,
+    pro_ends_at: nullable(isoTime("When Zaisma Pro ends or renews: the end of the paid month. null on the free plan.")),
+    is_pro_cancelled: yes("Whether Pro ends at pro_ends_at instead of renewing (cancel_pro did it; resume_pro takes it back)."),
+    monthly_price_cents: countOf("What Zaisma Pro costs a month on the developer's card, in cents (1000 is $10). Apart from hosting credit."),
+    limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }),
+    used_today: object({
+      large_review_count: countOf("Large reviews used in the last 24 hours."),
+      small_review_count: countOf("Small reviews used in the last 24 hours."),
+      performance_check_count: countOf("Performance checks used since UTC midnight."),
+    }),
+  }),
+});
+/** The plan after cancel_pro or resume_pro. */
+export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
+/** Stripe's page for starting Zaisma Pro (start_pro). */
+export const PRO_CHECKOUT = object({
+  checkout_url: url("Stripe's page where the developer pays. Only a person can pay there."),
+  expires_at: isoTime("When the page stops taking payment."),
+  next_steps: NEXT,
 });
 /** Stripe's page for a top-up (top_up_credit). */
 export const TOP_UP_CHECKOUT = object({

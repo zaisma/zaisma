@@ -4,6 +4,7 @@ import {
   PERFORMANCE_CHECK_LIMITS,
   gameAddress,
   gameById,
+  limitsFor,
   randomKey,
   reportFromObservations,
   versionById,
@@ -34,17 +35,21 @@ export type ChromeRun = (env: Env, pageUrl: string, gameBaseUrl: string) => Prom
 
 const DAY_MS = 24 * 3600 * 1000;
 
+/** The owner's performance checks that count today, from UTC midnight; ones marked over the limit don't. */
+export async function dailyCheckCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
+  const counted = await env.DB.prepare("SELECT COUNT(*) AS check_count FROM performance_checks WHERE owner_id = ? AND queued_at_ms >= ? AND check_status != 'over_daily_limit'")
+    .bind(ownerId, nowMs - (nowMs % DAY_MS))
+    .first<{ check_count: number }>();
+  return counted?.check_count ?? 0;
+}
+
 /** A version that just passed: queued for Chrome, or marked over the developer's daily limit. Zip versions and ones already queued are left alone. */
 export async function queuePerformanceCheck(env: Env, version: Version): Promise<void> {
   if (version.kind !== "files") return;
   const game = await gameById(env.DB, version.game_id);
   if (!game?.owner_id) return;
   const nowMs = Date.now();
-  const dayStartMs = nowMs - (nowMs % DAY_MS);
-  const counted = await env.DB.prepare("SELECT COUNT(*) AS check_count FROM performance_checks WHERE owner_id = ? AND queued_at_ms >= ? AND check_status != 'over_daily_limit'")
-    .bind(game.owner_id, dayStartMs)
-    .first<{ check_count: number }>();
-  const checkStatus = (counted?.check_count ?? 0) >= PERFORMANCE_CHECK_LIMITS.maximumDailyCheckCount ? "over_daily_limit" : "waiting";
+  const checkStatus = (await dailyCheckCount(env, game.owner_id, nowMs)) >= (await limitsFor(env.DB, game.owner_id, nowMs)).maximumDailyCheckCount ? "over_daily_limit" : "waiting";
   const inserted = await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, queued_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (version_id) DO NOTHING RETURNING version_id")
     .bind(version.id, game.owner_id, checkStatus, nowMs)
     .first();

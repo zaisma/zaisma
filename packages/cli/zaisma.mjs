@@ -1123,12 +1123,15 @@ async function upload({ folder }, flags) {
   const slug = flags.game;
   const gameFolder = await readGameFolder(folder);
   const { problems } = await checkGame(gameFolder, slug);
-  const refused = problems.find((problem) => problem.problem_kind === "refused" && !problem.is_fixed_by_upload_command);
+  // The size limit depends on the developer's plan (Zaisma Pro allows more), which only the server knows: it answers game_too_big itself.
+  const refused = problems.find((problem) => problem.problem_kind === "refused" && !problem.is_fixed_by_upload_command && problem.code !== "game_too_big");
   if (refused) {
     printProblems(problems, PROBLEM_GROUPS.slice(0, 2));
     throw new CommandError({ code: refused.code, message: refused.message, field: "folder", fix: refused.fix, retry_after_sec: null }, EXIT_CODES.failed.exitCode);
   }
   printProblems(problems, PROBLEM_GROUPS.slice(1, 2));
+  const tooBig = problems.find((problem) => problem.code === "game_too_big");
+  if (tooBig) say(`${tooBig.message} Uploading anyway: Zaisma checks it against your plan.`);
   if (gameFolder.hiddenPaths.length) say(`Leaving out hidden files: ${gameFolder.hiddenPaths.slice(0, 5).join(", ")}${gameFolder.hiddenPaths.length > 5 ? "…" : ""}`);
 
   const fixed = await fixUpload(gameFolder.files);

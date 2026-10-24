@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, CREDIT, CREDIT_CHANGED, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -20,7 +20,7 @@ const INSTRUCTIONS = `Zaisma hosts browser games: a game is a folder with an ind
 How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
-3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small). Passed versions get a private preview link.
+3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing.
@@ -733,6 +733,43 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", "/credit/top-ups", pick(toolArguments, ["amount_cents"])),
   },
   {
+    name: "get_pro",
+    title: "My plan",
+    description:
+      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, and when Pro ends or renews (pro_ends_at) and whether it is cancelled. Seats come with Teams and custom domains with Custom game domains, not Pro.",
+    inputSchema: object({}),
+    outputSchema: PRO,
+    annotations: read,
+    run: (_, call) => call("GET", "/pro"),
+  },
+  {
+    name: "start_pro",
+    title: "Start Zaisma Pro",
+    description: "Start Zaisma Pro, $10 a month: answers Stripe's page (checkout_url), where only the developer can pay; give them the link. Once they've paid, get_pro shows plan pro and the higher limits apply at once. They can cancel any time (cancel_pro) and keep Pro to the end of the paid month. Answers already_pro when they have it.",
+    inputSchema: object({}),
+    outputSchema: PRO_CHECKOUT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (_, call) => call("POST", "/pro/checkout"),
+  },
+  {
+    name: "cancel_pro",
+    title: "Cancel Zaisma Pro",
+    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back; a live version over 2 GB stays live, and only new uploads must fit. resume_pro takes the cancelling back before then. Ask the developer first.",
+    inputSchema: object({}),
+    outputSchema: PRO_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (_, call) => call("POST", "/pro/cancel"),
+  },
+  {
+    name: "resume_pro",
+    title: "Keep Zaisma Pro",
+    description: "Take back cancelling Zaisma Pro, before it ends: it renews as before. Answers not_pro when it isn't cancelled or has ended (start_pro then starts it again).",
+    inputSchema: object({}),
+    outputSchema: PRO_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (_, call) => call("POST", "/pro/resume"),
+  },
+  {
     name: "refund_top_up",
     title: "Refund a top-up",
     description: "Give back what's unspent of one top-up to the card it came from, within 180 days of it. Credit is spent oldest first, so the newest top-ups hold the balance. get_credit lists each top-up's refundable_cents. Ask the developer first: it takes that credit away.",
@@ -1088,12 +1125,13 @@ export const TOOLS: Tool[] = [
     name: "get_access",
     title: "What this key can do",
     description:
-      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/account, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can.",
+      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, the games it works on (game_slugs, null for all) and when it ends (api_key_ends_at, null for never). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/account, never through the MCP. can_publish says whether the account can make, upload and publish games, which until the beta only accounts Zaisma adds can. plan says whether the developer has Zaisma Pro (free or pro).",
     inputSchema: object({}),
     outputSchema: answer({
       access: ACCESS,
       can_publish: yes("Whether this account can make, upload and publish games. Until the beta only accounts Zaisma adds can; false means create_game, upload_files and publish_version answer publishing_not_open."),
       credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
+      plan: choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits" }, "The developer's plan; get_pro has its limits."),
     }),
     annotations: read,
     run: (_, call) => call("GET", "/access"),

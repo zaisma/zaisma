@@ -5,7 +5,7 @@ import type { Env } from "./env.ts";
  * Zaisma's own Stripe account, for hosting credit (docs/DECISIONS.md, "Hosting is priced with a margin, with a free
  * tier, and prepaid above it"): Stripe sells credit as the merchant of record (Managed Payments), so it charges and
  * files sales tax and VAT. Called with fetch and form encoding, without Stripe's SDK: the calls are few. Zaisma Pro
- * reuses the customer and the calls. Never connected to the buy sheet, which is the developer's own Stripe.
+ * reuses the customer and the calls (a subscription, apart from credit). Never connected to the buy sheet, which is the developer's own Stripe.
  */
 
 const STRIPE_API_URL = "https://api.stripe.com/v1";
@@ -102,6 +102,33 @@ export async function topUpCheckout(env: Env, ownerId: string, amountCents: numb
     cancel_url: backUrl,
   });
   return { checkoutUrl: String(session.url), expiresAtMs: Number(session.expires_at) * 1000 };
+}
+
+/**
+ * Stripe's page for starting Zaisma Pro: a subscription to the monthly price (STRIPE_PRO_PRICE_ID), with Managed
+ * Payments on, on the owner's one customer. The owner is in the subscription's metadata, so every event about it
+ * says whose Pro it is. Back to the Pro settings either way.
+ */
+export async function proCheckout(env: Env, ownerId: string): Promise<{ checkoutUrl: string; expiresAtMs: number }> {
+  if (!env.STRIPE_PRO_PRICE_ID) throw unavailable("this Zaisma has no Zaisma Pro price set up.");
+  const customer = await customerFor(env, ownerId);
+  const backUrl = `${env.SITE_ORIGIN}/developer/settings#pro`;
+  const session = await stripeCall(env, "POST", "/checkout/sessions", {
+    mode: "subscription",
+    customer,
+    managed_payments: { enabled: true },
+    line_items: [{ price: env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
+    subscription_data: { metadata: { owner_id: ownerId } },
+    metadata: { owner_id: ownerId },
+    success_url: backUrl,
+    cancel_url: backUrl,
+  });
+  return { checkoutUrl: String(session.url), expiresAtMs: Number(session.expires_at) * 1000 };
+}
+
+/** Cancels Zaisma Pro at the end of the paid month (isCancelled), or takes the cancelling back. */
+export async function setProCancelled(env: Env, subscriptionId: string, isCancelled: boolean): Promise<StripeObject> {
+  return stripeCall(env, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { cancel_at_period_end: isCancelled });
 }
 
 /** Charges the owner's saved card, off-session, for an automatic top-up. The key makes a retry the same charge. */

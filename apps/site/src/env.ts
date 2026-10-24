@@ -70,10 +70,14 @@ export interface Env {
   CSP_REPORT_LIMIT?: RateLimit;
   /** Credit top-ups and refunds an owner starts in a minute (credit-api.ts): each reaches Stripe. */
   CREDIT_LIMIT?: RateLimit;
+  /** Zaisma Pro checkouts, cancels and resumes an owner starts in a minute (pro-api.ts): each reaches Stripe. */
+  PRO_LIMIT?: RateLimit;
   /** Zaisma's own Stripe account's secret key, for hosting credit (stripe.ts). Without it, top-ups answer stripe_unavailable. */
   STRIPE_SECRET_KEY?: string;
   /** The signing secret of Stripe's endpoint at /stripe/events (stripe-events.ts). */
   STRIPE_EVENTS_SECRET?: string;
+  /** The ID of Zaisma Pro's recurring price ($10 a month) in Zaisma's Stripe account (stripe.ts, proCheckout). Without it, starting Pro answers stripe_unavailable. */
+  STRIPE_PRO_PRICE_ID?: string;
   ALERTS?: SendEmail;
   /** Cloudflare Email Sending, for players' email codes (email-codes.ts), from EMAIL_FROM on zaisma.com. */
   EMAIL?: SendEmail;

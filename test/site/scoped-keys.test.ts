@@ -94,7 +94,7 @@ describe("levels and areas", () => {
 
   it("keep keys made before scopes doing everything", async () => {
     const { answer } = await api("/access", full);
-    expect(answer).toEqual({ access: { api_key_name: "laptop", api_key_ends_at: null, access_level: "full", area_access: AREA_ACCESS_BY_LEVEL.full, game_slugs: null }, can_publish: true, credit_balance_cents: 0 });
+    expect(answer).toEqual({ access: { api_key_name: "laptop", api_key_ends_at: null, access_level: "full", area_access: AREA_ACCESS_BY_LEVEL.full, game_slugs: null }, can_publish: true, credit_balance_cents: 0, plan: "free" });
   });
 });
 

@@ -9,8 +9,6 @@ import { readVersionAddress } from "./uploads.ts";
  */
 
 export const PERFORMANCE_CHECK_LIMITS = {
-  /** Runs a developer gets a day, counted from UTC midnight; past them a version just isn't measured. */
-  maximumDailyCheckCount: 20,
   /** The longest a run waits for a first frame. */
   maximumRunDurationSec: 120,
   /** How long a run keeps going after the first frame, for memory at start. */

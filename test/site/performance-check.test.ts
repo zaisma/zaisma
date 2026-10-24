@@ -134,6 +134,21 @@ describe("every version is started in Chrome", () => {
     expect((await rowOf(versionId))?.check_status).toBe("over_daily_limit");
   });
 
+  it("measures up to 60 versions a day for a developer with Zaisma Pro", async () => {
+    const nowMs = Date.now();
+    const ownerId = (await gameBySlug(env.DB, "sky-hopper"))!.owner_id;
+    await env.DB.prepare("UPDATE owners SET pro_until_ms = ? WHERE id = ?").bind(nowMs + 86_400_000, ownerId).run();
+    const insert = (versionId: string) => env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, queued_at_ms) VALUES (?, ?, 'checked', ?)").bind(versionId, ownerId, nowMs - 1000).run();
+    for (let i = 0; i < 20; i++) await insert(`version_earlier${i}`);
+    const sent = vi.spyOn(env.PERFORMANCE_QUEUE, "send");
+    const versionId = await passedVersion("sky-hopper");
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect((await rowOf(versionId))?.check_status).toBe("waiting");
+    for (let i = 21; i < 60; i++) await insert(`version_earlier${i}`);
+    const lastVersionId = await passedVersion("sky-hopper", { "index.html": new TextEncoder().encode("<!doctype html><canvas></canvas><!-- another -->") });
+    expect((await rowOf(lastVersionId))?.check_status).toBe("over_daily_limit");
+  });
+
   it("saves a run's report, and answers it through get_version and get_game", async () => {
     const versionId = await passedVersion("sky-hopper", { "index.html": new TextEncoder().encode("<!doctype html><script src=game.js></script>"), "music/theme.wav": wav() });
     await checkVersion(env, versionId, sawGame());

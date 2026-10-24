@@ -62,6 +62,9 @@ import {
   type GameImage,
   type ImageKind,
   FILE_LIMITS,
+  PLAN_LIMITS,
+  planFor,
+  type PlanKind,
   UploadError,
   addBlob,
   blobKey,
@@ -180,6 +183,7 @@ import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
+import { proRoute } from "./pro-api.ts";
 import { clearPauses, pauseNow, resetsOnText } from "./hosting-job.ts";
 import { itemsRoute, playerItemsRoute, purchaseSettingsRoute, purchasesRoute } from "./items-api.ts";
 import { backgroundsAnswer, backgroundsRoute, serveShaderFile, shadersAnswer, shadersReadingTexture } from "./backgrounds-api.ts";
@@ -692,6 +696,10 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" } }),
   call({ method: "GET", path: "/credit", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/top-ups", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("amount_cents") } }),
+  call({ method: "GET", path: "/pro", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/cancel", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
   call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
   call({ method: "PATCH", path: "/credit/automatic-top-up", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_enabled", "top_up_below_cents", "top_up_amount_cents", "monthly_top_up_limit_cents") } }),
   call({ method: "GET", path: "/webhooks", reaches: "account", access: needs("webhook_access", "read") }),
@@ -824,7 +832,7 @@ async function ownGameSlugs(env: Env, given: unknown, caller: Caller, field: str
  * this caller alone. One that isn't is answered like a file never sent.
  */
 async function storedFiles(env: Env, given: unknown, caller: Caller): Promise<CheckedCall["files"]> {
-  const list = listOrThrow(given);
+  const list = listOrThrow(given, await planFor(env.DB, caller.ownerId));
   const found = await locateBlobs(env.DB, list.map((file) => file.sha256), caller.ownerId);
   const missingCount = list.filter((file) => !found.has(file.sha256)).length;
   if (missingCount) {
@@ -851,8 +859,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents });
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId) });
   }
+  if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
   if (path === "/check" && method === "POST") return answer(await checkRoute(env, checked));
   if (path === "/api-keys" && method === "GET") return answer(await apiKeysAnswer(env, caller));
@@ -1403,7 +1412,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
 
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
-    const files = listOrThrow(body.files);
+    const files = listOrThrow(body.files, await planFor(env.DB, caller.ownerId));
     const missing = await missingBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
     return [{ file_count: files.length, size_bytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0), missing_file_hashes: missing }];
   }
@@ -1427,9 +1436,10 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
-    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) {
+    const versionPlan = await planFor(env.DB, caller.ownerId);
+    if ((today?.version_count ?? 0) >= PLAN_LIMITS[versionPlan].maximumVersionsPerDay) {
       throw new ApiError("version_limit", {
-        message: `${game.slug} has had ${FILE_LIMITS.maximumVersionsPerDay} versions in the last day, the most a game can.`,
+        message: `${game.slug} has had ${PLAN_LIMITS[versionPlan].maximumVersionsPerDay} versions in the last day, the most a game can${versionPlan === "free" ? ` (${PLAN_LIMITS.pro.maximumVersionsPerDay} with Zaisma Pro)` : ""}.`,
         fix: "Wait until the oldest is a day old, then upload again; meanwhile test with the latest version's preview_url.",
         retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
       });
@@ -1957,9 +1967,9 @@ function reasonAnswer(stored: string | null) {
   return reason ? reviewReasonAnswer(reason) : null;
 }
 
-function listOrThrow(files: unknown): UploadFile[] {
+function listOrThrow(files: unknown, plan: PlanKind): UploadFile[] {
   try {
-    return checkUploadList(files);
+    return checkUploadList(files, plan);
   } catch (error) {
     if (error instanceof UploadError) throw new ApiError(error.problem?.code ?? "bad_files", { message: error.message, field: error.problem?.field ?? "files", fix: error.problem?.fix ?? "Check the file list against docs/DEVELOPER-API.md, Uploading versions." });
     throw error;
