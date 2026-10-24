@@ -366,9 +366,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
-    // A small box near a corner (a check's box) keeps its shape: never more than a quarter of its short side, as on no pane. A thin bar (a
-    // scrollbar along a pane's foot) follows the corner across its whole height instead.
-    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.25 : Infinity;
+    // Its cut keeps the same gap to the pane's cut as its sides keep to the pane's sides, however small the box (a swatch, a check's box),
+    // up to half its short side, where two cuts on one side would meet. A thin bar (a scrollbar along a pane's foot) follows the corner
+    // across its whole height instead.
+    var most = Math.max(w, h) < 3 * Math.min(w, h) ? Math.min(w, h) * 0.5 : Infinity;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
       return Math.min(most, Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2));
@@ -498,9 +499,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    * (its own shape), a pane (its own corners), what's inside either (clipped with it), and a shape of its own (a tag's clip-path).
    */
   var EDGE_MIN_PX = 6, edgedCuts = new Map();
+  function isShadowSeen(shadow) {
+    return shadow !== "none" && (shadow.match(/rgba?\\([^)]*\\)/g) || [""]).some(function (color) { var parts = color.match(/[\\d.]+/g); return !parts || parts.length < 4 || Number(parts[3]) > 0.04; });
+  }
   function hasEdge(el, css) {
     if (/^(IMG|VIDEO|CANVAS|IFRAME)$/.test(el.tagName)) return true;
-    if (css.backgroundImage !== "none" || css.boxShadow !== "none") return true;
+    // A shadow all in a clear color (a focus ring at rest, waiting to show) draws nothing, so it's no edge.
+    if (css.backgroundImage !== "none" || isShadowSeen(css.boxShadow)) return true;
     var fill = css.backgroundColor.match(/[\\d.]+/g);
     if (fill && (fill.length < 4 || Number(fill[3]) > 0.04)) return true;
     return ["Top", "Right", "Bottom", "Left"].some(function (side) { return parseFloat(css["border" + side + "Width"]) > 0 && !/rgba\\(.*, 0\\)|transparent/.test(css["border" + side + "Color"]); });
@@ -519,7 +524,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         if (!r.width || !r.height || !nearCorner(r)) return;
         if (edgedCuts.has(child)) { found.push(child); return; }
         var css = getComputedStyle(child);
-        if (css.display === "contents" || css.position === "fixed") return walk(child);
+        // Words inline (a link, code in a sentence) are never cut: a link that wraps isn't one box for a shape to follow, and Safari lays a
+        // clip-path on an inline box from another box than the one measured here, cutting the words themselves (a tray head's name, its
+        // link in the pane's corner, lost its lower half).
+        if (css.display === "contents" || css.display === "inline" || css.position === "fixed") return walk(child);
         if (css.clipPath === "none" && Math.min(r.width, r.height) >= EDGE_MIN_PX && hasEdge(child, css)) found.push(child);
         else walk(child);
       });
