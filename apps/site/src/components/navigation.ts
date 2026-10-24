@@ -329,7 +329,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (!isPage && !scroller) return;
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
-    bar.classList.add("is-on");
+    // Shown or not by its class, never by hidden: WebKit checks the page's :has() rules on [hidden] again over the whole page each time any
+    // element's hidden changes, seconds on a page of a hundred boxes.
+    var isShown = true; bar.classList.add("is-on");
     // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
     // A box's rail marks the parts inside the box, down it or along it; the page's, those in no box of their own.
@@ -402,11 +404,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
         if (placed.follows) { bar.style.top = placed.follows.top; bar.style.bottom = "auto"; bar.style.height = placed.follows.height; bar.style.right = "auto"; bar.style.left = placed.follows.left; }
-        bar.hidden = placed.max <= 4;
+        if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
+        // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
+        if (!isPage) scroller.classList.toggle("shows-rail", isShown);
       },
       // Its track, where it's scrolled to and where its marks' parts sit, read once it's placed.
       measure: function () {
-        if (bar.hidden) return null;
+        if (!isShown) return null;
         var scrollPadding = isPage && marks.length ? offset() : 0;
         return {
           track: isSide ? bar.clientWidth : bar.clientHeight,
@@ -439,11 +443,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function layout() { if (drag) { isLayoutDue = true; return; } layOutSoon(rail); }
     // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
     // never reads the page's layout.
-    function move(atPx) { if (!bar.hidden) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
+    function move(atPx) { if (isShown) thumb.style.transform = (isSide ? "translateX(" : "translateY(") + ((size.track - size.thumb) * Math.min(1, (atPx === undefined ? at() : atPx) / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     // Woken only once a scroll: the class is set as it wakes, not on every scroll event, so the page's watchers hear of it once.
     function wake() { if (!bar.classList.contains("awake")) bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
-    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
+    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); settle(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.zaismaWatch.resize(layout);
     window.zaismaWatch.size(isPage ? document.body : scroller.firstElementChild || scroller, layout); if (above) window.zaismaWatch.size(above, layout);
     // A box's content can change without its first child changing size (a pane's views taking turns, a step showing): measured again then.
@@ -452,10 +456,20 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // On a long page a pixel of the thumb is dozens of the page's, so a finger held still, which always trembles a little, would shake the
     // page: by touch, the thumb follows only once the finger has truly moved, from where it was then.
     var TOUCH_SLOP_PX = 6;
+    // By touch, iOS places a finger through the page's scroll as its own side last had it, a few frames behind a scroll set here: read right
+    // after one, a finger held still seems to have moved by what the page just scrolled, and at dozens of the page's pixels to one of the
+    // thumb's the page would shake and run away. So by touch, after any scroll a finger is read again only once SETTLE_FRAMES have drawn.
+    var SETTLE_FRAMES = 4;
+    function settle() {
+      if (!drag || !drag.isTouch) return;
+      var mine = drag, frames = 0; mine.settledAt = Infinity; mine.settling = (mine.settling || 0) + 1;
+      var turn = mine.settling;
+      (function wait() { if (drag !== mine || mine.settling !== turn) return; if (++frames < SETTLE_FRAMES) requestAnimationFrame(wait); else mine.settledAt = performance.now(); })();
+    }
     function start(event, jump) {
       event.preventDefault();
       if (jump) { var y = along(event) - (isSide ? bar.getBoundingClientRect().left : bar.getBoundingClientRect().top) - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
-      drag = { y: along(event), from: at(), isMoving: event.pointerType === "mouse" }; bar.classList.add("dragging");
+      drag = { y: along(event), from: at(), isMoving: event.pointerType === "mouse", isTouch: event.pointerType !== "mouse", settledAt: -Infinity }; bar.classList.add("dragging");
       try { bar.setPointerCapture(event.pointerId); } catch (error) {}
     }
     thumb.addEventListener("pointerdown", function (event) { start(event, false); });
@@ -463,8 +477,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     bar.addEventListener("pointermove", function (event) {
       if (!drag) return;
       var spotPx = along(event);
+      if (drag.isTouch && event.timeStamp < drag.settledAt) return;
       if (!drag.isMoving) { if (Math.abs(spotPx - drag.y) < TOUCH_SLOP_PX) return; drag.isMoving = true; drag.y = spotPx; drag.from = at(); }
-      to(drag.from + (spotPx - drag.y) * size.max / Math.max(1, size.track - size.thumb));
+      var goal = Math.max(0, Math.min(size.max, drag.from + (spotPx - drag.y) * size.max / Math.max(1, size.track - size.thumb)));
+      if (Math.abs(goal - at()) < 1) return;
+      to(goal); settle();
     });
     function end() { drag = null; bar.classList.remove("dragging"); if (isLayoutDue) { isLayoutDue = false; layout(); } }
     // Sideways, the name shown is the mark's nearest the pointer, or the thumb's middle while dragging.
@@ -785,7 +802,6 @@ component({
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
 .rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
-.rail[hidden] { display: none; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
 .rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
 .rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);

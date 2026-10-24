@@ -225,7 +225,7 @@ const PANE_STYLES = `
   --pad-words: calc(var(--pad-pane) - var(--pad-frame)); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
-.glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 16px); }
+.glass-pane > .pane-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
@@ -549,12 +549,12 @@ const SHEET_STYLES = `
 .sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-inline: calc(-1 * var(--pad-frame)); }
 .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding-inline: var(--pad-frame); }
 /* With its rail showing, the body keeps room for it along its right edge. */
-.sheet-body.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
+.sheet-body.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 /* With no buttons under it, the body's last words are at the sheet's foot and keep its margin there. */
 .pane-parts:not(:has(> .pane-foot)) > .pane-body > .sheet-scroll > .sheet-body > :is(p, h3, .stack-cell.is-words):last-child { padding-bottom: var(--pad-words); }
 .sheet-text { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
-.sheet-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-frame) + 14px); }
+.sheet-in.own-scroll.shows-rail { padding-right: calc(var(--pad-frame) + 14px); }
 ${touchReach(".sheet")}
 @media (max-width: 760px) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
