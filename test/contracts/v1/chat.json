@@ -1,0 +1,51 @@
+{
+  "ChatCheck": {
+    "kind": "fields",
+    "fields": {
+      "isAllowed": ": boolean",
+      "reason": ": ChatCheckReason | null",
+      "message": ": string | null",
+      "hasSwearing": ": boolean"
+    }
+  },
+  "ChatCheckOptions": {
+    "kind": "fields",
+    "fields": {
+      "text": ": string",
+      "senderPass": ": string",
+      "receiverPasses": ": Array<string>"
+    }
+  },
+  "ChatCheckReason": {
+    "kind": "values",
+    "values": [
+      "chat_paused",
+      "contact_details",
+      "not_allowed_to_chat",
+      "personal_details",
+      "sexual",
+      "slur",
+      "too_long",
+      "unchecked"
+    ]
+  },
+  "CHAT_CHECK_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumMessageCharacterCount": 2000,
+      "maximumReceiverCount": 50,
+      "recentTextCount": 5,
+      "recentTextDurationMs": 120000,
+      "maximumSenderCount": 10000,
+      "checkTimeoutMs": 5000
+    }
+  },
+  "ChatCheckError": {
+    "kind": "signature",
+    "signature": "(message: string, fix: string): ChatCheckError"
+  },
+  "checkChat": {
+    "kind": "signature",
+    "signature": "({ text, senderPass, receiverPasses }: ChatCheckOptions): Promise<ChatCheck>"
+  }
+}

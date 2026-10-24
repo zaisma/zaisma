@@ -15,13 +15,13 @@ const turns = globalThis as { zaismaTestTurn?: Promise<{ workerCount: number }> 
 turns.zaismaTestTurn ??= process.argv.includes("list") ? Promise.resolve({ workerCount: 1 }) : waitForTestTurn({ requestedWorkerCount: Number(process.env.TEST_WORKER_COUNT) || (memoryCap().capBytes ? 4 : 2), isNodeOnly: isNodeOnlyRun(process.argv) });
 const { workerCount } = await turns.zaismaTestTurn!;
 
-/** Whether this run names only node files (test/node, test/layout) or only those projects, which take far less memory than Workers files. */
+/** Whether this run names only node files (test/node, test/layout, test/contracts) or only those projects, which take far less memory than Workers files. */
 function isNodeOnlyRun(argv: string[]): boolean {
   const args = argv.slice(Math.max(0, argv.indexOf("run")) + 1);
   const projects = args.flatMap((arg, i) => (arg.startsWith("--project=") ? [arg.slice("--project=".length)] : args[i - 1] === "--project" ? [arg] : []));
   const files = args.filter((arg, i) => !arg.startsWith("-") && args[i - 1] !== "--project");
-  if (projects.length) return projects.every((project) => project === "node" || project === "layout");
-  return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout)\//.test(file));
+  if (projects.length) return projects.every((project) => project === "node" || project === "layout" || project === "contracts");
+  return files.length > 0 && files.every((file) => /^(\.\/)?test\/(node|layout|contracts)\//.test(file));
 }
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
@@ -179,6 +179,8 @@ export default defineConfig({
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       // The measuring check in headless Chrome on the preview (scripts/layout-check.mjs): GitHub's check runs it in its own job.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"], sequence: { groupOrder: 2 } } },
+      // The v1 contract locks (test/contracts/surface.ts): v1 only gains things.
+      { extends: true as const, test: { name: "contracts", environment: "node", include: ["test/contracts/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       worker("site", "apps/site/wrangler.jsonc", {
         SITE_ORIGIN: "https://zaisma.test",
         GAME_ORIGIN: "https://games.zaisma.test",
