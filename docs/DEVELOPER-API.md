@@ -269,7 +269,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_purchase_status` | 400 | purchase_status isn't pending, completed, failed, refunded or charged_back. |
 | `no_purchase` | 404 | The game has no purchase with that ID. |
 | `already_refunded` | 409 | The purchase was refunded or charged back already. |
-| `stripe_not_connected` | 409 | Selling with the buy sheet, and refunding a sale, go through the developer's own Stripe account, which isn't connected: `connect_stripe_account`. |
+| `stripe_not_connected` | 409 | Selling with the buy sheet, and refunding a sale, go through the developer's own Stripe account, which isn't connected: connect_stripe_account. |
 | `stripe_cannot_take_payments` | 409 | The developer's Stripe account is connected, but Stripe hasn't turned on payments for it yet: finish setting it up on Stripe's dashboard. |
 | `bad_is_stripe_tax_used` | 400 | is_stripe_tax_used isn't true or false. |
 | `bad_amount_minor_units` | 400 | amount_minor_units isn't a whole number from 1 to what's left of the sale to refund. |
