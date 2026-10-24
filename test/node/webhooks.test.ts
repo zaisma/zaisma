@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
 import { signatureFor, newSigningSecret } from "../../packages/core/src/webhooks.ts";
-import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/game-server/src/index.ts";
+import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/game-server/src/internal.ts";
 
 // Webhooks on the developer's own server: the Node runner takes a webhook's signed POSTs at /v1/webhooks
 // and runs the same onWebhook as Zaisma does for a webhook to the game server (test/rooms/webhooks.test.ts).

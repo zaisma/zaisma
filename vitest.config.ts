@@ -26,6 +26,8 @@ function isNodeOnlyRun(argv: string[]): boolean {
 
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
+// A throwaway key for the opaque player tags in passes (32 bytes, base64). The real one is a Worker secret.
+const playerTagKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
 
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
@@ -157,6 +159,7 @@ const roomsBindings = {
   GAME_ORIGIN: "https://games.zaisma.test",
   GAME_DOMAIN: "",
   PASS_SIGNING_KEY: passKey,
+  PLAYER_TAG_KEY: playerTagKey,
   ROOM_LIST_CACHE_SECONDS: "0",
   PLAYING_NOW_CACHE_SECONDS: "0",
   // Cloudflare's relay and its analytics answer from the stand-in above.

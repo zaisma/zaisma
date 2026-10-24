@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RoomCore, applyStateChanges, defineGameServer, type Transport } from "../../packages/game-server/src/index.ts";
+import { RoomCore, applyStateChanges, defineGameServer, type Transport } from "../../packages/game-server/src/internal.ts";
 import arena from "../../examples/arena/server.ts";
 import fourInARow from "../../examples/four-in-a-row/server.ts";
 

@@ -576,11 +576,11 @@ export class Room extends DurableObject<Env> {
 
     let player: Player;
     try {
-      const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { game: this.meta.slug, issuer: this.env.ISSUER });
+      const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { gameSlug: this.meta.slug, issuerUrl: this.env.ISSUER });
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.env.DB, claims.sub) : claims.name;
       if (!name) return this.refuse(socket, "bad_pass");
-      player = { id: claims.sub, name, kind: claims.kind, ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
+      player = { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...(claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {}) };
     } catch (error) {
       if (!(error instanceof PassError)) throw error;
       return this.refuse(socket, "bad_pass");

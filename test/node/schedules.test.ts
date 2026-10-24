@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
-import { GameServerError, defineGameServer, generateSigningKey, loadSigningKey, nextRunAtMs, readCron, startSchedules, type ScheduledRun, type Server } from "../../packages/game-server/src/index.ts";
+import { GameServerError, defineGameServer, generateSigningKey, loadSigningKey, nextRunAtMs, readCron, startSchedules, type ScheduledRun, type Server } from "../../packages/game-server/src/internal.ts";
 
 // Schedules: the cron times both runtimes share, the checks on a game server's schedules, and the
 // Node runner's timers. Zaisma's side is test/rooms/schedules.test.ts.

@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
+import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -231,9 +231,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
    * for an account deleted since; PassError for a bad pass.
    */
   async function playerFrom(pass) {
-    const claims = await verifyPass(pass, await keys(), { game, issuer }).catch(async (error) => {
+    const claims = await verifyPass(pass, await keys(), { gameSlug: game, issuerUrl: issuer }).catch(async (error) => {
       // A new key may have been published since we cached them.
-      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { game, issuer });
+      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { gameSlug: game, issuerUrl: issuer });
       throw error;
     });
     // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
@@ -398,7 +398,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
-    // passes: each player's checked pass, newest, for the blocks and friendships between them (hasBlockBetween, areFriends).
+    // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
     room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
@@ -593,7 +593,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         checked = await playerFrom(pass);
       } catch (error) {
         if (error instanceof PassError) return refuse("bad_pass");
-        throw error;
+        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
+        console.error("Couldn't check a player's pass:", error);
+        return refuse("busy");
       }
       if (!checked) return refuse("bad_pass");
       const { player, claims } = checked;
@@ -614,8 +616,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!isSpectator) {
         room.passes.set(player.id, claims);
         for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
-        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
-        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesHaveBlockBetween(claims, other)).map(([id]) => id));
+        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesAreFriends(claims, other)).map(([id]) => id));
       }
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
       const joined = room.core.join(player, { ...made, isSpectator });

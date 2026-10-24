@@ -113,7 +113,10 @@ if (!existsSync(passKeyFile)) {
   const { kty, crv, x, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
   writeFileSync(passKeyFile, JSON.stringify({ kty, crv, x, d }));
 }
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: readFileSync(passKeyFile, "utf8") };
+// And the key for the opaque player tags in passes, kept between runs so tags stay the same.
+const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
+if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: readFileSync(passKeyFile, "utf8"), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
