@@ -42,7 +42,7 @@ async function join(game: string, code: string) {
     ws.send(JSON.stringify({ type: "message", data }));
     return (await next()).data;
   };
-  ws.send(JSON.stringify({ type: "hello", pass }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
   return { ws, next, ask };
 }
 

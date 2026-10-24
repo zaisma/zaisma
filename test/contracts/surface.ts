@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
@@ -27,17 +28,20 @@ const FORMAT = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.WriteArrayAs
 // Types by their names alone, never where this checkout sits.
 const withoutPaths = (text: string) => text.replace(/import\("[^"]*"\)\./g, "");
 
-/** The surface of each name a module exports, read by the compiler. */
-export function surfaceOf(file: string, names: string[]): Record<string, Surface> {
+/** The surface of each name a module exports (or a namespace a declaration file declares), read by the compiler. */
+export function surfaceOf(file: string, names: string[], namespace?: string): Record<string, Surface> {
   const path = join(ROOT, file);
   const program = ts.createProgram([path], { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, noEmit: true, strict: true, types: [] });
   const checker = program.getTypeChecker();
-  const exports = checker.getExportsOfModule(checker.getSymbolAtLocation(program.getSourceFile(path)!)!);
+  const source = program.getSourceFile(path)!;
+  const declared = namespace && source.statements.find((statement): statement is ts.ModuleDeclaration => ts.isModuleDeclaration(statement) && statement.name.text === namespace);
+  if (namespace && !declared) throw new Error(`${file} doesn't declare the namespace ${namespace}`);
+  const exports = checker.getExportsOfModule(checker.getSymbolAtLocation(declared ? declared.name : source)!);
   const text = (type: ts.Type) => withoutPaths(checker.typeToString(type, undefined, FORMAT));
   const surfaces: Record<string, Surface> = {};
   for (const name of names) {
     const symbol = exports.find((exported) => exported.name === name);
-    if (!symbol) throw new Error(`${file} doesn't export ${name}`);
+    if (!symbol) throw new Error(`${file} doesn't ${namespace ? `declare ${namespace}.` : "export "}${name}`);
     if (symbol.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Class)) {
       const type = checker.getTypeOfSymbol(symbol);
       const signatures = symbol.flags & ts.SymbolFlags.Class ? type.getConstructSignatures() : type.getCallSignatures();
@@ -63,6 +67,25 @@ export function surfaceOf(file: string, names: string[]): Record<string, Surface
         surfaces[name] = { kind: "fields", fields };
       }
     }
+  }
+  return surfaces;
+}
+
+/** A script's top-level-of-its-scope var constants (the SDK's lists and limits): a list of strings as values, anything else as a constant. */
+export function scriptConstantsOf(file: string, names: string[]): Record<string, Surface> {
+  const source = ts.createSourceFile(file, readFileSync(join(ROOT, file), "utf8"), ts.ScriptTarget.ES2022, true);
+  const found = new Map<string, ts.Expression>();
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text) && node.initializer && !found.has(node.name.text)) found.set(node.name.text, node.initializer);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  const surfaces: Record<string, Surface> = {};
+  for (const name of names) {
+    const initializer = found.get(name);
+    if (!initializer) throw new Error(`${file} has no var ${name}`);
+    const value = evaluate(initializer);
+    surfaces[name] = Array.isArray(value) && value.every((item) => typeof item === "string") ? { kind: "values", values: [...value].sort() } : { kind: "constant", value };
   }
   return surfaces;
 }
@@ -112,6 +135,17 @@ function isGrownFrom(was: string, now: string): boolean {
   return unionParts(was.slice(markOf(was).length)).every((part) => nowParts.includes(part));
 }
 
+/**
+ * Whether a constant only moved the way v1 lets it: the same value, or a limit object whose maximum* numbers
+ * rose and minimum* numbers fell, everything else in it staying exactly as it was.
+ */
+function isWidenedFrom(was: unknown, now: unknown, key = ""): boolean {
+  if (JSON.stringify(was) === JSON.stringify(now)) return true;
+  if (typeof was === "number" && typeof now === "number") return (key.startsWith("maximum") && now > was) || (key.startsWith("minimum") && now < was);
+  if (!was || !now || typeof was !== "object" || typeof now !== "object" || Array.isArray(was) || Array.isArray(now)) return false;
+  return Object.entries(was).every(([field, value]) => field in now && isWidenedFrom(value, (now as Record<string, unknown>)[field], field));
+}
+
 /** What the snapshot has that the code lost or changed: an empty list when the code only gained things. */
 export function lostSince(snapshot: Record<string, Surface>, current: Record<string, Surface>): string[] {
   const lost: string[] = [];
@@ -126,15 +160,34 @@ export function lostSince(snapshot: Record<string, Surface>, current: Record<str
       }
     } else if (was.kind === "values" && now.kind === "values") {
       for (const value of was.values) if (!now.values.includes(value)) lost.push(`${name} lost ${value}`);
+    } else if (was.kind === "constant" && now.kind === "constant") {
+      if (!isWidenedFrom(was.value, now.value)) lost.push(`${name} was ${JSON.stringify(was)}, now ${JSON.stringify(now)}`);
     } else if (JSON.stringify(was) !== JSON.stringify(now)) lost.push(`${name} was ${JSON.stringify(was)}, now ${JSON.stringify(now)}`);
   }
   return lost;
 }
 
+/** The snapshot as GitHub's main has it, or null where this checkout has no main to read (a shallow copy, or a new snapshot). */
+function snapshotOnMain(snapshotName: string): Record<string, Surface> | null {
+  try {
+    const text = execFileSync("git", ["show", `origin/main:test/contracts/v1/${snapshotName}.json`], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return JSON.parse(text) as Record<string, Surface>;
+  } catch {
+    return null;
+  }
+}
+
 /** One lock: the snapshot test/contracts/v1/<snapshotName>.json against what the code says now. */
 export function lockSurface(snapshotName: string, file: string, names: string[]): void {
+  lockSurfaces(snapshotName, surfaceOf(file, names));
+}
+
+/**
+ * A lock on surfaces read any way (several files, a namespace, a script's lists). With isMainKept, the
+ * code is also checked against the snapshot on GitHub's main, so a baseline can't take back what v1 had.
+ */
+export function lockSurfaces(snapshotName: string, current: Record<string, Surface>, { isMainKept = false } = {}): void {
   const path = join(SNAPSHOTS, `${snapshotName}.json`);
-  const current = surfaceOf(file, names);
   if (isWritingBaseline) {
     it(`writes the ${snapshotName} snapshot`, () => writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`));
     return;
@@ -146,4 +199,10 @@ export function lockSurface(snapshotName: string, file: string, names: string[])
     // Every locked name is in the snapshot, so a new one is locked the moment it's added.
     expect(Object.keys(current).filter((name) => !(name in snapshot)), "New names: npm run contracts:baseline").toEqual([]);
   });
+  if (isMainKept) {
+    it(`keeps everything the v1 ${snapshotName} snapshot has on GitHub's main`, () => {
+      const onMain = snapshotOnMain(snapshotName);
+      if (onMain) expect(lostSince(onMain, current), "v1 only gains things, and main's snapshot is v1 as it shipped").toEqual([]);
+    });
+  }
 }

@@ -28,7 +28,7 @@ export const OWN_SERVER_ROOM_FRESH_MS = 5 * 60_000;
  * friends in the room takes this player, the game turned Join off for the room, the room is closed, or
  * it's full; for Watch, the room has no space for another spectator.
  */
-export type JoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "match_in_progress" | "room_full" | "watching_full";
+export type JoinRefusal = "game_not_taking_joins" | "friend_not_taking_joins" | "private_room" | "room_closed" | "room_full" | "spectators_full";
 
 export interface FriendNow {
   player_id: string;
@@ -276,7 +276,7 @@ function refusalOf(room: RoomRow, inRoom: PlayingMember[], isGameTakingJoins: bo
   if (inRoom.every((member) => !member.isTakingJoins)) return "friend_not_taking_joins";
   if (room.friend_joins_enabled === 0) return "private_room";
   if (room.server_url !== null) return null;
-  return !room.is_open ? "match_in_progress" : room.player_count! + room.held_seat_count! >= room.maximum_player_count! ? "room_full" : null;
+  return !room.is_open ? "room_closed" : room.player_count! + room.held_seat_count! >= room.maximum_player_count! ? "room_full" : null;
 }
 
 /**
@@ -288,7 +288,7 @@ function watchRefusalOf(room: RoomRow, inRoom: PlayingMember[], isGameTakingJoin
   if (!isGameTakingJoins) return "game_not_taking_joins";
   if (inRoom.every((member) => !member.isTakingJoins)) return "friend_not_taking_joins";
   if (room.friend_joins_enabled === 0) return "private_room";
-  return hasWatchSpace({ spectatorCount: room.spectator_count ?? 0, maximumSpectatorCount: room.maximum_spectator_count ?? 0 }) ? null : "watching_full";
+  return hasWatchSpace({ spectatorCount: room.spectator_count ?? 0, maximumSpectatorCount: room.maximum_spectator_count ?? 0 }) ? null : "spectators_full";
 }
 
 /** Whether Join can say anything of a room: a Zaisma room without a live row can't say whether it has space. */
@@ -332,7 +332,7 @@ function watchFor(members: PlayingMember[], isGameTakingJoins: boolean, join: Fr
 }
 
 /** Why a game's own list can't take the player to a friend: Join's reasons, or no room the game told Zaisma of. */
-export type FriendJoinRefusal = JoinRefusal | "no_room";
+export type FriendJoinRefusal = JoinRefusal | "friend_not_in_room";
 
 /** A friend playing this game, for the game itself (Zaisma.friends.list). */
 export interface FriendInGame {
@@ -386,7 +386,7 @@ export async function friendsInGameOf(database: D1Database, accountId: string, g
   return members.map((member) => {
     const room = isJoinable(member.room) ? member.room : null;
     // Each friend's own room, as Join would say it with them alone in it.
-    const refusal: FriendJoinRefusal | null = room ? refusalOf(room, [member], isGameTakingJoins) : "no_room";
+    const refusal: FriendJoinRefusal | null = room ? refusalOf(room, [member], isGameTakingJoins) : "friend_not_in_room";
     const isJoinOpen = room !== null && refusal === null;
     const watchRoom = isWatchable(member.room) ? member.room : null;
     const watchRefusal = watchRoom ? watchRefusalOf(watchRoom, [member], isGameTakingJoins) : null;
@@ -435,8 +435,8 @@ export function joinRefusalText(join: NonNullable<FriendsInGame["join"]>): strin
   if (join.refusal === "game_not_taking_joins") return "This game doesn't take joins";
   if (join.refusal === "private_room") return "Private room";
   if (join.refusal === "room_full") return "Room full";
-  if (join.refusal === "match_in_progress") return "Match in progress";
-  if (join.refusal === "watching_full") return "Watching full";
+  if (join.refusal === "room_closed") return "Match in progress";
+  if (join.refusal === "spectators_full") return "Watching full";
   const names = join.refusing_friend_names;
   return names.length === 1 ? `${names[0]} isn't taking joins` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} aren't taking joins`;
 }

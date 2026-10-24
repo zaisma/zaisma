@@ -38,7 +38,7 @@ async function knock(game: string, code: string, joinData?: unknown, pass?: stri
   const ws = up.webSocket!;
   ws.accept();
   const first = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
-  ws.send(JSON.stringify({ type: "hello", pass, joinData }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, joinData }));
   return first;
 }
 
@@ -53,7 +53,7 @@ async function arrive(game: string, code: string, joinData: unknown, pass: strin
       if (m.type === "message" || m.type === "error") r(m);
     }),
   );
-  ws.send(JSON.stringify({ type: "hello", pass, joinData }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, joinData }));
   return got;
 }
 
@@ -90,7 +90,7 @@ async function join(game: string, code: string, joinData?: unknown, samePass?: s
     }
   };
   const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
-  ws.send(JSON.stringify({ type: "hello", pass, ...(joinData !== undefined ? { joinData } : {}), ...(isSpectator ? { isSpectator } : {}) }));
+  ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, ...(joinData !== undefined ? { joinData } : {}), ...(isSpectator ? { isSpectator } : {}) }));
   expect((await next()).type).toBe("welcome");
   /** The next state update (stateSyncEnabled), without its serverTimeMs, skipping anything else. */
   const nextState = async () => {
@@ -127,9 +127,9 @@ describe("sandboxed game servers", () => {
   it("runs the game's own server: state, messages and the room API", async () => {
     await addSandboxGame("counter", COUNTER);
     const a = await join("counter", "ABCDEF");
-    expect(await a.next()).toEqual({ type: "message", data: { hi: a.player.name, players: 1 } });
+    expect(await a.next()).toEqual({ type: "message", data: { hi: a.player.name, players: 1 }, fromPlayerId: null });
     const b = await join("counter", "ABCDEF");
-    expect(await b.next()).toEqual({ type: "message", data: { hi: b.player.name, players: 2 } });
+    expect(await b.next()).toEqual({ type: "message", data: { hi: b.player.name, players: 2 }, fromPlayerId: null });
 
     a.say("add");
     a.say("add");
@@ -137,7 +137,7 @@ describe("sandboxed game servers", () => {
     expect((await b.next()).data).toEqual({ count: 2 });
 
     a.say("end");
-    expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
+    expect(await b.next()).toEqual({ type: "ended", message: "Game over", endReason: "game" });
   });
 
   it("gives the game server what each account owns, from its pass, and a guest nothing", async () => {
@@ -156,9 +156,9 @@ describe("sandboxed game servers", () => {
     const roomKey = await issueRoomKey(e.DB, "gwardrobe", account.id);
     const { pass } = await (await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: "wardrobe", roomKey }) })).json<{ pass: string }>();
     const owner = await join("wardrobe", "WRDRBE", undefined, pass);
-    expect(await owner.next()).toEqual({ type: "message", data: { owned: ["supporter_cape"], everyone: [["supporter_cape"]] } });
+    expect(await owner.next()).toEqual({ type: "message", data: { owned: ["supporter_cape"], everyone: [["supporter_cape"]] }, fromPlayerId: null });
     const guest = await join("wardrobe", "WRDRBE");
-    expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] } });
+    expect(await guest.next()).toEqual({ type: "message", data: { owned: null, everyone: [["supporter_cape"], null] }, fromPlayerId: null });
     await e.DB.exec("DELETE FROM purchases; DELETE FROM accounts;");
   });
 
@@ -178,12 +178,12 @@ describe("sandboxed game servers", () => {
     const receiptKey = await loadSigningKey(e.RECEIPT_SIGNING_KEY!);
     const player = await join("ticket-booth", "TKTBTH");
     player.say(await signTestReceipt(receiptKey, "ticket-booth", e.ISSUER));
-    expect(await player.next()).toEqual({ type: "message", data: { purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z", purchaseStatus: "completed", itemName: "gold_crown" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { purchaseId: "purchase_8f3k2m9q1x7c4v6b0n5z", purchaseStatus: "completed", itemName: "gold_crown" } });
     player.say(await signTestReceipt(receiptKey, "other-booth", e.ISSUER));
-    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_game" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { errorName: "ReceiptError", errorCode: "wrong_game" } });
     // A pass is refused as one, though receipt checks here hold only the receipt keys.
     player.say((await newPass("ticket-booth")).pass);
-    expect(await player.next()).toEqual({ type: "message", data: { errorName: "ReceiptError", errorCode: "wrong_kind" } });
+    expect(await player.next()).toEqual({ type: "message", fromPlayerId: null, data: { errorName: "ReceiptError", errorCode: "wrong_kind" } });
   });
 
   it("runs a real-time game server's input with its next tick, in order; one that throws doesn't stop the rest", async () => {
@@ -241,9 +241,9 @@ describe("sandboxed game servers", () => {
     );
     const a = await join("hushed", "HSHD23");
     a.say("check");
-    expect(await a.next()).toEqual({ type: "message", data: { friendJoinsEnabled: true } });
+    expect(await a.next()).toEqual({ type: "message", data: { friendJoinsEnabled: true }, fromPlayerId: null });
     a.say("private");
-    expect(await a.next()).toEqual({ type: "message", data: { friendJoinsEnabled: false } });
+    expect(await a.next()).toEqual({ type: "message", data: { friendJoinsEnabled: false }, fromPlayerId: null });
     let row: { friend_joins_enabled: number } | null = null;
     for (let i = 0; i < 40 && row?.friend_joins_enabled !== 0; i++) {
       row = await e.DB.prepare("SELECT friend_joins_enabled FROM live_rooms WHERE room_code = 'HSHD23'").first();
@@ -266,10 +266,10 @@ describe("sandboxed game servers", () => {
     const a = await join("walled", "WALLED");
     const b = await join("walled", "WALLED");
     a.say("check");
-    expect(await a.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: false, passesAreFriends: false } });
+    expect(await a.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: false, passesAreFriends: false }, fromPlayerId: null });
     a.ws.send(JSON.stringify({ type: "block", playerId: b.player.id }));
     b.say("check");
-    expect(await b.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: true, passesAreFriends: false } });
+    expect(await b.next()).toEqual({ type: "message", data: { passesHaveBlockBetween: true, passesAreFriends: false }, fromPlayerId: null });
   });
 
   it("reads each player's ping and the room's clock", async () => {
@@ -309,9 +309,9 @@ describe("sandboxed game servers", () => {
     const a = await join("dropper", "DRPSBX");
     const b = await join("dropper", "DRPSBX");
     b.ws.close(3000);
-    expect(await a.next()).toEqual({ type: "message", data: { away: b.player.id, reason: "lost", awayReason: "lost" } });
+    expect(await a.next()).toEqual({ type: "message", data: { away: b.player.id, reason: "lost", awayReason: "lost" }, fromPlayerId: null });
     const again = await join("dropper", "DRPSBX", undefined, b.pass);
-    expect(await a.next()).toEqual({ type: "message", data: { back: b.player.id, awayReason: null } });
+    expect(await a.next()).toEqual({ type: "message", data: { back: b.player.id, awayReason: null }, fromPlayerId: null });
     a.ws.close(1000);
     again.ws.close(1000);
   });
@@ -359,21 +359,34 @@ describe("sandboxed game servers", () => {
   setup: () => ({}),
   onMessage(state, player, message, room) {
     if (message === "bad") room.broadcast({ type: "aim" }, { delivery: "lossy" });
+    else if (message === "keyless") room.broadcast({ type: "aim" }, { delivery: "latest_only" });
+    else if (message === "keyless-code") { try { room.broadcast({ type: "aim" }, { delivery: "latest_only" }); } catch (error) { room.broadcast({ type: "caught", code: error.code }); } }
     else room.broadcast({ type: "aim", angle: message }, { delivery: "latest_only", latestKey: "aim" });
   },
 };`,
     );
     const a = await join("aimer", "AMRAAB");
     a.say("bad");
+    a.say("keyless");
+    // The error reaches the game's code with the same code RoomCore gives it.
+    a.say("keyless-code");
+    expect(await a.next()).toEqual({ type: "message", data: { type: "caught", code: "bad_option" }, fromPlayerId: null });
     a.say(45);
-    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 } });
+    expect(await a.next()).toEqual({ type: "message", data: { type: "aim", angle: 45 }, fromPlayerId: null });
     a.ws.close(1000);
     let error: { message: string } | null = null;
     for (let i = 0; i < 40 && !error; i++) {
-      error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gaimer'").first<{ message: string }>();
+      error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gaimer' AND message LIKE '%lossy%'").first<{ message: string }>();
       if (!error) await new Promise((r) => setTimeout(r, 25));
     }
     expect(error!.message).toContain('room.broadcast\'s delivery is "lossy". Give "reliable" (the default) or "latest_only".');
+    // latest_only has no default key: the game's handler throws and says what to give.
+    let keyless: { message: string } | null = null;
+    for (let i = 0; i < 40 && !keyless; i++) {
+      keyless = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'gaimer' AND message LIKE '%no latestKey%'").first<{ message: string }>();
+      if (!keyless) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(keyless!.message).toContain("latest_only needs a latestKey");
   });
 
   it("ticks", async () => {
@@ -414,7 +427,7 @@ describe("sandboxed game servers", () => {
     await runInDurableObject(stub, (_room: Room, state) => state.abort("restart")).catch(() => {});
     const back = await join("restarter", "RSTRTS", undefined, a.pass);
     // Coming back is a rejoin: onBack, not onJoin.
-    expect(await back.next()).toEqual({ type: "message", data: { back: a.player.id } });
+    expect(await back.next()).toEqual({ type: "message", data: { back: a.player.id }, fromPlayerId: null });
     back.say("how");
     const how = (await back.next()).data;
     // The match carries on from the save: not from setup, and it was told how much was lost, with its player away until they're back.
@@ -492,7 +505,7 @@ describe("sandboxed game servers", () => {
 };`,
     );
     const a = await join("closing", "ABCDEF");
-    expect(await a.next()).toEqual({ type: "message", data: { endsAt: null } });
+    expect(await a.next()).toEqual({ type: "message", data: { endsAt: null }, fromPlayerId: null });
     await e.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason) VALUES ('gclosing', ?, 500, ?, 'free_used')").bind(monthStartDateOf(), Date.now()).run();
     // Make the room's 5-minute check on the game's hosting due now.
     const stub = e.ROOMS.get(e.ROOMS.idFromName("closing:ABCDEF"));
@@ -503,7 +516,7 @@ describe("sandboxed game servers", () => {
     const ending = await a.next();
     expect(ending.type).toBe("ending");
     expect(Date.parse(ending.endsAt) - Date.now()).toBeGreaterThan(3500_000);
-    expect(await a.next()).toEqual({ type: "message", data: { endsAt: ending.endsAt, endingCount: 1 } });
+    expect(await a.next()).toEqual({ type: "message", data: { endsAt: ending.endsAt, endingCount: 1 }, fromPlayerId: null });
     a.ws.close(1000);
   });
 
@@ -528,8 +541,8 @@ describe("sandboxed game servers", () => {
     const earlySocket = early.webSocket!;
     earlySocket.accept();
     const earlyAnswer = new Promise<any>((r) => earlySocket.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
-    earlySocket.send(JSON.stringify({ type: "hello", pass: (await newPass("arena")).pass, isSpectator: true }));
-    expect(await earlyAnswer).toMatchObject({ type: "error", code: "no_room" });
+    earlySocket.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await newPass("arena")).pass, isSpectator: true }));
+    expect(await earlyAnswer).toMatchObject({ type: "error", code: "room_not_running" });
 
     const a = await join("arena", "WATCHA");
     expect((await a.next()).data).toEqual({ hi: a.player.name });
@@ -546,10 +559,38 @@ describe("sandboxed game servers", () => {
     expect(await watcher.next()).toMatchObject({ type: "error", code: "spectator_cannot_send" });
   });
 
+  it("passes a player's message on with fromPlayerId, from send and broadcast, and knows its room code", async () => {
+    await addSandboxGame(
+      "passer",
+      `export default {
+  maximumPlayerCount: 3,
+  setup: () => ({}),
+  onMessage(state, player, message, room) {
+    const other = room.players.find((each) => each.id !== player.id);
+    if (message === "pass") {
+      room.send(other.id, { how: "send", roomCodeType: typeof room.roomCode }, { fromPlayerId: player.id });
+      room.broadcast({ how: "broadcast", roomCode: room.roomCode }, { exceptPlayerId: player.id, fromPlayerId: player.id });
+    }
+    return state;
+  },
+};`,
+    );
+    const a = await join("passer", "PASSAA");
+    const b = await join("passer", "PASSAA");
+    a.say("pass");
+    expect(await b.next()).toEqual({ type: "message", data: { how: "send", roomCodeType: "string" }, fromPlayerId: a.player.id });
+    expect(await b.next()).toEqual({ type: "message", data: { how: "broadcast", roomCode: "PASSAA" }, fromPlayerId: a.player.id });
+  });
+
   it("won't start a game server with an option it doesn't take, and tells its developer which ones it does", async () => {
     await addSandboxGame("old-names", `export default { tickRate: 20, setup: () => ({}) };`);
     const up = await SELF.fetch(`${R}/v1/rooms/old-names/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
-    expect(up.status).toBe(404);
+    // Turned away on the socket, saying why, since a browser never sees an HTTP status on a WebSocket.
+    expect(up.status).toBe(101);
+    const turnedAway = new Promise<any>((resolve) => up.webSocket!.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
+    up.webSocket!.accept();
+    // The game's own code won't start: unavailable until a new version, not busy.
+    expect(await turnedAway).toMatchObject({ type: "error", code: "game_unavailable" });
     const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     // Errors are kept to 600 characters, which keeps the whole list of options.
@@ -663,22 +704,25 @@ describe("sandboxed game servers", () => {
     expect(await town.next()).toEqual({ type: "move", roomCode: "FRSTAA" });
 
     // Same pass, the forest room: it gets the town's join data, not anything the browser sends.
-    expect(await arrive("world", "FRSTAA", { door: "cheat" }, town.pass)).toEqual({ type: "message", data: { arrived: { door: "north" }, fromRoomCode: "TWNAAA" } });
+    expect(await arrive("world", "FRSTAA", { door: "cheat" }, town.pass)).toEqual({ type: "message", data: { arrived: { door: "north" }, fromRoomCode: "TWNAAA" }, fromPlayerId: null });
 
     // A room that's locked, and one that isn't running, both say no; the player stays put.
     forest.say("lock");
     const other = await join("world", "THRDAA");
     other.say("go FRSTAA");
-    expect(await other.next()).toEqual({ type: "message", data: { stayed: "This area is locked.", code: "refused" } });
+    expect(await other.next()).toEqual({ type: "message", data: { stayed: "This area is locked.", code: "refused" }, fromPlayerId: null });
     other.say("go ZZZZZZ");
-    expect(await other.next()).toEqual({ type: "message", data: { stayed: "That room isn't running.", code: "no_room" } });
+    expect(await other.next()).toEqual({ type: "message", data: { stayed: "That room isn't running.", code: "room_not_running" }, fromPlayerId: null });
   });
 
   it("leaves a game without a game server file unavailable", async () => {
     await addSandboxGame("empty", COUNTER);
     await e.GAMES.delete("games/vempty/zaisma-server.js");
     const up = await SELF.fetch(`${R}/v1/rooms/empty/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
-    expect(up.status).toBe(404);
+    expect(up.status).toBe(101);
+    const turnedAway = new Promise<any>((resolve) => up.webSocket!.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
+    up.webSocket!.accept();
+    expect(await turnedAway).toMatchObject({ type: "error", code: "game_unavailable" });
   });
 });
 
@@ -765,7 +809,7 @@ describe("a real-time game server in the sandbox", () => {
     const { RoomCore } = await import("@zaisma/game-server");
     const asked: { method: string; roomChanges?: any }[] = [];
     const server = await wrapSession(async () => tickingSession(asked, { isFailing: false }) as never, () => {});
-    const core = new RoomCore(server, { send: () => {}, close: () => {} });
+    const core = new RoomCore(server, { roomCode: "K7Q2MX", send: () => {}, close: () => {} });
     await core.settled();
     core.join({ id: "player_a", name: "A", kind: "account" });
     core.join({ id: "player_b", name: "B", kind: "account" });
@@ -832,7 +876,7 @@ describe("spectators in Zaisma rooms", () => {
     const ws = up.webSocket!;
     ws.accept();
     const answer = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
-    ws.send(JSON.stringify({ type: "hello", pass: "not a pass", isSpectator: true }));
+    ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: "not a pass", isSpectator: true }));
     expect(await answer).toMatchObject({ type: "error", code: "bad_pass" });
   });
 
@@ -859,7 +903,7 @@ describe("spectators in Zaisma rooms", () => {
     const watcher = await join("watched", "WTCHND", undefined, undefined, true);
     const closed = new Promise<number>((r) => watcher.ws.addEventListener("close", (ev) => r(ev.code)));
     player.ws.close(1000);
-    expect(await watcher.next()).toEqual({ type: "ended", message: "The match ended." });
+    expect(await watcher.next()).toEqual({ type: "ended", message: "The match ended.", endReason: "no_players" });
     expect(await closed).toBe(4000);
     expect(await rowOnce("SELECT COUNT(*) AS room_count FROM live_rooms WHERE game_id = ?", (row) => row.room_count === 0)).toEqual({ room_count: 0 });
   });
