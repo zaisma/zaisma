@@ -311,7 +311,7 @@ const SERVER_ANSWERS: Record<string, unknown> = {
 /** What the page around the game answers each message with, so calls that ask it resolve. */
 function answerPage(sdk: Sdk, message: Record<string, unknown>): void {
   const signedIn = { type: "zaisma:signed-in", player: { id: "player_ana", name: "Ana" } };
-  const copy = { id: SAVE_COPY_ID, savedAt: "2026-10-24T00:00:00.000Z", copyReason: "hourly", sizeBytes: 10, isCurrentSave: false, version_id: null };
+  const copy = { id: SAVE_COPY_ID, savedAt: "2026-10-24T00:00:00.000Z", copyReason: "hourly", sizeBytes: 10, isCurrentSave: false, versionId: null };
   const savesAnswers: Record<string, unknown> = { list_copies: [copy], get_copy: { ...copy, localStorageItems: {}, indexeddbDatabases: [] }, restore_copy: null };
   if (message.type === "zaisma:sign-in" || message.type === "zaisma:account-offer") sdk.page.say(signedIn);
   if (message.type === "zaisma:share") sdk.page.say({ type: "zaisma:share-answer", requestNumber: message.requestNumber, isOpened: true });
@@ -494,6 +494,8 @@ async function runtimeSurfaces(): Promise<Record<string, Surface>> {
     ["Zaisma.saves.getCopy with a bad save copy ID", (z) => z.saves.getCopy("nope")],
     ["Zaisma.saves.restoreCopy with a bad save copy ID", (z) => z.saves.restoreCopy(42)],
     ["Zaisma.saves.listCopies off Zaisma", (z) => z.saves.listCopies(), false],
+    // A room on the game's own server still takes the player's pass from Zaisma, so it can't be joined (nor reported in) off Zaisma.
+    ["Zaisma.joinRoom with a serverUrl off Zaisma", (z) => z.joinRoom({ serverUrl: "wss://play.example.com", roomCode: "K7Q2MX" }), false],
     ["Zaisma.saves.on an unknown event", (z) => z.saves.on("nope", () => {})],
     ["Zaisma.versions.on an unknown event", (z) => z.versions.on("nope", () => {})],
   ];
@@ -508,6 +510,7 @@ async function runtimeSurfaces(): Promise<Record<string, Surface>> {
     untapped.navigator.userActivation = { isActive: false };
     surfaces[`refusal: ${name}`] = await refusalIn(untapped, fetched, call);
   }
+
 
   // What each call sends, and what it reads back.
   const wires: [string, (Zaisma: any) => unknown, boolean?][] = [
@@ -565,4 +568,22 @@ describe("the SDK v1, outside rooms", () => {
   }
 
   lockSurfaces("sdk-runtime", runtime, { isMainKept: true });
+
+  it("tells games more values may come in every union a game reads", () => {
+    const source = ts.createSourceFile(SDK_TYPES, readFileSync(SDK_TYPES, "utf8"), ts.ScriptTarget.ES2022, true);
+    const unions = ["ErrorCode", "ChatCheckReason", "InviteStatus", "LinkStatus", "PlayerKind", "PlayedPeriod", "SaveCopyReason", "SaveConflict.winnerKind"];
+    const without = unions.filter((union) => {
+      const declaration = unionDeclaration(source, "Zaisma", union);
+      if (!declaration) throw new Error(`${SDK_TYPES} declares no ${union}`);
+      return !ts.getJSDocCommentsAndTags(declaration).some((comment) => comment.getText(source).includes(MORE_VALUES_NOTE));
+    });
+    expect(without, `Their comments should say "${MORE_VALUES_NOTE}; treat an unknown one as …"`).toEqual([]);
+  });
+
+  it("publishes the SDK as @zaisma/sdk 1.0.0 with just its script and types", () => {
+    const manifest = JSON.parse(readFileSync(join(ROOT, "packages/sdk/package.json"), "utf8"));
+    expect(manifest.version).toBe("1.0.0");
+    expect(Object.keys(manifest.exports)).toEqual([".", "./zaisma.js", "./zaisma.d.ts"]);
+    expect(manifest.files).toEqual(["zaisma.js", "zaisma.d.ts"]);
+  });
 });

@@ -376,6 +376,13 @@
       "isSent": false
     }
   },
+  "refusal: Zaisma.joinRoom with a serverUrl off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
   "refusal: Zaisma.saves.on an unknown event": {
     "kind": "constant",
     "value": {

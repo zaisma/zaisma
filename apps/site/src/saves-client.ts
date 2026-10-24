@@ -137,7 +137,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
   // To the game itself (the SDK), not the game domain's saves script.
   const toGame = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage(msg, SAVES.frameOrigin);
-  const copyFields = (copy) => ({ id: copy.id, savedAt: copy.saved_at, copyReason: copy.copy_reason, sizeBytes: copy.size_bytes, isCurrentSave: copy.is_current_save, version_id: copy.version_id ?? null });
+  const copyFields = (copy) => ({ id: copy.id, savedAt: copy.saved_at, copyReason: copy.copy_reason, sizeBytes: copy.size_bytes, isCurrentSave: copy.is_current_save, versionId: copy.version_id ?? null });
   async function copyById(saveCopyId) {
     if (!saveCopyId) return null;
     const res = await fetch(SAVES.api + "/copies", { credentials: "same-origin" }).catch(() => null);

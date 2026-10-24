@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { pageScripts } from "../../apps/site/src/page-scripts.ts";
 import { SAVES_SCRIPT } from "../../apps/site/src/saves-client.ts";
 import { canonicalSave, EMPTY_SAVE_TEXT, saveHash } from "../../packages/core/src/saves.ts";
 
@@ -158,7 +159,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     expect(page.events("conflict")).toEqual([]);
     // The game listens as it starts.
     await page.window.savesRequest({ requestNumber: 1, request: "listen", eventNames: ["conflict"] });
-    expect(page.events("conflict")).toEqual([{ winnerKind: "account", keptSaveCopy: { id: "save_copy_phone", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 12, isCurrentSave: false, version_id: null } }]);
+    expect(page.events("conflict")).toEqual([{ winnerKind: "account", keptSaveCopy: { id: "save_copy_phone", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 12, isCurrentSave: false, versionId: null } }]);
     // Once only.
     await page.window.savesRequest({ requestNumber: 2, request: "listen", eventNames: ["conflict"] });
     expect(page.events("conflict")).toHaveLength(1);
@@ -260,7 +261,7 @@ describe("the game page's saves script, for the game's own save screens", () => 
     await playing(page, { level: "3" });
     page.answer("GET", `${API}/copies`, { save_copies: [copy("save_copy_old", "hourly")] });
     await page.window.savesRequest({ requestNumber: 1, request: "list_copies" });
-    expect(page.toGame.at(-1)).toEqual({ type: "zaisma:saves-answer", requestNumber: 1, answer: [{ id: "save_copy_old", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "hourly", sizeBytes: 12, isCurrentSave: false, version_id: null }] });
+    expect(page.toGame.at(-1)).toEqual({ type: "zaisma:saves-answer", requestNumber: 1, answer: [{ id: "save_copy_old", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "hourly", sizeBytes: 12, isCurrentSave: false, versionId: null }] });
     page.answer("GET", `${API}/copies/save_copy_old`, { save_copy: { ...copy("save_copy_old", "hourly"), local_storage_items: { level: "1" }, missing_keys: [], indexeddb_databases: [] } });
     await page.window.savesRequest({ requestNumber: 2, request: "get_copy", saveCopyId: "save_copy_old" });
     expect(page.toGame.at(-1)).toMatchObject({ requestNumber: 2, answer: { id: "save_copy_old", localStorageItems: { level: "1" }, indexeddbDatabases: [] } });
@@ -472,5 +473,77 @@ describe("the game domain's saves script, putting a save in place while the game
     await vi.waitFor(() => expect(frame.steps("applied")).toEqual([{ type: "zaisma:saves", step: "applied", ok: false }]));
     // localStorage is left as it was.
     expect(Object.fromEntries(frame.localStorage.map)).toEqual({ level: "3" });
+  });
+});
+
+describe("the game page's answer to a game without cloud saves here", async () => {
+  await import("../../apps/site/src/index.ts");
+  const gameScript = pageScripts().find((script) => script.name === "game-page")!.sourceText;
+
+  /** A stand-in for any page element or browser object the script touches but this test doesn't look at. */
+  const anything = (): any =>
+    new Proxy(function () {}, {
+      get: (_, key) => (key === Symbol.iterator ? function* () {} : key === Symbol.toPrimitive ? () => "" : typeof key === "symbol" || key === "then" ? undefined : anything()),
+      set: () => true,
+      apply: () => anything(),
+    });
+
+  /** The game page's own script on a page whose game has cloud saves on or off, with Play pressed and the game's frame open. */
+  function loadGameScript({ isCloudSavesEnabled, hasSavesScript }: { isCloudSavesEnabled: boolean; hasSavesScript: boolean }) {
+    const told: { message: Message; origin: string }[] = [];
+    const frame = { contentWindow: { postMessage: (message: Message, origin: string) => told.push({ message, origin }) }, focus() {}, set src(_address: string) {} };
+    const listeners: Record<string, ((event: unknown) => void)[]> = {};
+    const handedToSavesScript: Message[] = [];
+    let play: (() => void) | null = null;
+    const elements: Record<string, unknown> = {
+      "game-page-data": { textContent: JSON.stringify({ slug: "owl-game", frame_url: `${FRAME_ORIGIN}/`, cloud_saves_enabled: isCloudSavesEnabled, devices: [], controls: [] }) },
+      "game-frame": { content: { firstElementChild: { cloneNode: () => frame } } },
+      play: {
+        set onclick(handler: () => void) {
+          play = handler;
+        },
+      },
+    };
+    const window: Record<string, unknown> = hasSavesScript
+      ? { savesRequest: (request: Message) => handedToSavesScript.push(request), offerAccount: () => handedToSavesScript.push({ type: "offerAccount" }) }
+      : {};
+    const globals: Record<string, unknown> = {
+      window,
+      document: new Proxy({ getElementById: (id: string) => elements[id] ?? anything(), cookie: "" } as Record<string, unknown>, { get: (target, key) => (key in target ? target[key as string] : anything()) }),
+      addEventListener: (type: string, listener: (event: unknown) => void) => void (listeners[type] ??= []).push(listener),
+    };
+    for (const name of ["location", "history", "navigator", "localStorage", "sessionStorage", "matchMedia", "scrollTo", "BroadcastChannel", "requestAnimationFrame", "IntersectionObserver", "screen", "countPlay"]) globals[name] = anything();
+    // The saves script's functions are page globals, so the page script calls them by name.
+    Object.assign(globals, window);
+    globals.fetch = () => Promise.reject(new TypeError("Failed to fetch"));
+    new Function(...Object.keys(globals), gameScript)(...Object.values(globals));
+    play!();
+    return {
+      told,
+      handedToSavesScript,
+      /** The game says something to the page. */
+      fromGame: (data: Message) => (listeners.message ?? []).forEach((listener) => listener({ origin: FRAME_ORIGIN, source: frame.contentWindow, data })),
+    };
+  }
+
+  it("says cloud_saves_not_here when the game has cloud saves on and this page can't, and cloud_saves_off when it has them off", () => {
+    for (const [isCloudSavesEnabled, code] of [[true, "cloud_saves_not_here"], [false, "cloud_saves_off"]] as const) {
+      const page = loadGameScript({ isCloudSavesEnabled, hasSavesScript: false });
+      page.fromGame({ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" });
+      page.fromGame({ type: "zaisma:account-offer" });
+      // The "listen" request gets no answer, and neither does a game that isn't asking.
+      page.fromGame({ type: "zaisma:saves-request", requestNumber: 5, request: "listen", eventNames: ["conflict"] });
+      expect(page.told.map((each) => each.origin)).toEqual([FRAME_ORIGIN, FRAME_ORIGIN]);
+      expect(page.told[0]!.message).toMatchObject({ type: "zaisma:saves-answer", requestNumber: 4, error: { code } });
+      expect(page.told[1]!.message).toEqual({ type: "zaisma:account-offer", status: code });
+    }
+  });
+
+  it("leaves both to the saves script when the page has one", () => {
+    const page = loadGameScript({ isCloudSavesEnabled: true, hasSavesScript: true });
+    page.fromGame({ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" });
+    page.fromGame({ type: "zaisma:account-offer" });
+    expect(page.told).toEqual([]);
+    expect(page.handedToSavesScript).toEqual([{ type: "zaisma:saves-request", requestNumber: 4, request: "list_copies" }, { type: "offerAccount" }]);
   });
 });

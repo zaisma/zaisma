@@ -1759,7 +1759,7 @@
 
   /** An earlier version as the game gets it (SaveCopy). */
   function saveCopyOf(given) {
-    return { id: given.id, savedAt: given.savedAt, copyReason: given.copyReason, sizeBytes: given.sizeBytes, isCurrentSave: given.isCurrentSave, versionId: typeof given.version_id === "string" ? given.version_id : null };
+    return { id: given.id, savedAt: given.savedAt, copyReason: given.copyReason, sizeBytes: given.sizeBytes, isCurrentSave: given.isCurrentSave, versionId: typeof given.versionId === "string" ? given.versionId : null };
   }
 
   window.addEventListener("message", function (event) {

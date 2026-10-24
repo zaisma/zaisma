@@ -244,10 +244,8 @@ describe("the SDK's types say what the SDK does", () => {
   it("asks the page for the player's earlier versions, and hands them out as SaveCopy says", async () => {
     const sdk = loadSdk();
     const savesMessages = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:saves-request");
-    // The page hands each copy's version as version_id; the game gets versionId.
-    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "account_lost", sizeBytes: 120, isCurrentSave: false, version_id: "version_k2v9q4x7m1p3w8r5t6y0" };
-    const { version_id: versionId, ...camelCopy } = pageCopy;
-    const gameCopy = { ...camelCopy, versionId };
+    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "account_lost", sizeBytes: 120, isCurrentSave: false, versionId: "version_k2v9q4x7m1p3w8r5t6y0" };
+    const gameCopy = pageCopy;
     const listing = sdk.Zaisma.saves.listCopies();
     expect(savesMessages()).toEqual([{ type: "zaisma:saves-request", requestNumber: 1, request: "list_copies", saveCopyId: undefined }]);
     sdk.page.say({ type: "zaisma:saves-answer", requestNumber: 1, status: "asking" });
@@ -262,7 +260,7 @@ describe("the SDK's types say what the SDK does", () => {
     sdk.page.say({ type: "zaisma:saves-answer", requestNumber: 2, answer: { ...pageCopy, localStorageItems: { level: "7" }, indexeddbDatabases: [] } });
     const contents = await reading;
     expect(contents.localStorageItems).toEqual({ level: "7" });
-    expect(contents.versionId).toBe(versionId);
+    expect(contents.versionId).toBe(pageCopy.versionId);
     expect(Object.keys(contents).sort()).toEqual(fieldsOf("SaveCopyContents"));
 
     const restoring = sdk.Zaisma.saves.restoreCopy(pageCopy.id);
@@ -309,8 +307,8 @@ describe("the SDK's types say what the SDK does", () => {
     const sdk = loadSdk();
     expect(listed(await refusal(() => sdk.Zaisma.saves.on("notAnEvent", () => {})))).toEqual(fieldsOf("SavesEvents"));
     const listens = () => sdk.page.posted.filter((message) => (message as { request?: string }).request === "listen");
-    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 80, isCurrentSave: false, version_id: null };
-    const gameCopy = { id: pageCopy.id, savedAt: pageCopy.savedAt, copyReason: pageCopy.copyReason, sizeBytes: 80, isCurrentSave: false, versionId: null };
+    const pageCopy = { id: "save_copy_k2v9q4x7m1p3w8r5t6y0", savedAt: "2026-10-18T09:00:00.000Z", copyReason: "device_lost", sizeBytes: 80, isCurrentSave: false, versionId: null };
+    const gameCopy = { ...pageCopy };
     const conflicts: Record<string, unknown>[] = [];
     const listener = (conflict: Record<string, unknown>) => conflicts.push(conflict);
     expect(sdk.Zaisma.saves.on("conflict", listener)).toBe(sdk.Zaisma.saves);

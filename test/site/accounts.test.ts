@@ -2438,6 +2438,7 @@ describe("cloud saves", () => {
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
     expect(pageScriptNames(page)).toContain("saves");
     expect(pageDataOf(page, "saves-data")).toMatchObject({ api: "/api/saves/owl-game", slug: "owl-game" });
+    expect(pageDataOf(page, "game-page-data").cloud_saves_enabled).toBe(true);
     expect(page).toContain('id="keep-title">Keep your progress');
     // No save screens: no "which progress?" chooser and no earlier progress in the menu.
     expect(page).not.toContain("save-choice");
@@ -2446,6 +2447,7 @@ describe("cloud saves", () => {
     expect(pageScriptNames(own)).not.toContain("saves");
     expect(own).not.toContain('id="saves-data"');
     expect(own).not.toContain('id="keep"');
+    expect(pageDataOf(own, "game-page-data").cloud_saves_enabled).toBe(false);
   });
 
   it("a game can turn off the \"Keep your progress\" card by itself, keep cloud saves and show the card at its own moment", async () => {
