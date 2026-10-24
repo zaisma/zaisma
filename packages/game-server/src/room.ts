@@ -2830,7 +2830,8 @@ export class RoomCore<S = any> {
 
   /** A handler's answer becomes the state if it is one (a plain object or an array); nothing keeps the state, and anything else is a mistake that leaves it. */
   private keepAnswer(handlerName: string, answer: unknown): void {
-    if (answer === undefined) return;
+    // A sandboxed game server hands back its state after every call; one that is not an object or an array and did not change is not an answer.
+    if (answer === undefined || answer === this.state) return;
     if (handlerName === "setup" || isStateAnswer(answer)) this.state = answer as S;
     else console.error("Game server error:", badHandlerAnswer(handlerName, answer));
   }

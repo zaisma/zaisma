@@ -984,6 +984,39 @@ describe("mistakes in a sandboxed game server's code", () => {
     a.ws.close(1000);
   });
 
+  it("keep stateView's room to reading: its calls throw room_call_unavailable", async () => {
+    await addSandboxGame(
+      "viewonly",
+      `export default {
+  stateSyncEnabled: true,
+  setup: () => ({}),
+  stateView(state, viewer, room) {
+    let thrown = null;
+    try { room.broadcast("x"); } catch (error) { thrown = [error.code, error.field]; }
+    return { thrown, roomCode: room.roomCode };
+  },
+};`,
+    );
+    const a = await join("viewonly", "VIEWAA");
+    expect(await a.nextState()).toEqual({ type: "state", full: { thrown: ["room_call_unavailable", "room.broadcast"], roomCode: "VIEWAA" } });
+    a.ws.close(1000);
+  });
+
+  it("log a room call the room refuses when it runs it, in the game's errors", async () => {
+    await addSandboxGame(
+      "afterend",
+      `export default {
+  setup: () => ({}),
+  onMessage(state, player, room) { room.end("bye"); room.reserve({ playerIds: [player.id] }); },
+};`,
+    );
+    const a = await join("afterend", "ABCDEF");
+    a.say("go");
+    const errors = await errorsOf("gafterend", 1);
+    expect(errors.join("\n")).toMatch(/room\.reserve was called after this room ended.*\(room_call_unavailable\)/);
+    a.ws.close(1000);
+  });
+
   it("log a bad_handler_answer, keep the state, and log a canJoin that answers nothing", async () => {
     await addSandboxGame(
       "answers",
@@ -1021,7 +1054,8 @@ describe("mistakes in a sandboxed game server's code", () => {
     const a = await join("flood", "ABCDEF");
     a.say("go");
     const errors = await errorsOf("gflood", 1);
-    expect(errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
+    const { results: everyRow } = await e.DB.prepare("SELECT game_id, kind, message FROM game_server_errors").all();
+    expect(JSON.stringify(everyRow) + errors.join("\n")).toMatch(/more than 1000 room calls.*\(room_call_limit\)/);
     a.ws.close(1000);
   });
 });

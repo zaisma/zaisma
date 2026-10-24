@@ -2209,18 +2209,19 @@ describe("mistakes in a game server's code are coded errors", () => {
       stateSyncEnabled: true,
       canJoin: (_state, _player, room) => (tryCalls("canJoin", room), true),
       stateView: (_state, _viewer, room) => (tryCalls("stateView", room), {}),
+      onMessage: () => {},
     });
     const { t } = transport();
     const room = new RoomCore(game, t);
     expect(await room.admit(player("ana"))).toEqual({ isAllowed: true });
     room.join(player("ana"));
-    (room as any).sendStateFrames?.();
-    for (const handler of ["canJoin"]) {
+    room.receive("ana", msg("go"));
+    for (const handler of ["canJoin", "stateView"]) {
       for (const call of ["broadcast", "send", "kick", "end", "reserve", "setOpen"]) {
         expect(seen[`${handler}.${call}`], `${handler}.${call}`).toMatchObject({ code: "room_call_unavailable", field: `room.${call}`, message: expect.stringContaining(`${handler} can't change the room.`) });
       }
       expect(seen[`${handler}.roomCode`]).toBe("K7Q2MX");
-      expect(seen[`${handler}.players`]).toBe("0");
+      expect(seen[`${handler}.players`]).toBe(handler === "canJoin" ? "0" : "1");
     }
   });
 

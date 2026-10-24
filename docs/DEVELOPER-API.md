@@ -814,8 +814,8 @@ An optional building block for real-time worlds, the same in Zaisma rooms and on
 
 - **`delivery: "reliable"`** (the default) reaches every player, in order.
 - **`delivery: "latest_only"`** may be dropped: while a player's connection is backed up, a newer latest-only message with the same `latestKey` replaces the one waiting, and the newest goes once they catch up (oldest key first, before anything newer). For positions sent every tick, or where a player aims. A player keeps up to 64 waiting, one per key; past it, the least recently replaced is dropped.
-- **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws: in the game (the SDK) the error's code is `bad_send_option`, and on the game server it is `bad_option`. Bytes have their own keys.
-- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your code, naming what to give: the SDK's error has the code `bad_send_option`; the game server's is a plain error with that text.
+- **`latestKey`**, up to 40 characters, says which messages replace each other, like `"position"`, and `latest_only` needs one: without it the send throws: in the game (the SDK) the error's code is `bad_send_option`, and on the game server it is a `GameServerError` with the code `bad_room_call` and the room call (like `room.broadcast`) as its field. Bytes have their own keys.
+- **Zaisma rooms carry them over the WebSocket today**, since Cloudflare doesn't yet let Workers take WebTransport or WebRTC data channels; the same `delivery: "latest_only"` moves to real datagrams once it does, with no change to your game. Anything else for `delivery` or `latestKey` throws in your code, naming what to give: the SDK's error has the code `bad_send_option`; the game server's is a `GameServerError` (`bad_room_call`) saying the same.
 
 ### Room error codes
 

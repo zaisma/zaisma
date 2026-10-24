@@ -607,4 +607,9 @@ async function runCommand() {
   console.log(`Game server for "${flags.game}" on port ${portNumber}. Players connect to /v1/rooms/${flags.game}/<code>; requests come to POST /v1/requests/${flags.game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}${webhookNote}`);
 }
 
-if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) await runCommand();
+// Started as the command, not imported: `node server` (no file extension) names a file realpathSync can't find, and that is an import, not the command.
+let isCommand = false;
+try {
+  isCommand = Boolean(process.argv[1]) && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+} catch {}
+if (isCommand) await runCommand();

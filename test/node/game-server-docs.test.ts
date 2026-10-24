@@ -54,4 +54,14 @@ describe("game server error codes in the docs", () => {
     const listed = [...row.slice(row.indexOf("`RequestErrorCode`:") + "`RequestErrorCode`:".length).matchAll(/`([a-z_]+)`/g)].map((match) => match[1]!);
     expect([...listed].sort()).toEqual([...requestCodes].sort());
   });
+
+  it("DEVELOPER-API's close code table lists every close code the code uses, and the runner's restart", () => {
+    const doc = read("docs/DEVELOPER-API.md");
+    const table = doc.slice(doc.indexOf("### Close codes"), doc.indexOf("### Room events"));
+    const listed = [...table.matchAll(/^\| `(\d+)` \|/gm)].map((row) => Number(row[1]));
+    const source = read("packages/game-server/src/room.ts");
+    const used = [...source.matchAll(/^export const [A-Z_]+_CLOSE_CODE = (\d+);/gm)].map((match) => Number(match[1]));
+    expect(used.length).toBeGreaterThan(4);
+    expect(listed.sort()).toEqual([...used, 1012].sort());
+  });
 });
