@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
-import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES } from "../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -88,28 +88,70 @@ const SETTLE = `(async () => {
   return true;
 })()`;
 
-/** One page at one size and theme in a fresh tab, in a window of its own so it's drawn while others are open: its failures. */
-async function checkPage(chrome, contextId, url, size, theme, options) {
+/** Which state the page says it is (html.ts, checkedPageTag), or null for a page that says none. */
+const SAID_STATE = `document.querySelector('meta[name="checked-page"]')?.getAttribute("content") ?? null`;
+
+/** Fills in and sends a form as a browser without the page's scripts would (checked-pages.ts, FormToSend): whether it found it. */
+const sendForm = (form) => `(() => {
+  const found = [...document.querySelectorAll("form")].find((each) => each.getAttribute("action") === ${JSON.stringify(form.formAction)});
+  if (!found) return false;
+  const word = Math.random().toString(36).slice(2, 10);
+  for (const [name, value] of Object.entries(${JSON.stringify(form.fieldValues)})) {
+    const field = found.elements.namedItem(name) ?? found.appendChild(Object.assign(document.createElement("input"), { type: "hidden", name }));
+    field.value = value.replaceAll(${JSON.stringify(UNIQUE_WORD)}, word);
+  }
+  HTMLFormElement.prototype.submit.call(found);
+  return true;
+})()`;
+
+/** One page in a fresh tab, in a window of its own so it's drawn while others are open, at each size and theme in looks: their failures, one list each. */
+async function checkPage(chrome, contextId, url, looks, options) {
   const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId: contextId, newWindow: true });
   const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params = {}) => chrome.send(method, params, sessionId);
-  try {
-    await send("Page.enable");
+  const look = async ({ size, theme }) => {
     await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: size.isPhone ? 2 : 1, mobile: size.isPhone });
     await send("Emulation.setTouchEmulationEnabled", size.isPhone ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
     await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }, { name: "prefers-reduced-motion", value: "reduce" }] });
-    const loaded = new Promise((done) => {
+  };
+  const said = async () => (await send("Runtime.evaluate", { expression: SAID_STATE, returnByValue: true }).catch(() => null))?.result?.value ?? null;
+  try {
+    await send("Page.enable");
+    await look(looks[0]);
+    const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
     });
+    let next = loaded();
     await send("Page.navigate", { url });
-    await Promise.race([loaded, wait(30_000)]);
+    await Promise.race([next, wait(30_000)]);
+    // A state only forms and links reach: each step is taken once, and its answer is the page that takes the next. It's taken once for
+    // every size and theme, so the sign-in's limits on tries aren't reached.
+    for (const step of options.stepsToTake ?? []) {
+      next = loaded();
+      if ("path" in step) await send("Page.navigate", { url: `${new URL(url).origin}${step.path}` });
+      else if (!(await send("Runtime.evaluate", { expression: sendForm(step), returnByValue: true })).result?.value) {
+        return looks.map(() => [{ check: "the check couldn't send the page's form", element: `form ${step.formAction}`, said: "no form there is sent there" }]);
+      }
+      await Promise.race([next, wait(30_000)]);
+    }
     if (options.markup) await send("Runtime.evaluate", { expression: `document.querySelector("main").innerHTML = ${JSON.stringify(options.markup)}; true`, returnByValue: true });
-    await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
-    const isMainActionChecked = options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone);
-    const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold), isTouch: size.isPhone };
-    const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
-    if (exceptionDetails) return [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }];
-    return result.value;
+    const foundByLook = [];
+    for (const [lookIndex, { size, theme }] of looks.entries()) {
+      if (lookIndex > 0) await look({ size, theme });
+      await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
+      const isMainActionChecked = options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone);
+      const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold), isTouch: size.isPhone };
+      const { result, exceptionDetails } = await send("Runtime.evaluate", { expression: `(${MEASURE_LAYOUT_SOURCE})(${JSON.stringify(measured)})`, returnByValue: true });
+      const found = exceptionDetails ? [{ check: "the check couldn't measure the page", element: "", said: exceptionDetails.exception?.description ?? exceptionDetails.text }] : result.value;
+      // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
+      const state = await said();
+      if (!options.markup && state !== options.name) {
+        const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
+        found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
+      }
+      foundByLook.push(found);
+    }
+    return foundByLook;
   } finally {
     await chrome.send("Target.closeTarget", { targetId }).catch(() => {});
   }
@@ -141,17 +183,20 @@ async function signIn(chrome, contextId, site, username) {
  */
 export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {} }) {
   const chrome = await openChrome(chromePath, "zaisma-layout-");
-  const runs = pages.flatMap((page) => sizes.flatMap((size) => themes.map((theme) => ({ page, size, theme }))));
+  const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
+  // A page is opened once for each size and theme; one that sends forms is opened once, its answer measured at each.
+  const runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : looks.map((one) => ({ page, looks: [one] }))));
   const foundByRun = [];
   const secondsByPage = {};
   try {
     const contexts = new Map();
+    const newContext = async (account) => {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      if (account) await signIn(chrome, browserContextId, site, account);
+      return browserContextId;
+    };
     const contextFor = async (account) => {
-      if (!contexts.has(account ?? "")) {
-        const { browserContextId } = await chrome.send("Target.createBrowserContext");
-        if (account) await signIn(chrome, browserContextId, site, account);
-        contexts.set(account ?? "", browserContextId);
-      }
+      if (!contexts.has(account ?? "")) contexts.set(account ?? "", await newContext(account));
       return contexts.get(account ?? "");
     };
     // Every account signs in first, one at a time, so the runs that share it don't each sign it in.
@@ -160,24 +205,28 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
     const checkRuns = async () => {
       while (nextRun < runs.length) {
         const runIndex = nextRun++;
-        const { page, size, theme } = runs[runIndex];
+        const { page, looks: runLooks } = runs[runIndex];
         const base = page.isOnSignInSite ? signInSite : site;
         // The gallery takes light or dark from its address.
+        const theme = runLooks[0].theme;
         const url = `${base}${page.path}${page.isGallery && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
         // A page that never settles (a load or a frame that doesn't come) fails by name instead of holding up the rest.
-        const tooSlow = [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${RUN_TIME_LIMIT_MS / 1000}s` }];
+        const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
         const startedMs = Date.now();
-        const found = await Promise.race([checkPage(chrome, await contextFor(page.account), url, size, theme, page), wait(RUN_TIME_LIMIT_MS).then(() => tooSlow)]);
+        // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
+        const contextId = page.stepsToTake ? await newContext(page.account) : await contextFor(page.account);
+        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, page), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
+        if (page.stepsToTake) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
         secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
-        foundByRun[runIndex] = found.map((failure) => ({ page: page.name, path: page.path, size: size.name, theme, ...failure }));
-        onPage(page, size, theme, found);
+        foundByRun[runIndex] = runLooks.flatMap(({ size, theme: lookTheme }, lookIndex) => foundByLook[lookIndex].map((failure) => ({ page: page.name, path: page.path, size: size.name, theme: lookTheme, ...failure })));
+        for (const [lookIndex, { size, theme: lookTheme }] of runLooks.entries()) onPage(page, size, lookTheme, foundByLook[lookIndex]);
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(tabCount, runs.length)) }, checkRuns));
   } finally {
     await chrome.close();
   }
-  return { checkedCount: foundByRun.filter(Boolean).length, failures: foundByRun.flat(), secondsByPage };
+  return { checkedCount: runs.reduce((count, run, runIndex) => count + (foundByRun[runIndex] ? run.looks.length : 0), 0), failures: foundByRun.flat(), secondsByPage };
 }
 
 /** This checkout's preview's addresses, starting it first when it isn't running. */

@@ -293,7 +293,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     isPrivate: Boolean(viewer.account),
     nav: "home",
     viewer,
-    isRebuilt: true,
+    checkedPage: viewer.account ? "Home, signed in" : "Home",
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {

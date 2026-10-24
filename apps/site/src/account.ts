@@ -108,6 +108,7 @@ import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
 import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
+import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
 import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
@@ -844,6 +845,8 @@ async function askingGame(env: Env, next: string | null): Promise<Game | null> {
 }
 
 interface SignInPageOptions {
+  /** Which state on the checks' list the step is (LayoutOptions.checkedPage, html.ts). */
+  checkedPage: CheckedPageName;
   /** The game that asked the player to sign in (askingGame). */
   game?: Game | null;
   httpStatus?: number;
@@ -855,14 +858,14 @@ interface SignInPageOptions {
  * Signing in and making an account, and every step between: one glass pane over the city (docs/DECISIONS.md, "Signing in happens
  * in the city, on every device"), with only the logo above it.
  */
-function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptions = {}): Response {
+function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptions): Response {
   // Every step allows the bot check, since each can swap in the next one's in place (CITY_PANE_SCRIPT).
   const hasTurnstileCheck = Boolean(env.TURNSTILE_SITE_KEY);
   const response = layout(env, {
     title: `${title} · Zaisma`,
     stage: cityStage(),
     isBare: true,
-    isRebuilt: true,
+    checkedPage: options.checkedPage,
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
@@ -956,7 +959,7 @@ ${join}
 <p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
 ${guestWay(game, false)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT)}`,
-    { game, httpStatus: given.httpStatus },
+    { checkedPage: current === "signin" ? (given.signinError ? "Sign in, wrong password" : "Sign in") : given.ageError ? "Make an account, no birthday" : "Make an account", game, httpStatus: given.httpStatus },
   );
 }
 
@@ -1016,7 +1019,7 @@ ${runButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sen
 <p class="note">Added neither? Then the account can't be recovered, but you can always ${textLink("make a new one", `/join${nextQuery(next)}`)}.</p>
 ${guestWay(game)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    { game, httpStatus: error ? 400 : 200 },
+    { checkedPage: error ? "Forgot your password, no email" : "Forgot your password", game, httpStatus: error ? 400 : 200 },
   );
 }
 
@@ -1045,7 +1048,7 @@ ${runButton("Continue", { isFullWidth: true, isBig: true })}
 </form>
 <p class="note">No email after a minute? Check spam, or ${textLink("try again", `/signin/email${nextQuery(next)}`)}.</p>
 ${guestWay(game)}`,
-      { game, httpStatus: error ? 400 : 200 },
+      { checkedPage: error ? "Check your email, wrong code" : "Check your email", game, httpStatus: error ? 400 : 200 },
     );
   }
   return page(
@@ -1121,12 +1124,12 @@ async function joinPlayPage(env: Env, next: string | null, account: Account, err
     html`${paneHeading("How do you play?", game)}
 <form method="post" action="/join/play" class="is-play-step">
 ${nextField(next)}
-${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode], icon: JOIN_SOCIAL_MODE_ICONS[socialMode] })) })}
+${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", isLabelHidden: true, pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode], icon: JOIN_SOCIAL_MODE_ICONS[socialMode] })) })}
 ${paneProblem(error)}
 <p class="note">You can change this any time in Settings.</p>
 ${runButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
 </form>`,
-    { game, httpStatus: error ? 400 : 200, account },
+    { checkedPage: "How do you play", game, httpStatus: error ? 400 : 200, account },
   );
 }
 
@@ -1237,7 +1240,7 @@ ${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })
 ${TERMS_LINE}
 ${guestWay(game)}
 ${scriptTags(USERNAME_SCRIPT)}`,
-    { game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200 },
+    { checkedPage: "How will you sign in", game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200 },
   );
 }
 
@@ -1257,7 +1260,7 @@ ${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })
 </form>
 ${TERMS_LINE}
 ${scriptTags(USERNAME_SCRIPT)}`,
-    { game, httpStatus: error || given.usernameError ? 400 : 200 },
+    { checkedPage: "Pick a username", game, httpStatus: error || given.usernameError ? 400 : 200 },
   );
 }
 
@@ -1268,6 +1271,7 @@ function tooYoungPage(env: Env): Response {
     html`<h1>You can't make an account</h1>
 <p>You can still play as a guest in any game that doesn't need one.</p>
 ${guestButton("Find a game", { href: "/" })}`,
+    { checkedPage: "Make an account, too young" },
   );
 }
 
@@ -1303,7 +1307,7 @@ async function keptPage(env: Env, account: Account, slug: string | null): Promis
 <p>${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
 <div data-back>${runButton(game ? `Back to ${game.title}` : "Find a game", { href: back, isFullWidth: true, isBig: true })}</div>
 ${scriptTags(JOINED_SCRIPT)}`,
-    { account },
+    { checkedPage: "You're in", account },
   );
 }
 

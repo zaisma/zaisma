@@ -13,6 +13,7 @@ import { backdrop, glassPane } from "./components/foundations.ts";
 import { stack } from "./components/layout.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
+import type { CheckedPageName } from "./components/checked-pages.ts";
 
 /** A page's scripts, as their files (page-scripts.ts). They run in order once the page is read. */
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
@@ -613,8 +614,11 @@ export interface LayoutOptions {
    * passes its account as { account }, so the session is read once. Left out, the header says Sign in until the page sees the signed-in cookie.
    */
   viewer?: Pick<Viewer, "account"> | null;
-  /** The body is built in Zaisma's look: no Steel around it. */
-  isRebuilt?: boolean;
+  /**
+   * The body is built in Zaisma's look, with no Steel around it, and this is the state it renders on the list the design and layout checks
+   * open (components/checked-pages.ts): a page can't be rebuilt without naming one, and the layout check fails when an entry shows another.
+   */
+  checkedPage?: CheckedPageName;
   /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
   stage?: Raw;
   /** A Steel page's own stylesheets (page-styles.ts), until its page is rebuilt: linked right after the site's, so they win over it as before. */
@@ -622,7 +626,8 @@ export interface LayoutOptions {
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
-  const sheet = options.isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
+  const isRebuilt = options.checkedPage !== undefined;
+  const sheet = isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
@@ -632,6 +637,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${options.title}</title>
+${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -647,7 +653,7 @@ ${options.stage ?? backdrop()}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
-<main${options.isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
+<main${isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
 ${siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 ${stylesAppliedTag()}
@@ -661,6 +667,9 @@ ${stylesAppliedTag()}
   const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
 }
+
+/** Which state on the checks' list a page is (LayoutOptions.checkedPage), for the layout check to read and a swapped-in sign-in step to carry over. */
+export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="checked-page" content="${name}">`;
 
 /** Jost, named for its contents (brand/fonts), so it's cached for good: the same path tokens.ts's @font-face loads. */
 const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
@@ -710,7 +719,7 @@ export function message(env: Env, title: string, text: string, httpStatus = 200)
 /** The same, in Zaisma's look: a pane of glass on the page, for a page already rebuilt in it (the connect and Sign in with Zaisma pages). */
 export function glassMessage(env: Env, title: string, text: string, httpStatus = 200): Response {
   const body = glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>${title}</h1>` }, { kind: "block", markup: html`<p>${text}</p>` }, { kind: "control", markup: runButton("Back to games", { href: "/", isFullWidth: true }) }] }) });
-  const response = layout(env, { title, body, isRebuilt: true });
+  const response = layout(env, { title, body, checkedPage: "A message" });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 

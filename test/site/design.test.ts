@@ -12,6 +12,7 @@ import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
 import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
+import { CHECKED_PAGES, UNIQUE_WORD, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems } from "./page-rules.ts";
 import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
@@ -66,6 +67,45 @@ const page = async (path: string) => {
   const response = await SELF.fetch(`${SITE}${path}`);
   return { response, text: await response.text() };
 };
+
+/**
+ * The page a state only forms and links reach shows (checked-pages.ts, stepsToTake): each form sent as a browser would, with its hidden
+ * fields, the cookies its answers set and their redirects followed. Null when the steps lead off the site (a stand-in sign-in a test has none of).
+ */
+async function pageAfterSteps(path: string, steps: readonly StepToTake[]): Promise<string | null> {
+  const cookies = new Map<string, string>();
+  const go = async (address: string, init: { method?: string; body?: URLSearchParams } = {}): Promise<string | null> => {
+    for (let hopCount = 0; hopCount < 5; hopCount++) {
+      if (new URL(address).origin !== SITE) return null;
+      const cookie = [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+      const headers: Record<string, string> = { cookie, ...(init.body ? { "content-type": "application/x-www-form-urlencoded", origin: SITE } : {}) };
+      const response = await SELF.fetch(address, { ...init, headers, redirect: "manual" });
+      for (const line of response.headers.getSetCookie()) {
+        const pair = line.split(";")[0]!;
+        cookies.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
+      }
+      const location = response.headers.get("location");
+      if (!location) return response.text();
+      address = new URL(location, address).href;
+      init = {};
+    }
+    throw new Error(`${path}: redirected more than 5 times`);
+  };
+  let text = await go(`${SITE}${path}`);
+  for (const step of steps) {
+    if (text === null) return null;
+    if ("path" in step) {
+      text = await go(`${SITE}${step.path}`);
+      continue;
+    }
+    const markup = [...text.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/g)].map((match) => match[0]).find((each) => each.includes(`action="${step.formAction}"`));
+    if (!markup) throw new Error(`${path}: no form is sent to ${step.formAction}`);
+    const body = new URLSearchParams([...markup.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((match) => [match[1]!, match[2]!.replaceAll("&amp;", "&")]));
+    for (const [name, value] of Object.entries(step.fieldValues)) body.set(name, value.replaceAll(UNIQUE_WORD, crypto.randomUUID().slice(0, 8)));
+    text = await go(`${SITE}${step.formAction}`, { method: "POST", body });
+  }
+  return text;
+}
 
 describe("the gallery", () => {
   it("reads every component's source: none is left out of the checks below", () => {
@@ -695,10 +735,21 @@ function matchesSubject(element: Element, subject: string): boolean {
 }
 
 describe("pages", () => {
-  // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md). Pages signed in are checked
-  // where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every page is measured in Chrome by
-  // npm run layout:check (scripts/layout-check.mjs).
-  const PUBLIC_PAGES = ["/", "/signin", "/join", "/signin/email", "/design/example", "/developers/backgrounds", "/oauth/authorize?client_id=nope"];
+  // "A page is only gallery components, layout included. It has no styles of its own" (docs/DECISIONS.md), on every state the layout
+  // check measures (components/checked-pages.ts) that a plain visit shows: states seen signed in, on a developer's site or after a form are
+  // checked where their tests render them (test/site/mcp-sign-in.test.ts, test/site/accounts.test.ts), and every one is measured in Chrome
+  // by npm run layout:check (scripts/layout-check.mjs).
+  const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery);
+  const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
+
+  it("are only gallery components in every state a form shows too, and each says the state it's listed as", async () => {
+    for (const state of PUBLIC_STATES) {
+      const text = state.stepsToTake ? await pageAfterSteps(state.path, state.stepsToTake) : (await page(state.path)).text;
+      if (text === null) continue;
+      expect(text.match(/<meta name="checked-page" content="([^"]*)">/)?.[1]?.replaceAll("&#39;", "'"), state.name).toBe(state.name);
+      expect(pageProblems(text), state.name).toEqual([]);
+    }
+  });
 
   it("make no stylesheet of their own: the only sheets are the site's and the gallery's", async () => {
     for (const path of PUBLIC_PAGES) expect((await page(path)).response.status, path).toBeLessThan(500);
