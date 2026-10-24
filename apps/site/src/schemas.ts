@@ -1025,23 +1025,31 @@ export const WEBHOOK_EVENT = object({
       review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
       country_blocks_changed: "Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks)",
       game_server_error_found: "a new distinct error in the game's own game server, once per error per version (game_server_error, version: the version it happened in)",
-      alert_raised: "one of the game's free-use alerts appeared, at most once a month per kind (alert)",
+      alert_raised: "one of the game's free-use alerts appeared, at most once a month per kind (alert): it covers every alert kind, so switch on alert.kind",
       account_deleted:
-        "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows in the game's database unless the game's deleted_account_erase_enabled is false)",
+        "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about account_deletion.player_id (Zaisma erases their rows in the game's database itself unless account_deletion.deleted_account_erase_enabled is false)",
       security_alert:
         "one of your own security alerts, as get_activity lists them (security_event): a sign-in on a new device from a network you hadn't used, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI or app connected. It reaches only a webhook for every game (game_slugs null) at an endpoint_url",
-      test: "sent by test_webhook; game, version, bug_report, player_report, game_server_error, alert, player_id, sign_in_app and security_event are null",
+      test: "sent by test_webhook; game, version, bug_report, player_report, game_server_error, alert, account_deletion, sign_in_app and security_event are null",
     },
-    "What happened.",
+    "What happened. New kinds can be added: skip one you don't know.",
   ),
-  happened_at: isoTime(),
+  created_at: isoTime("When Zaisma made the event. Events can arrive out of order, so compare created_at before overwriting newer state."),
   game: nullable({ ...GAME, description: "The game as get_game answers it, now; null for a test event, a security_alert or an account_deleted event about a sign-in app." }),
   version: nullable({ ...VERSION, description: "The version as get_version answers it, now; null when the event isn't about one." }),
   bug_report: nullable({ ...BUG_REPORT, description: "The bug report as get_reports lists it; null unless kind is bug_reported." }),
   player_report: nullable({ ...PLAYER_REPORT, description: "The player report as get_reports lists it; null unless kind is player_reported." }),
   game_server_error: nullable({ ...GAME_SERVER_ERROR, description: "The error as get_stats lists it; null unless kind is game_server_error_found." }),
   alert: nullable({ ...GAME_ALERT, description: "The alert as the game's alerts list it; null unless kind is alert_raised." }),
-  player_id: nullable(idOf("player", "The player who deleted their account; null unless kind is account_deleted.")),
+  account_deletion: nullable(
+    object(
+      {
+        player_id: idOf("player", "The player who deleted their Zaisma account."),
+        deleted_account_erase_enabled: yes("The game's deleted_account_erase_enabled: whether Zaisma erases their rows from the game database (and the Node game server from its own). Always false about a sign-in app."),
+      },
+      "Who deleted their account; null unless kind is account_deleted.",
+    ),
+  ),
   sign_in_app: nullable({ ...SIGN_IN_APP, description: "The sign-in app as list_sign_in_apps answers it; null unless an account_deleted event is about a site, not a game." }),
   security_event: nullable({ ...ACTIVITY_EVENT, description: "The account's event as get_activity lists it; null unless kind is security_alert." }),
 });

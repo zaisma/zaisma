@@ -1,7 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, issueRoomKey, monthStartDateOf } from "@zaisma/core";
-import { generateSigningKey, loadSigningKey } from "@zaisma/game-server";
+import { generateSigningKey, loadSigningKey } from "@zaisma/game-server/internal";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { GameServerObject } from "../../apps/rooms/src/game-server.ts";
 import type { GameDatabaseObject } from "../../apps/rooms/src/database.ts";

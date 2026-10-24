@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ReceiptError, generateSigningKey, loadSigningKey, verifyReceipt } from "@zaisma/game-server";
+import { ReceiptError, generateSigningKey, loadSigningKey, verifyReceipt } from "@zaisma/game-server/internal";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import { publishedReceiptKeys, receiptPublicKeys, signingKey } from "../../apps/rooms/src/signing.ts";
 import { signTestReceipt } from "../helpers.ts";
@@ -51,7 +51,7 @@ describe("published keys", () => {
   it("let a receipt signed with a retired key verify, as long as it's listed", async () => {
     const retired = await retiredKey();
     const receipt = await signTestReceipt(retired.signing, "arena", ISSUER);
-    const expectation = { game: "arena", issuer: `${ISSUER}/receipts` };
+    const expectation = { gameSlug: "arena", issuerUrl: `${ISSUER}/receipts` };
     const withRetired = await receiptPublicKeys({ ...e, RETIRED_RECEIPT_PUBLIC_KEYS: JSON.stringify([retired.publicKey]) });
     expect(await verifyReceipt(receipt, withRetired, expectation)).toMatchObject({ aud: "arena", purchase_status: "completed" });
     const without = await verifyReceipt(receipt, await receiptPublicKeys({ ...e, RETIRED_RECEIPT_PUBLIC_KEYS: "[]" }), expectation).catch((thrown: unknown) => thrown);

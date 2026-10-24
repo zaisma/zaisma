@@ -1,4 +1,4 @@
-import { RECEIPT_TOKEN_TYPE, type ReceiptClaims, type SigningKey } from "@zaisma/game-server";
+import { RECEIPT_TOKEN_TYPE, type ReceiptClaims, type SigningKey } from "@zaisma/game-server/internal";
 import type { Purchase } from "./items.ts";
 
 /**

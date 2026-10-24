@@ -96,7 +96,7 @@ export async function blocksAmong(database: D1Database, playerId: string, otherP
 
 /**
  * The player IDs of the accounts this one has a block with, either way, newest first and at most
- * MAXIMUM_PASS_BLOCK_COUNT: what its passes carry, as opaque tags (block_tag_ids), so a developer's own
+ * MAXIMUM_PASS_BLOCK_COUNT: what its passes carry, as opaque tags (block_player_tag_ids), so a developer's own
  * server can keep the walls up too. Both ways, so a pass never says which side made a block.
  */
 export async function blockPlayerIdsOf(database: D1Database, accountId: string, maximumCount = MAXIMUM_PASS_BLOCK_COUNT): Promise<string[]> {

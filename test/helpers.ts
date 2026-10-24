@@ -1,6 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
 import { signReceipt } from "../packages/core/src/receipts.ts";
-import type { ReceiptClaims, SigningKey } from "../packages/game-server/src/index.ts";
+import type { ReceiptClaims, SigningKey } from "../packages/game-server/src/internal.ts";
 
 /** Build a zip in memory from { path: contents }. */
 export function makeZip(files: Record<string, string | Uint8Array>): Uint8Array {

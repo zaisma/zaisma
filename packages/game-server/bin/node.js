@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, ReceiptError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, areFriends, hasBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyReceipt, verifyWebhook } from "../src/index.ts";
+import { ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, ReceiptError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyReceipt, verifyWebhook } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /**
@@ -228,7 +228,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
 
   /** room.verifyReceipt and server.verifyReceipt: a receipt for this game from Zaisma's receipt issuer, checked against its keys (fetched again once when its key is new). */
   async function receiptClaims(receipt) {
-    const expect = { game, issuer: `${issuer}/receipts` };
+    const expect = { gameSlug: game, issuerUrl: `${issuer}/receipts` };
     return verifyReceipt(receipt, await receiptKeys(), expect).catch(async (error) => {
       if (error instanceof ReceiptError && error.code === "unknown_key") return verifyReceipt(receipt, await receiptKeys(true), expect);
       throw error;
@@ -241,16 +241,17 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
    * for an account deleted since; PassError for a bad pass.
    */
   async function playerFrom(pass) {
-    const claims = await verifyPass(pass, await keys(), { game, issuer }).catch(async (error) => {
+    const claims = await verifyPass(pass, await keys(), { gameSlug: game, issuerUrl: issuer }).catch(async (error) => {
       // A new key may have been published since we cached them.
-      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { game, issuer });
+      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { gameSlug: game, issuerUrl: issuer });
       throw error;
     });
     // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
     // What the account owns here rides in its pass, as on Zaisma rooms (player.ownedItemNames).
     const owned = claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {};
-    return name ? { player: { id: claims.sub, name, kind: claims.kind, ...owned }, claims } : null;
+    // A kind added after v1 plays as a guest here, as in Zaisma rooms.
+    return name ? { player: { id: claims.sub, name, kind: claims.kind === "account" ? "account" : "guest", ...owned }, claims } : null;
   }
 
   // Requests from the game to onRequest, outside any room: POST /v1/requests/<game> with { pass, request },
@@ -307,10 +308,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   // Events from a Zaisma webhook whose endpoint_url is this server's /v1/webhooks: signed the Standard
-  // Webhooks way, checked with its signing secret, then handed to onWebhook. An account_deleted event
-  // first erases the player from the local database when the event's game says
-  // deleted_account_erase_enabled, the same switch Zaisma follows for its own databases. Answers 204 when
-  // that and onWebhook finished, so Zaisma counts it delivered; anything else is tried again later.
+  // Webhooks way, checked with its signing secret, then handed to onWebhook. An event about another game
+  // (one webhook can take several) is skipped with 204, before anything else, so it never erases this
+  // game's rows. An account_deleted event about this game first erases the player from the local
+  // database when its account_deletion says deleted_account_erase_enabled, the same switch Zaisma follows
+  // for its own databases. Answers 204 when that and onWebhook finished, so Zaisma counts it delivered;
+  // anything else is tried again later.
   function answerWebhook(request, response) {
     const reply = (httpStatus, message) => {
       response.writeHead(httpStatus, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
@@ -318,34 +321,52 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     };
     if (request.method !== "POST") return reply(405, "Webhooks are POSTed.");
     if (!webhookSigningSecret) return reply(503, "Set ZAISMA_WEBHOOK_SIGNING_SECRET to the webhook's signing_secret to take its events.");
-    let text = "";
-    let isTooBig = false;
-    request.setEncoding("utf8");
+    const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
+    const headers = { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") };
+    // A POST with no headers, or an old timestamp, is turned away before its body is read.
+    const refuse = (httpStatus, error) => {
+      response.once("finish", () => request.destroy());
+      reply(httpStatus, `${error.message} ${error.fix}`);
+    };
+    const chunks = [];
+    let sizeBytes = 0;
+    let isAnswered = false;
+    verifyWebhook(webhookSigningSecret, headers, "").then((early) => {
+      if ("error" in early && early.error.code !== "bad_signature" && !isAnswered && !response.headersSent) {
+        isAnswered = true;
+        return refuse(401, early.error);
+      }
+    });
     request.on("data", (chunk) => {
-      if (isTooBig) return;
-      text += chunk;
-      if (text.length > WEBHOOK_LIMITS.maximumEventSizeBytes) isTooBig = true;
+      if (isAnswered) return;
+      sizeBytes += chunk.length;
+      if (sizeBytes <= WEBHOOK_LIMITS.maximumEventSizeBytes) return void chunks.push(chunk);
+      isAnswered = true;
+      refuse(413, { message: `The event is over ${WEBHOOK_LIMITS.maximumEventSizeBytes} bytes, more than any event Zaisma sends.`, fix: "Only take POSTs Zaisma's webhooks send." });
     });
     request.on("end", async () => {
       try {
-        if (isTooBig) return reply(413, "The event is too big.");
-        const header = (name) => (typeof request.headers[name] === "string" ? request.headers[name] : null);
-        const checked = await verifyWebhook(webhookSigningSecret, { webhookId: header("webhook-id"), webhookTimestamp: header("webhook-timestamp"), webhookSignature: header("webhook-signature") }, text);
-        if ("failure" in checked) return reply(401, checked.failure);
+        if (isAnswered) return;
+        const text = Buffer.concat(chunks).toString("utf8");
+        const checked = await verifyWebhook(webhookSigningSecret, headers, text);
+        if (isAnswered) return;
+        if ("error" in checked) return reply(401, `${checked.error.message} ${checked.error.fix}`);
         const event = checked.event;
+        if (event.game && event.game.slug !== game) return reply(204, "");
         const isAccountDeleted = event.kind === "account_deleted";
-        if (isAccountDeleted && event.game?.deleted_account_erase_enabled === true) {
+        const deletion = event.account_deletion;
+        if (isAccountDeleted && event.game?.slug === game && deletion?.deleted_account_erase_enabled === true) {
           try {
-            await database.erasePlayer(event.player_id);
+            await database.erasePlayer(deletion.player_id);
           } catch (error) {
-            console.error(`Couldn't erase ${event.player_id} from the game database (${event.id}):`, error);
+            console.error(`Couldn't erase ${deletion.player_id} from the game database (${event.id}):`, error);
             return reply(500, "Erasing the player failed; Zaisma tries the event again later.");
           }
         }
         if (typeof definition.onWebhook !== "function") return isAccountDeleted ? reply(204, "") : reply(404, "This game server has no onWebhook.");
         const outcome = await runWebhook(definition, event, { database, secrets, verifyReceipt: receiptClaims });
-        if ("failure" in outcome) {
-          console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.failure);
+        if ("error" in outcome) {
+          console.error(`Game server error in onWebhook (${checked.event.kind}, ${checked.event.id}):`, outcome.error.message);
           return reply(500, "onWebhook failed; Zaisma tries the event again later.");
         }
         reply(204, "");
@@ -403,7 +424,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
-    // passes: each player's checked pass, newest, for the blocks and friendships between them (hasBlockBetween, areFriends).
+    // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends).
     // savedStateKey: what the room last saved (its state and its match's players), so an unchanged one isn't written again.
     room = { core, sockets, passes: new Map(), timer: null, waiting: false, savedStateKey: saved ? stateKeyOf(saved.stateJson, saved.matchPlayers, saved.savedRoom.isKept === true) : null, hasReportedStateSize: false };
     rooms.set(code, room);
@@ -598,7 +619,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         checked = await playerFrom(pass);
       } catch (error) {
         if (error instanceof PassError) return refuse("bad_pass");
-        throw error;
+        // Zaisma couldn't be reached for the account's name: the player tries again, nothing crashes.
+        console.error("Couldn't check a player's pass:", error);
+        return refuse("busy");
       }
       if (!checked) return refuse("bad_pass");
       const { player, claims } = checked;
@@ -619,8 +642,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!isSpectator) {
         room.passes.set(player.id, claims);
         for (const id of room.passes.keys()) if (!room.core.known.has(id) && id !== player.id) room.passes.delete(id);
-        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && hasBlockBetween(claims, other)).map(([id]) => id));
-        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && areFriends(claims, other)).map(([id]) => id));
+        room.core.setAccountBlocks(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesHaveBlockBetween(claims, other)).map(([id]) => id));
+        room.core.setFriends(player.id, [...room.passes].filter(([id, other]) => id !== player.id && passesAreFriends(claims, other)).map(([id]) => id));
       }
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
       const joined = room.core.join(player, { ...made, isSpectator });

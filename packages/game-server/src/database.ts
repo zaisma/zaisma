@@ -40,7 +40,7 @@ export interface GameDatabase {
    * their account, unless the game's deleted_account_erase_enabled is off; then do it yourself:
    *
    *   onWebhook(event, server) {
-   *     if (event.kind === "account_deleted") return server.database.erasePlayer(event.player_id);
+   *     if (event.kind === "account_deleted") return server.database.erasePlayer(event.account_deletion.player_id);
    *   }
    *
    * A foreign key that refuses the delete (no ON DELETE CASCADE) undoes the whole erase.
@@ -82,7 +82,7 @@ export function eraseStatements(tables: { name: string; columnNames: string[] }[
 /** A player ID as Zaisma makes them (player_ and lowercase letters and digits), or a bad_player_id DatabaseError. */
 export function checkPlayerId(playerId: unknown): string {
   if (typeof playerId === "string" && /^player_[a-z0-9]+$/.test(playerId)) return playerId;
-  throw new DatabaseError("bad_player_id", `${JSON.stringify(playerId) ?? String(playerId)} isn't a player ID.`, "Give the player_… ID: event.player_id in an account_deleted event, player.id in a room, or a player pass's sub.");
+  throw new DatabaseError("bad_player_id", `${JSON.stringify(playerId) ?? String(playerId)} isn't a player ID.`, "Give the player_… ID: event.account_deletion.player_id in an account_deleted event, player.id in a room, or a player pass's sub.");
 }
 
 /** What erasePlayer says when a table's foreign key refuses the delete. */

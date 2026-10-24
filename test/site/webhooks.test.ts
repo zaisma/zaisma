@@ -447,7 +447,7 @@ describe("deleting an account reaches developers", () => {
     const events = received.map((request) => ({ url: request.url, event: JSON.parse(request.body) }));
     for (const { event } of events) {
       expect(schemaProblems(WEBHOOK_EVENT, event)).toEqual([]);
-      expect(event).toMatchObject({ kind: "account_deleted", player_id: playerId, version: null, bug_report: null });
+      expect(event).toMatchObject({ kind: "account_deleted", account_deletion: { player_id: playerId }, version: null, bug_report: null });
     }
     const said = events.map(({ url, event }) => `${url} ${event.game?.slug ?? event.sign_in_app.name}`).sort();
     // A webhook limited to games never takes a site's event, and the scans webhook takes none.
@@ -456,10 +456,10 @@ describe("deleting an account reaches developers", () => {
     expect(await isSignedBy(received.find((request) => request.url === HOOKS)!, everything.signing_secret)).toBe(true);
     // The game's own game server gets it too.
     const sent = await gameServers().takeSent(null);
-    expect(sent.map((event) => JSON.parse(event.eventJson))).toEqual([expect.objectContaining({ kind: "account_deleted", player_id: playerId, game: expect.objectContaining({ slug: "sky-hopper" }) })]);
-    // Every other event says player_id and sign_in_app too, as null.
+    expect(sent.map((event) => JSON.parse(event.eventJson))).toEqual([expect.objectContaining({ kind: "account_deleted", account_deletion: expect.objectContaining({ player_id: playerId }), game: expect.objectContaining({ slug: "sky-hopper" }) })]);
+    // Every other event says account_deletion and sign_in_app too, as null.
     const tested = await tool("test_webhook", { webhook_id: everything.webhook.id });
-    expect(tested.delivery.webhook_event).toMatchObject({ kind: "test", player_id: null, sign_in_app: null });
+    expect(tested.delivery.webhook_event).toMatchObject({ kind: "test", account_deletion: null, sign_in_app: null });
   });
 
   it("erases the player from each game's database unless the game turned it off", async () => {

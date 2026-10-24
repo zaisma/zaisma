@@ -25,7 +25,7 @@ interface V1ReceiptClaims {
 }
 
 export const v1Reads = (claims: ReceiptClaims): V1ReceiptClaims => claims;
-export const v1Calls: Promise<V1ReceiptClaims> = verifyReceipt("t", [] as PublicKey[], { game: "sky-hopper", issuer: "https://rooms.zaisma.com/receipts" });
+export const v1Calls: Promise<V1ReceiptClaims> = verifyReceipt("t", [] as PublicKey[], { gameSlug: "sky-hopper", issuerUrl: "https://rooms.zaisma.com/receipts" });
 export const v1RoomCall = (room: Room): Promise<V1ReceiptClaims> => room.verifyReceipt("t");
 export const v1ServerCall = (server: Server): Promise<V1ReceiptClaims> => server.verifyReceipt("t");
 export const v1Codes: ReceiptErrorCode[] = ["malformed", "unknown_key", "bad_signature", "expired", "wrong_game", "wrong_issuer", "wrong_kind", "wrong_version"];

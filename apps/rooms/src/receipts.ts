@@ -31,7 +31,7 @@ export class ReceiptCheckBinding extends WorkerEntrypoint<Env, { gameId: string 
     const game = await this.env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(this.ctx.props.gameId).first<{ slug: string }>();
     try {
       if (!game) throw new ReceiptError("wrong_game");
-      return { claims: await verifyReceipt(receipt as string, await receiptPublicKeys(this.env), { game: game.slug, issuer: receiptIssuerOf(this.env) }) };
+      return { claims: await verifyReceipt(receipt as string, await receiptPublicKeys(this.env), { gameSlug: game.slug, issuerUrl: receiptIssuerOf(this.env) }) };
     } catch (error) {
       if (error instanceof ReceiptError) return { errorCode: error.code };
       throw error;

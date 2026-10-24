@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { signReceipt } from "../../packages/core/src/receipts.ts";
-import { ReceiptError, generateSigningKey, loadSigningKey, signPass, verifyPass, verifyReceipt, type PublicKey, type ReceiptClaims } from "../../packages/game-server/src/index.ts";
+import { ReceiptError, generateSigningKey, loadSigningKey, signPass, verifyPass, verifyReceipt, type PublicKey, type ReceiptClaims } from "../../packages/game-server/src/internal.ts";
 
 // The receipt contract games depend on from v1: a receipt signed today keeps verifying, to the same claims, in
 // every later copy of verifyReceipt, and v1 receipts only gain things. Change this file only to add to it.
@@ -27,7 +27,7 @@ const V1_CLAIMS = {
   game_account_id: "pa-48213",
   iat: 1792778400,
 };
-const EXPECT = { game: "sky-hopper", issuer: "https://rooms.zaisma.com/receipts" };
+const EXPECT = { gameSlug: "sky-hopper", issuerUrl: "https://rooms.zaisma.com/receipts" };
 
 async function signer() {
   const signing = await loadSigningKey(await generateSigningKey());
@@ -61,24 +61,24 @@ describe("a v1 receipt", () => {
     const { signing, sign, keys } = await signer();
     expect(await reason(verifyReceipt(await sign({ receipt_version_number: 2 }), keys, EXPECT))).toBe("wrong_version");
     expect(await reason(verifyReceipt(await sign({ exp: 1 }), keys, EXPECT))).toBe("expired");
-    expect(await reason(verifyReceipt(await sign(), keys, { ...EXPECT, game: "moon-base" }))).toBe("wrong_game");
-    expect(await reason(verifyReceipt(await sign(), keys, { ...EXPECT, issuer: "https://rooms.zaisma.com" }))).toBe("wrong_issuer");
+    expect(await reason(verifyReceipt(await sign(), keys, { ...EXPECT, gameSlug: "moon-base" }))).toBe("wrong_game");
+    expect(await reason(verifyReceipt(await sign(), keys, { ...EXPECT, issuerUrl: "https://rooms.zaisma.com" }))).toBe("wrong_issuer");
     expect(await reason(verifyReceipt(await sign(), [V1_KEY], EXPECT))).toBe("unknown_key");
     expect(await reason(verifyReceipt(await sign({ item_count: "1" }), keys, EXPECT))).toBe("malformed");
     expect(await reason(verifyReceipt(await sign({ purchase_id: "" }), keys, EXPECT))).toBe("malformed");
-    const pass = await signPass(signing, { sub: "player_8f3k2m9q1x7c4v6b0n5z", aud: "sky-hopper", iss: EXPECT.issuer, kind: "account", iat: 1, exp: 4102444800 });
+    const pass = await signPass(signing, { sub: "player_8f3k2m9q1x7c4v6b0n5z", aud: "sky-hopper", iss: EXPECT.issuerUrl, pass_version_number: 1, kind: "account", iat: 1, exp: 4102444800 });
     expect(await reason(verifyReceipt(pass, keys, EXPECT))).toBe("wrong_kind");
     expect(await reason(verifyReceipt("not.a.receipt", keys, EXPECT))).toBe("malformed");
   });
 
   it("never stands in for a pass", async () => {
     const { sign, keys } = await signer();
-    const asPass = verifyPass(await sign({ iss: "https://rooms.zaisma.com", kind: "account", exp: 4102444800 }), keys, { game: "sky-hopper", issuer: "https://rooms.zaisma.com" });
+    const asPass = verifyPass(await sign({ iss: "https://rooms.zaisma.com", kind: "account", exp: 4102444800 }), keys, { gameSlug: "sky-hopper", issuerUrl: "https://rooms.zaisma.com" });
     expect(await asPass.then(() => "ok", (error: { code: string }) => error.code)).toBe("wrong_kind");
   });
 
   it("is refused as a ReceiptError that says so", async () => {
-    const error = await verifyReceipt(V1_RECEIPT, [V1_KEY], { ...EXPECT, game: "moon-base" }).catch((thrown: unknown) => thrown);
+    const error = await verifyReceipt(V1_RECEIPT, [V1_KEY], { ...EXPECT, gameSlug: "moon-base" }).catch((thrown: unknown) => thrown);
     expect(error).toBeInstanceOf(ReceiptError);
     expect(error).toMatchObject({ name: "ReceiptError", code: "wrong_game", message: "Receipt rejected: wrong_game" });
   });

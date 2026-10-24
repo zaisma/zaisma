@@ -1,4 +1,4 @@
-import { loadSigningKey, type PublicKey, type SigningKey } from "@zaisma/game-server";
+import { loadSigningKey, type PublicKey, type SigningKey } from "@zaisma/game-server/internal";
 
 /** A signing key, loaded once per secret. */
 function cached(): (secret: string) => Promise<SigningKey> {

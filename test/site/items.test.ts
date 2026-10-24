@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { unzipSync } from "fflate";
 import { accountById, createAccount, createApiKey, gameBySlug, gameRowDeletions, newGrant, recordGrant } from "@zaisma/core";
-import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server";
+import { PassError, loadSigningKey, verifyPass, verifyReceipt } from "@zaisma/game-server/internal";
 import { accountDataZip } from "../../apps/site/src/account-data.ts";
 import { purchasesRoute } from "../../apps/site/src/items-api.ts";
 import type { Caller, CheckedCall } from "../../apps/site/src/developer.ts";
@@ -149,7 +149,7 @@ describe("grants", () => {
     expect(schemaProblems(PURCHASE, granted.answer.purchase)).toEqual([]);
     expect(granted.answer).toMatchObject({ is_already_owned: false, purchase: { purchase_source: "grant", purchase_status: "completed", item_count: 1, paid_minor_units: null, game_account_id: "patreon-4417" } });
     const keys = await receiptKeys();
-    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { game: "sky-hopper", issuer: RECEIPT_ISSUER });
+    const claims = await verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER });
     expect(claims).toMatchObject({
       sub: playerId,
       aud: "sky-hopper",
@@ -165,14 +165,14 @@ describe("grants", () => {
       game_account_id: "patreon-4417",
     });
     expect(claims).not.toHaveProperty("kind");
-    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { game: "moon-base", issuer: RECEIPT_ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
+    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "moon-base", issuerUrl: RECEIPT_ISSUER })).rejects.toMatchObject({ code: "wrong_game" });
     // A check for the passes' issuer, as any JWT library makes it, refuses a receipt; so does verifyPass, whatever issuer it's given.
-    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { game: "sky-hopper", issuer: ISSUER })).rejects.toMatchObject({ code: "wrong_issuer" });
-    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { game: "sky-hopper", issuer: RECEIPT_ISSUER }).catch((error: unknown) => error);
+    await expect(verifyReceipt(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: ISSUER })).rejects.toMatchObject({ code: "wrong_issuer" });
+    const asPass = await verifyPass(granted.answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER }).catch((error: unknown) => error);
     expect(asPass).toBeInstanceOf(PassError);
     expect((asPass as PassError).code).toBe("wrong_kind");
     // The same purchase signs again on each read with the same purchase_id.
-    expect(await verifyReceipt((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}`)).answer.purchase.receipt, keys, { game: "sky-hopper", issuer: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id });
+    expect(await verifyReceipt((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}`)).answer.purchase.receipt, keys, { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id });
   });
 
   it("give a permanent item once, and a consumable as many times and as many as asked", async () => {
@@ -206,7 +206,7 @@ describe("grants", () => {
     const refunded = await tool("refund_purchase", { slug: "sky-hopper", purchase_id: granted.answer.purchase.id });
     expect(refunded.purchase).toMatchObject({ purchase_status: "refunded", refunded_minor_units: 0 });
     // Its receipt says so, so no game server delivers on it.
-    expect(await verifyReceipt(refunded.purchase.receipt, await receiptKeys(), { game: "sky-hopper", issuer: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id, purchase_status: "refunded" });
+    expect(await verifyReceipt(refunded.purchase.receipt, await receiptKeys(), { gameSlug: "sky-hopper", issuerUrl: RECEIPT_ISSUER })).toMatchObject({ purchase_id: granted.answer.purchase.id, purchase_status: "refunded" });
     expect(refunded.purchase.refunded_at).not.toBeNull();
     expect((await api(`/games/sky-hopper/players/${playerId}/items`)).answer.owned_item_names).toEqual([]);
     expect((await api(`/games/sky-hopper/purchases/${granted.answer.purchase.id}/refund`, { method: "POST" })).answer.error).toMatchObject({ code: "already_refunded" });

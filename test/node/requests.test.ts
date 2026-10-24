@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
-import { generateSigningKey, loadSigningKey, signPass, type PublicKey, type Server } from "../../packages/game-server/src/index.ts";
+import { generateSigningKey, loadSigningKey, signPass, type PublicKey, type Server } from "../../packages/game-server/src/internal.ts";
 import { signTestReceipt } from "../helpers.ts";
 
 // Requests to onRequest on the developer's own server: the same address and answers as Zaisma rooms (test/rooms/requests.test.ts).
@@ -15,7 +15,7 @@ const receiptSigning = await loadSigningKey(await generateSigningKey());
 
 async function pass(sub: string, aud = "shop") {
   const nowSec = Math.floor(Date.now() / 1000);
-  return signPass(signing, { sub, name: "Swift Fox 42", aud, iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 });
+  return signPass(signing, { sub, name: "Swift Fox 42", aud, iss: ISS, pass_version_number: 1, kind: "guest", iat: nowSec, exp: nowSec + 60 });
 }
 
 type KeyList = (refresh?: boolean) => Promise<PublicKey[]>;
@@ -142,7 +142,7 @@ describe("Node runner requests", () => {
   it("never take a token signed with a receipt key for a pass, even with a pass's claims and issuer", async () => {
     const { own, send } = await serve({ onRequest: (player: { id: string }) => ({ playerId: player.id }) });
     const nowSec = Math.floor(Date.now() / 1000);
-    const forged = await signPass(receiptSigning, { sub: "player_ana", name: "Swift Fox 42", aud: "shop", iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 });
+    const forged = await signPass(receiptSigning, { sub: "player_ana", name: "Swift Fox 42", aud: "shop", iss: ISS, pass_version_number: 1, kind: "guest", iat: nowSec, exp: nowSec + 60 });
     expect(await send({}, forged)).toMatchObject({ httpStatus: 401, body: { error: { code: "bad_pass" } } });
     expect((await send({})).httpStatus).toBe(200);
     await own.close();

@@ -115,7 +115,10 @@ async function keptSigningKey(file) {
   }
   return readFileSync(file, "utf8");
 }
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")) };
+// And the key for the opaque player tags in passes, kept between runs so tags stay the same.
+const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
+if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
