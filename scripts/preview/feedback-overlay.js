@@ -1,9 +1,12 @@
 // The preview's feedback overlay, on every page of the local preview only (scripts/preview/workers/site.mjs adds it; zaisma.com
 // never has it). Julius presses Feedback, clicks a thing, drags a box over an area or picks This page, and writes a comment; it's saved with the
 // page, the screen size, light or dark, the scroll, the spot, the component and rule under it (the layout inspector's
-// window.zaismaInspect, which the preview's site entry loads first when the site has it, else the element's class) and a snapshot of the page as he saw it, for the pictures
-// (feedback-pictures.mjs), with what he did on the page before (pointing, clicks, touches, keys and scrolling, never what goes
-// into a password field) for the session to replay. Open comments show as pins; a session's replies show in the list, where he answers back or closes one.
+// window.zaismaInspect, which the preview's site entry loads first when the site has it, else the element's class), the seen picture
+// (the page as he saw it, drawn on his own device the moment he picked the spot: below), and what he did on the page before (pointing,
+// clicks, touches, keys and scrolling, never what goes into a password field) for the session to replay (feedback-pictures.mjs).
+// Open comments show as pins; a session's replies show in the list, where he answers back or closes one. His box stays on what it
+// was drawn over as the page scrolls, the comment field is big enough that a phone doesn't zoom in to it (and the page is back at its
+// zoom after), and over an open sheet or menu the overlay moves into it, so he can comment on what's in it.
 // In a frame (the gallery's Screens page) it has no button of its own: the top page asks it what's under a click or a box, as a
 // comment on the frame's own page and size, and shows the spot and the form itself, at full size however small Screens draws the frame. It never starts in headless Chrome, so the measuring check and the pictures never
 // see it. Everything is in a shadow root, so page styles don't reach it and its styles don't reach the page.
@@ -16,6 +19,7 @@
   const CHECK_EVERY_MS = 10_000;
   const DRAG_THRESHOLD_PX = 6;
   const PHONE_WIDTH_PX = 560;
+  const SEEN_PICTURE_TIMEOUT_MS = 20_000;
   const isInFrame = window.top !== window;
   const MESSAGE = "zaisma-preview-feedback";
 
@@ -52,6 +56,8 @@
 
   // ---- The overlay's own elements ----
   const host = document.createElement("zaisma-preview-feedback");
+  // Inline and important: inside a sheet (below), the sheet's own rules for what's in it don't move or clip the overlay, nor do a popover's.
+  host.style.cssText = "position:fixed!important;inset:0!important;width:auto!important;height:auto!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;display:block!important;transform:none!important;opacity:1!important;pointer-events:none!important;z-index:2147483647!important";
   const root = host.attachShadow({ mode: "open" });
   root.innerHTML = `<style>
 :host{all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -96,7 +102,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .meta{display:block;color:var(--muted);font-size:12px}
 .label{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 .label b{color:var(--text);font-weight:600}
-textarea{width:100%;min-height:76px;resize:vertical;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--raised);outline:none}
+textarea{width:100%;min-height:76px;resize:vertical;padding:8px 10px;font-size:16px;border-radius:8px;border:1px solid var(--line);background:var(--raised);outline:none}
 textarea:focus{border-color:var(--accent)}
 .row{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 .row .spacer{flex:1}
@@ -148,44 +154,426 @@ textarea:focus{border-color:var(--accent)}
   const describedAs = (described) => (described.is_page_comment ? "<b>The whole page</b>" : described.component ? `<b>${esc(described.component)}</b>${described.layout_rule ? ` · ${esc(described.layout_rule)}` : ""}` : described.element_class ? `<b>.${esc(described.element_class.split(/\s+/).join("."))}</b>` : `<b>${esc(described.tag ?? "")}</b>`);
   const chipText = (described) => described.component ?? (described.element_class ? `.${described.element_class.split(/\s+/)[0]}` : described.tag);
 
-  // ---- The page as he saw it, for the "seen" picture: form values, open details, open popovers and readable canvases kept, scripts removed ----
-  function snapshot() {
-    const clone = document.documentElement.cloneNode(true);
-    const pairs = (selector) => {
-      const originals = document.documentElement.querySelectorAll(selector);
-      const copies = clone.querySelectorAll(selector);
-      return [...originals].map((original, index) => [original, copies[index]]).filter(([, copy]) => copy);
-    };
-    for (const [original, copy] of pairs("input")) {
-      if (original.type === "checkbox" || original.type === "radio") original.checked ? copy.setAttribute("checked", "") : copy.removeAttribute("checked");
-      else if (original.type === "password") copy.setAttribute("value", "x".repeat(original.value.length));
-      else if (original.type !== "file") copy.setAttribute("value", original.value);
+  // ---- The "seen" picture: drawn on this device from the page as it is the moment he picks a spot ----
+  // The page is copied at once (form values, scroll, inner scrolls, open sheets and menus, stuck headers, animations where they
+  // were), its canvases a frame later (a WebGL canvas reads only in the frame it drew), and the copy is drawn by this browser itself
+  // as an SVG image, with the page's styles, fonts and on-screen pictures carried inside it: his fonts, his screen, his state. A frame
+  // from another site (a game) can't be read by the page: a moving background shows as its still, anything else as a marked
+  // placeholder, and the comment says so (seen_picture_note). If this browser won't hand back what it drew, the SVG goes to the
+  // feedback server, whose Chrome draws it.
+  const TRANSPARENT_PICTURE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+  const MAXIMUM_PICTURE_SCALE = 2;
+  const CANVAS_WAIT_FRAME_COUNT = 12;
+  const MAXIMUM_INLINED_FILE_BYTES = 8 * 1024 * 1024;
+  const URL_PATTERN = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/g;
+  // A hidden page draws no frames: it waits a moment instead.
+  const nextFrame = () => new Promise((done) => (requestAnimationFrame(() => done()), setTimeout(done, 100)));
+  const waitMs = (ms) => new Promise((done) => setTimeout(done, ms));
+  const matchesSafely = (element, selector) => {
+    try {
+      return element.matches(selector);
+    } catch {
+      return false;
     }
-    for (const [original, copy] of pairs("textarea")) copy.textContent = original.value;
-    for (const [original, copy] of pairs("select")) [...copy.options].forEach((option, index) => (original.options[index]?.selected ? option.setAttribute("selected", "") : option.removeAttribute("selected")));
-    for (const [original, copy] of pairs("[popover], dialog")) {
-      const isShowing = (original.matches(":popover-open") || (original.tagName === "DIALOG" && original.open)) && original.getClientRects().length;
-      if (!isShowing) continue;
+  };
+  const isOnScreen = (rect, marginPx = 0) => rect.width > 0 && rect.height > 0 && rect.right > -marginPx && rect.bottom > -marginPx && rect.left < innerWidth + marginPx && rect.top < innerHeight + marginPx;
+
+  // Which canvases are WebGL, for the note when one hadn't drawn: only the contexts made after this script, the rest are a guess.
+  const webglCanvases = new WeakSet();
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const context = getContext.call(this, type, ...rest);
+    if (context && /webgl/.test(String(type))) webglCanvases.add(this);
+    return context;
+  };
+
+  // Files the picture carries inside it (fonts, pictures), kept across comments.
+  const inlined = new Map();
+  function dataUrlOf(url) {
+    if (!inlined.has(url)) {
+      inlined.set(url, (async () => {
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`${response.status}`);
+        const blob = await response.blob();
+        if (blob.size > MAXIMUM_INLINED_FILE_BYTES) throw new Error("too big");
+        return await new Promise((done, fail) => {
+          const reader = new FileReader();
+          reader.onload = () => done(reader.result);
+          reader.onerror = () => fail(reader.error);
+          reader.readAsDataURL(blob);
+        });
+      })().catch((error) => (inlined.delete(url), Promise.reject(error))));
+    }
+    return inlined.get(url);
+  }
+  const absoluteUrl = (raw, base) => {
+    try {
+      return new URL(raw, base).href;
+    } catch {
+      return null;
+    }
+  };
+  /** CSS text with every url() made absolute, so the picture's files can be swapped in for them. */
+  const absoluteUrls = (text, base) => text.replace(URL_PATTERN, (whole, double, single, bare) => {
+    const raw = double ?? single ?? bare;
+    if (!raw || raw.startsWith("data:") || raw.startsWith("#")) return whole;
+    const url = absoluteUrl(raw, base);
+    return url ? `url("${url}")` : whole;
+  });
+  const urlsIn = (value, into) => {
+    for (const [, double, single, bare] of String(value).matchAll(URL_PATTERN)) {
+      const url = double ?? single ?? bare;
+      if (url && !url.startsWith("data:") && /^https?:/.test(url)) into.add(url);
+    }
+  };
+
+  /** A stand-in for a canvas, picture, video or frame in the copy, the original's size where it was, keeping its class and style. */
+  function standIn(original, tag) {
+    const element = document.createElement(tag);
+    for (const name of ["id", "class", "style"]) if (original.hasAttribute(name)) element.setAttribute(name, original.getAttribute(name));
+    const computed = getComputedStyle(original);
+    for (const [name, value] of [["display", computed.display === "inline" ? "inline-block" : computed.display], ["box-sizing", "border-box"], ["width", `${original.offsetWidth}px`], ["height", `${original.offsetHeight}px`]]) element.style.setProperty(name, value, "important");
+    if (tag === "img") element.style.setProperty("object-fit", "fill", "important");
+    return element;
+  }
+  function placeholder(original, words) {
+    const element = standIn(original, "div");
+    for (const [name, value] of [["display", "flex"], ["align-items", "center"], ["justify-content", "center"], ["padding", "12px"], ["overflow", "hidden"], ["background", "repeating-linear-gradient(135deg,#2a2e35 0 12px,#22252b 12px 24px)"], ["color", "#d5d8dc"], ["font", "600 13px/1.4 system-ui,-apple-system,sans-serif"], ["text-align", "center"], ["outline", "2px dashed #ff6a1f"], ["outline-offset", "-2px"]]) element.style.setProperty(name, value, "important");
+    element.textContent = words;
+    return element;
+  }
+
+  /**
+   * The page copied as it is this moment: { copy, canvases, frames, pictures, urls, styledCopies, background }. Nothing here waits,
+   * so the copy is the moment he picked.
+   */
+  function copyPage() {
+    const originals = [document.documentElement, ...document.documentElement.querySelectorAll("*")];
+    const copy = document.documentElement.cloneNode(true);
+    const copies = [copy, ...copy.querySelectorAll("*")];
+    if (copies.length !== originals.length) throw new Error("The page changed while it was copied.");
+    const copyOf = new Map(originals.map((original, index) => [original, copies[index]]));
+    const found = { copy, canvases: [], frames: [], pictures: [], urls: new Set(), styledCopies: [], pinned: new Set() };
+    const removed = [];
+    const shiftOf = new Map(); // an inner scroll's children, moved by its scroll
+    const scrolling = document.scrollingElement;
+    let topLayerCount = 0;
+    for (const [index, original] of originals.entries()) {
+      const twin = copies[index];
+      const tag = original.localName;
+      if (original === host || ["script", "noscript", "link", "style", "base", "source"].includes(tag) || (tag === "meta" && original.hasAttribute("http-equiv"))) {
+        removed.push(twin);
+        continue;
+      }
+      const computed = getComputedStyle(original);
       const rect = original.getBoundingClientRect();
-      copy.removeAttribute("popover");
-      if (copy.tagName === "DIALOG") copy.setAttribute("open", "");
-      copy.setAttribute("style", `${copy.getAttribute("style") ?? ""};position:fixed;inset:auto;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;margin:0;z-index:2147483646;display:${getComputedStyle(original).display}`);
+      const shift = shiftOf.get(original);
+      if (twin.getAttribute("style")?.includes("url(")) found.styledCopies.push(twin);
+
+      // Where it sits: a stuck header where it was stuck, an inner scroll's children where it had scrolled them.
+      if (computed.position === "sticky") {
+        const inline = [original.style.getPropertyValue("position"), original.style.getPropertyPriority("position")];
+        original.style.setProperty("position", "static", "important");
+        const unstuck = original.getBoundingClientRect();
+        original.style.setProperty("position", inline[0], inline[1]);
+        if (!inline[0]) original.style.removeProperty("position");
+        for (const [name, value] of [["position", "relative"], ["top", `${rect.top - unstuck.top}px`], ["left", `${rect.left - unstuck.left}px`], ["bottom", "auto"], ["right", "auto"]]) twin.style.setProperty(name, value, "important");
+      }
+      if (shift && computed.position !== "fixed" && (shift.x || shift.y)) {
+        // By margins, not by positioning, which would paint it over what it was under.
+        twin.style.setProperty("margin-top", `${(parseFloat(computed.marginTop) || 0) + shift.y}px`, "important");
+        twin.style.setProperty("margin-left", `${(parseFloat(computed.marginLeft) || 0) + shift.x}px`, "important");
+      }
+      if (original !== scrolling && original !== document.documentElement && original !== document.body && (original.scrollTop || original.scrollLeft)) {
+        // A margin moves the rest of a flow along with it, so only the first in the flow's direction takes that axis; a grid's items
+        // and anything out of the flow each take their own.
+        const display = computed.display, direction = computed.flexDirection;
+        const isGrid = display.includes("grid"), isFlex = display.includes("flex");
+        const flowAxis = isGrid ? null : isFlex && direction.startsWith("row") ? "x" : "y";
+        let isFirst = true;
+        for (const child of original.children) {
+          const position = getComputedStyle(child).position;
+          const isInFlow = position === "static" || position === "relative" || position === "sticky";
+          const takes = (axis) => !isInFlow || axis !== flowAxis || isFirst;
+          shiftOf.set(child, { x: takes("x") ? -original.scrollLeft : 0, y: takes("y") ? -original.scrollTop : 0 });
+          if (isInFlow && getComputedStyle(child).display !== "none") isFirst = false;
+        }
+      }
+
+      // An open sheet or menu (the top layer) where it was on screen, over the page, with a sheet's dimming behind it.
+      const isTopLayer = (tag === "dialog" && original.open && matchesSafely(original, ":modal")) || matchesSafely(original, ":popover-open");
+      if (isTopLayer && original.getClientRects().length) {
+        topLayerCount += 1;
+        twin.removeAttribute("popover");
+        if (tag === "dialog") {
+          twin.setAttribute("open", "");
+          const backdrop = getComputedStyle(original, "::backdrop");
+          const dimming = document.createElement("div");
+          dimming.setAttribute("style", `position:fixed;inset:0;z-index:${2147480000 + topLayerCount * 2};background-color:${backdrop.backgroundColor};background-image:${backdrop.backgroundImage};opacity:${backdrop.opacity};backdrop-filter:${backdrop.backdropFilter || "none"};-webkit-backdrop-filter:${backdrop.webkitBackdropFilter || backdrop.backdropFilter || "none"}`);
+          twin.before(dimming);
+        }
+        for (const [name, value] of [["position", "fixed"], ["inset", "auto"], ["left", `${rect.left}px`], ["top", `${rect.top}px`], ["width", `${rect.width}px`], ["height", `${rect.height}px`], ["box-sizing", "border-box"], ["max-width", "none"], ["max-height", "none"], ["margin", "0"], ["transform", "none"], ["translate", "none"], ["scale", "none"], ["z-index", String(2147480001 + topLayerCount * 2)], ["display", computed.display]]) twin.style.setProperty(name, value, "important");
+        found.pinned.add(original);
+      }
+
+      // What he typed and chose, never a password.
+      if (tag === "input") {
+        if (original.type === "checkbox" || original.type === "radio") original.checked ? twin.setAttribute("checked", "") : twin.removeAttribute("checked");
+        else if (original.type === "password") twin.setAttribute("value", "•".repeat(original.value.length));
+        else if (original.type !== "file") twin.setAttribute("value", original.value);
+      } else if (tag === "textarea") twin.textContent = original.value;
+      else if (tag === "select") [...twin.options].forEach((option, at) => (original.options[at]?.selected ? option.setAttribute("selected", "") : option.removeAttribute("selected")));
+
+      // Pictures, canvases, videos and frames on screen are filled in after; off screen, an empty box of their size.
+      const isShown = isOnScreen(rect, 64);
+      if (tag === "img") {
+        twin.removeAttribute("srcset");
+        twin.removeAttribute("sizes");
+        twin.removeAttribute("loading");
+        if (isShown && original.currentSrc && !original.currentSrc.startsWith("data:")) found.pictures.push({ copy: twin, url: original.currentSrc });
+        else if (!original.currentSrc?.startsWith("data:")) twin.setAttribute("src", TRANSPARENT_PICTURE);
+        if (!isShown) for (const [name, value] of [["width", `${original.offsetWidth}px`], ["height", `${original.offsetHeight}px`], ["box-sizing", "border-box"]]) twin.style.setProperty(name, value, "important");
+      } else if (tag === "canvas" || tag === "video" || tag === "iframe" || tag === "embed" || tag === "object") {
+        if (!isShown) twin.replaceWith(standIn(original, "div"));
+        else if (tag === "canvas") found.canvases.push({ original, copy: twin });
+        else if (tag === "video") {
+          let still = null;
+          try {
+            const board = document.createElement("canvas");
+            board.width = original.videoWidth;
+            board.height = original.videoHeight;
+            board.getContext("2d").drawImage(original, 0, 0);
+            still = board.toDataURL("image/jpeg", 0.85);
+          } catch {}
+          const picture = still ? standIn(original, "img") : placeholder(original, "Video: not in this picture");
+          if (still) picture.src = still;
+          twin.replaceWith(picture);
+        } else found.frames.push({ original, copy: twin, rect });
+      }
+
+      // The files its look needs, only for what's on screen.
+      if (isOnScreen(rect) || original === document.documentElement || original === document.body) {
+        for (const pseudo of [null, "::before", "::after"]) {
+          const style = pseudo ? getComputedStyle(original, pseudo) : computed;
+          if (pseudo && (style.content === "none" || style.content === "normal")) continue;
+          for (const name of ["background-image", "mask-image", "-webkit-mask-image", "border-image-source", "list-style-image", "content"]) urlsIn(style.getPropertyValue(name), found.urls);
+        }
+      }
     }
-    for (const [original, copy] of pairs("canvas")) {
+
+    // Animations and transitions where they were this moment, not from their start.
+    for (const animation of document.getAnimations?.() ?? []) {
+      const target = animation.effect?.target;
+      if (!target || animation.effect.pseudoElement || !copyOf.has(target)) continue;
+      const twin = copyOf.get(target), computed = getComputedStyle(target);
+      const names = new Set(animation.effect.getKeyframes().flatMap((keyframe) => Object.keys(keyframe)));
+      for (const name of names) {
+        if (["offset", "computedOffset", "easing", "composite"].includes(name)) continue;
+        const property = name === "cssFloat" ? "float" : name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+        if (found.pinned.has(target) && ["transform", "translate", "scale", "rotate"].includes(property)) continue;
+        const value = computed.getPropertyValue(property);
+        if (value) twin.style.setProperty(property, value, "important");
+      }
+    }
+    for (const element of removed) element.remove();
+
+    const backgroundOf = (element) => getComputedStyle(element).backgroundColor;
+    const isClear = (color) => !color || color === "transparent" || /rgba\(.*,\s*0\)$/.test(color);
+    found.background = [backgroundOf(document.documentElement), document.body ? backgroundOf(document.body) : ""].find((color) => !isClear(color)) ?? (theme() === "dark" ? "#000" : "#fff");
+    // The browser draws the body's background under the whole page when the html has none; in the copy the html draws it, under
+    // what sits behind the page (a fixed backdrop at a negative z-index), as the browser did.
+    const body = copy.querySelector("body"), rootStyle = getComputedStyle(document.documentElement);
+    if (body && document.body && isClear(rootStyle.backgroundColor) && rootStyle.backgroundImage === "none") {
+      const bodyStyle = getComputedStyle(document.body);
+      for (const name of ["background-color", "background-image", "background-size", "background-position", "background-repeat"]) copy.style.setProperty(name, bodyStyle.getPropertyValue(name), "important");
+      body.style.setProperty("background", "none", "important");
+    }
+    return found;
+  }
+
+  /** Each canvas a frame or more later, after the page's own frame drew: a WebGL canvas reads blank once its frame is shown. */
+  async function fillCanvases(canvases, notes) {
+    const tiny = document.createElement("canvas");
+    tiny.width = tiny.height = 4;
+    const tinyContext = tiny.getContext("2d", { willReadFrequently: true });
+    const isFlat = (canvas) => {
       try {
-        const picture = document.createElement("img");
-        picture.src = original.toDataURL();
-        for (const name of ["class", "style", "id", "width", "height"]) if (original.hasAttribute(name)) picture.setAttribute(name, original.getAttribute(name));
-        const rect = original.getBoundingClientRect();
-        picture.style.width ||= `${rect.width}px`;
-        picture.style.height ||= `${rect.height}px`;
-        copy.replaceWith(picture);
-      } catch {}
+        tinyContext.clearRect(0, 0, 4, 4);
+        tinyContext.drawImage(canvas, 0, 0, 4, 4);
+        const pixels = tinyContext.getImageData(0, 0, 4, 4).data;
+        for (let at = 4; at < pixels.length; at++) if (pixels[at] !== pixels[at % 4]) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const waiting = new Set(canvases);
+    for (let frame = 0; frame <= CANVAS_WAIT_FRAME_COUNT && waiting.size; frame++) {
+      await nextFrame();
+      for (const canvas of [...waiting]) {
+        const isLast = frame === CANVAS_WAIT_FRAME_COUNT;
+        if (!isLast && canvas.original.width && isFlat(canvas.original)) continue;
+        waiting.delete(canvas);
+        let still = null;
+        try {
+          still = canvas.original.toDataURL();
+        } catch {}
+        if (isLast && webglCanvases.has(canvas.original)) notes.add("a WebGL canvas hadn't drawn while it was pictured, so it may show blank");
+        const picture = still ? standIn(canvas.original, "img") : placeholder(canvas.original, "Canvas: not readable");
+        if (still) picture.src = still;
+        else notes.add("a canvas the page can't read is a placeholder");
+        canvas.copy.replaceWith(picture);
+      }
     }
-    clone.querySelectorAll("script, zaisma-preview-feedback").forEach((element) => element.remove());
-    const head = clone.querySelector("head");
-    if (head) head.insertAdjacentHTML("afterbegin", `<base href="${esc(location.href)}">`);
-    return `<!doctype html>${clone.outerHTML}`;
+  }
+
+  /** Frames on screen: a frame of this site is pictured by its own overlay; a frame from another site can't be read. */
+  async function fillFrames(frames, notes, scale) {
+    await Promise.all(frames.map(async ({ original, copy, rect }) => {
+      let picture = null;
+      try {
+        const overlay = original.contentWindow?.__zaismaPreviewFeedback;
+        if (overlay?.pictureSeen) {
+          const frameScale = original.offsetWidth ? (rect.width / original.offsetWidth) * scale : scale;
+          const seen = await overlay.pictureSeen({ scale: Math.max(0.5, frameScale) });
+          if (seen.pngBase64) picture = `data:image/png;base64,${seen.pngBase64}`;
+          for (const note of seen.notes ?? []) notes.add(note);
+        }
+      } catch {}
+      if (!picture && original.dataset?.backdropStill) {
+        picture = await dataUrlOf(absoluteUrl(original.dataset.backdropStill, location.href)).catch(() => null);
+        if (picture) notes.add("the moving background shows as its still");
+      }
+      if (picture) {
+        const shown = standIn(original, "img");
+        shown.src = picture;
+        if (original.dataset?.backdropStill) shown.style.setProperty("object-fit", "cover", "important");
+        return copy.replaceWith(shown);
+      }
+      const named = original.id === "game" ? "the game" : original.title ? `“${original.title}”` : "a frame";
+      notes.add(`a frame from another site (${named}) is a marked placeholder: the page can't read it, the live picture has it`);
+      copy.replaceWith(placeholder(original, `Another site's frame (${named}): not in this picture. The live picture shows it.`));
+    }));
+  }
+
+  /** The page's styles as one sheet: media queries settled as they were on this screen, :root as the copy's html, sheets' url()s absolute. */
+  function pageStyles(fontUrls) {
+    const loadedFaces = [...(document.fonts ?? [])].filter((face) => face.status === "loaded");
+    const plain = (text) => String(text ?? "").replace(/^["']|["']$/g, "").trim().toLowerCase();
+    const ranges = (text) => String(text ?? "").toUpperCase().replace(/\s+/g, "");
+    const isUsedFace = (rule) => {
+      const family = plain(rule.style.getPropertyValue("font-family")), range = ranges(rule.style.getPropertyValue("unicode-range"));
+      return loadedFaces.some((face) => plain(face.family) === family && (!range || !face.unicodeRange || ranges(face.unicodeRange) === range || ranges(face.unicodeRange) === "U+0-10FFFF"));
+    };
+    const rulesText = (rules, base) => {
+      let text = "";
+      for (const rule of rules) {
+        const kind = rule.constructor?.name ?? "";
+        if (kind === "CSSImportRule") {
+          if (rule.styleSheet && (!rule.media?.mediaText || matchMedia(rule.media.mediaText).matches)) text += sheetText(rule.styleSheet);
+        } else if (kind === "CSSMediaRule") {
+          if (matchMedia(rule.media.mediaText).matches) text += rulesText(rule.cssRules, base);
+        } else if (kind === "CSSSupportsRule") text += `@supports ${rule.conditionText}{${rulesText(rule.cssRules, base)}}`;
+        else if (kind === "CSSLayerBlockRule") text += `@layer${rule.name ? ` ${rule.name}` : ""}{${rulesText(rule.cssRules, base)}}`;
+        else if (kind === "CSSStartingStyleRule") continue;
+        else if (kind === "CSSFontFaceRule") {
+          if (!isUsedFace(rule)) continue;
+          const faceText = absoluteUrls(rule.cssText, base);
+          const first = /url\("([^"]+)"\)(\s*format\([^)]*\))?/.exec(faceText);
+          if (!first) {
+            text += faceText;
+            continue;
+          }
+          fontUrls.add(first[1]);
+          text += faceText.replace(/src\s*:[^;}]+/, `src: url("${first[1]}")${first[2] ?? ""}`);
+        } else text += absoluteUrls(rule.cssText, base);
+      }
+      return text;
+    };
+    const sheetText = (sheet) => {
+      if (sheet.disabled || (sheet.media?.mediaText && !matchMedia(sheet.media.mediaText).matches)) return "";
+      try {
+        return rulesText(sheet.cssRules, sheet.href ?? location.href);
+      } catch {
+        return "";
+      }
+    };
+    const text = [...document.styleSheets, ...(document.adoptedStyleSheets ?? [])].map(sheetText).join("\n");
+    // In the picture the page's html isn't the document's root: it's the first thing in the SVG's foreignObject.
+    return text.replace(/:root\b/g, ":where(html):first-child");
+  }
+
+  /** The picture, drawn here: { pngBase64 } or, when this browser won't read back what it drew, { svg } for the server to draw. */
+  async function pictureSeen({ box = null, scale = Math.min(MAXIMUM_PICTURE_SCALE, Math.max(1, devicePixelRatio || 1)) } = {}) {
+    const notes = new Set();
+    const width = innerWidth, height = innerHeight, scrolledX = scrollX, scrolledY = scrollY;
+    const found = copyPage();
+    await fillCanvases(found.canvases, notes);
+    await fillFrames(found.frames, notes, scale);
+    const fontUrls = new Set();
+    const css = pageStyles(fontUrls);
+    const files = new Map();
+    const wanted = [...fontUrls, ...found.urls, ...found.pictures.map((picture) => picture.url)];
+    await Promise.all([...new Set(wanted)].map(async (url) => files.set(url, await dataUrlOf(url).catch(() => null))));
+    const withFiles = (text) => text.replace(/url\("([^"]+)"\)/g, (whole, url) => (files.get(url) ? `url("${files.get(url)}")` : whole));
+    for (const picture of found.pictures) picture.copy.setAttribute("src", files.get(picture.url) ?? TRANSPARENT_PICTURE);
+    for (const twin of found.styledCopies) twin.setAttribute("style", withFiles(absoluteUrls(twin.getAttribute("style") ?? "", location.href)));
+    const style = document.createElement("style");
+    style.textContent = `${withFiles(css)}
+*,*::before,*::after{animation:none!important;transition:none!important}
+:where(html):first-child{position:relative!important;z-index:0!important;left:${-scrolledX}px!important;top:${-scrolledY}px!important;overflow:visible!important}
+body{overflow:visible!important}`;
+    const head = found.copy.querySelector("head") ?? found.copy;
+    head.prepend(style);
+    const markup = new XMLSerializer().serializeToString(found.copy);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="${esc(found.background)}"/><foreignObject x="0" y="0" width="${width}" height="${height}">${markup}</foreignObject></svg>`;
+    try {
+      return { pngBase64: await drawn(svg, width, height, scale, box), notes: [...notes] };
+    } catch {
+      notes.add("drawn by the feedback server's Chrome from what this device copied, as this browser wouldn't read back its own drawing");
+      return { svg, notes: [...notes] };
+    }
+  }
+
+  /** The SVG drawn on a canvas at scale, with his box on it, as base64 PNG. Drawn twice: Safari leaves an SVG's pictures out the first time. */
+  async function drawn(svg, width, height, scale, box) {
+    const image = new Image();
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await (image.decode ? image.decode() : new Promise((done, fail) => ((image.onload = done), (image.onerror = fail))));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const context = canvas.getContext("2d");
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass) await waitMs(120);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    }
+    if (box) drawBox(context, box, scale, width, height);
+    return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+  }
+  /** His box as the server draws it on the other pictures: orange, a dark edge, the rest of the screen dimmed a little. */
+  function drawBox(context, box, scale, width, height) {
+    const rounded = (left, top, boxWidth, boxHeight, radius) => (context.roundRect ? context.roundRect(left, top, boxWidth, boxHeight, radius) : context.rect(left, top, boxWidth, boxHeight));
+    const left = box.left - 3, top = box.top - 3, boxWidth = box.width + 6, boxHeight = box.height + 6;
+    context.save();
+    context.scale(scale, scale);
+    context.beginPath();
+    context.rect(0, 0, width, height);
+    rounded(left, top, boxWidth, boxHeight, 4);
+    context.fillStyle = "rgba(0,0,0,.12)";
+    context.fill("evenodd");
+    context.beginPath();
+    rounded(left - 1, top - 1, boxWidth + 2, boxHeight + 2, 5);
+    context.lineWidth = 2;
+    context.strokeStyle = "rgba(0,0,0,.55)";
+    context.stroke();
+    context.beginPath();
+    rounded(left + 1.5, top + 1.5, boxWidth - 3, boxHeight - 3, 3);
+    context.lineWidth = 3;
+    context.strokeStyle = "#ff6a1f";
+    context.stroke();
+    context.restore();
   }
 
   // ---- What he did on the page before commenting, for the replay: the last ones, a run of pointer moves or scrolls kept as its end ----
@@ -301,7 +689,7 @@ textarea:focus{border-color:var(--accent)}
       const scale = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
       const left = rect.left + frame.clientLeft * scale, top = rect.top + frame.clientTop * scale;
       const overlay = frame.contentWindow.__zaismaPreviewFeedback;
-      if (overlay?.draftAt && x >= left && x < left + frame.clientWidth * scale && y >= top && y < top + frame.clientHeight * scale) return { overlay, left, top, scale };
+      if (overlay?.draftAt && x >= left && x < left + frame.clientWidth * scale && y >= top && y < top + frame.clientHeight * scale) return { overlay, frame, left, top, scale };
     }
     return null;
   }
@@ -325,8 +713,20 @@ textarea:focus{border-color:var(--accent)}
   function draftAt(rect, x, y) {
     const atX = rect ? rect.left + rect.width / 2 : x, atY = rect ? rect.top + rect.height / 2 : y;
     const element = elementAt(atX, atY);
-    return draftOf(rect ?? (describe(element).componentElement ?? element).getBoundingClientRect(), element, false);
+    const outlined = rect ? element : describe(element).componentElement ?? element;
+    const shown = rect ?? outlined.getBoundingClientRect();
+    return { ...draftOf(shown, element, false), anchor: anchorOf(shown, outlined) };
   }
+  // The box stays on what it was drawn over as the page or a pane scrolls: where it is from that element's corner.
+  const anchorOf = (rect, element) => {
+    const at = element.getBoundingClientRect();
+    return { element, offsetLeft: rect.left - at.left, offsetTop: rect.top - at.top, width: rect.width, height: rect.height };
+  };
+  const anchoredRect = (draft) => {
+    if (!draft.anchor?.element?.isConnected) return draft.shownRect;
+    const at = draft.anchor.element.getBoundingClientRect();
+    return { left: at.left + draft.anchor.offsetLeft, top: at.top + draft.anchor.offsetTop, width: draft.anchor.width, height: draft.anchor.height };
+  };
   /** A click at x, y, or a dragged box (rect, null for a click). */
   function pick(rect, x, y) {
     clearHover();
@@ -335,10 +735,12 @@ textarea:focus{border-color:var(--accent)}
     if (!inFrame) return openDraft(draftAt(rect, x, y));
     // The frame's page and screen, shown here at full size.
     const draft = inFrame.overlay.draftAt(intoFrame(inFrame, rect), (x - inFrame.left) / inFrame.scale, (y - inFrame.top) / inFrame.scale);
-    openDraft({ ...draft, shownRect: outOfFrame(inFrame, draft.rect), frameOverlay: inFrame.overlay });
+    const shownRect = outOfFrame(inFrame, draft.rect);
+    openDraft({ ...draft, shownRect, anchor: anchorOf(shownRect, inFrame.frame), frameOverlay: inFrame.overlay });
   }
   overlayApi.markAt = markAt;
   overlayApi.draftAt = draftAt;
+  overlayApi.pictureSeen = (options) => pictureSeen(options);
   overlayApi.refresh = () => ((lastAnswer = ""), refresh());
   const dragRect = (start, event) => {
     const left = Math.min(start.x, event.clientX), top = Math.min(start.y, event.clientY);
@@ -346,18 +748,21 @@ textarea:focus{border-color:var(--accent)}
   };
 
   // What a comment says about where it is: this page, its screen, scroll and theme, the spot (only what's on screen), what's under it,
-  // a snapshot of the page as he saw it and what he did since it loaded (Feedback's own clicks aren't in it).
+  // the seen picture, started this moment on this device, and what he did since it loaded (Feedback's own clicks aren't in it).
   function draftOf(rect, element, isPageComment) {
     const described = isPageComment ? { component: null, layout_rule: null, element_class: "", element_text: "", tag: "" } : describe(element);
     // Only what's on screen: a tall pane's box ends at the bottom of the viewport.
     const left = Math.max(0, rect.left), top = Math.max(0, rect.top);
     const clipped = { left, top, width: Math.max(1, Math.min(innerWidth, rect.left + rect.width) - left), height: Math.max(1, Math.min(innerHeight, rect.top + rect.height) - top) };
-    let snapshotHtml = null;
-    try {
-      snapshotHtml = snapshot();
-    } catch {}
     const screen = { page_url: pageUrl(), is_in_frame: isInFrame, viewport_width_px: innerWidth, viewport_height_px: innerHeight, scroll_x_px: scrollX, scroll_y_px: scrollY, theme: theme() };
-    return { rect: clipped, described, snapshotHtml, isPageComment, recentActions: actions.map(named), screen };
+    let seenPicture;
+    try {
+      seenPicture = pictureSeen({ box: isPageComment ? null : clipped });
+    } catch (error) {
+      seenPicture = Promise.reject(error);
+    }
+    seenPicture = seenPicture.catch((error) => ({ notes: [`the seen picture couldn't be drawn on the device: ${error?.message ?? error}`] }));
+    return { rect: clipped, described, seenPicture, isPageComment, recentActions: actions.map(named), screen };
   }
   // The form, by the spot it's about (shownRect: where that is on this page, when it's in a frame).
   function openDraft(draft) {
@@ -371,7 +776,8 @@ textarea:focus{border-color:var(--accent)}
   const startWriting = (rect, element, isPageComment = false) => openDraft(draftOf(rect, element, isPageComment));
 
   async function save(text) {
-    const { rect, described, snapshotHtml, isPageComment, recentActions, screen, frameOverlay } = state.draft;
+    const { rect, described, seenPicture, isPageComment, recentActions, screen, frameOverlay } = state.draft;
+    const seen = await Promise.race([seenPicture, waitMs(SEEN_PICTURE_TIMEOUT_MS).then(() => ({ notes: ["the seen picture took too long to draw on the device"] }))]);
     const comment = {
       ...screen,
       is_page_comment: isPageComment,
@@ -381,13 +787,15 @@ textarea:focus{border-color:var(--accent)}
       layout_rule: described.layout_rule,
       element_class: described.element_class,
       element_text: described.element_text,
+      seen_picture_note: seen.notes?.length ? `${seen.notes.join("; ")}.` : null,
       text,
     };
-    const answer = await call("POST", "/comments", { comment, snapshot_html: snapshotHtml });
+    const answer = await call("POST", "/comments", { comment, seen_picture_png_base64: seen.pngBase64 ?? null, seen_picture_svg: seen.svg ?? null });
     state.comments.push(answer.comment);
     lastAnswer = "";
     toTop({ changed: true, resume: true });
     frameOverlay?.refresh();
+    resetZoom();
     setMode(isInFrame ? "off" : "picking");
     say("Saved. Click another thing, or Done.");
     refresh();
@@ -447,13 +855,19 @@ textarea:focus{border-color:var(--accent)}
     return `<div class="box bar"><span>${words}</span><button class="small" data-action="page">This page</button><button class="small" data-action="list">List${count ? ` (${count})` : ""}</button></div>`;
   }
 
-  function writingCard() {
-    const { shownRect: rect, described, isPageComment, recentActions, screen } = state.draft;
-    const isPhone = innerWidth < PHONE_WIDTH_PX;
+  /** Where the form sits beside the spot on a wide screen (on a phone it's a sheet at the foot of the screen). */
+  function cardPlace(rect, isPageComment) {
     const below = rect.top + rect.height + 10, cardHeight = 190;
     // A comment on the whole page has no spot: its form sits in the middle.
     const top = isPageComment ? Math.max(10, (innerHeight - cardHeight) / 2) : below + cardHeight < innerHeight ? below : Math.max(10, rect.top - cardHeight - 10);
     const left = isPageComment ? Math.max(10, (innerWidth - 320) / 2) : Math.min(Math.max(10, rect.left), innerWidth - 330);
+    return { left, top };
+  }
+
+  function writingCard() {
+    const { shownRect: rect, described, isPageComment, recentActions, screen } = state.draft;
+    const isPhone = innerWidth < PHONE_WIDTH_PX;
+    const { left, top } = cardPlace(rect, isPageComment);
     const replayed = recentActions.length ? ` · replays your last ${recentActions.length === 1 ? "action" : `${recentActions.length} actions`}` : "";
     return `<div class="box card" style="${isPhone ? "" : `left:${left}px;top:${top}px`}">
 <div class="label">${isPageComment ? "<b>The whole page</b>" : describedAs(described)}${described.element_text ? ` · “${esc(described.element_text)}”` : ""}</div>
@@ -535,7 +949,7 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
     if (action === "close-panel") return (state.threadId = null), setMode("off");
     if (action === "back") return (state.threadId = null), render();
     if (action === "toggle-closed") return (state.isShowingClosed = !state.isShowingClosed), render();
-    if (action === "cancel") return toTop({ resume: true }), setMode(isInFrame ? "off" : "picking");
+    if (action === "cancel") return toTop({ resume: true }), resetZoom(), setMode(isInFrame ? "off" : "picking");
     if (button) button.disabled = true;
     try {
       if (action === "save") {
@@ -547,6 +961,7 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
         if (!text) return say("Write your answer first.");
         await call("POST", `/comments/${state.threadId}/replies`, { text });
         lastAnswer = "";
+        resetZoom();
         await refresh();
       } else if (action === "close-comment" || action === "open-comment") {
         await call("PATCH", `/comments/${state.threadId}`, { status: action === "close-comment" ? "closed" : "open" });
@@ -575,8 +990,75 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
     if (state.mode === "writing") return act("cancel");
     setMode("off");
   });
-  addEventListener("scroll", () => renderPins(), { passive: true });
-  addEventListener("resize", () => render());
+  // The box and its form follow what they're on as the page or anything in it scrolls; pins follow the page.
+  let isFollowQueued = false;
+  function follow() {
+    if (isFollowQueued) return;
+    isFollowQueued = true;
+    requestAnimationFrame(() => {
+      isFollowQueued = false;
+      renderPins();
+      if (state.mode !== "writing" || !state.draft || state.draft.isPageComment) return;
+      state.draft.shownRect = anchoredRect(state.draft);
+      showMark(state.draft.shownRect, false, "");
+      const card = ui.querySelector(".card");
+      if (card && innerWidth >= PHONE_WIDTH_PX) {
+        const { left, top } = cardPlace(state.draft.shownRect, false);
+        Object.assign(card.style, { left: `${left}px`, top: `${top}px` });
+      }
+    });
+  }
+  addEventListener("scroll", follow, { capture: true, passive: true });
+  addEventListener("resize", () => {
+    if (state.draft && !state.draft.isPageComment) state.draft.shownRect = anchoredRect(state.draft);
+    render();
+    follow();
+  });
+
+  // After a comment, the page back at its own zoom: a phone that zoomed in to a field (or a pinch) zooms out again. iOS zooms back
+  // out when the page's viewport stops allowing zoom for a moment; it's given back straight after.
+  function resetZoom() {
+    root.activeElement?.blur();
+    const viewport = document.querySelector("meta[name=viewport]");
+    if (!viewport || !window.visualViewport || visualViewport.scale <= 1.01) return;
+    const content = viewport.getAttribute("content") ?? "";
+    viewport.setAttribute("content", `${content.replace(/,?\s*(maximum|minimum)-scale=[^,]*/g, "")}, minimum-scale=1, maximum-scale=1`);
+    setTimeout(() => viewport.setAttribute("content", content), 400);
+  }
+
+  // ---- Over sheets and menus ----
+  // An open sheet (a modal dialog) or menu (a popover) is in the browser's top layer, over anything a z-index reaches, and a sheet makes
+  // the rest of the page inert. So while one is open the overlay lives inside it (the sheet doesn't count its presses as outside, and
+  // they aren't inert) and opens as a popover of its own after it, on top. Back on the page when it closes.
+  const holders = []; // open sheets and menus, latest last
+  const isHolder = (element) => element !== host && element.isConnected && ((element.localName === "dialog" && element.open && matchesSafely(element, ":modal")) || matchesSafely(element, ":popover-open"));
+  const holderWatch = new MutationObserver(() => !host.isConnected && place());
+  function place() {
+    for (let at = holders.length - 1; at >= 0; at--) if (!isHolder(holders[at])) holders.splice(at, 1);
+    const holder = holders.at(-1) ?? document.documentElement;
+    const isOpen = matchesSafely(host, ":popover-open");
+    if (host.parentNode !== holder) {
+      if (isOpen) host.hidePopover();
+      holder.appendChild(host);
+    } else if (isOpen) host.hidePopover();
+    holderWatch.disconnect();
+    if (holder === document.documentElement || !host.showPopover) return host.removeAttribute("popover");
+    host.setAttribute("popover", "manual");
+    try {
+      host.showPopover();
+    } catch {}
+    holderWatch.observe(holder, { childList: true });
+  }
+  function noteTopLayer(element) {
+    if (element === host || !(element instanceof Element)) return;
+    const at = holders.indexOf(element);
+    if (at >= 0) holders.splice(at, 1);
+    if (isHolder(element)) holders.push(element);
+    if (host.isConnected) place();
+  }
+  // showModal and close() set and clear open; a menu says so with toggle.
+  new MutationObserver((records) => records.forEach((record) => record.target.localName === "dialog" && noteTopLayer(record.target))).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["open"] });
+  document.addEventListener("toggle", (event) => noteTopLayer(event.target), true);
   new MutationObserver(() => host.setAttribute("data-theme", theme())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => host.setAttribute("data-theme", theme()));
   setInterval(() => document.visibilityState === "visible" && refresh(), CHECK_EVERY_MS);
@@ -584,6 +1066,7 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
 
   const start = () => {
     document.documentElement.appendChild(host);
+    document.querySelectorAll("dialog[open], [popover]").forEach(noteTopLayer);
     render();
     refresh();
   };
