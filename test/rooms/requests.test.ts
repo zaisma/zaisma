@@ -148,7 +148,11 @@ describe("game server requests", () => {
     await addGame("requests-only", "export default { onRequest: () => ({ coinCount: 3 }) };", { multiplayerMode: "own" });
     expect((await send("requests-only", { type: "claimDailyReward" })).body).toEqual({ answer: { coinCount: 3 } });
     const up = await SELF.fetch(`${ROOMS}/v1/rooms/requests-only/K7Q2MX`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `203.0.113.${++address % 250}` } });
-    expect(up.status).toBe(404);
+    // Turned away on the socket, saying why, since a browser never sees an HTTP status on a WebSocket.
+    expect(up.status).toBe(101);
+    const turnedAway = new Promise<any>((resolve) => up.webSocket!.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
+    up.webSocket!.accept();
+    expect(await turnedAway).toMatchObject({ type: "error", code: "game_unavailable" });
     // Its developer sees why.
     const error = await e.DB.prepare("SELECT message FROM game_server_errors WHERE game_id = 'game_requestsonly'").first<{ message: string }>();
     expect(error!.message).toMatch(/^Didn't start: This game server has no setup\(\), so it can't run rooms/);

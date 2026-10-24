@@ -72,7 +72,7 @@ function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGa
   return listRows({
     label: "Friends playing",
     rows: friends.map((friend) => {
-      const join = friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
+      const join = friend.join_refusal === "friend_not_in_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
       const watch = friend.watch ? { room_code: friend.watch.room_code ?? "", server_url: null, refusal: friend.watch.refusal, refusing_friend_names: [friend.username] } : null;
       const reasons = [...new Set([join, watch].flatMap((door) => (door?.refusal ? [joinRefusalText(door)] : [])))];
       const doorButton = (label: string, door: NonNullable<typeof join>, path: string) => (door.refusal ? cutButton(label, { type: "button", isSmall: true, isDisabled: true }) : cutButton(label, { href: path, isSmall: true }));

@@ -1,4 +1,4 @@
-import { iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveKey, type Account } from "@zaisma/core";
+import { canonicalSave, iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveHash, saveKey, type Account } from "@zaisma/core";
 import { authUserRecord, realEmail } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { zipStream, type ZipSource } from "./zip-writer.ts";
@@ -177,19 +177,26 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     ),
   });
 
-  // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers ---
-  const saves = await env.DB.prepare("SELECT save.*, game.slug FROM saves save JOIN games game ON game.id = save.game_id WHERE save.account_id = ? ORDER BY game.slug").bind(id).all<{ game_id: string; slug: string; version_number: number; sha256: string; size_bytes: number; updated_at_ms: number; changed_by_kind: string }>();
+  // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers (as v1, read without writing back) ---
+  const saves = await env.DB.prepare("SELECT save.*, game.slug FROM saves save JOIN games game ON game.id = save.game_id WHERE save.account_id = ? ORDER BY game.slug").bind(id).all<{ game_id: string; slug: string; version_number: number; sha256: string; size_bytes: number; saved_at_ms: number; changed_by_kind: string }>();
   const copies = await env.DB.prepare("SELECT id, game_id, saved_at_ms, copy_reason, sha256, size_bytes FROM save_history WHERE account_id = ? ORDER BY saved_at_ms").bind(id).all<{ id: string; game_id: string; saved_at_ms: number; copy_reason: string; sha256: string; size_bytes: number }>();
   for (const save of saves.results) {
     const folder = `saves/${save.slug}`;
     const text = await (await env.SAVES.get(saveKey(id, save.game_id)))?.text();
     if (text === undefined) missing.push(`${folder}/save.json`);
-    else yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: save.sha256, size_bytes: save.size_bytes, updated_at: iso(save.updated_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(text), null) });
+    else {
+      // Hash and size are of the v1 text the contents are written as, whatever shape the stored one is in.
+      const v1Text = canonicalSave(readStoredSave(text));
+      yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: await saveHash(v1Text), size_bytes: encoder.encode(v1Text).byteLength, saved_at: iso(save.saved_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(v1Text), null) });
+    }
     for (const copy of copies.results.filter((candidate) => candidate.game_id === save.game_id)) {
       const path = `${folder}/earlier/${new Date(copy.saved_at_ms).toISOString().replace(/:/g, "-")}.json`;
       const copyText = await (await env.SAVES.get(saveCopyKey(id, copy.game_id, copy.id)))?.text();
       if (copyText === undefined) missing.push(path);
-      else yield jsonFile(path, { game_slug: save.slug, saved_at: iso(copy.saved_at_ms), copy_reason: copy.copy_reason, sha256: copy.sha256, size_bytes: copy.size_bytes, ...saveContentsJson(readStoredSave(copyText), null) });
+      else {
+        const v1Text = canonicalSave(readStoredSave(copyText));
+        yield jsonFile(path, { game_slug: save.slug, saved_at: iso(copy.saved_at_ms), copy_reason: copy.copy_reason, sha256: await saveHash(v1Text), size_bytes: encoder.encode(v1Text).byteLength, ...saveContentsJson(readStoredSave(v1Text), null) });
+      }
     }
   }
 

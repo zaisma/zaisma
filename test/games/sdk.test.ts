@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { checkOwnServerUrls, connectSources } from "@zaisma/core";
+import sdkSource from "../../packages/sdk/zaisma.js?raw";
 
 const G = "https://games.example";
 
@@ -31,17 +32,33 @@ describe("multiplayer on the game domain", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("javascript");
     const body = await res.text();
-    // It names the version it was served with, so it's checked on every load.
-    expect(body).toContain('var __ZAISMA__ = {"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","version":"vgarena"}');
+    // Its setup is a parameter, never a global the game can read: it names the version it was served with, so it's checked on every load.
+    expect(body.startsWith("(function (__ZAISMA__) {\n")).toBe(true);
+    expect(body.endsWith('\n})({"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","version":"vgarena"});\n')).toBe(true);
+    expect(body).not.toContain("var __ZAISMA");
     expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(body).toContain("window.Zaisma");
+  });
+
+  it("leaves no setup global on the page once the SDK runs", async () => {
+    await addGame("arena");
+    const body = await (await SELF.fetch(`${G}/arena/_zaisma/v1.js`)).text();
+    // The Workers runtime runs no code from text, so this reads it instead: the SDK's own source, unchanged, inside the
+    // setup's function, and the source's only top-level statement is a call of its own function. Nothing it declares,
+    // the setup included, is a global the game's code can read.
+    expect(body).toBe(`(function (__ZAISMA__) {\n${sdkSource}\n})(${JSON.stringify({ rooms: "https://rooms.zaisma.test", game: "arena", site: "https://zaisma.test", version: "vgarena" })});\n`);
+    expect(sdkSource.split("\n").filter((line) => /^[^\s/*]/.test(line))).toEqual(["(function () {", "})();"]);
+    expect(sdkSource).not.toMatch(/(window|self|globalThis)\.__ZAISMA/);
   });
 
   it("serves the relay script set up for the game: its own relay hosts, and early credentials when it plays online", async () => {
     await addGame("arena", ["wss://play.example.com", "https://turn.example.com:5349"]);
     const res = await SELF.fetch(`${G}/arena/_zaisma/relay.js`);
     expect(res.headers.get("content-type")).toContain("javascript");
-    expect(await res.text()).toContain('var __ZAISMA_RELAY__ = {"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","ownRelayHosts":["play.example.com","turn.example.com"],"fetchEarly":true};');
+    const body = await res.text();
+    expect(body.startsWith("(function (__ZAISMA_RELAY__) {\n")).toBe(true);
+    expect(body).toContain('})({"rooms":"https://rooms.zaisma.test","game":"arena","site":"https://zaisma.test","ownRelayHosts":["play.example.com","turn.example.com"],"fetchEarly":true});');
+    expect(body).not.toContain("var __ZAISMA");
     // Every page gets it before anything else, and frames only of the game's own pages, which carry it too.
     const page = await SELF.fetch(`${G}/arena/`);
     expect(await page.text()).toMatch(/^<!doctype html><script src="\/arena\/_zaisma\/relay\.js\?v=\d+"><\/script>/);

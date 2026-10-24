@@ -78,7 +78,7 @@ function isReconnecting(playerId) {
 }
 
 // Mute, block and report, from the game's own menu.
-document.getElementById("players-button").onclick = () => room && Zaisma.openSafetyPanel(room);
+document.getElementById("players-button").onclick = () => room && Zaisma.openPlayersPanel(room);
 
 /** @param {Zaisma.Room} next */
 function use(next) {
@@ -96,7 +96,7 @@ function use(next) {
     if (connectionStatus !== "open") infoElement.textContent = connectionStatus === "reconnecting" ? "Reconnecting…" : "Disconnected. Reload to play again.";
     else render();
   });
-  room.on("ended", (message) => { infoElement.textContent = message; });
+  room.on("ended", ({ message }) => { infoElement.textContent = message; });
   // A player's connection dropped or came back: show them reconnecting.
   room.on("players", () => render());
   // The lobby found an opponent: leave it and join the match room it made for you both.

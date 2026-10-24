@@ -341,6 +341,8 @@ ${pageData("game-page-data", {
       // Game files start before Play, on the game's own address: never for tester links or accounts-only games, which need a cookie first.
       warm_url: tester || isAccountsOnly || isClosed ? null : `${gameUrl(env, game.slug)}_zaisma/warm`,
       is_accounts_only: isAccountsOnly,
+      // Whether the game has cloud saves on, so a page without them here (a tester link, no accounts) says which it is.
+      cloud_saves_enabled: Boolean(game.cloud_saves_enabled),
       frame_query: roomQuery,
       devices,
       controls,
@@ -955,20 +957,36 @@ addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
-    history.replaceState(null, "", location.pathname + "?room=" + d.code);
+    // A room on the game's own server keeps its server in the link, so Share brings friends to it.
+    const server = typeof d.serverUrl === "string" && /^(wss|https):\/\/[^/]/.test(d.serverUrl) ? "&server=" + encodeURIComponent(d.serverUrl) : "";
+    history.replaceState(null, "", location.pathname + "?room=" + d.code + server);
     // The code comes first, for Share; joined once the room let the player in.
     if (d.joined === true) {
       inRoom = { code: d.code, at: Date.now() };
       if (!shownRoom || shownRoom.code !== d.code) showRoomCode({ code: d.code, isOpen: true });
     }
   }
-  // The game's own Invite or Players button (Zaisma.invite, Zaisma.openSafetyPanel): the same Share and
+  // The game's own Invite or Players button (Zaisma.invite, Zaisma.openPlayersPanel): the same Share and
   // Players as the bar's, only right after the player's tap. Full screen holds only the game, so it ends first.
-  if (d && (d.type === "zaisma:share" || d.type === "zaisma:players-open") && (!navigator.userActivation || navigator.userActivation.isActive)) {
-    const playersOpen = document.getElementById("players-open");
-    const open = () => (d.type === "zaisma:share" ? shareFrom(share) : playersOpen && playersOpen.click());
-    if (document.fullscreenElement) document.exitFullscreen().then(open, open);
-    else open();
+  // Invite hears whether Share opened.
+  if (d && (d.type === "zaisma:share" || d.type === "zaisma:players-open")) {
+    const isShare = d.type === "zaisma:share";
+    const answerShare = (isOpened) => isShare && typeof d.requestNumber === "number" && frame.contentWindow.postMessage({ type: "zaisma:share-answer", requestNumber: d.requestNumber, isOpened }, gameOrigin);
+    if (navigator.userActivation && !navigator.userActivation.isActive) answerShare(false);
+    else {
+      const playersOpen = document.getElementById("players-open");
+      const open = () => {
+        if (!isShare) return playersOpen && playersOpen.click();
+        try {
+          shareFrom(share);
+          answerShare(true);
+        } catch {
+          answerShare(false);
+        }
+      };
+      if (document.fullscreenElement) document.exitFullscreen().then(open, open);
+      else open();
+    }
   }
   // Who's in the room, and whether it takes others by its code.
   if (d && d.type === "zaisma:players" && inRoom && d.code === inRoom.code && typeof d.isOpen === "boolean") showRoomCode({ code: d.code, isOpen: d.isOpen });
@@ -988,14 +1006,20 @@ addEventListener("message", (e) => {
   // The game asks to open one of its registered links (Zaisma.links.open).
   if (d && d.type === "zaisma:link" && typeof d.requestNumber === "number" && typeof d.linkName === "string") askLink(d);
   // The game's own save screens (Zaisma.saves) and its moment for "Keep your progress" (Zaisma.player.offerAccount),
-  // answered by the saves script; a game without cloud saves here (off, or a tester link) has none.
+  // answered by the saves script; a game without cloud saves here has none: cloud_saves_not_here when the game has
+  // them on but this page can't (a tester link, or no accounts), cloud_saves_off when the game has them off.
   if (d && d.type === "zaisma:saves-request" && typeof d.requestNumber === "number" && typeof d.request === "string") {
     if (window.savesRequest) savesRequest(d);
-    else if (d.request !== "listen") frame.contentWindow.postMessage({ type: "zaisma:saves-answer", requestNumber: d.requestNumber, error: { code: "cloud_saves_off", message: "This game has cloud saves off, so it has no saves on players' accounts." } }, gameOrigin);
+    else if (d.request !== "listen") {
+      const error = gamePage.cloud_saves_enabled
+        ? { code: "cloud_saves_not_here", message: "Cloud saves don't work here: this is a tester link, or this Zaisma has no accounts. Save in the browser as usual; cloud saves work on the game's own page on Zaisma." }
+        : { code: "cloud_saves_off", message: "This game has cloud saves off, so it has no saves on players' accounts." };
+      frame.contentWindow.postMessage({ type: "zaisma:saves-answer", requestNumber: d.requestNumber, error }, gameOrigin);
+    }
   }
   if (d && d.type === "zaisma:account-offer") {
     if (window.offerAccount) offerAccount();
-    else frame.contentWindow.postMessage({ type: "zaisma:account-offer", status: "cloud_saves_off" }, gameOrigin);
+    else frame.contentWindow.postMessage({ type: "zaisma:account-offer", status: gamePage.cloud_saves_enabled ? "cloud_saves_not_here" : "cloud_saves_off" }, gameOrigin);
   }
 });
 // Leaving the page while in a match leaves the room too (the game says goodbye as it goes). Only

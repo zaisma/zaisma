@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
@@ -9,6 +9,9 @@ import { checkProfiles } from "../../apps/site/src/profile-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
 import { changeSaveAsDeveloper } from "../../apps/site/src/saves.ts";
+
+/** A localStorage-only save as Zaisma stores it (the v1 envelope). */
+const savedText = (localStorageItems: Record<string, string>) => canonicalSave(saveFromParts(localStorageItems, []));
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, deleteAbandonedSignIns } from "../../apps/site/src/cleanup.ts";
 import worker from "../../apps/site/src/index.ts";
 import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
@@ -1118,7 +1121,7 @@ describe("deleting an account deletes its games", () => {
     await env.GAMES.put(`report-pictures/${reportId}.jpg`, "jpg");
     // Another player's save, with an earlier copy.
     const player = await createAccount(env.DB, { id: "player-ana", username: "Ana_Plays", ageBand: "18+" });
-    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms, changed_by_kind) VALUES (?, ?, 1, 'x', 2, ?, 'game')").bind(player.id, game.id, Date.now()).run();
+    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, saved_at_ms, changed_by_kind) VALUES (?, ?, 1, 'x', 2, ?, 'game')").bind(player.id, game.id, Date.now()).run();
     await env.SAVES.put(saveKey(player.id, game.id), "{}");
     await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('save_copy_1', ?, ?, ?, 'hourly', 'x', 2)").bind(player.id, game.id, Date.now()).run();
     await env.SAVES.put(saveCopyKey(player.id, game.id, "save_copy_1"), "{}");
@@ -2025,10 +2028,10 @@ describe("cloud saves", () => {
 
     const first = await put(b, 0, { level: "3", coins: "120" });
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ version_number: 1, updated_at: expect.stringMatching(/Z$/) });
+    expect(await first.json()).toMatchObject({ version_number: 1, saved_at: expect.stringMatching(/Z$/) });
     const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: Record<string, string>; sha256: string };
-    expect(got).toMatchObject({ version_number: 1, save_data: { coins: "120", level: "3" } });
-    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "3", coins: "120" }));
+    expect(got).toMatchObject({ version_number: 1, save_data: { save_format_version_number: 1, local_storage_items: { coins: "120", level: "3" }, indexeddb_databases: [] } });
+    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(savedText({ level: "3", coins: "120" }));
 
     // A second device that loaded version 0 can't overwrite version 1.
     const stale = await put(b, 0, { level: "1" });
@@ -2044,9 +2047,9 @@ describe("cloud saves", () => {
     await join(b);
     await put(b, 0, { level: "3" });
     expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 1, changed_by_kind: "player" });
-    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, canonicalSave({ level: "10" }));
+    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, savedText({ level: "10" }), null);
     expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
-    expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { level: "10" } });
+    expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { local_storage_items: { level: "10" } } });
     // The open game's next save started from version 1: refused, saying the developer moved it on.
     const stale = await put(b, 1, { level: "4" });
     expect(stale.status).toBe(409);
@@ -2063,13 +2066,63 @@ describe("cloud saves", () => {
     const save = { idb: [{ name: "/idbfs", version: 21, stores: [{ name: "FILE_DATA", keyPath: null, autoIncrement: false, indexes: [], records: [["/idbfs/save", { contents: { $z: ["view", "Uint8Array", "Bw=="] } }]] }] }], local: { b: "2", a: "1" } };
     const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify(save) }) });
     expect(res.status).toBe(200);
-    const text = canonicalSave(save);
-    expect(text.startsWith('{"idb":[{"name":"/idbfs"')).toBe(true);
-    expect(text).toContain('"local":{"a":"1","b":"2"}');
+    // Sent in the shape from before v1, stored as v1.
+    const text = canonicalSave(saveFromParts(save.local, save.idb));
+    expect(text.startsWith('{"save_format_version_number":1,"local_storage_items":{"a":"1","b":"2"},"indexeddb_databases":[{"name":"/idbfs"')).toBe(true);
     expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(text);
     const got = (await (await b.go("/api/saves/owl-game")).json()) as { save_data: unknown; sha256: string };
     expect(got.save_data).toEqual(JSON.parse(text));
     expect(got.sha256).toBe(await sha256Hex(new TextEncoder().encode(text)));
+  });
+
+  it("labels a save with the game version the page reported, only when it's a version of this game", async () => {
+    const gameId = await liveGame();
+    const otherGameId = await liveGame("other-game");
+    const insertVersion = (versionId: string, forGameId: string) =>
+      env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, 'x', 1, 1, 'approved', 0)").bind(versionId, forGameId).run();
+    await insertVersion("version_owl1", gameId);
+    await insertVersion("version_other1", otherGameId);
+    const b = new Browser();
+    await join(b);
+    const accountId = users.get("fox@example.com")!;
+    const versionIdNow = async () => (await env.DB.prepare("SELECT version_id FROM saves WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).first<{ version_id: string | null }>())!.version_id;
+    const putVersion = (baseVersionNumber: number, versionId: unknown) =>
+      b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: baseVersionNumber, save_json: JSON.stringify({ level: String(baseVersionNumber) }), version_id: versionId }) });
+    expect((await putVersion(0, "version_owl1")).status).toBe(200);
+    expect(await versionIdNow()).toBe("version_owl1");
+    // Another game's version, junk or none: still saved, with no label.
+    expect((await putVersion(1, "version_other1")).status).toBe(200);
+    expect(await versionIdNow()).toBeNull();
+    expect((await putVersion(2, "<script>")).status).toBe(200);
+    expect(await versionIdNow()).toBeNull();
+    expect((await putVersion(3, 7)).status).toBe(200);
+    expect(await versionIdNow()).toBeNull();
+    // The developer's writes have no game version behind them.
+    expect((await putVersion(4, "version_owl1")).status).toBe(200);
+    await changeSaveAsDeveloper(env, accountId, gameId, savedText({ level: "dev" }), null);
+    expect(await versionIdNow()).toBeNull();
+  });
+
+  it("rewrites a save stored before v1 the first time it's read, and only then", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    const accountId = users.get("fox@example.com")!;
+    await put(b, 0, { level: "3" });
+    // As a save from before v1 was stored: a bare localStorage object, with its hash.
+    const legacy = JSON.stringify({ level: "3" });
+    await env.SAVES.put(saveKey(accountId, gameId), legacy, { customMetadata: { version_number: "1" } });
+    await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(await sha256Hex(new TextEncoder().encode(legacy)), legacy.length, accountId).run();
+    const text = savedText({ level: "3" });
+    const got = (await (await b.go("/api/saves/owl-game")).json()) as { sha256: string; save_data: unknown };
+    expect(got).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(text)), save_data: JSON.parse(text) });
+    const object = (await env.SAVES.get(saveKey(accountId, gameId)))!;
+    expect(await object.text()).toBe(text);
+    expect(object.customMetadata).toEqual({ version_number: "1" });
+    expect(await env.DB.prepare("SELECT sha256, size_bytes FROM saves WHERE account_id = ?").bind(accountId).first()).toEqual({ sha256: got.sha256, size_bytes: text.length });
+    // The second read writes nothing.
+    expect(await (await b.go("/api/saves/owl-game")).json()).toEqual(got);
+    expect((await env.SAVES.get(saveKey(accountId, gameId)))!.etag).toBe(object.etag);
   });
 
   it("keeps saves apart per player", async () => {
@@ -2126,16 +2179,18 @@ describe("cloud saves", () => {
       await put(b, 3, { level: "4" });
       const list = await copies();
       expect(list).toHaveLength(2);
-      expect(await env.SAVES.get(`${id()}/${gameId}/${list[0]!.id}.json`).then((o) => o?.text())).toBe(canonicalSave({ level: "3" }));
+      expect(await env.SAVES.get(`${id()}/${gameId}/${list[0]!.id}.json`).then((o) => o?.text())).toBe(savedText({ level: "3" }));
     });
 
     it("keeps what's about to be lost: replaced progress, a shrunken save and the device's progress", async () => {
       await liveGame();
       const b = new Browser();
       await join(b);
-      await put(b, 0, { level: "9", coins: "5000", items: "sword,shield,bow" });
-      await put(b, 1, { level: "10", coins: "5100", items: "sword,shield,bow" });
-      await putWith(b, { base_version_number: 2, save_json: JSON.stringify({ level: "11", coins: "5200", items: "sword,shield,bow" }), replace: true });
+      // Enough items that the save shrinks to under half, envelope and all.
+      const items = "sword,shield,bow,lantern,rope,map,compass,potion,".repeat(3);
+      await put(b, 0, { level: "9", coins: "5000", items });
+      await put(b, 1, { level: "10", coins: "5100", items });
+      await putWith(b, { base_version_number: 2, save_json: JSON.stringify({ level: "11", coins: "5200", items }), replace: true });
       await put(b, 3, { level: "1" });
       const kept = await putWith(b, { keep: true, save_json: JSON.stringify({ phone: "progress" }) });
       expect(kept.status).toBe(200);
@@ -2143,9 +2198,76 @@ describe("cloud saves", () => {
       expect(keptAnswer).toEqual({ is_kept: true, save_copy_id: expect.stringMatching(/^save_copy_[a-z0-9]{20}$/) });
       // Keeping the same progress again answers the copy that already holds it.
       expect(await (await putWith(b, { keep: true, save_json: JSON.stringify({ phone: "progress" }) })).json()).toEqual(keptAnswer);
-      expect((await copies()).map((c) => c.copy_reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["device_lost", "smaller", "account_lost", "hourly"]);
       // Keeping the device's progress doesn't touch the account's save.
       expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(4);
+    });
+
+    it("dates a device's kept progress to when the device last played it, never later than now", async () => {
+      const gameId = await liveGame();
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('version_owl1', ?, 'x', 1, 1, 'approved', 0)").bind(gameId).run();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "9" });
+      const keep = async (playedAt: unknown, level: string) => {
+        const answer = (await (await putWith(b, { keep: true, save_json: JSON.stringify({ level }), version_id: "version_owl1", played_at: playedAt })).json()) as { save_copy_id: string };
+        return (await env.DB.prepare("SELECT copy_reason, saved_at_ms, version_id FROM save_history WHERE id = ?").bind(answer.save_copy_id).first<{ copy_reason: string; saved_at_ms: number; version_id: string | null }>())!;
+      };
+      const playedAtMs = Date.now() - 3 * 3600_000;
+      expect(await keep(new Date(playedAtMs).toISOString(), "1")).toEqual({ copy_reason: "device_lost", saved_at_ms: playedAtMs, version_id: "version_owl1" });
+      // A time in the future, none or junk: now.
+      for (const [playedAt, level] of [[new Date(Date.now() + 86_400_000).toISOString(), "2"], [null, "3"], ["yesterday-ish", "4"]] as const) {
+        const before = Date.now();
+        const copy = await keep(playedAt, level);
+        expect(copy.saved_at_ms).toBeGreaterThanOrEqual(before);
+        expect(copy.saved_at_ms).toBeLessThanOrEqual(Date.now());
+      }
+      // The copies list in the order they were played.
+      const listed = (await (await b.go("/api/saves/owl-game/copies")).json()) as { save_copies: { saved_at: string; version_id: string | null }[] };
+      expect(listed.save_copies.at(-1)).toMatchObject({ saved_at: new Date(playedAtMs).toISOString(), version_id: "version_owl1" });
+    });
+
+    it("rewrites a copy stored before v1 the first time it's read, and restores it with its version", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "1" });
+      await put(b, 1, { level: "2" });
+      const [copy] = await copies();
+      const legacy = JSON.stringify({ level: "1" });
+      await env.SAVES.put(`${id()}/${gameId}/${copy!.id}.json`, legacy);
+      await env.DB.prepare("UPDATE save_history SET sha256 = ?, size_bytes = ?, version_id = 'version_owl1' WHERE id = ?").bind(await sha256Hex(new TextEncoder().encode(legacy)), legacy.length, copy!.id).run();
+      const text = savedText({ level: "1" });
+      const sha256 = await sha256Hex(new TextEncoder().encode(text));
+      expect(await (await b.go(`/api/saves/owl-game/copies/${copy!.id}`)).json()).toMatchObject({ save_copy: { size_bytes: text.length, version_id: "version_owl1", local_storage_items: { level: "1" } } });
+      expect(await env.SAVES.get(`${id()}/${gameId}/${copy!.id}.json`).then((o) => o?.text())).toBe(text);
+      expect((await copies())[0]!.sha256).toBe(sha256);
+      // Going back to it makes it the save, labelled with the copy's version.
+      expect(await (await b.go(`/api/saves/owl-game/copies/${copy!.id}/restore`, undefined, { method: "POST", body: "{}" })).json()).toMatchObject({ sha256 });
+      expect(await env.DB.prepare("SELECT version_id FROM saves WHERE game_id = ?").bind(gameId).first()).toEqual({ version_id: "version_owl1" });
+    });
+
+    it("upgrades a save's copies when it's upgraded, so a copy of the same progress is the current save", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      const accountId = users.get("fox@example.com")!;
+      await put(b, 0, { level: "1" });
+      await put(b, 1, { level: "2" });
+      const [copy] = await copies();
+      // The save and its copy, both stored before v1 with the same progress, and so with the same old hash.
+      const legacy = JSON.stringify({ level: "2" });
+      const legacyHash = await sha256Hex(new TextEncoder().encode(legacy));
+      await env.SAVES.put(saveKey(accountId, gameId), legacy, { customMetadata: { version_number: "2" } });
+      await env.SAVES.put(`${id()}/${gameId}/${copy!.id}.json`, legacy);
+      await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(legacyHash, legacy.length, accountId).run();
+      await env.DB.prepare("UPDATE save_history SET sha256 = ?, size_bytes = ? WHERE id = ?").bind(legacyHash, legacy.length, copy!.id).run();
+      // The first read of the save upgrades the copy too, without anyone opening it.
+      await b.go("/api/saves/owl-game");
+      const text = savedText({ level: "2" });
+      expect(await env.DB.prepare("SELECT sha256, size_bytes FROM save_history WHERE id = ?").bind(copy!.id).first()).toEqual({ sha256: await sha256Hex(new TextEncoder().encode(text)), size_bytes: text.length });
+      const listed = (await (await b.go("/api/saves/owl-game/copies")).json()) as { save_copies: { id: string; is_current_save: boolean }[] };
+      expect(listed.save_copies.find((savedCopy) => savedCopy.id === copy!.id)!.is_current_save).toBe(true);
     });
 
     it("keeps five, dropping routine copies before ones from right before progress was lost", async () => {
@@ -2160,7 +2282,7 @@ describe("cloud saves", () => {
       }
       const list = await copies();
       expect(list).toHaveLength(5);
-      expect(list.at(-1)!.copy_reason).toBe("replaced");
+      expect(list.at(-1)!.copy_reason).toBe("account_lost");
       const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/` });
       expect(files.objects).toHaveLength(5);
     });
@@ -2188,7 +2310,7 @@ describe("cloud saves", () => {
 
       // The game page, for the game's own screens (Zaisma.saves).
       const listed = (await (await a.go("/api/saves/owl-game/copies")).json()) as { save_copies: { id: string }[] };
-      expect(listed.save_copies).toEqual([{ id: expect.stringMatching(/^save_copy_/), saved_at: expect.stringMatching(/Z$/), copy_reason: "hourly", size_bytes: canonicalSave({ level: "1" }).length, is_current_save: false }]);
+      expect(listed.save_copies).toEqual([{ id: expect.stringMatching(/^save_copy_/), saved_at: expect.stringMatching(/Z$/), copy_reason: "hourly", size_bytes: savedText({ level: "1" }).length, is_current_save: false, version_id: null }]);
       const copyId = listed.save_copies[0]!.id;
       expect(await (await a.go(`/api/saves/owl-game/copies/${copyId}`)).json()).toEqual({ save_copy: { ...listed.save_copies[0], local_storage_items: { level: "1" }, missing_keys: [], indexeddb_databases: [] } });
 
@@ -2198,14 +2320,14 @@ describe("cloud saves", () => {
       expect((await restore({}, new Browser())).status).toBe(401);
       const restored = await restore();
       expect(restored.status).toBe(200);
-      const answer = (await restored.json()) as { version_number: number; sha256: string; updated_at: string; kept_save_copy_id: string };
-      expect(answer).toMatchObject({ version_number: 3, sha256: await sha256Hex(new TextEncoder().encode(canonicalSave({ level: "1" }))), updated_at: expect.stringMatching(/Z$/) });
+      const answer = (await restored.json()) as { version_number: number; sha256: string; saved_at: string; kept_save_copy_id: string };
+      expect(answer).toMatchObject({ version_number: 3, sha256: await sha256Hex(new TextEncoder().encode(savedText({ level: "1" }))), saved_at: expect.stringMatching(/Z$/) });
       // The save is the copy's again, the player's own change, and the save it replaced is kept as a restore copy.
-      expect(await (await a.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 3, changed_by_kind: "player", save_data: { level: "1" } });
+      expect(await (await a.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 3, changed_by_kind: "player", save_data: { local_storage_items: { level: "1" } } });
       const after = await copies();
       expect(after.map((copy) => copy.copy_reason)).toEqual(["restore", "hourly"]);
       expect(answer.kept_save_copy_id).toBe(after[0]!.id);
-      expect(await env.SAVES.get(`${id()}/${gameId}/${after[0]!.id}.json`).then((o) => o?.text())).toBe(canonicalSave({ level: "2" }));
+      expect(await env.SAVES.get(`${id()}/${gameId}/${after[0]!.id}.json`).then((o) => o?.text())).toBe(savedText({ level: "2" }));
       const relisted = (await (await a.go("/api/saves/owl-game/copies")).json()) as { save_copies: { id: string; is_current_save: boolean }[] };
       expect(relisted.save_copies.find((copy) => copy.id === copyId)!.is_current_save).toBe(true);
 
@@ -2230,11 +2352,11 @@ describe("cloud saves", () => {
       await liveGame();
       const b = new Browser();
       await join(b);
-      expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 0, updated_at: null, changed_by_kind: null });
+      expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 0, saved_at: null, changed_by_kind: null });
       await put(b, 0, { level: "1" });
-      const got = (await (await b.go("/api/saves/owl-game?version")).json()) as { version_number: number; updated_at: string; changed_by_kind: string };
+      const got = (await (await b.go("/api/saves/owl-game?version")).json()) as { version_number: number; saved_at: string; changed_by_kind: string };
       expect(got).toMatchObject({ version_number: 1, changed_by_kind: "player" });
-      expect(Date.parse(got.updated_at)).toBeGreaterThan(Date.now() - 60_000);
+      expect(Date.parse(got.saved_at)).toBeGreaterThan(Date.now() - 60_000);
     });
 
     it("deletes earlier versions with the account", async () => {
@@ -2361,6 +2483,7 @@ describe("cloud saves", () => {
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
     expect(pageScriptNames(page)).toContain("saves");
     expect(pageDataOf(page, "saves-data")).toMatchObject({ api: "/api/saves/owl-game", slug: "owl-game" });
+    expect(pageDataOf(page, "game-page-data").cloud_saves_enabled).toBe(true);
     expect(page).toContain('id="keep-title">Keep your progress');
     // No save screens: no "which progress?" chooser and no earlier progress in the menu.
     expect(page).not.toContain("save-choice");
@@ -2369,6 +2492,7 @@ describe("cloud saves", () => {
     expect(pageScriptNames(own)).not.toContain("saves");
     expect(own).not.toContain('id="saves-data"');
     expect(own).not.toContain('id="keep"');
+    expect(pageDataOf(own, "game-page-data").cloud_saves_enabled).toBe(false);
   });
 
   it("a game can turn off the \"Keep your progress\" card by itself, keep cloud saves and show the card at its own moment", async () => {
@@ -3659,7 +3783,7 @@ describe("protect your account", () => {
   async function savedHoursAgo(accountId: string, hourCount: number) {
     const nowMs = Date.now();
     await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('g-protect', 'protect-game', 'Protect Game', 'live', ?, ?)").bind(nowMs, nowMs).run();
-    await env.DB.prepare("INSERT OR REPLACE INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, 'g-protect', 1, 'x', 2, ?)").bind(accountId, nowMs - hourCount * 3600_000).run();
+    await env.DB.prepare("INSERT OR REPLACE INTO saves (account_id, game_id, version_number, sha256, size_bytes, saved_at_ms) VALUES (?, 'g-protect', 1, 'x', 2, ?)").bind(accountId, nowMs - hourCount * 3600_000).run();
   }
   const offeredAtMs = async (accountId: string) => (await env.DB.prepare("SELECT protection_offered_at_ms FROM accounts WHERE id = ?").bind(accountId).first<{ protection_offered_at_ms: number | null }>())!.protection_offered_at_ms;
   afterEach(async () => {
@@ -4022,7 +4146,9 @@ describe("download your data", () => {
     const id = users.get("fox@example.com")!;
     await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ level: "3" }) }) });
     await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('copy-1', ?, 'g-owl', ?, 'hourly', 'abc', 20)").bind(id, now - 3600_000).run();
-    await env.SAVES.put(saveCopyKey(id, "g-owl", "copy-1"), canonicalSave({ level: "1" }));
+    // A save and a copy stored before v1: the export reads them as v1, with the v1 text's hash and size, and leaves them as they are.
+    await env.SAVES.put(saveKey(id, "g-owl"), JSON.stringify({ level: "3" }), { customMetadata: { version_number: "1" } });
+    await env.SAVES.put(saveCopyKey(id, "g-owl", "copy-1"), JSON.stringify({ level: "1" }));
     await recordPlayed(env.DB, id, "g-owl");
     await createAccount(env.DB, { id: "u-friend", username: "Kind_Badger", ageBand: "18+" });
     await createAccount(env.DB, { id: "u-blocked", username: "Loud_Crow", ageBand: "18+" });
@@ -4054,9 +4180,15 @@ describe("download your data", () => {
     for (const column of columns.filter((name) => !(name in ACCOUNT_COLUMNS_LEFT_OUT))) expect(account.account, column).toHaveProperty(column.replace(/_ms$/, ""));
     for (const column of Object.keys(ACCOUNT_COLUMNS_LEFT_OUT)) expect(account.account).not.toHaveProperty(column.replace(/_ms$/, ""));
 
-    expect(zip.json("saves/owl-game/save.json")).toMatchObject({ game_slug: "owl-game", changed_by_kind: "player", local_storage_items: { level: "3" } });
+    expect(zip.json("saves/owl-game/save.json")).toMatchObject({ game_slug: "owl-game", saved_at: expect.stringMatching(/Z$/), changed_by_kind: "player", local_storage_items: { level: "3" }, indexeddb_databases: [] });
     expect(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]).toBeTruthy();
-    expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ copy_reason: "hourly", local_storage_items: { level: "1" } });
+    expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ copy_reason: "hourly", local_storage_items: { level: "1" }, indexeddb_databases: [] });
+    expect(await (await env.SAVES.get(saveCopyKey(id, "g-owl", "copy-1")))!.text()).toBe(JSON.stringify({ level: "1" }));
+    expect(await (await env.SAVES.get(saveKey(id, "g-owl")))!.text()).toBe(JSON.stringify({ level: "3" }));
+    const v1Save = savedText({ level: "3" });
+    const v1Copy = savedText({ level: "1" });
+    expect(zip.json("saves/owl-game/save.json")).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(v1Save)), size_bytes: v1Save.length });
+    expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(v1Copy)), size_bytes: v1Copy.length });
     expect(zip.json("friends.json")).toMatchObject({ friends: [{ username: "Kind_Badger" }], blocks: [{ username: "Loud_Crow" }] });
     expect(zip.json("games-played.json")).toMatchObject({ continue_playing: [{ game_slug: "owl-game" }], games_ever_played: [{ game_slug: "owl-game" }] });
     expect(zip.json("developer.json").api_keys).toMatchObject([{ name: "my laptop" }]);

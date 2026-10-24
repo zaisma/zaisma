@@ -1,0 +1,16 @@
+{
+  "name": "legacy-bare-local-storage",
+  "stored_text": "{\"best_score\":\"4200\",\"name\":\"Ada\",\"settings\":\"{\\\"music\\\":false}\"}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{\"best_score\":\"4200\",\"name\":\"Ada\",\"settings\":\"{\\\"music\\\":false}\"},\"indexeddb_databases\":[]}",
+  "sha256": "3fd818ac461db8806d6620d0b126a90b0ed13c6deac2240a6d975b112a5e64d0",
+  "size_bytes": 145,
+  "projection": {
+    "local_storage_items": {
+      "best_score": "4200",
+      "name": "Ada",
+      "settings": "{\"music\":false}"
+    },
+    "missing_keys": [],
+    "indexeddb_databases": []
+  }
+}

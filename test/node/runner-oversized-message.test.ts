@@ -47,7 +47,7 @@ async function startRunner() {
 describe("The Node runner, for a message over its size limit", () => {
   it("closes that one connection and keeps running for everyone else", async () => {
     const { port, hasExited } = await startRunner();
-    const tooBig = "a".repeat(REQUEST_LIMITS.maximumPassSizeBytes + ROOM_LIMITS.maximumRoomDataSizeBytes + 8 * 1024);
+    const tooBig = "a".repeat(REQUEST_LIMITS.maximumPassSizeBytes + ROOM_LIMITS.maximumJoinDataSizeBytes + 8 * 1024);
     const sender = new WebSocket(`ws://127.0.0.1:${port}/v1/rooms/arena/ABCDEF`);
     sender.on("error", () => {});
     const closeCode = new Promise<number>((resolve) => sender.on("close", (code) => resolve(code)));

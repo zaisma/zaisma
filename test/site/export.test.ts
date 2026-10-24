@@ -1,7 +1,7 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { unzipSync } from "fflate";
-import { accountById, addImage, bumpSave, canonicalSave, createAccount, createApiKey, gameBySlug, imageKey, newId, saveHash, saveKey, sha256Hex } from "@zaisma/core";
+import { accountById, addImage, bumpSave, canonicalSave, createAccount, createApiKey, gameBySlug, imageKey, newId, saveFromParts, saveHash, saveKey, sha256Hex } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { scanVersion } from "../../apps/site/src/scan.ts";
 import { GAME_EXPORT } from "../../apps/site/src/schemas.ts";
@@ -82,8 +82,8 @@ describe("export everything", () => {
 
     await createAccount(env.DB, { id: "player-fox", username: "Fox", ageBand: "18+" });
     const fox = (await accountById(env.DB, "player-fox"))!;
-    const saveText = canonicalSave({ coins: "120" });
-    await bumpSave(env.DB, { accountId: fox.id, gameId, baseVersionNumber: 0, sha256: await saveHash(saveText), sizeBytes: saveText.length, changedByKind: "player" });
+    const saveText = canonicalSave(saveFromParts({ coins: "120" }, []));
+    await bumpSave(env.DB, { accountId: fox.id, gameId, baseVersionNumber: 0, sha256: await saveHash(saveText), sizeBytes: saveText.length, changedByKind: "player", versionId: null });
     await env.SAVES.put(saveKey(fox.id, gameId), saveText);
 
     const answered = await tool("export_game", { slug: "sky-hopper" });

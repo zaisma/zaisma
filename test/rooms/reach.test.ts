@@ -129,7 +129,7 @@ describe("game server reach and secrets", () => {
       waiter ? waiter(message) : fromGame.push(message);
     });
     const next = () => (fromGame.length ? Promise.resolve(fromGame.shift()) : new Promise<any>((resolve) => waiters.push(resolve)));
-    ws.send(JSON.stringify({ type: "hello", pass }));
+    ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
     ws.send(JSON.stringify({ type: "message", data: "secrets?" }));
     expect((await next()).data).toEqual({ token: "token-one", names: ["API_TOKEN"] });
 

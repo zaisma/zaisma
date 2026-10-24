@@ -24,10 +24,10 @@ const STANDARD_FIELDS = new Set(["readOnlyHint", "destructiveHint", "idempotentH
 /** Shapes a standard or the platform names: Worker bindings, JSON-RPC messages, MCP images. */
 const STANDARD_SHAPES = new Set(["Env", "RpcMessage", "McpImage"]);
 /** Room messages say type and data (docs/NAMING.md): there, data is the game's own message. */
-const MESSAGE_SHAPES = new Set(["ServerMessage"]);
+const MESSAGE_SHAPES = new Set(["ServerMessage", "ClientMessage"]);
 /**
  * The fields a standard or an outside service names, in the shape we declare for it (docs/NAMING.md,
- * Exceptions): JWT claims, WebAuthn's structures, R2's ranges and what Cloudflare (DNS, relay analytics) and VirusTotal answer. Only
+ * Exceptions): JWT claims, WebAuthn's structures, R2's ranges, IndexedDB's own names in a save's databases and what Cloudflare (DNS, relay analytics) and VirusTotal answer. Only
  * these fields of these shapes; anything of ours in them still follows the rules.
  */
 const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
@@ -46,9 +46,12 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   CloudflareDnsAnswer: ["Answer", "data"],
   TurnAnalyticsAnswer: ["data"],
   StripeEvent: ["data"],
+  IndexeddbDatabase: ["version"],
+  IndexeddbStore: ["keyPath", "autoIncrement"],
+  IndexeddbIndex: ["keyPath", "unique", "multiEntry"],
 };
-/** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
-const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };
+/** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut, or a quick join's hello asking to avoidBlockedPlayers. */
+const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], ClientMessage: ["keepOut", "avoidBlockedPlayers"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };
 
 /** The name of the interface or type a type literal belongs to, or "" for one on its own. */
 function shapeName(node: ts.Node): string {

@@ -1,0 +1,128 @@
+{
+  "ClientMessage": {
+    "kind": "fields",
+    "fields": {
+      "type": ": \"hello\" | \"message\" | \"room\" | \"kick\" | \"block\" | \"unblock\" | \"probe_answer\" | \"here\" | \"idle\" | \"hidden\" | \"shown\" | \"back\""
+    }
+  },
+  "ServerMessage": {
+    "kind": "fields",
+    "fields": {
+      "type": ": \"message\" | \"room\" | \"welcome\" | \"probe\" | \"ending\" | \"version_update\" | \"players\" | \"away\" | \"kicked\" | \"move\" | \"state\" | \"blocks\" | \"error\" | \"ended\""
+    }
+  },
+  "EndReason": {
+    "kind": "values",
+    "values": [
+      "game",
+      "game_server_stopped",
+      "game_unavailable",
+      "hosting_paused",
+      "kept_room_deleted",
+      "no_players"
+    ]
+  },
+  "RoomErrorCode": {
+    "kind": "values",
+    "values": [
+      "account_needed",
+      "already_playing",
+      "bad_message",
+      "bad_origin",
+      "bad_pass",
+      "blocked_player_here",
+      "busy",
+      "ended",
+      "game_not_open_to_player",
+      "game_unavailable",
+      "hosting_paused",
+      "kept_out",
+      "no_hello",
+      "not_allowed",
+      "other_version",
+      "refused",
+      "room_closed",
+      "room_full",
+      "room_not_running",
+      "send_queue_full",
+      "spectator_cannot_send",
+      "spectators_full",
+      "too_big",
+      "too_fast"
+    ]
+  },
+  "VersionUpdate": {
+    "kind": "fields",
+    "fields": {
+      "versionId": ": string",
+      "appliesAt": ": string",
+      "isReloading": ": boolean"
+    }
+  },
+  "ROOM_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumPlayerCount": 100,
+      "defaultMaximumPlayerCount": 8,
+      "maximumSpectatorCount": 100,
+      "maximumTicksPerSec": 60,
+      "maximumNameCharacterCount": 40,
+      "maximumLabelCount": 4,
+      "maximumLabelNameCharacterCount": 16,
+      "maximumLabelValueCharacterCount": 24,
+      "maximumJoinDataSizeBytes": 4096,
+      "maximumSetupDataSizeBytes": 4096,
+      "maximumReservesPerMin": 20,
+      "maximumKickMessageCharacterCount": 200,
+      "maximumRefusalMessageCharacterCount": 200,
+      "maximumGameMessageSizeBytes": 16384,
+      "maximumGameMessagesPerSec": 30,
+      "maximumGameMessageBurstCount": 60,
+      "defaultIdleTimeoutSec": 600,
+      "minimumIdleTimeoutSec": 30,
+      "maximumIdleTimeoutSec": 86400,
+      "hiddenTimeoutSec": 120,
+      "defaultSeatHoldDurationSec": 300,
+      "maximumSeatHoldDurationSec": 1800,
+      "defaultReconnectTimeoutSec": 30,
+      "maximumReconnectTimeoutSec": 300,
+      "defaultStateSaveIntervalSec": 5,
+      "minimumStateSaveIntervalSec": 1,
+      "maximumStateSaveIntervalSec": 60,
+      "defaultVersionUpdateDelaySec": 10,
+      "maximumVersionUpdateDelaySec": 300,
+      "maximumSavedStateSizeBytes": 33554432,
+      "maximumStateViewSizeBytes": 1048576,
+      "maximumLatestKeyCharacterCount": 40,
+      "maximumLatestOnlySlotCount": 64
+    }
+  },
+  "PROTOCOL_VERSION_NUMBER": {
+    "kind": "constant",
+    "value": 1
+  },
+  "ENDED_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4000
+  },
+  "REMOVED_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4001
+  },
+  "SEAT_GONE_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4002
+  },
+  "NO_ANSWER_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4003
+  },
+  "VERSION_UPDATE_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4004
+  },
+  "BUSY_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 1013
+  }
+}

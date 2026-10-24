@@ -134,7 +134,7 @@ function showBoard(/** @type {World} */ world) {
 }
 
 // Mute, block and report, from the game's own menu.
-document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
+document.getElementById("players").onclick = () => room && Zaisma.openPlayersPanel(room);
 // Your color: picked with the Color button, kept for next time and brought into each room as join data.
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
 const colorButton = document.getElementById("color");
@@ -177,8 +177,8 @@ document.getElementById("best").onclick = async () => {
   }
 };
 
-// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openSafetyPanel lists them).
-document.getElementById("friends").onclick = () => room && Zaisma.openSafetyPanel(room);
+// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openPlayersPanel lists them).
+document.getElementById("friends").onclick = () => room && Zaisma.openPlayersPanel(room);
 
 /** @param {string} [roomCode] a friend's arena; else the linked one, a busy one or a new one */
 async function start(roomCode) {
@@ -205,11 +205,14 @@ async function start(roomCode) {
     if (body) flashes.push({ x: body.x, y: body.y, startedAtMs: performance.now() });
   });
   // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
+  room.on("away", () => { statusElement.textContent = "You stepped away. Press any key to jump back in."; });
+  // Listening for "back" leaves rejoining to the game: rejoin does nothing when the seat was still held.
+  room.on("back", (back) => { statusElement.textContent = ""; back.rejoin(); });
   room.on("connectionStatus", (connectionStatus) => {
-    statusElement.textContent =
-      connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "away" ? "You stepped away. Press any key to jump back in." : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
+    if (room && room.awayReason) return;
+    statusElement.textContent = connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
   });
-  room.on("ended", (message) => { statusElement.textContent = message; });
+  room.on("ended", ({ message }) => { statusElement.textContent = message; });
   sendInput();
 }
 

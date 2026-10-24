@@ -1,0 +1,1210 @@
+{
+  "tools": {
+    "list_saves": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "saves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "player_id": {
+                  "type": "string",
+                  "pattern": "^player_[a-z0-9]+$"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "saved_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by_kind": {
+                  "type": "string",
+                  "enum": [
+                    "player",
+                    "developer"
+                  ]
+                },
+                "save_copy_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "version_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^version_[a-z0-9]+$"
+                }
+              },
+              "required": [
+                "player_id",
+                "sha256",
+                "size_bytes",
+                "saved_at",
+                "changed_by_kind",
+                "save_copy_count",
+                "version_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "saves",
+          "next_cursor"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "get_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          },
+          "keys": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "player_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "pattern": "^player_[a-z0-9]+$"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changed_by_kind": {
+                "type": "string",
+                "enum": [
+                  "player",
+                  "developer"
+                ]
+              },
+              "save_copy_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              },
+              "local_storage_items": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "missing_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "indexeddb_databases": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "stores": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "keyPath": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "autoIncrement": {
+                            "type": "boolean"
+                          },
+                          "indexes": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "keyPath": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "minItems": 1
+                                    }
+                                  ]
+                                },
+                                "unique": {
+                                  "type": "boolean"
+                                },
+                                "multiEntry": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "keyPath",
+                                "unique",
+                                "multiEntry"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "records": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {},
+                              "minItems": 2,
+                              "maxItems": 2
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "keyPath",
+                          "autoIncrement",
+                          "indexes",
+                          "records"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version",
+                    "stores"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "player_id",
+              "sha256",
+              "size_bytes",
+              "saved_at",
+              "changed_by_kind",
+              "save_copy_count",
+              "version_id",
+              "local_storage_items",
+              "missing_keys",
+              "indexeddb_databases"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "save"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "change_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          },
+          "local_storage_items": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "player_id",
+          "local_storage_items"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "pattern": "^player_[a-z0-9]+$"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changed_by_kind": {
+                "type": "string",
+                "enum": [
+                  "player",
+                  "developer"
+                ]
+              },
+              "save_copy_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              }
+            },
+            "required": [
+              "player_id",
+              "sha256",
+              "size_bytes",
+              "saved_at",
+              "changed_by_kind",
+              "save_copy_count",
+              "version_id"
+            ],
+            "additionalProperties": false
+          },
+          "kept_save_copy_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^save_copy_[a-z0-9]+$"
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "arguments": {
+                  "type": "object"
+                },
+                "after_sec": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "arguments",
+                "after_sec",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "save",
+          "kept_save_copy_id",
+          "next_steps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "replace_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          },
+          "local_storage_items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "indexeddb_databases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "stores": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "keyPath": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "autoIncrement": {
+                        "type": "boolean"
+                      },
+                      "indexes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "keyPath": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "minItems": 1
+                                }
+                              ]
+                            },
+                            "unique": {
+                              "type": "boolean"
+                            },
+                            "multiEntry": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "keyPath",
+                            "unique",
+                            "multiEntry"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "records": {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "items": {},
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "keyPath",
+                      "autoIncrement",
+                      "indexes",
+                      "records"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "version",
+                "stores"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "player_id",
+          "local_storage_items",
+          "indexeddb_databases"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "pattern": "^player_[a-z0-9]+$"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changed_by_kind": {
+                "type": "string",
+                "enum": [
+                  "player",
+                  "developer"
+                ]
+              },
+              "save_copy_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              }
+            },
+            "required": [
+              "player_id",
+              "sha256",
+              "size_bytes",
+              "saved_at",
+              "changed_by_kind",
+              "save_copy_count",
+              "version_id"
+            ],
+            "additionalProperties": false
+          },
+          "kept_save_copy_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^save_copy_[a-z0-9]+$"
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "arguments": {
+                  "type": "object"
+                },
+                "after_sec": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "arguments",
+                "after_sec",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "save",
+          "kept_save_copy_id",
+          "next_steps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "reset_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          }
+        },
+        "required": [
+          "slug",
+          "player_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "pattern": "^player_[a-z0-9]+$"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changed_by_kind": {
+                "type": "string",
+                "enum": [
+                  "player",
+                  "developer"
+                ]
+              },
+              "save_copy_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              }
+            },
+            "required": [
+              "player_id",
+              "sha256",
+              "size_bytes",
+              "saved_at",
+              "changed_by_kind",
+              "save_copy_count",
+              "version_id"
+            ],
+            "additionalProperties": false
+          },
+          "kept_save_copy_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^save_copy_[a-z0-9]+$"
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "arguments": {
+                  "type": "object"
+                },
+                "after_sec": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "arguments",
+                "after_sec",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "save",
+          "kept_save_copy_id",
+          "next_steps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "list_save_copies": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          }
+        },
+        "required": [
+          "slug",
+          "player_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save_copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^save_copy_[a-z0-9]+$"
+                },
+                "saved_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "copy_reason": {
+                  "type": "string",
+                  "enum": [
+                    "hourly",
+                    "account_lost",
+                    "smaller",
+                    "restore",
+                    "device_lost",
+                    "developer"
+                  ]
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "is_current_save": {
+                  "type": "boolean"
+                },
+                "version_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^version_[a-z0-9]+$"
+                }
+              },
+              "required": [
+                "id",
+                "saved_at",
+                "copy_reason",
+                "sha256",
+                "size_bytes",
+                "is_current_save",
+                "version_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "save_copies"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "get_save_copy": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          },
+          "save_copy_id": {
+            "type": "string",
+            "pattern": "^save_copy_[a-z0-9]+$"
+          },
+          "keys": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "player_id",
+          "save_copy_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save_copy": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^save_copy_[a-z0-9]+$"
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "copy_reason": {
+                "type": "string",
+                "enum": [
+                  "hourly",
+                  "account_lost",
+                  "smaller",
+                  "restore",
+                  "device_lost",
+                  "developer"
+                ]
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "is_current_save": {
+                "type": "boolean"
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              },
+              "local_storage_items": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "missing_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "indexeddb_databases": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "stores": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "keyPath": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "autoIncrement": {
+                            "type": "boolean"
+                          },
+                          "indexes": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "keyPath": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "minItems": 1
+                                    }
+                                  ]
+                                },
+                                "unique": {
+                                  "type": "boolean"
+                                },
+                                "multiEntry": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "keyPath",
+                                "unique",
+                                "multiEntry"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "records": {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {},
+                              "minItems": 2,
+                              "maxItems": 2
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "keyPath",
+                          "autoIncrement",
+                          "indexes",
+                          "records"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version",
+                    "stores"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "saved_at",
+              "copy_reason",
+              "sha256",
+              "size_bytes",
+              "is_current_save",
+              "version_id",
+              "local_storage_items",
+              "missing_keys",
+              "indexeddb_databases"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "save_copy"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "restore_save_copy": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "string",
+            "pattern": "^player_[a-z0-9]+$"
+          },
+          "save_copy_id": {
+            "type": "string",
+            "pattern": "^save_copy_[a-z0-9]+$"
+          }
+        },
+        "required": [
+          "slug",
+          "player_id",
+          "save_copy_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "string",
+                "pattern": "^player_[a-z0-9]+$"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "saved_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "changed_by_kind": {
+                "type": "string",
+                "enum": [
+                  "player",
+                  "developer"
+                ]
+              },
+              "save_copy_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "version_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^version_[a-z0-9]+$"
+              }
+            },
+            "required": [
+              "player_id",
+              "sha256",
+              "size_bytes",
+              "saved_at",
+              "changed_by_kind",
+              "save_copy_count",
+              "version_id"
+            ],
+            "additionalProperties": false
+          },
+          "kept_save_copy_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^save_copy_[a-z0-9]+$"
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "arguments": {
+                  "type": "object"
+                },
+                "after_sec": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "arguments",
+                "after_sec",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "save",
+          "kept_save_copy_id",
+          "next_steps"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "error_codes": {
+    "no_save": 404,
+    "no_save_copy": 404,
+    "bad_keys": 400,
+    "bad_local_storage_items": 400,
+    "bad_indexeddb_databases": 400,
+    "save_too_big": 413,
+    "cloud_saves_off": 409,
+    "cloud_saves_not_here": 409,
+    "save_busy": 409,
+    "bad_cursor": 400
+  }
+}

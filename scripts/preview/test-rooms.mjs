@@ -56,7 +56,7 @@ const read = (data) => (String(data) === "pong" ? null : JSON.parse(String(data)
 function stayIn(rooms, origin, game, code, pass, first) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin, headers: { "cf-connecting-ip": madeUpAddress() } });
   keepUp(ws);
-  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { isListed: first.isListed, name: first.name, labels: first.labels } })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: first.isListed !== false, name: first.name, labels: first.labels } })));
   ws.on("message", (data) => {
     const m = read(data);
     if (!m) return;
@@ -84,7 +84,7 @@ async function lobbyBot(rooms, origin, code) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin, headers: { "cf-connecting-ip": madeUpAddress() } });
   keepUp(ws);
   let moved = false;
-  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { labels: { Room: "Lobby" } } })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: true, labels: { Room: "Lobby" } } })));
   ws.on("message", (data) => {
     const m = read(data);
     if (!m || m.type !== "move" || moved) return;
@@ -102,7 +102,7 @@ function play(rooms, origin, game, code, pass) {
   keepUp(ws);
   let me = null;
   let met = false;
-  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass })));
   ws.on("message", (data) => {
     const m = read(data);
     if (!m) return;

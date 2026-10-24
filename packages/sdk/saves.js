@@ -7,8 +7,8 @@
  * session and does the saving; this script only reads and writes the game's own
  * localStorage and IndexedDB, the storage the game already uses.
  *
- * A save is the game's localStorage as { key: value }. When the game also keeps data in
- * IndexedDB (Unity and Godot builds, localForage), it's { idb: [databases], local: { key: value } }.
+ * A save is { save_format_version_number: 1, local_storage_items: { key: value }, indexeddb_databases: [databases] }:
+ * the game's localStorage, and the IndexedDB it keeps (Unity and Godot builds, localForage), [] when none.
  *
  * Two places it runs:
  *  - <game>/_zaisma/restore: before the game opens, it shows the game page what's saved
@@ -23,6 +23,8 @@
   var site = __ZAISMA_SAVES__.site;
   // Past this a save stays on the device (SAVE_LIMIT_BYTES in packages/core/src/saves.ts), so nothing past it is read.
   var saveLimitBytes = __ZAISMA_SAVES__.saveLimitBytes || Infinity;
+  // The game version the games server served this page from, sent with each save as a label; null when unknown.
+  var versionId = typeof __ZAISMA_SAVES__.versionId === "string" ? __ZAISMA_SAVES__.versionId : null;
   // Databases of downloaded game files, not progress (like Unity's UnityCache): never copied.
   var SKIP = /cache/i;
   var VIEWS = ["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array", "DataView"];
@@ -34,7 +36,7 @@
   var SMALL_BATCH_CHARACTER_COUNT = 1024 * 1024;
 
   // Tests check the save format through this (test/node/saves.test.ts).
-  if (__ZAISMA_SAVES__.test) return __ZAISMA_SAVES__.test({ encode: encode, decode: decode, saveText: saveText, readDatabases: readDatabases, databasesReader: databasesReader });
+  if (__ZAISMA_SAVES__.test) return __ZAISMA_SAVES__.test({ encode: encode, decode: decode, saveText: saveText, putSave: putSave, readDatabases: readDatabases, databasesReader: databasesReader });
   // The same script, started as a worker by the game page below: it reads the databases off the thread that draws the game.
   if (typeof window === "undefined") return serveReads();
   if (window.parent === window) return;
@@ -64,8 +66,9 @@
   function saveText(local, idbText) {
     return textOf(canonical(local), idbText);
   }
+  // The same text as canonicalSave on the server: all three keys, always in this order.
   function textOf(localText, idbText) {
-    return idbText ? '{"idb":' + idbText + ',"local":' + localText + "}" : localText;
+    return '{"save_format_version_number":1,"local_storage_items":' + localText + ',"indexeddb_databases":' + (idbText || "[]") + "}";
   }
   function set(target, key, entryValue) {
     if (key === "__proto__") Object.defineProperty(target, key, { value: entryValue, enumerable: true, writable: true, configurable: true });
@@ -590,9 +593,9 @@
 
   /** Put the account's save in place of this device's. onBlocked: it's waiting on another tab. */
   function putSave(save, onBlocked) {
-    var both = Array.isArray(save.idb) && save.local && typeof save.local === "object";
-    var local = both ? save.local : save;
-    var databases = both ? decode(save.idb) : [];
+    // The page always hands over a v1 save.
+    var local = save.local_storage_items;
+    var databases = decode(save.indexeddb_databases);
     // IndexedDB first: it's the part that can fail, and then localStorage is still as it was.
     var writing =
       window.indexedDB && indexedDB.databases
@@ -667,10 +670,10 @@
       })
       .then(
         function (text) {
-          post({ step: "hello", phase: "restore", text: text });
+          post({ step: "hello", phase: "restore", text: text, versionId: versionId });
         },
         function () {
-          post({ step: "hello", phase: "restore", text: "", broken: true });
+          post({ step: "hello", phase: "restore", text: "", broken: true, versionId: versionId });
         },
       );
     return;
@@ -816,7 +819,7 @@
         var text = textOf(localText, answer.text);
         if (text === last) return;
         last = text;
-        post({ step: "save", text: text });
+        post({ step: "save", text: text, versionId: versionId });
       })
       // Nothing is sent when the save can't be read, so a half-read save never replaces a whole one.
       .catch(function () {
@@ -877,5 +880,5 @@
   addEventListener("pagehide", function () {
     check(true);
   });
-  post({ step: "hello", phase: "game" });
+  post({ step: "hello", phase: "game", versionId: versionId });
 })();
