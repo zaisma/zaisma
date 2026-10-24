@@ -204,7 +204,7 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     { gameId: game.id, playerId: account.player_id, gameItem, itemCount, gameAccountId: gameAccountId as string | null, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, stripeAccountId: seller.stripe_account_id, isEuWithdrawalLineShown },
     nowMs,
   );
-  const [card, passkeys] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id)]);
+  const [card, passkeys, pin] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id), pinOf(env, account.id)]);
   const totalMinorUnits = price.priceMinorUnits * itemCount;
   return {
     purchase_id: purchaseId,
@@ -219,9 +219,9 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     is_confirmation_needed: !(await isConfirmedHere(env, session, account.id, nowMs)),
     confirmation_methods: {
       has_passkey: passkeys.length > 0,
-      has_purchase_pin: Boolean((account as Account & { purchase_pin_hash?: string | null }).purchase_pin_hash),
+      has_purchase_pin: Boolean(pin?.purchase_pin_hash),
       has_password: account.password_changed_at_ms !== null,
-      is_purchase_pin_locked: ((account as Account & { purchase_pin_failed_count?: number }).purchase_pin_failed_count ?? 0) >= PURCHASE_PIN_LIMITS.maximumFailedTryCount,
+      is_purchase_pin_locked: (pin?.purchase_pin_failed_count ?? 0) >= PURCHASE_PIN_LIMITS.maximumFailedTryCount,
     },
     wallet: env.STRIPE_PUBLISHABLE_KEY ? { publishable_key: env.STRIPE_PUBLISHABLE_KEY, stripe_account_id: seller.stripe_account_id } : null,
   };
