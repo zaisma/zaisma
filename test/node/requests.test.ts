@@ -64,8 +64,8 @@ describe("Node runner requests", () => {
     const answerTo = async (receipt: string) => (await send({ receipt })).body.answer;
     expect(await answerTo(await signTestReceipt(receiptSigning, "shop", ISS))).toMatchObject({ aud: "shop", purchase_id: "purchase_8f3k2m9q1x7c4v6b0n5z", purchase_status: "completed", item_name: "gold_crown" });
     expect(await answerTo(await signTestReceipt(receiptSigning, "moon-base", ISS))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_game" });
-    // A pass is signed with the pass key, which isn't a receipt key.
-    expect(await answerTo(await pass("player_ana"))).toEqual({ errorName: "ReceiptError", errorCode: "unknown_key" });
+    // A pass is refused as one, before any key is looked up.
+    expect(await answerTo(await pass("player_ana"))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_kind" });
     expect(await answerTo(await signTestReceipt(await loadSigningKey(await generateSigningKey()), "shop", ISS))).toEqual({ errorName: "ReceiptError", errorCode: "unknown_key" });
     expect(await answerTo(await signTestReceipt(receiptSigning, "shop", "https://rooms.elsewhere.test"))).toEqual({ errorName: "ReceiptError", errorCode: "wrong_issuer" });
     expect(await answerTo("not.a.receipt")).toEqual({ errorName: "ReceiptError", errorCode: "malformed" });

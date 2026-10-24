@@ -94,7 +94,7 @@ describe("runWatchChecks", () => {
       await vi.advanceTimersByTimeAsync(10_000);
       const results = await running;
       expect(results.filter((result: { isPass: boolean }) => !result.isPass).map((result: { note: string }) => result.note)).toEqual(["rooms 502 bad gateway", "sign-in 502 down"]);
-      expect(asked.filter((line) => line.endsWith("jwks.json"))).toHaveLength(2);
+      expect(asked.filter((line) => line.endsWith("/.well-known/jwks.json"))).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
