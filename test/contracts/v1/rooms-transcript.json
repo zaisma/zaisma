@@ -1,0 +1,69 @@
+{
+  "about": "The v1 rooms wire, played against both runtimes (test/rooms-transcript.ts): what a client sends and, field for field, what the room says back. Placeholders: <playerId:a> and <playerName:a> (a player, by label), <roomCode>, <isoTime>, <ms> (a number under a key ending in Ms), and <pass:a> in what a client sends. A step or scene with runtimes runs only there.",
+  "protocolVersionNumber": 1,
+  "scenes": [
+    {
+      "name": "a match: hello, welcome, a game message, a full room, a new host, the end",
+      "steps": [
+        {"client": "a", "connect": "room"},
+        {"client": "a", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": "<pass:a>"}, "note": "No room settings: the room is unlisted, open and takes Join from friends."},
+        {"client": "a", "receive": {"type": "welcome", "me": {"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest"}, "isSpectator": false, "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}], "room": {"isListed": false, "isOpen": true, "friendJoinsEnabled": true, "name": null, "labels": {}}, "spectatorCount": 0, "hostPlayerId": "<playerId:a>", "awayChecks": {"idleTimeoutSec": 600, "hiddenTimeoutSec": null}, "endsAt": null, "probeIntervalSec": null, "protocolVersionNumber": 1}},
+        {"client": "a", "receive": {"type": "players", "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:a>"}},
+        {"client": "b", "connect": "room"},
+        {"client": "b", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": "<pass:b>"}},
+        {"client": "b", "receive": {"type": "welcome", "me": {"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest"}, "isSpectator": false, "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}, {"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest", "awayReason": null}], "room": {"isListed": false, "isOpen": true, "friendJoinsEnabled": true, "name": null, "labels": {}}, "spectatorCount": 0, "hostPlayerId": "<playerId:a>", "awayChecks": {"idleTimeoutSec": 600, "hiddenTimeoutSec": null}, "endsAt": null, "probeIntervalSec": null, "protocolVersionNumber": 1}},
+        {"client": "a", "receive": {"type": "players", "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}, {"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:a>"}},
+        {"client": "b", "receive": {"type": "players", "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}, {"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:a>"}},
+        {"client": "a", "send": {"type": "message", "data": {"x": 3}}, "note": "The game server relays it to everyone else, from a."},
+        {"client": "b", "receive": {"type": "message", "data": {"x": 3}, "fromPlayerId": "<playerId:a>"}},
+        {"client": "c", "connect": "room"},
+        {"client": "c", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": "<pass:c>"}, "note": "The game server takes two players."},
+        {"client": "c", "receive": {"type": "error", "code": "room_full", "message": "This room is full."}},
+        {"client": "c", "closedWith": 4001},
+        {"client": "a", "close": 1000, "note": "The host leaves: b is the host now."},
+        {"client": "b", "receive": {"type": "players", "players": [{"id": "<playerId:b>", "name": "<playerName:b>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:b>"}},
+        {"client": "b", "send": {"type": "message", "data": "end"}, "note": "The game server ends the match."},
+        {"client": "b", "receive": {"type": "ended", "message": "The match is over.", "endReason": "game"}},
+        {"client": "b", "closedWith": 4000}
+      ]
+    },
+    {
+      "name": "refusals before and at the hello, each with its close code",
+      "steps": [
+        {"client": "a", "connect": "other_site"},
+        {"client": "a", "receive": {"type": "error", "code": "bad_origin", "message": "Rooms take players from the game's own page."}},
+        {"client": "a", "closedWith": 4001},
+        {"client": "b", "connect": "unknown_game"},
+        {"client": "b", "receive": {"type": "error", "code": "game_unavailable", "message": "This game isn't available right now."}},
+        {"client": "b", "closedWith": 4001},
+        {"client": "c", "connect": "room"},
+        {"client": "c", "send": {"type": "message", "data": 1}, "note": "A first message that isn't a hello."},
+        {"client": "c", "receive": {"type": "error", "code": "no_hello", "message": "Send your player pass first."}},
+        {"client": "c", "closedWith": 4001},
+        {"client": "d", "connect": "room"},
+        {"client": "d", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": 12345}, "note": "A hello whose pass isn't a string."},
+        {"client": "d", "receive": {"type": "error", "code": "no_hello", "message": "Send your player pass first."}},
+        {"client": "d", "closedWith": 4001},
+        {"client": "e", "connect": "room"},
+        {"client": "e", "sendBytes": [1, 2, 3], "note": "A binary frame first."},
+        {"client": "e", "receive": {"type": "error", "code": "no_hello", "message": "Send your player pass first."}},
+        {"client": "e", "closedWith": 4001}
+      ]
+    },
+    {
+      "name": "a version published now",
+      "runtimes": ["rooms"],
+      "steps": [
+        {"client": "a", "connect": "room"},
+        {"client": "a", "send": {"type": "hello", "protocolVersionNumber": 1, "pass": "<pass:a>"}},
+        {"client": "a", "receive": {"type": "welcome", "me": {"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest"}, "isSpectator": false, "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}], "room": {"isListed": false, "isOpen": true, "friendJoinsEnabled": true, "name": null, "labels": {}}, "spectatorCount": 0, "hostPlayerId": "<playerId:a>", "awayChecks": {"idleTimeoutSec": 600, "hiddenTimeoutSec": null}, "endsAt": null, "probeIntervalSec": null, "protocolVersionNumber": 1}},
+        {"client": "a", "receive": {"type": "players", "players": [{"id": "<playerId:a>", "name": "<playerName:a>", "kind": "guest", "awayReason": null}], "hostPlayerId": "<playerId:a>"}},
+        {"action": "publish_version_now", "note": "Only Zaisma rooms run versions: a Node runner serves one game server."},
+        {"client": "a", "receive": {"type": "version_update", "step": "coming", "versionId": "vtranscript2", "appliesAt": "<isoTime>", "isReloading": false}},
+        {"action": "version_time_comes"},
+        {"client": "a", "receive": {"type": "version_update", "step": "now", "versionId": "vtranscript2", "appliesAt": "<isoTime>", "isReloading": false}},
+        {"client": "a", "closedWith": 4004}
+      ]
+    }
+  ]
+}

@@ -135,7 +135,7 @@ describe("sandboxed game servers", () => {
     expect((await b.next()).data).toEqual({ count: 2 });
 
     a.say("end");
-    expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
+    expect(await b.next()).toEqual({ type: "ended", message: "Game over", endReason: "game" });
   });
 
   it("gives the game server what each account owns, from its pass, and a guest nothing", async () => {

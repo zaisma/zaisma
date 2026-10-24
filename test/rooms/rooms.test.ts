@@ -1,11 +1,14 @@
-import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import roomsWorker, { gameOrigin, isGameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
 import roomsWranglerText from "../../apps/rooms/wrangler.jsonc?raw";
 import { HOSTING_PAUSED_END_MESSAGE, passesAreFriends, canChat, passesHaveBlockBetween, verifyPass } from "@zaisma/game-server";
 import { acceptFriendInvite, addTesterLink, blockPlayer, blocksAmong, createAccount, createFriendInvite, deleteAccount, friendPlayerIdsOf, friendsAmong, issueRoomKey, MATCH_FINISH_DURATION_SEC, monthStartDateOf, noteQuickJoin, removeFriend, revokeTesterLink, unblockPlayer } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
+import { GameRoomsService } from "../../apps/rooms/src/room-updates.ts";
+import { ERROR_TEXT } from "@zaisma/game-server/internal";
+import { TRANSCRIPT_GAME_SERVER_SOURCE, playTranscript, type TranscriptDriver } from "../rooms-transcript.ts";
 
 const R = "https://rooms.zaisma.test";
 const ORIGIN = "https://games.zaisma.test";
@@ -826,7 +829,8 @@ describe("rooms", () => {
     });
     expect((await a.next()).type).toBe("players");
     a.ws.send(JSON.stringify({ type: "message", data: 1 }));
-    expect(await a.next()).toMatchObject({ type: "ended" });
+    expect(await a.next()).toEqual({ type: "ended", message: "This game isn't available right now.", endReason: "game_unavailable" });
+    expect(await a.closed).toBe(4000);
     const turnedAway = await connect("arena", "HJKLMN");
     expect(turnedAway.res.status).toBe(101);
     expect(await turnedAway.next()).toMatchObject({ type: "error", code: "game_unavailable" });
@@ -1544,5 +1548,162 @@ describe("a real-time room's saved state", () => {
     });
     expect(keys).toEqual({ before: ["stateChunk:0"], after: [], saved: { hasEnded: true } });
     await a.closed;
+  });
+});
+
+describe("the v1 room contract in Zaisma rooms", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM tester_links; DELETE FROM room_keys; DELETE FROM game_hosting_months; DELETE FROM games;");
+  });
+
+  /** What a turned-away socket says and how it closes: refusals come on a socket, never as an HTTP status. */
+  const refusal = async (res: Response) => {
+    expect(res.status).toBe(101);
+    const ws = res.webSocket!;
+    const said = new Promise<any>((resolve) => ws.addEventListener("message", (ev) => resolve(JSON.parse(ev.data as string)), { once: true }));
+    const closeCode = new Promise<number>((resolve) => ws.addEventListener("close", (ev) => resolve(ev.code), { once: true }));
+    ws.accept();
+    return { said: await said, closeCode: await closeCode };
+  };
+
+  it("turns away a first message that isn't a hello with no_hello, three ways, and closes with 4001", async () => {
+    await addGame("arena");
+    const message = await connect("arena", "NHEJLA");
+    message.ws.send(JSON.stringify({ type: "message", data: 1 }));
+    expect(await message.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await message.closed).toBe(4001);
+
+    // A hello whose pass isn't a string.
+    const numberPass = await connect("arena", "NHEJLA");
+    numberPass.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: 12345 }));
+    expect(await numberPass.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await numberPass.closed).toBe(4001);
+
+    // A hello as a binary frame: bytes only come after it.
+    const { pass } = await getPass("arena");
+    const binary = await connect("arena", "NHEJLA");
+    binary.ws.send(new TextEncoder().encode(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass })));
+    expect(await binary.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await binary.closed).toBe(4001);
+  });
+
+  it("turns away the player past maximumPlayerCount with room_full and 4001", async () => {
+    await addGame("arena");
+    // The relay seats 16.
+    const players = [];
+    for (let seat = 0; seat < 16; seat++) players.push(await join("arena", "FULLRM"));
+    const { pass } = await getPass("arena");
+    const late = await connect("arena", "FULLRM");
+    late.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
+    expect(await late.next()).toEqual({ type: "error", code: "room_full", message: ERROR_TEXT.room_full });
+    expect(await late.closed).toBe(4001);
+    // A seat freed on purpose is free for the newcomer.
+    players[0]!.ws.close(1000);
+    await players[0]!.closed;
+    const again = await connect("arena", "FULLRM");
+    again.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass }));
+    expect((await again.next()).type).toBe("welcome");
+    for (const player of players.slice(1)) player.ws.close(1000);
+    again.ws.close(1000);
+  });
+
+  it("clears a reserved room nobody joins after 10 minutes, on a fake clock", async () => {
+    const id = await addGame("arena");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("arena:RSRVTM"));
+    const startMs = Date.now();
+    const reserve = await stub.fetch("https://room/reserve", {
+      method: "POST",
+      headers: { "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-room-code": "RSRVTM" },
+      body: JSON.stringify({ playerIds: ["player_reservedaaaaaaaaaaa"], setupData: null }),
+    });
+    expect(reserve.status).toBe(204);
+    const kept = () => runInDurableObject(stub, async (_room: Room, state) => ({ size: (await state.storage.list()).size, alarmAtMs: await state.storage.getAlarm() }));
+    const reserved = await kept();
+    expect(reserved.size).toBeGreaterThan(0);
+    expect(reserved.alarmAtMs! - startMs).toBeGreaterThanOrEqual(600_000);
+    expect(reserved.alarmAtMs! - startMs).toBeLessThan(600_000 + 5_000);
+    // The clock, not the alarm's time, decides: one millisecond short of 10 minutes keeps it, and 10 minutes clears it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => void vi.useRealTimers());
+    vi.setSystemTime(reserved.alarmAtMs! - 1);
+    await runDurableObjectAlarm(stub);
+    expect((await kept()).size).toBeGreaterThan(0);
+    vi.setSystemTime(reserved.alarmAtMs!);
+    await runDurableObjectAlarm(stub);
+    expect((await kept()).size).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("tells everyone the match ended with endReason game_server_stopped when the game's server keeps failing, and closes with 4000", async () => {
+    await addGame("arena");
+    const a = await join("arena", "STPPDM");
+    const b = await join("arena", "STPPDM");
+    await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:STPPDM")), (room: Room) => void (room as any).broken());
+    expect(await until(a, (m) => m.type === "ended")).toEqual({ type: "ended", message: "This game's server stopped working.", endReason: "game_server_stopped" });
+    expect(await until(b, (m) => m.type === "ended")).toEqual({ type: "ended", message: "This game's server stopped working.", endReason: "game_server_stopped" });
+    expect([await a.closed, await b.closed]).toEqual([4000, 4000]);
+  });
+
+  it("answers busy with 1013 when the room's Durable Object answers 429 or 503 or fails, room_full with 4001 for 409, and game_unavailable with 4001 for 404", async () => {
+    await addGame("arena");
+    const asked = (answer: () => Promise<Response>) =>
+      roomsWorker.fetch(new Request(`${R}/v1/rooms/arena/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } }), {
+        ...e,
+        ROOMS: { idFromName: (name: string) => name, get: () => ({ fetch: answer }) } as never,
+      });
+    for (const status of [429, 503, 500]) expect(await refusal(await asked(async () => new Response("Try again", { status })))).toEqual({ said: { type: "error", code: "busy", message: ERROR_TEXT.busy }, closeCode: 1013 });
+    expect(await refusal(await asked(async () => Promise.reject(new Error("Durable Object limit"))))).toEqual({ said: { type: "error", code: "busy", message: ERROR_TEXT.busy }, closeCode: 1013 });
+    expect(await refusal(await asked(async () => new Response("This room is full", { status: 409 })))).toEqual({ said: { type: "error", code: "room_full", message: ERROR_TEXT.room_full }, closeCode: 4001 });
+    expect(await refusal(await asked(async () => new Response("Gone", { status: 404 })))).toEqual({ said: { type: "error", code: "game_unavailable", message: ERROR_TEXT.game_unavailable }, closeCode: 4001 });
+  });
+});
+
+describe("the v1 rooms transcript, in Zaisma rooms", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM tester_links; DELETE FROM room_keys; DELETE FROM game_hosting_months; DELETE FROM games;");
+  });
+
+  const SLUG = "transcript";
+  const GAME_ID = "gtranscript";
+
+  /** A live game running the transcript's game server as its own, on its first version. */
+  async function addVersion(versionId: string) {
+    await e.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(versionId, GAME_ID, `games/${versionId}`).run();
+    await e.GAMES.put(`games/${versionId}/zaisma-server.js`, TRANSCRIPT_GAME_SERVER_SOURCE);
+  }
+
+  it("plays every step the transcript has for Zaisma rooms", async () => {
+    await e.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', 'vtranscript1', 'own', 'page', 0, 0)").bind(GAME_ID, SLUG, SLUG).run();
+    await addVersion("vtranscript1");
+    const driver: TranscriptDriver = {
+      runtime: "rooms",
+      newPlayer: async () => {
+        const { pass, player } = await getPass(SLUG);
+        return { playerId: player.id, name: player.name, pass };
+      },
+      connect: async (how, roomCode) => {
+        const client = how === "other_site" ? await connect(SLUG, roomCode, "https://evil.example") : how === "unknown_game" ? await connect("no-such-game", roomCode) : await connect(SLUG, roomCode);
+        return { send: (data) => client.ws.send(data), next: client.next, closed: client.closed, close: (code) => client.ws.close(code) };
+      },
+      action: async (action, roomCode) => {
+        const stub = e.ROOMS.get(e.ROOMS.idFromName(`${SLUG}:${roomCode}`));
+        if (action === "publish_version_now") {
+          await addVersion("vtranscript2");
+          await e.DB.prepare("UPDATE games SET live_version_id = 'vtranscript2', live_version_match_update_mode = 'now', has_live_version_game_file_changes = 0, live_version_published_at_ms = ? WHERE id = ?").bind(Date.now(), GAME_ID).run();
+          // The room is in the game's room table once it has a player, so the rooms Worker finds it.
+          for (let tries = 0; tries < 50 && !(await e.DB.prepare("SELECT 1 FROM live_rooms WHERE game_id = ?").bind(GAME_ID).first()); tries++) await new Promise((resolve) => setTimeout(resolve, 50));
+          expect(await new GameRoomsService(createExecutionContext(), e).updateMatches({ gameId: GAME_ID, slug: SLUG, versionId: "vtranscript2", hasGameFileChanges: false })).toEqual({ toldRoomCount: 1 });
+        } else {
+          await runInDurableObject(stub, async (room: Room, state) => {
+            (room as any).pendingVersionUpdate.appliesAtMs = Date.now() - 1;
+            await state.storage.setAlarm(Date.now());
+          });
+          await runDurableObjectAlarm(stub);
+        }
+      },
+    };
+    const { stepCount, skippedStepCount } = await playTranscript(driver);
+    expect(stepCount).toBeGreaterThan(20);
+    expect(skippedStepCount).toBe(0);
   });
 });

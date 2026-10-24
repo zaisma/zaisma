@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { localRoomStates, startServer } from "../../packages/game-server/bin/node.js";
-import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/internal.ts";
+import { ERROR_TEXT, defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/internal.ts";
+import { playTranscript, transcriptGameServerOptions, type TranscriptDriver } from "../rooms-transcript.ts";
 
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://arena.zaismausercontent.com";
@@ -736,5 +737,117 @@ describe("Kept rooms on the developer's own server", () => {
     expect(states.read("OLDERA")).toMatchObject({ stateJson: '{"laps":8}', isSavedEmpty: true });
     // Opening it again doesn't add the column twice.
     expect(localRoomStates(file).read("OLDERA")).toMatchObject({ isSavedEmpty: true });
+  });
+});
+
+describe("The v1 room contract on the Node runner", () => {
+  const hello = async (sub: string) => ({ type: "hello", protocolVersionNumber: 1, pass: await pass(sub) });
+
+  it("turns away a first message that isn't a hello with no_hello, three ways, and closes with 4001", async () => {
+    const message = connect();
+    await message.open;
+    message.say({ type: "message", data: 1 });
+    expect(await message.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await message.closed).toBe(4001);
+
+    // A hello whose pass isn't a string.
+    const numberPass = connect();
+    await numberPass.open;
+    numberPass.say({ type: "hello", protocolVersionNumber: 1, pass: 12345 });
+    expect(await numberPass.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await numberPass.closed).toBe(4001);
+
+    // A hello as a binary frame: bytes only come after it.
+    const binary = connect();
+    await binary.open;
+    binary.ws.send(new TextEncoder().encode(JSON.stringify(await hello("binary"))));
+    expect(await binary.next()).toEqual({ type: "error", code: "no_hello", message: ERROR_TEXT.no_hello });
+    expect(await binary.closed).toBe(4001);
+  });
+
+  it("turns away the player past maximumPlayerCount with room_full and 4001, and takes a newcomer once a seat is free", async () => {
+    const { own, at } = await serve(defineGameServer({ maximumPlayerCount: 2, setup: () => ({}) }));
+    const path = "/v1/rooms/arena/FULLAA";
+    const [a, b, c] = [connect(ORIGIN, path, at), connect(ORIGIN, path, at), connect(ORIGIN, path, at)];
+    await Promise.all([a.open, b.open, c.open]);
+    a.say(await hello("a"));
+    await until(a, "welcome");
+    b.say(await hello("b"));
+    await until(b, "welcome");
+    c.say(await hello("c"));
+    expect(await c.next()).toEqual({ type: "error", code: "room_full", message: ERROR_TEXT.room_full });
+    expect(await c.closed).toBe(4001);
+    b.ws.close(1000);
+    await b.closed;
+    // The seat is held for no one once b has left on purpose.
+    const d = connect(ORIGIN, path, at);
+    await d.open;
+    d.say(await hello("d"));
+    expect((await until(d, "welcome")).type).toBe("welcome");
+    a.ws.close();
+    d.ws.close();
+    await own.close();
+  });
+
+  it("drops a reserved room nobody joins after 10 minutes, on a fake clock", async () => {
+    const lobby = defineGameServer({ setup: () => ({}), onMessage: (_state, player, _message, room) => room.reserve({ playerIds: [player.id], setupData: null }) });
+    const { own, at } = await serve(lobby);
+    const a = connect(ORIGIN, "/v1/rooms/arena/RSRVDX", at);
+    await a.open;
+    a.say(await hello("a"));
+    await until(a, "welcome");
+    // Only timers are faked, from here: sockets keep running on real time.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => void vi.useRealTimers());
+    a.say({ type: "message", data: "reserve" });
+    const { roomCode } = await until(a, "move");
+    expect(own.rooms.has(roomCode)).toBe(true);
+    vi.advanceTimersByTime(10 * 60 * 1000 - 1);
+    expect(own.rooms.has(roomCode)).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(own.rooms.has(roomCode)).toBe(false);
+    vi.useRealTimers();
+    a.ws.close();
+    await own.close();
+  });
+
+  it("tells everyone the match ended with endReason game when the game ends it, with its message or the default, and closes with 4000", async () => {
+    const game = defineGameServer({ setup: () => ({}), onMessage: (_state, _player, message, room) => (message === "end with message" ? room.end("Good game.") : room.end()) });
+    for (const [said, endMessage] of [["end with message", "Good game."], ["end", "The match is over."]] as const) {
+      const { own, at } = await serve(game);
+      const [a, b] = [connect(ORIGIN, "/v1/rooms/arena/ENDAAA", at), connect(ORIGIN, "/v1/rooms/arena/ENDAAA", at)];
+      await Promise.all([a.open, b.open]);
+      a.say(await hello("a"));
+      await until(a, "welcome");
+      b.say(await hello("b"));
+      await until(b, "welcome");
+      a.say({ type: "message", data: said });
+      expect(await until(a, "ended")).toEqual({ type: "ended", message: endMessage, endReason: "game" });
+      expect(await until(b, "ended")).toEqual({ type: "ended", message: endMessage, endReason: "game" });
+      expect([await a.closed, await b.closed]).toEqual([4000, 4000]);
+      await own.close();
+    }
+  });
+
+  it("plays the v1 rooms transcript, field for field", async () => {
+    const { own, at } = await serve(defineGameServer(transcriptGameServerOptions() as never));
+    const driver: TranscriptDriver = {
+      runtime: "node",
+      newPlayer: async (label) => {
+        const playerId = `player_transcript_${label}`;
+        return { playerId, name: playerId.toUpperCase(), pass: await pass(playerId) };
+      },
+      connect: async (how, roomCode) => {
+        const client = how === "other_site" ? connect("https://evil.example", `/v1/rooms/arena/${roomCode}`, at) : connect(ORIGIN, `/v1/rooms/${how === "unknown_game" ? "other-game" : "arena"}/${roomCode}`, at);
+        await client.open;
+        return { send: (data) => client.ws.send(data), next: client.next, closed: client.closed, close: (code) => client.ws.close(code) };
+      },
+      action: async (action) => {
+        throw new Error(`The Node runner can't ${action}`);
+      },
+    };
+    const { stepCount } = await playTranscript(driver);
+    expect(stepCount).toBeGreaterThan(20);
+    await own.close();
   });
 });
