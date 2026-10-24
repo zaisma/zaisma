@@ -1,0 +1,730 @@
+{
+  "Zaisma": {
+    "kind": "values",
+    "values": [
+      "checkChat",
+      "friends",
+      "gameSlug",
+      "invite",
+      "items",
+      "joinRoom",
+      "links",
+      "openPlayersPanel",
+      "player",
+      "rooms",
+      "saves",
+      "sdkVersionNumber",
+      "server",
+      "versions"
+    ]
+  },
+  "Zaisma.player": {
+    "kind": "values",
+    "values": [
+      "getPass",
+      "getProfile",
+      "offerAccount",
+      "signIn"
+    ]
+  },
+  "Zaisma.links": {
+    "kind": "values",
+    "values": [
+      "open"
+    ]
+  },
+  "Zaisma.friends": {
+    "kind": "values",
+    "values": [
+      "list",
+      "setRoom"
+    ]
+  },
+  "Zaisma.saves": {
+    "kind": "values",
+    "values": [
+      "getCopy",
+      "listCopies",
+      "off",
+      "on",
+      "restoreCopy"
+    ]
+  },
+  "Zaisma.versions": {
+    "kind": "values",
+    "values": [
+      "off",
+      "on"
+    ]
+  },
+  "Zaisma.server": {
+    "kind": "values",
+    "values": [
+      "request"
+    ]
+  },
+  "Zaisma.items": {
+    "kind": "values",
+    "values": [
+      "list",
+      "owned",
+      "owns"
+    ]
+  },
+  "Zaisma.links.open options": {
+    "kind": "values",
+    "values": [
+      "ownSiteUrl",
+      "path",
+      "queryParameters"
+    ]
+  },
+  "Zaisma.server.request options": {
+    "kind": "values",
+    "values": [
+      "serverUrl"
+    ]
+  },
+  "Zaisma.friends.setRoom options": {
+    "kind": "values",
+    "values": [
+      "friendJoinsEnabled",
+      "roomCode",
+      "serverUrl"
+    ]
+  },
+  "Zaisma.saves events": {
+    "kind": "values",
+    "values": [
+      "conflict",
+      "developerChange"
+    ]
+  },
+  "Zaisma.versions events": {
+    "kind": "values",
+    "values": [
+      "update"
+    ]
+  },
+  "MAXIMUM_REQUEST_SIZE_BYTES": {
+    "kind": "constant",
+    "value": 16384
+  },
+  "FRIENDS_KEPT_MS": {
+    "kind": "constant",
+    "value": 10000
+  },
+  "OWN_ROOM_CHECK_IN_MS": {
+    "kind": "constant",
+    "value": 120000
+  },
+  "SAVES_ERROR_CODES": {
+    "kind": "constant",
+    "value": [
+      "account_needed",
+      "bad_save_copy_id",
+      "cloud_saves_not_here",
+      "cloud_saves_off",
+      "no_save_copy",
+      "request_failed",
+      "slow_down"
+    ]
+  },
+  "LINK_ERROR_CODES": {
+    "kind": "constant",
+    "value": [
+      "bad_link_path",
+      "bad_link_query",
+      "needs_player_tap",
+      "request_failed",
+      "slow_down",
+      "unknown_link"
+    ]
+  },
+  "OWN_SERVER_URL": {
+    "kind": "constant",
+    "value": "/^(wss|https):\\/\\/[^/]/"
+  },
+  "LINK_NAME": {
+    "kind": "constant",
+    "value": "/^[a-z][a-z0-9_]{0,31}$/"
+  },
+  "LINK_PATH": {
+    "kind": "constant",
+    "value": "/^(\\/[^/?#\\\\]+)+\\/?$/"
+  },
+  "SAVE_COPY_ID": {
+    "kind": "constant",
+    "value": "/^save_copy_[a-z0-9-]{1,40}$/"
+  },
+  "wait in askPage": {
+    "kind": "constant",
+    "value": 3000
+  },
+  "wait in invite": {
+    "kind": "constant",
+    "value": 3000
+  },
+  "wait in openLink": {
+    "kind": "constant",
+    "value": 3000
+  },
+  "wait in askSaves": {
+    "kind": "constant",
+    "value": 3000
+  },
+  "refusal: Zaisma.player.getPass off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.player.getProfile with a bad player ID": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_player_id",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.player.getProfile off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.player.signIn off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.player.offerAccount off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.checkChat off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.list off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.setRoom off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.setRoom with an unknown option": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_option",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.setRoom with no room": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_option",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.setRoom with a ws:// server": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_server_url",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.friends.setRoom with a bad room code": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_room_code",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with an unknown option": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_option",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with a bad link name": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_link",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with a path without /": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_link_path",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with a .. path": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_link_path",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with bad query parameters": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_link_query",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open with an http:// ownSiteUrl": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_own_site_url",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open off Zaisma without ownSiteUrl": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.items.owns with no item name": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_item_name",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.items.list off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.server.request with an unknown option": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_option",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.server.request off Zaisma without serverUrl": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.server.request with a bad serverUrl": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_server_url",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.server.request with what isn't JSON": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_request",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.server.request over 16 KB": {
+    "kind": "constant",
+    "value": {
+      "code": "too_big",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.saves.getCopy with a bad save copy ID": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_save_copy_id",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.saves.restoreCopy with a bad save copy ID": {
+    "kind": "constant",
+    "value": {
+      "code": "bad_save_copy_id",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.saves.listCopies off Zaisma": {
+    "kind": "constant",
+    "value": {
+      "code": "not_on_zaisma",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.saves.on an unknown event": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_event",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.versions.on an unknown event": {
+    "kind": "constant",
+    "value": {
+      "code": "unknown_event",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.invite without a tap": {
+    "kind": "constant",
+    "value": {
+      "code": "needs_player_tap",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.invite off Zaisma without a tap": {
+    "kind": "constant",
+    "value": {
+      "code": "needs_player_tap",
+      "isSent": false
+    }
+  },
+  "refusal: Zaisma.links.open without a tap": {
+    "kind": "constant",
+    "value": {
+      "code": "needs_player_tap",
+      "isSent": false
+    }
+  },
+  "wire: Zaisma.player.getPass, post zaisma:room-key": {
+    "kind": "values",
+    "values": [
+      "type"
+    ]
+  },
+  "wire: Zaisma.player.getPass, POST /v1/pass body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "roomKey"
+    ]
+  },
+  "wire: Zaisma.player.getPass, POST /v1/pass answer": {
+    "kind": "values",
+    "values": [
+      "expiresAt",
+      "pass",
+      "player.id",
+      "player.kind",
+      "player.name"
+    ]
+  },
+  "wire: Zaisma.player.getPass": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:room-key",
+      "POST /v1/pass"
+    ]
+  },
+  "wire: Zaisma.player.getProfile, GET /v1/players/<playerId> answer": {
+    "kind": "values",
+    "values": [
+      "player.bio",
+      "player.display_name",
+      "player.id",
+      "player.is_profile_private",
+      "player.link_urls",
+      "player.name",
+      "player.played_games[].page_url",
+      "player.played_games[].played_period",
+      "player.played_games[].slug",
+      "player.played_games[].title",
+      "player.playing_now.page_url",
+      "player.playing_now.played_period",
+      "player.playing_now.slug",
+      "player.playing_now.title",
+      "player.profile_url",
+      "player.published_games[].page_url",
+      "player.published_games[].played_period",
+      "player.published_games[].slug",
+      "player.published_games[].title",
+      "player.username"
+    ]
+  },
+  "wire: Zaisma.player.getProfile": {
+    "kind": "constant",
+    "value": [
+      "GET /v1/players/<playerId>"
+    ]
+  },
+  "wire: Zaisma.player.signIn, post zaisma:sign-in": {
+    "kind": "values",
+    "values": [
+      "type"
+    ]
+  },
+  "wire: Zaisma.player.signIn": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:sign-in"
+    ]
+  },
+  "wire: Zaisma.player.offerAccount, post zaisma:account-offer": {
+    "kind": "values",
+    "values": [
+      "type"
+    ]
+  },
+  "wire: Zaisma.player.offerAccount": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:account-offer"
+    ]
+  },
+  "wire: Zaisma.invite, post zaisma:share": {
+    "kind": "values",
+    "values": [
+      "requestNumber",
+      "type"
+    ]
+  },
+  "wire: Zaisma.invite": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:share"
+    ]
+  },
+  "wire: Zaisma.checkChat, POST /v1/filter body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "text"
+    ]
+  },
+  "wire: Zaisma.checkChat, POST /v1/filter answer": {
+    "kind": "values",
+    "values": []
+  },
+  "wire: Zaisma.checkChat": {
+    "kind": "constant",
+    "value": [
+      "POST /v1/filter"
+    ]
+  },
+  "wire: Zaisma.openPlayersPanel, post zaisma:players-open": {
+    "kind": "values",
+    "values": [
+      "type"
+    ]
+  },
+  "wire: Zaisma.openPlayersPanel": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:players-open"
+    ]
+  },
+  "wire: Zaisma.friends.list, POST /v1/friends body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "pass"
+    ]
+  },
+  "wire: Zaisma.friends.list, POST /v1/friends answer": {
+    "kind": "values",
+    "values": [
+      "friends[].join_refusal",
+      "friends[].player_id",
+      "friends[].room_code",
+      "friends[].server_url",
+      "friends[].username"
+    ]
+  },
+  "wire: Zaisma.friends.list": {
+    "kind": "constant",
+    "value": [
+      "POST /v1/friends"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom, POST /v1/friends/room body": {
+    "kind": "values",
+    "values": [
+      "friendJoinsEnabled",
+      "gameSlug",
+      "pass",
+      "roomCode",
+      "serverUrl"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom, POST /v1/friends/room answer": {
+    "kind": "values",
+    "values": []
+  },
+  "wire: Zaisma.friends.setRoom": {
+    "kind": "constant",
+    "value": [
+      "POST /v1/friends/room"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom(null), POST /v1/friends/room body": {
+    "kind": "values",
+    "values": [
+      "gameSlug",
+      "pass",
+      "roomCode",
+      "serverUrl"
+    ]
+  },
+  "wire: Zaisma.friends.setRoom(null), POST /v1/friends/room answer": {
+    "kind": "values",
+    "values": []
+  },
+  "wire: Zaisma.friends.setRoom(null)": {
+    "kind": "constant",
+    "value": [
+      "POST /v1/friends/room"
+    ]
+  },
+  "wire: Zaisma.links.open, post zaisma:link": {
+    "kind": "values",
+    "values": [
+      "linkName",
+      "path",
+      "queryParameters",
+      "requestNumber",
+      "type"
+    ]
+  },
+  "wire: Zaisma.links.open": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:link"
+    ]
+  },
+  "wire: Zaisma.items.list, GET /v1/items/<gameSlug> answer": {
+    "kind": "values",
+    "values": [
+      "items[].currencyCode",
+      "items[].description",
+      "items[].itemCategory",
+      "items[].itemKind",
+      "items[].itemName",
+      "items[].priceMinorUnits",
+      "items[].priceText",
+      "items[].title"
+    ]
+  },
+  "wire: Zaisma.items.list": {
+    "kind": "constant",
+    "value": [
+      "GET /v1/items/<gameSlug>"
+    ]
+  },
+  "wire: Zaisma.server.request, POST /v1/requests/<gameSlug> body": {
+    "kind": "values",
+    "values": [
+      "pass",
+      "request"
+    ]
+  },
+  "wire: Zaisma.server.request, POST /v1/requests/<gameSlug> answer": {
+    "kind": "values",
+    "values": [
+      "answer"
+    ]
+  },
+  "wire: Zaisma.server.request": {
+    "kind": "constant",
+    "value": [
+      "POST /v1/requests/<gameSlug>"
+    ]
+  },
+  "wire: Zaisma.saves.on, post zaisma:saves-request listen": {
+    "kind": "values",
+    "values": [
+      "eventNames",
+      "request",
+      "requestNumber",
+      "type"
+    ]
+  },
+  "wire: Zaisma.saves.on": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:saves-request listen"
+    ]
+  },
+  "wire: Zaisma.saves.listCopies, post zaisma:saves-request list_copies": {
+    "kind": "values",
+    "values": [
+      "request",
+      "requestNumber",
+      "saveCopyId",
+      "type"
+    ]
+  },
+  "wire: Zaisma.saves.listCopies": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:saves-request list_copies"
+    ]
+  },
+  "wire: Zaisma.saves.getCopy, post zaisma:saves-request get_copy": {
+    "kind": "values",
+    "values": [
+      "request",
+      "requestNumber",
+      "saveCopyId",
+      "type"
+    ]
+  },
+  "wire: Zaisma.saves.getCopy": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:saves-request get_copy"
+    ]
+  },
+  "wire: Zaisma.saves.restoreCopy, post zaisma:saves-request restore_copy": {
+    "kind": "values",
+    "values": [
+      "request",
+      "requestNumber",
+      "saveCopyId",
+      "type"
+    ]
+  },
+  "wire: Zaisma.saves.restoreCopy": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:saves-request restore_copy"
+    ]
+  },
+  "wire: at load": {
+    "kind": "constant",
+    "value": [
+      "post zaisma:version"
+    ]
+  },
+  "wire: at load, post zaisma:version": {
+    "kind": "values",
+    "values": [
+      "type",
+      "versionId"
+    ]
+  }
+}

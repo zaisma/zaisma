@@ -27,7 +27,7 @@ const STANDARD_SHAPES = new Set(["Env", "RpcMessage", "McpImage"]);
 const MESSAGE_SHAPES = new Set(["ServerMessage"]);
 /**
  * The fields a standard or an outside service names, in the shape we declare for it (docs/NAMING.md,
- * Exceptions): JWT claims, WebAuthn's structures, R2's ranges and what Cloudflare (DNS, relay analytics) and VirusTotal answer. Only
+ * Exceptions): JWT claims, WebAuthn's structures, R2's ranges, IndexedDB's own names in a save's databases and what Cloudflare (DNS, relay analytics) and VirusTotal answer. Only
  * these fields of these shapes; anything of ours in them still follows the rules.
  */
 const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
@@ -46,6 +46,9 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   CloudflareDnsAnswer: ["Answer", "data"],
   TurnAnalyticsAnswer: ["data"],
   StripeEvent: ["data"],
+  IndexeddbDatabase: ["version"],
+  IndexeddbStore: ["keyPath", "autoIncrement"],
+  IndexeddbIndex: ["keyPath", "unique", "multiEntry"],
 };
 /** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
 const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };

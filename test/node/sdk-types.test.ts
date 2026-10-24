@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createContext, runInContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
+import { joinedRoom, loadSdk, me, ON_ZAISMA, SDK_TYPES, say, settings, typeChecker, type StandInSocket } from "../sdk-stand-in.ts";
 
 /**
  * packages/sdk/zaisma.d.ts is the SDK's reference, so it has to say exactly what zaisma.js does. The SDK
@@ -12,7 +14,7 @@ import { SAVE_COPY_REASONS } from "../../packages/core/src/saves.ts";
  */
 
 const ROOT = join(import.meta.dirname, "../..");
-const TYPES = join(ROOT, "packages/sdk/zaisma.d.ts");
+const TYPES = SDK_TYPES;
 const SDK = readFileSync(join(ROOT, "packages/sdk/zaisma.js"), "utf8");
 const GAME_SERVER = join(ROOT, "packages/game-server/src/room.ts");
 const GAME_SERVER_REQUESTS = join(ROOT, "packages/game-server/src/requests.ts");
@@ -21,44 +23,7 @@ const CORE_TYPES = join(ROOT, "packages/core/src/types.ts");
 const TEXT_FILTER = join(ROOT, "packages/core/src/text-filter.ts");
 const ROOMS_WORKER = join(ROOT, "apps/rooms/src/index.ts");
 
-const program = ts.createProgram([TYPES, GAME_SERVER, GAME_SERVER_REQUESTS, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
-  target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.ES2022,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  allowImportingTsExtensions: true,
-  noEmit: true,
-  strict: true,
-  types: [],
-});
-const checker = program.getTypeChecker();
-
-/** A declaration's members: the Zaisma namespace's in zaisma.d.ts, or a module's exports. */
-function membersOf(file: string): ts.Symbol[] {
-  const source = program.getSourceFile(file)!;
-  if (file !== TYPES) return checker.getExportsOfModule(checker.getSymbolAtLocation(source)!);
-  const namespace = source.statements.find((statement): statement is ts.ModuleDeclaration => ts.isModuleDeclaration(statement) && statement.name.text === "Zaisma")!;
-  return checker.getExportsOfModule(checker.getSymbolAtLocation(namespace.name)!);
-}
-
-function declaredType(file: string, name: string): ts.Type {
-  const symbol = membersOf(file).find((member) => member.name === name && member.flags & ts.SymbolFlags.Type);
-  if (!symbol) throw new Error(`${file} declares no type ${name}`);
-  return checker.getDeclaredTypeOfSymbol(symbol);
-}
-
-/** The field names of a shape, sorted. */
-function fieldsOf(name: string, file = TYPES): string[] {
-  return checker
-    .getPropertiesOfType(declaredType(file, name))
-    .map((property) => property.name)
-    .sort();
-}
-
-/** The values of a union of string literals, sorted. */
-function valuesOf(name: string, file = TYPES): string[] {
-  const type = declaredType(file, name);
-  return (type.isUnion() ? type.types : [type]).map((part) => String((part as ts.StringLiteralType).value)).sort();
-}
+const { program, checker, membersOf, declaredType, fieldsOf, valuesOf } = typeChecker([TYPES, GAME_SERVER, GAME_SERVER_REQUESTS, CORE_ROOMS, CORE_TYPES, TEXT_FILTER]);
 
 /** The values of a union of string literals a file declares but doesn't export, read from its source alone. */
 function valuesInSource(file: string, name: string): string[] {
@@ -66,93 +31,6 @@ function valuesInSource(file: string, name: string): string[] {
   const alias = source.statements.find((statement): statement is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(statement) && statement.name.text === name);
   if (!alias || !ts.isUnionTypeNode(alias.type)) throw new Error(`${file} declares no union ${name}`);
   return alias.type.types.map((part) => ((part as ts.LiteralTypeNode).literal as ts.StringLiteral).text).sort();
-}
-
-interface StandInSocket {
-  url: string;
-  sent: string[];
-  readyState: number;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data: string }) => void) | null;
-  onclose: ((event: { code: number; reason: string }) => void) | null;
-}
-
-const ON_ZAISMA = { rooms: "https://rooms.zaisma.test", game: "test-game", site: "https://zaisma.test" };
-
-/**
- * zaisma.js as on a game's page on Zaisma, in a stand-in browser: the tab already has a guest pass and
- * the page hands over a guest's room key, the test answers for the room's WebSocket and for fetch (no
- * connection, unless it gives an answer), and the page's event listeners are kept for the test to
- * call. null for zaismaConfig: a game hosted somewhere else, which has no __ZAISMA__.
- */
-function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest", search = "") {
-  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
-  const sockets: StandInSocket[] = [];
-  // What the SDK runs on a timer (its checks every second), for the test to run when it likes.
-  const intervals: (() => void)[] = [];
-  const listeners: Record<string, ((event?: unknown) => void)[]> = {};
-  const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
-  // The Zaisma page around the game: it hands over its room key, whose kind changes when the player signs in.
-  const page = {
-    playerKind,
-    posted: [] as unknown[],
-    postMessage(message: { type?: string }) {
-      page.posted.push(message);
-      const answer = { origin: ON_ZAISMA.site, source: page, data: { type: "zaisma:room-key", key: "room_key_test", playerKind: page.playerKind } };
-      if (message?.type === "zaisma:room-key") queueMicrotask(() => (listeners.message ?? []).slice().forEach((listener) => listener(answer)));
-    },
-    /** A message from the page to the game. */
-    say(data: unknown) {
-      (listeners.message ?? []).slice().forEach((listener) => listener({ origin: ON_ZAISMA.site, source: page, data }));
-    },
-  };
-  const window: Record<string, unknown> = { parent: page, addEventListener: listen };
-  const browser = {
-    __ZAISMA__: zaismaConfig,
-    fetch: fetchAnswer,
-    window,
-    document: { hidden: false, addEventListener: listen },
-    location: { search, href: `https://test-game.games.zaisma.test/${search}` },
-    sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
-    WebSocket: class {
-      sent: string[] = [];
-      readyState = 1;
-      onopen = null;
-      onmessage = null;
-      onclose = null;
-      constructor(public url: string) {
-        sockets.push(this);
-      }
-      send(text: string) {
-        this.sent.push(text);
-      }
-      close() {}
-    },
-    addEventListener: listen,
-    removeEventListener() {},
-    setInterval: (work: () => void) => (intervals.push(work), 0),
-    clearInterval() {},
-    navigator: {},
-  };
-  new Function(...Object.keys(browser), SDK)(...Object.values(browser));
-  return { Zaisma: window.Zaisma as any, sockets, intervals, listeners, page, window, navigator: browser.navigator as Record<string, unknown> };
-}
-
-const me = { id: "player_ana", name: "Ana", kind: "guest" };
-const settings = { isListed: true, isOpen: true, friendJoinsEnabled: true, name: null, labels: {} };
-
-/** Join a room the test plays the server of. */
-async function joinedRoom(sdk: ReturnType<typeof loadSdk>) {
-  const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const socket = sdk.sockets.at(-1)!;
-  socket.onopen!();
-  say(socket, { type: "welcome", me, players: [me, { id: "player_bo", name: "Bo", kind: "account" }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } });
-  return { room: await joining, socket };
-}
-
-function say(socket: StandInSocket, message: unknown) {
-  socket.onmessage!({ data: JSON.stringify(message) });
 }
 
 /** The names a refusal lists after "It takes:" or "Rooms have:", sorted. */
@@ -1136,5 +1014,52 @@ describe("state sync and latest-only sends in the SDK", () => {
     buffered.bufferedAmount = 0;
     check();
     expect(socket.sent.slice(2).map((sent) => (typeof sent === "string" ? JSON.parse(sent) : [...new Uint8Array(sent as unknown as ArrayBuffer)]))).toEqual([{ type: "message", data: { type: "aim", angle: 3 } }, [2]]);
+  });
+});
+
+describe("the scripts the games server serves, in a page of their own", () => {
+  /** A script as the games Worker serves it (withSetup in apps/games/src/index.ts): its setup handed in as a parameter. */
+  const served = (parameterName: string, setup: unknown, script: string) => `(function (${parameterName}) {\n${script}\n})(${JSON.stringify(setup)});\n`;
+  const listen = () => {};
+  /** A fresh page with nothing on it but what a browser has, where the game sits in a Zaisma page. */
+  function freshPage() {
+    const zaismaPage = { postMessage() {} };
+    const element = (): Record<string, unknown> => ({ style: {}, appendChild() {}, remove() {}, addEventListener: listen, setAttribute() {} });
+    const storage = new Map<string, string>();
+    const page = createContext({
+      parent: zaismaPage,
+      document: { hidden: false, visibilityState: "visible", currentScript: null, addEventListener: listen, getElementById: () => null, createElement: element, body: element() },
+      location: { pathname: "/index.html", search: "", hash: "", href: "https://test-game.games.zaisma.test/index.html" },
+      sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+      localStorage: { length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {}, clear() {} },
+      navigator: {},
+      fetch: () => Promise.reject(new TypeError("Failed to fetch")),
+      WebSocket: class {},
+      addEventListener: listen,
+      removeEventListener: listen,
+      setInterval: () => 0,
+      clearInterval() {},
+      setTimeout: () => 0,
+      clearTimeout() {},
+      URL,
+    });
+    runInContext("var window = this;", page);
+    const before = new Set(Object.getOwnPropertyNames(page));
+    return { page, added: () => Object.getOwnPropertyNames(page).filter((name) => !before.has(name)) };
+  }
+  const zaismaGlobals = (names: string[]) => names.filter((name) => name.startsWith("__ZAISMA"));
+
+  it("v1.js sets up window.Zaisma and leaves no __ZAISMA global", () => {
+    const { page, added } = freshPage();
+    runInContext(served("__ZAISMA__", ON_ZAISMA, SDK), page);
+    expect(typeof (page as { Zaisma?: unknown }).Zaisma).toBe("object");
+    expect(added()).toContain("Zaisma");
+    expect(zaismaGlobals(Object.getOwnPropertyNames(page))).toEqual([]);
+  });
+
+  it("saves.js leaves no __ZAISMA global", () => {
+    const { page } = freshPage();
+    runInContext(served("__ZAISMA_SAVES__", { site: ON_ZAISMA.site, saveLimitBytes: 5 * 1024 * 1024, versionId: null }, readFileSync(join(ROOT, "packages/sdk/saves.js"), "utf8")), page);
+    expect(zaismaGlobals(Object.getOwnPropertyNames(page))).toEqual([]);
   });
 });

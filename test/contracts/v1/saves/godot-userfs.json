@@ -1,0 +1,65 @@
+{
+  "name": "godot-userfs",
+  "stored_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"/userfs\",\"version\":21,\"stores\":[{\"name\":\"FILE_DATA\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[{\"name\":\"timestamp\",\"keyPath\":\"timestamp\",\"unique\":false,\"multiEntry\":false}],\"records\":[[\"/userfs/godot\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":16893}],[\"/userfs/godot/app_userdata/Game/save.cfg\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"W3NhdmVd\"]}}]]}]}]}",
+  "v1_text": "{\"save_format_version_number\":1,\"local_storage_items\":{},\"indexeddb_databases\":[{\"name\":\"/userfs\",\"version\":21,\"stores\":[{\"name\":\"FILE_DATA\",\"keyPath\":null,\"autoIncrement\":false,\"indexes\":[{\"name\":\"timestamp\",\"keyPath\":\"timestamp\",\"unique\":false,\"multiEntry\":false}],\"records\":[[\"/userfs/godot\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":16893}],[\"/userfs/godot/app_userdata/Game/save.cfg\",{\"timestamp\":{\"$z\":[\"date\",1790856000000]},\"mode\":33206,\"contents\":{\"$z\":[\"view\",\"Uint8Array\",\"W3NhdmVd\"]}}]]}]}]}",
+  "sha256": "c892e109b30144fc006b176ffb15eada6530fe1a3f06ae56162c9041c437c879",
+  "size_bytes": 511,
+  "projection": {
+    "local_storage_items": {},
+    "missing_keys": [],
+    "indexeddb_databases": [
+      {
+        "name": "/userfs",
+        "version": 21,
+        "stores": [
+          {
+            "name": "FILE_DATA",
+            "keyPath": null,
+            "autoIncrement": false,
+            "indexes": [
+              {
+                "name": "timestamp",
+                "keyPath": "timestamp",
+                "unique": false,
+                "multiEntry": false
+              }
+            ],
+            "records": [
+              [
+                "/userfs/godot",
+                {
+                  "timestamp": {
+                    "$z": [
+                      "date",
+                      1790856000000
+                    ]
+                  },
+                  "mode": 16893
+                }
+              ],
+              [
+                "/userfs/godot/app_userdata/Game/save.cfg",
+                {
+                  "timestamp": {
+                    "$z": [
+                      "date",
+                      1790856000000
+                    ]
+                  },
+                  "mode": 33206,
+                  "contents": {
+                    "$z": [
+                      "view",
+                      "Uint8Array",
+                      "W3NhdmVd"
+                    ]
+                  }
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
