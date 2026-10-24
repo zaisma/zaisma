@@ -176,7 +176,8 @@ function querySql(sql) {
  * Waits until the compress Worker has answered every Brotli job the site queued (preview_compress_jobs, noted by
  * workers/site.mjs) with a compressed_blobs row. The compress Worker shares the preview's one runtime, so a sample played
  * while it makes a big build's copy plays on a stalled runtime (late frames, a dropped connection): the engines' play
- * check (scripts/engines/play.mjs) starts once nothing is left to compress.
+ * check (scripts/engines/play.mjs) starts once nothing is left to compress. After the full test data the copies are
+ * usually made already; with --engines-only, the samples' big builds are the last uploads, so it waits for them.
  */
 async function waitForBrotliCopies() {
   const waitingKeys = () =>
@@ -432,6 +433,8 @@ await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
   await seed();
+  await waitForBrotliCopies();
+  stepDone("Brotli copies");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
 }
 if (IDLE_MINUTES > 0)
@@ -837,8 +840,6 @@ async function seed() {
   if (ENGINES_ONLY) {
     await finishEngineSamples();
     stepDone("engine samples: runs in Chrome");
-    await waitForBrotliCopies();
-    stepDone("engine samples: Brotli copies");
     return;
   }
   const finishStartedInChrome = await seedStartedInChrome(api, upload, waitForRunInChrome);
