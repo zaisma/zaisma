@@ -762,7 +762,7 @@ describe("pages", () => {
   const needsStandIns = (each: (typeof CHECKED_PAGES)[number]) =>
     (each.stepsToTake ?? []).some((step) => ("fieldValues" in step ? "turnstile_token" in step.fieldValues : step.path.startsWith("/signin/with/")));
   // A game's pages show the preview's test games (scripts/preview), which this test doesn't make; npm run layout:check measures them there.
-  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/");
+  const needsPreviewGames = (each: (typeof CHECKED_PAGES)[number]) => each.path.startsWith("/g/") || each.path.startsWith("/t/") || each.path.startsWith("/buy/");
   const PUBLIC_STATES = CHECKED_PAGES.filter((each) => !each.account && !each.isOnSignInSite && !each.isGallery && !needsStandIns(each) && !needsPreviewGames(each));
   const PUBLIC_PAGES = [...new Set(PUBLIC_STATES.filter((each) => !each.stepsToTake).map((each) => each.path))];
 
