@@ -74,7 +74,7 @@ async function join(game: string, code: string, samePass?: string, helloFields: 
 /** A turn-based game server that counts and says which version it is; with onVersionUpdate it holds the switch until "round over". */
 const server = (versionLabel: string, holds: boolean) => `export default {
   setup: () => ({ count: 0, restored: null, heldFor: null }),
-  onMessage(state, player, message, room) {
+  onMessage(state, player, room, message) {
     if (message === "add") state.count++;
     if (message === "round over") room.applyVersionUpdate();
     if (message === "how") room.send(player.id, { version: "${versionLabel}", count: state.count, restored: state.restored, heldFor: state.heldFor });

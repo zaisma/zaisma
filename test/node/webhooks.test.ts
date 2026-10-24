@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error plain JavaScript runner without type declarations
-import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
+import { startServer } from "../../packages/game-server/bin/node.js";
+// @ts-expect-error plain JavaScript without type declarations
+import { localDatabase } from "../../packages/game-server/bin/node-parts.js";
 import { signatureFor, newSigningSecret } from "../../packages/core/src/webhooks.ts";
 import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/game-server/src/internal.ts";
 
@@ -12,10 +13,10 @@ import { verifyWebhook, type Server, type WebhookEvent } from "../../packages/ga
 const SECRET = newSigningSecret();
 const EVENT = { id: "webhook_event_8f3k2m9q1x7c4v6b0n5z", kind: "bug_reported", created_at: "2026-10-17T12:00:00.000Z", game: { slug: "sky-hopper" }, version: null, bug_report: { id: "report_4k2m", player_text: "Stuck on level 2" } };
 
-async function serve(gameServer: object, webhookSigningSecret: string | undefined = SECRET, database: unknown = localDatabase(":memory:")) {
-  const own = startServer({ server: gameServer, game: "sky-hopper", port: 0, origins: [], issuer: "https://rooms.zaisma.test", keys: async () => [], database, webhookSigningSecret });
-  await new Promise((resolve) => own.wss.once("listening", resolve));
-  const portNumber = (own.wss.address() as { port: number }).port;
+async function serve(gameServer: object, webhookSigningSecret: string | undefined = SECRET, database: Parameters<typeof startServer>[0]["database"] = localDatabase(":memory:")) {
+  const own = startServer({ gameServer: gameServer, gameSlug: "sky-hopper", port: 0, origins: [], issuerUrl: "https://rooms.zaisma.test", loadPassKeys: async () => [], database, webhookSigningSecret });
+  await new Promise((resolve) => own.httpServer.once("listening", resolve));
+  const portNumber = (own.httpServer.address() as { port: number }).port;
   const post = async (event: object, options: { signingSecret?: string; timestampSec?: number; signature?: string } = {}) => {
     const body = JSON.stringify(event);
     const timestampSec = options.timestampSec ?? Math.floor(Date.now() / 1000);
@@ -60,7 +61,7 @@ describe("Node runner webhooks", () => {
       // Signed, but not the event whose id it was signed with.
       expect((await post({ ...EVENT, id: "webhook_event_other" })).httpStatus).toBe(401);
       // No headers, or a body over the limit, is turned away before the rest is read.
-      const at = `http://localhost:${(own.wss.address() as { port: number }).port}/v1/webhooks`;
+      const at = `http://localhost:${(own.httpServer.address() as { port: number }).port}/v1/webhooks`;
       const bare = await fetch(at, { method: "POST", body: JSON.stringify(EVENT) });
       expect([bare.status, await bare.text()]).toEqual([401, expect.stringContaining("webhook-id")]);
       const huge = await fetch(at, { method: "POST", headers: { "webhook-id": EVENT.id, "webhook-timestamp": String(Math.floor(Date.now() / 1000)), "webhook-signature": "v1,AAAA" }, body: "x".repeat(17 * 1024 * 1024) }).catch(() => null);

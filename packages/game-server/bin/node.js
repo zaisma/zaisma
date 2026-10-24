@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Run a Zaisma game server on your own Node server (Node 23.6 or later).
+// Run a Zaisma game server on your own Node server (Node 22.18 or later).
 //
-//   node packages/game-server/bin/node.js ./server.ts --game my-game --port 8080
+//   zaisma-game-server ./server.ts --game my-game --port 8080
+//
+// or from code: import { startServer } from "@zaisma/game-server/node".
 //
 // Players connect to wss://your-server/v1/rooms/<game>/<code>, the same address
 // layout as Zaisma rooms, and prove who they are with Zaisma player passes,
@@ -11,16 +13,17 @@
 // schedules (onSchedule) run while it's up, at the minutes their crons give in UTC. A Zaisma webhook
 // whose endpoint_url is https://your-server/v1/webhooks reaches onWebhook, checked with its signing
 // secret in the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable.
-// The game's database (room.database) is a local SQLite file, --database, made on first use.
-// Its rooms' states are another, --room-state, so a restarted server brings its matches back (onRestored).
+// The game's database (room.database) is a local SQLite file, --database-file, made on first use.
+// Its rooms' states are another, --room-state-file, so a restarted server brings its matches back (onRestored).
 // Its secrets (room.secrets, server.secrets) are this process's environment variables, and it calls
 // other servers with plain fetch(), with no list: on your own server nothing stands in between.
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, DATABASE_LIMITS, NO_ANSWER_CLOSE_CODE, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerDatabase, answerRequest, checkBatch, checkPlayerId, eraseRefused, eraseStatements, tablesFromColumns, TABLE_COLUMNS_SQL, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, tooManyRows, verifyPass, verifyReceipt, verifyWebhook } from "../src/index.ts";
+import { realpathSync } from "node:fs";
+import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
 
 const HELLO_MS = 5000;
 /**
@@ -47,176 +50,24 @@ const BACKED_UP_SIZE_BYTES = ROOM_TUNING.backedUpSizeBytes;
 /** How often rooms with something waiting for a backed-up player check whether they caught up. */
 const CATCH_UP_MS = 50;
 
-/** Fetch the public keys a JWKS URL publishes (the pass key, or the receipt keys), caching them for an hour. */
-export function keysFrom(jwksUrl) {
-  let cache = null;
-  return async (refresh = false) => {
-    if (cache && !refresh && Date.now() - cache.fetchedAtMs < 3600_000) return cache.keys;
-    const response = await fetch(jwksUrl);
-    if (!response.ok) throw new Error(`Couldn't load Zaisma's keys from ${jwksUrl}`);
-    cache = { fetchedAtMs: Date.now(), keys: (await response.json()).keys };
-    return cache.keys;
-  };
-}
-
 /**
- * Look up accounts' public profiles at Zaisma (<issuer>/v1/players/<id>), caching each for 5 minutes.
- * An account's pass proves only who the player is; its name comes from here. Null when no account
- * has that ID (deleted since its pass was made).
+ * Start a server. Options (all closed: an unknown one is a GameServerError unknown_option, one of the
+ * wrong kind a bad_option, before anything listens): gameServer (a game server object) and gameSlug
+ * (its Zaisma slug) are required. port (8080), origins (allowed page origins, by default
+ * https://<gameSlug>.zaismausercontent.com; none allows any page), issuerUrl (who signs the passes; Zaisma's),
+ * loadPassKeys (async (isRefreshing) => the pass keys; by default from <issuerUrl>/.well-known/jwks.json),
+ * loadReceiptKeys (the same for room.verifyReceipt and server.verifyReceipt; by default from
+ * <issuerUrl>/.well-known/receipt-jwks.json), loadProfile (async (playerId) => an account's public profile or null),
+ * database (room.database and server.database; by default a local file, zaisma-database.sqlite, made the
+ * first time the game uses it), secrets (room.secrets and server.secrets; by default this process's
+ * environment variables), webhookSigningSecret (the whsec_ secret of the webhook whose events come to
+ * /v1/webhooks; by default the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable) and roomStateFile (where
+ * rooms save their states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none).
+ * Answers { close(), httpServer }: close() saves every room first and finishes once the server has stopped.
  */
-export function profilesFrom(issuer) {
-  const cache = new Map();
-  return async (playerId) => {
-    const cached = cache.get(playerId);
-    if (cached && Date.now() - cached.fetchedAtMs < 300_000) return cached.profile;
-    const response = await fetch(`${issuer}/v1/players/${encodeURIComponent(playerId)}`);
-    if (response.status !== 200 && response.status !== 404) throw new Error(`Couldn't look up player ${playerId} at ${issuer}`);
-    const profile = response.status === 200 ? (await response.json()).player : null;
-    if (cache.size > 10_000) cache.clear();
-    cache.set(playerId, { fetchedAtMs: Date.now(), profile });
-    return profile;
-  };
-}
-
-/**
- * The game's database (room.database) in a local SQLite file, opened on first use: the same calls
- * as in Zaisma rooms, checked the same way, each call in one transaction. Zaisma's free limits don't
- * apply here; the file is yours. Copy it to move the data, or open it with any SQLite tool.
- */
-export function localDatabase(file) {
-  let opened = null;
-  const open = async () => {
-    // Loaded only when a game uses its database, so games without one never see Node's SQLite warning.
-    opened ??= import("node:sqlite").then(({ DatabaseSync }) => new DatabaseSync(file));
-    return opened;
-  };
-  const run = (database, statements) => {
-    database.exec("BEGIN");
-    try {
-      const results = statements.map(({ sql, values }) => {
-        const rows = [];
-        for (const row of database.prepare(sql).iterate(...values)) {
-          if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
-          rows.push(plainRow(row));
-        }
-        return rows;
-      });
-      database.exec("COMMIT");
-      return results;
-    } catch (error) {
-      try {
-        database.exec("ROLLBACK");
-      } catch {
-        // SQLite already ended the transaction.
-      }
-      throw error;
-    }
-  };
-  return {
-    query: async (sql, values) => {
-      const database = await open();
-      return readDatabaseAnswer(answerDatabase(() => run(database, [checkStatement(sql, values)])[0]));
-    },
-    batch: async (statements) => {
-      const database = await open();
-      return readDatabaseAnswer(answerDatabase(() => run(database, checkBatch(statements))));
-    },
-    // The same rule as in Zaisma rooms (eraseStatements), in one transaction. A file that isn't there yet has nothing to erase.
-    erasePlayer: async (playerId) => {
-      const checkedPlayerId = readDatabaseAnswer(answerDatabase(() => checkPlayerId(playerId)));
-      if (!opened && !existsSync(file)) return [];
-      const database = await open();
-      return readDatabaseAnswer(
-        answerDatabase(() => {
-          const statements = eraseStatements(tablesFromColumns(database.prepare(TABLE_COLUMNS_SQL).all()), checkedPlayerId);
-          database.exec("BEGIN");
-          try {
-            const erasedTables = statements.map((statement) => {
-              try {
-                return { tableName: statement.tableName, erasedRowCount: Number(database.prepare(statement.sql).run(...statement.values).changes) };
-              } catch (error) {
-                throw eraseRefused(statement.tableName, error);
-              }
-            });
-            database.exec("COMMIT");
-            return erasedTables;
-          } catch (error) {
-            try {
-              database.exec("ROLLBACK");
-            } catch {
-              // SQLite already ended the transaction.
-            }
-            throw error;
-          }
-        }),
-      );
-    },
-  };
-}
-
-/**
- * The rooms' states in a local SQLite file (--room-state), made the first time a room saves: a
- * real-time room's every stateSaveIntervalSec and a turn-based room's after each change, so a
- * restarted server brings its matches back (onRestored). Apart from the game's database, which is the
- * game's own data: these are the runner's. One row a room, as JSON.
- */
-export function localRoomStates(file) {
-  let database = null;
-  const open = () => {
-    if (database) return database;
-    // Loaded only once a room saves, so a server that never does never sees Node's SQLite warning.
-    const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
-    database = new DatabaseSync(file);
-    database.exec("CREATE TABLE IF NOT EXISTS room_states (room_code TEXT PRIMARY KEY, state_json TEXT NOT NULL, match_players_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL)");
-    // is_saved_empty (saved as the room emptied, so a room waking from it lost nothing) came later: files made before get it now.
-    if (!database.prepare("SELECT 1 FROM pragma_table_info('room_states') WHERE name = 'is_saved_empty'").get()) database.exec("ALTER TABLE room_states ADD COLUMN is_saved_empty INTEGER NOT NULL DEFAULT 0");
-    return database;
-  };
-  const isThere = () => database !== null || (file !== ":memory:" && existsSync(file));
-  return {
-    /** A room's saved state, the players in its match and the room, when it was saved and whether it was empty then; null if it has none. */
-    read(roomCode) {
-      if (!isThere()) return null;
-      const row = open().prepare("SELECT state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty FROM room_states WHERE room_code = ?").get(roomCode);
-      if (!row) return null;
-      return { stateJson: row.state_json, matchPlayers: JSON.parse(row.match_players_json), savedRoom: JSON.parse(row.saved_room_json), savedAtMs: Number(row.saved_at_ms), isSavedEmpty: row.is_saved_empty === 1 };
-    },
-    write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs, isSavedEmpty = false }) {
-      open()
-        .prepare("INSERT INTO room_states (room_code, state_json, match_players_json, saved_room_json, saved_at_ms, is_saved_empty) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET state_json = excluded.state_json, match_players_json = excluded.match_players_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms, is_saved_empty = excluded.is_saved_empty")
-        .run(roomCode, stateJson, JSON.stringify(matchPlayers), JSON.stringify(savedRoom), savedAtMs, isSavedEmpty ? 1 : 0);
-    },
-    /** A room's state unchanged since its last save, which now counts as saved as it emptied, with the room as it is (kept or not). */
-    markEmpty(roomCode, savedRoom) {
-      if (isThere()) open().prepare("UPDATE room_states SET saved_room_json = ?, is_saved_empty = 1 WHERE room_code = ?").run(JSON.stringify(savedRoom), roomCode);
-    },
-    remove(roomCode) {
-      if (isThere()) open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
-    },
-    /** Delete the states saved before then, except those of rooms still running and kept rooms (room.setKept). */
-    removeOlder(beforeMs, runningRoomCodes) {
-      if (!isThere()) return;
-      const running = [...runningRoomCodes];
-      open()
-        .prepare(`DELETE FROM room_states WHERE saved_at_ms < ? AND COALESCE(json_extract(saved_room_json, '$.isKept'), 0) = 0${running.length ? ` AND room_code NOT IN (${running.map(() => "?").join(", ")})` : ""}`)
-        .run(beforeMs, ...running);
-    },
-  };
-}
-
-/**
- * Start a server. Options: server (a game server object), game (its Zaisma slug),
- * port, origins (allowed page origins), issuer, keys (async () => the pass keys), receiptKeys (async () => the
- * receipt keys, for room.verifyReceipt and server.verifyReceipt; by default from <issuer>/.well-known/receipt-jwks.json),
- * profiles (async (playerId) => an account's public profile or null), database (room.database
- * and server.database; by default a local file, zaisma-database.sqlite, made the first time the game uses it),
- * secrets (room.secrets and server.secrets; by default this process's environment variables),
- * webhookSigningSecret (the whsec_ secret of the webhook whose events come to /v1/webhooks; by default
- * the ZAISMA_WEBHOOK_SIGNING_SECRET environment variable), roomStateFile (where rooms save their
- * states, so a restart brings matches back; by default zaisma-room-states.sqlite, null to keep none).
- */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, receiptKeys = keysFrom(`${issuer}/.well-known/receipt-jwks.json`), profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite" }) {
-  const definition = defineGameServer(server);
+export function startServer(options) {
+  const { gameServer, gameSlug, port: portNumber, origins, issuerUrl, loadPassKeys = passKeysFrom(`${issuerUrl}/.well-known/jwks.json`), loadReceiptKeys = receiptKeysFrom(`${issuerUrl}/.well-known/receipt-jwks.json`), loadProfile = profilesFrom(issuerUrl), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment(), webhookSigningSecret = process.env.ZAISMA_WEBHOOK_SIGNING_SECRET, roomStateFile = "zaisma-room-states.sqlite" } = checkedStartServerOptions(options, PASS_ISSUER_URL);
+  const definition = defineGameServer(gameServer);
   const roomStates = roomStateFile === null ? null : localRoomStates(roomStateFile);
   const stateSaveIntervalMs = (definition.stateSaveIntervalSec ?? ROOM_LIMITS.defaultStateSaveIntervalSec) * 1000;
   // Schedules run while this server is up; one that's down when a run is due misses that run.
@@ -224,13 +75,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: MAXIMUM_SOCKET_MESSAGE_SIZE_BYTES });
-  httpServer.listen(port);
+  httpServer.listen(portNumber);
 
   /** room.verifyReceipt and server.verifyReceipt: a receipt for this game from Zaisma's receipt issuer, checked against its keys (fetched again once when its key is new). */
   async function receiptClaims(receipt) {
-    const expect = { gameSlug: game, issuerUrl: `${issuer}/receipts` };
-    return verifyReceipt(receipt, await receiptKeys(), expect).catch(async (error) => {
-      if (error instanceof ReceiptError && error.code === "unknown_key") return verifyReceipt(receipt, await receiptKeys(true), expect);
+    const expect = { gameSlug, issuerUrl: `${issuerUrl}/receipts` };
+    return verifyReceipt(receipt, await loadReceiptKeys(), expect).catch(async (error) => {
+      if (error instanceof ReceiptError && error.code === "unknown_key") return verifyReceipt(receipt, await loadReceiptKeys(true), expect);
       throw error;
     });
   }
@@ -241,13 +92,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
    * for an account deleted since; PassError for a bad pass.
    */
   async function playerFrom(pass) {
-    const claims = await verifyPass(pass, await keys(), { gameSlug: game, issuerUrl: issuer }).catch(async (error) => {
+    const claims = await verifyPass(pass, await loadPassKeys(), { gameSlug, issuerUrl }).catch(async (error) => {
       // A new key may have been published since we cached them.
-      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { gameSlug: game, issuerUrl: issuer });
+      if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await loadPassKeys(true), { gameSlug, issuerUrl });
       throw error;
     });
     // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
-    const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
+    const name = claims.kind === "account" ? (await loadProfile(claims.sub))?.name : claims.name;
     // What the account owns here rides in its pass, as on Zaisma rooms (player.ownedItemNames).
     const owned = claims.owned_item_names?.length ? { ownedItemNames: claims.owned_item_names } : {};
     // A kind added after v1 plays as a guest here, as in Zaisma rooms.
@@ -270,7 +121,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       response.writeHead(204, { ...headers, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" });
       return response.end();
     }
-    if (request.method !== "POST" || request.url !== `/v1/requests/${game}`) {
+    if (request.method !== "POST" || request.url !== `/v1/requests/${gameSlug}`) {
       response.writeHead(404, { "Content-Type": "text/plain" });
       return response.end("Not found");
     }
@@ -352,10 +203,10 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         if (isAnswered) return;
         if ("error" in checked) return reply(401, `${checked.error.message} ${checked.error.fix}`);
         const event = checked.event;
-        if (event.game && event.game.slug !== game) return reply(204, "");
+        if (event.game && event.game.slug !== gameSlug) return reply(204, "");
         const isAccountDeleted = event.kind === "account_deleted";
         const deletion = event.account_deletion;
-        if (isAccountDeleted && event.game?.slug === game && deletion?.deleted_account_erase_enabled === true) {
+        if (isAccountDeleted && event.game?.slug === gameSlug && deletion?.deleted_account_erase_enabled === true) {
           try {
             await database.erasePlayer(deletion.player_id);
           } catch (error) {
@@ -420,8 +271,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
             .catch((error) => console.error("Couldn't move players:", error));
         },
       },
-      // Its players aren't connected yet: they're away until they reconnect, as in Zaisma rooms.
-      saved ? { state: saved.state, room: saved.savedRoom, restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : { start },
+      // As in Zaisma's rooms: a room that ticks comes back with its state and onRestored, its match's players away until they
+      // reconnect; a turn-based room comes back with its state and its room settings alone.
+      saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : {}) } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends).
@@ -460,7 +312,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const stateKey = stateJson === undefined ? null : stateKeyOf(stateJson, matchPlayers, room.core.isKept);
     if (stateKey === null) return;
     if (stateKey === room.savedStateKey) {
-      if (isSavedEmpty) roomStates.markEmpty(code, room.core.saved);
+      if (isSavedEmpty) roomStates.markEmpty(code, room.core.saved, matchPlayers);
       return;
     }
     if (Buffer.byteLength(stateJson) > ROOM_LIMITS.maximumSavedStateSizeBytes) {
@@ -578,7 +430,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       ws.close(code === "busy" ? BUSY_CLOSE_CODE : REMOVED_CLOSE_CODE, code);
     };
     // Refused before the hello too, with a code the SDK reads: a browser never sees why a socket closed otherwise.
-    if (!address || address[1] !== game || !isRoomCode(address[2])) return refuse("game_unavailable");
+    if (!address || address[1] !== gameSlug || !isRoomCode(address[2])) return refuse("game_unavailable");
     if (origins.length && !origins.includes(request.headers.origin)) return refuse("bad_origin");
     if (typeof definition.setup !== "function") return refuse("game_unavailable", "This game server has no setup(), so it runs no rooms: it only answers requests, runs on schedules or takes webhooks.");
     const code = address[2];
@@ -690,20 +542,15 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       setTimeout(() => {
         for (const ws of wss.clients) ws.terminate();
       }, 2000).unref?.();
-      wss.close(() => httpServer.close(done));
+      wss.close(() => httpServer.close(() => done()));
       httpServer.closeAllConnections?.();
     });
-  return { wss, httpServer, rooms, close };
+  return { close, httpServer };
 }
 
 /** A saved state's key: its JSON, who was in the match and whether the room is kept, since any of them changing is worth a save. */
 function stateKeyOf(stateJson, matchPlayers, isKept) {
   return `${isKept ? "kept " : ""}${matchPlayers.map((player) => player.id).join(" ")}\n${stateJson}`;
-}
-
-/** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */
-export function secretsFromEnvironment() {
-  return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
 
 /** A binary frame from ws (a Buffer, an ArrayBuffer or a fragmented frame's pieces) as a Uint8Array of its own. */
@@ -713,25 +560,56 @@ function binaryBytes(received) {
   return new Uint8Array(received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength));
 }
 
-function flag(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : process.argv[i + 1];
+const USAGE = "Usage: zaisma-game-server <server.ts | relay> --game <slug> [--port 8080] [--origin <url>,<url>] [--issuer-url https://rooms.zaisma.com] [--database-file zaisma-database.sqlite] [--room-state-file zaisma-room-states.sqlite]";
+const FLAGS = ["game", "port", "origin", "issuer-url", "database-file", "room-state-file"];
+
+/** The command line's flags by name, or null for one this runner doesn't take (or one missing its value). */
+function flagsFrom(argumentList) {
+  const flags = {};
+  for (let i = 0; i < argumentList.length; i += 2) {
+    const name = /^--(.+)$/.exec(argumentList[i])?.[1];
+    if (!name || !FLAGS.includes(name) || argumentList[i + 1] === undefined || argumentList[i + 1].startsWith("--")) return null;
+    flags[name] = argumentList[i + 1];
+  }
+  return flags;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+// Run as a command. An npm bin is a symlink to this file, so both sides are resolved before they're compared.
+async function runCommand() {
   const file = process.argv[2];
-  const game = flag("game");
-  if (!file || !game) {
-    console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com] [--database zaisma-database.sqlite] [--room-state zaisma-room-states.sqlite] [--jwks https://rooms.zaisma.com/.well-known/jwks.json] [--receipt-jwks https://rooms.zaisma.com/.well-known/receipt-jwks.json]");
+  const flags = file ? flagsFrom(process.argv.slice(3)) : null;
+  if (!file || file.startsWith("--") || !flags?.game) {
+    console.log(USAGE);
     process.exit(1);
   }
-  const server = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
-  const portNumber = Number(flag("port", "8080"));
-  const origins = (flag("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
-  const running = startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")), receiptKeys: keysFrom(flag("receipt-jwks", "https://rooms.zaisma.com/.well-known/receipt-jwks.json")), database: localDatabase(resolve(flag("database", "zaisma-database.sqlite"))), roomStateFile: resolve(flag("room-state", "zaisma-room-states.sqlite")) });
+  const gameServer = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
+  const portNumber = Number(flags.port ?? "8080");
+  let running;
+  try {
+    running = startServer({
+      gameServer,
+      gameSlug: flags.game,
+      port: portNumber,
+      ...(flags.origin !== undefined ? { origins: flags.origin.split(",").filter(Boolean) } : {}),
+      ...(flags["issuer-url"] !== undefined ? { issuerUrl: flags["issuer-url"] } : {}),
+      ...(flags["database-file"] !== undefined ? { database: localDatabase(resolve(flags["database-file"])) } : {}),
+      roomStateFile: resolve(flags["room-state-file"] ?? "zaisma-room-states.sqlite"),
+    });
+  } catch (error) {
+    // A bad flag, or an option the runner refuses: said plainly, before anything listens.
+    console.error(error instanceof GameServerError ? error.message : error);
+    process.exit(1);
+  }
   // Stopped (a restart, Ctrl-C): every room saves first, so its match comes back where it was.
   for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => running.close().then(() => process.exit(0)));
-  const scheduleNames = (server.schedules ?? []).map((schedule) => `${schedule.name} (${schedule.cron})`);
-  const webhookNote = ` Webhooks come to POST /v1/webhooks${process.env.ZAISMA_WEBHOOK_SIGNING_SECRET ? "" : " once ZAISMA_WEBHOOK_SIGNING_SECRET is set"}${typeof server.onWebhook === "function" ? "" : " (account_deleted only: it erases the player from the database)"}.`;
-  console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>; requests come to POST /v1/requests/${game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}${webhookNote}`);
+  const scheduleNames = (gameServer.schedules ?? []).map((schedule) => `${schedule.name} (${schedule.cron})`);
+  const webhookNote = ` Webhooks come to POST /v1/webhooks${process.env.ZAISMA_WEBHOOK_SIGNING_SECRET ? "" : " once ZAISMA_WEBHOOK_SIGNING_SECRET is set"}${typeof gameServer.onWebhook === "function" ? "" : " (account_deleted only: it erases the player from the database)"}.`;
+  console.log(`Game server for "${flags.game}" on port ${portNumber}. Players connect to /v1/rooms/${flags.game}/<code>; requests come to POST /v1/requests/${flags.game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}${webhookNote}`);
 }
+
+// Started as the command, not imported: `node server` (no file extension) names a file realpathSync can't find, and that is an import, not the command.
+let isCommand = false;
+try {
+  isCommand = Boolean(process.argv[1]) && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+} catch {}
+if (isCommand) await runCommand();

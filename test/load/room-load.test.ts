@@ -36,7 +36,7 @@ export default {
   setup: () => ({ tickNumber: 0, positions: {} }),
   onJoin(state, player) { state.positions[player.id] = [0, 0]; },
   onLeave(state, player) { delete state.positions[player.id]; },
-  onMessage(state, player, message) {
+  onMessage(state, player, _room, message) {
     const position = state.positions[player.id];
     if (position && message && typeof message.x === "number") { position[0] = message.x; position[1] = message.y; }
   },

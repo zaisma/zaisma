@@ -1,0 +1,52 @@
+# The only way @zaisma/game-server reaches npm: from GitHub's main, through npm's trusted publishing with
+# provenance, never from a laptop (see "Security checks on every ship." in docs/DECISIONS.md).
+# npm run ship waits for the version this publishes. No token or secret is used anywhere: the only
+# credential is the OIDC token that `id-token: write` gives this job.
+name: Publish game server
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/game-server/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-game-server
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @zaisma/game-server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@11.6.2
+      - run: npm ci --no-audit --no-fund
+      - name: Is this version new?
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/game-server/package.json').version")
+          if npm view "@zaisma/game-server@$VERSION" version >/dev/null 2>&1; then
+            echo "is_new=false" >> "$GITHUB_OUTPUT"
+            echo "@zaisma/game-server $VERSION is already on npm: nothing to publish."
+          else
+            echo "is_new=true" >> "$GITHUB_OUTPUT"
+            echo "@zaisma/game-server $VERSION is new: publishing."
+          fi
+      - if: steps.version.outputs.is_new == 'true'
+        run: npm run build -w packages/game-server
+      - if: steps.version.outputs.is_new == 'true'
+        run: npx vitest run --project node test/node/game-server-package.test.ts
+      - if: steps.version.outputs.is_new == 'true'
+        working-directory: packages/game-server/dist
+        run: npm publish --provenance --access public

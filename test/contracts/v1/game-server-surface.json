@@ -1,0 +1,858 @@
+{
+  "Audience": {
+    "kind": "values",
+    "values": [
+      "everyone",
+      "players",
+      "spectators"
+    ]
+  },
+  "AwayInfo": {
+    "kind": "fields",
+    "fields": {
+      "reason": ": AwayReason"
+    }
+  },
+  "AwayMode": {
+    "kind": "values",
+    "values": [
+      "hold",
+      "lobby"
+    ]
+  },
+  "AwayReason": {
+    "kind": "values",
+    "values": [
+      "hidden",
+      "idle",
+      "lost"
+    ]
+  },
+  "BUSY_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 1013
+  },
+  "BroadcastOptions": {
+    "kind": "fields",
+    "fields": {
+      "exceptPlayerId": "?: string | undefined",
+      "audience": "?: Audience | undefined",
+      "delivery": "?: Delivery | undefined",
+      "latestKey": "?: string | undefined",
+      "fromPlayerId": "?: string | undefined"
+    }
+  },
+  "CHAT_CHECK_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumMessageCharacterCount": 2000,
+      "maximumReceiverCount": 50,
+      "recentTextCount": 5,
+      "recentTextDurationMs": 120000,
+      "maximumSenderCount": 10000,
+      "checkTimeoutMs": 5000
+    }
+  },
+  "ChatCheck": {
+    "kind": "fields",
+    "fields": {
+      "isAllowed": ": boolean",
+      "reason": ": ChatCheckReason | null",
+      "message": ": string | null",
+      "hasSwearing": ": boolean"
+    }
+  },
+  "ChatCheckError": {
+    "kind": "signature",
+    "signature": "(message: string, fix: string): ChatCheckError"
+  },
+  "ChatCheckOptions": {
+    "kind": "fields",
+    "fields": {
+      "text": ": string",
+      "senderPass": ": string",
+      "receiverPasses": ": Array<string>"
+    }
+  },
+  "ChatCheckReason": {
+    "kind": "values",
+    "values": [
+      "chat_paused",
+      "contact_details",
+      "not_allowed_to_chat",
+      "personal_details",
+      "sexual",
+      "slur",
+      "too_long",
+      "unchecked"
+    ]
+  },
+  "DATABASE_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumSqlCharacterCount": 100000,
+      "maximumValueCount": 100,
+      "maximumValueSizeBytes": 1048576,
+      "maximumStatementCount": 100,
+      "maximumRowCount": 10000
+    }
+  },
+  "DatabaseError": {
+    "kind": "signature",
+    "signature": "(code: DatabaseErrorCode, message: string, fix: string): DatabaseError"
+  },
+  "DatabaseErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_player_id",
+      "bad_sql",
+      "bad_values",
+      "database_full",
+      "database_unavailable",
+      "hosting_paused",
+      "too_many_rows"
+    ]
+  },
+  "DatabaseRow": {
+    "kind": "fields",
+    "fields": {}
+  },
+  "DatabaseStatement": {
+    "kind": "fields",
+    "fields": {
+      "sql": ": string",
+      "values": "?: Array<DatabaseValue> | undefined"
+    }
+  },
+  "DatabaseValue": {
+    "kind": "fields",
+    "fields": {}
+  },
+  "Delivery": {
+    "kind": "values",
+    "values": [
+      "latest_only",
+      "reliable"
+    ]
+  },
+  "ENDED_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4000
+  },
+  "GAME_SERVER_OPTIONS": {
+    "kind": "constant",
+    "value": [
+      "maximumPlayerCount",
+      "maximumSpectatorCount",
+      "ticksPerSec",
+      "hostControlsEnabled",
+      "idleCheck",
+      "idleTimeoutSec",
+      "awayMode",
+      "seatHoldDurationSec",
+      "stateSyncEnabled",
+      "reconnectTimeoutSec",
+      "stateSaveIntervalSec",
+      "setup",
+      "onJoin",
+      "canJoin",
+      "onMoved",
+      "onLeave",
+      "onSpectatorJoin",
+      "onSpectatorLeave",
+      "onAway",
+      "onBack",
+      "onMessage",
+      "onBytes",
+      "onTick",
+      "onEnding",
+      "onRestored",
+      "stateView",
+      "onVersionUpdate",
+      "onRequest",
+      "schedules",
+      "onSchedule",
+      "onWebhook"
+    ]
+  },
+  "GameDatabase": {
+    "kind": "fields",
+    "fields": {
+      "query": ": (sql: string, values?: Array<DatabaseValue> | undefined) => Promise<Array<DatabaseRow>>",
+      "batch": ": (statements: Array<DatabaseStatement>) => Promise<Array<Array<DatabaseRow>>>",
+      "erasePlayer": ": (playerId: string) => Promise<Array<ErasedTable>>"
+    }
+  },
+  "GameServer": {
+    "kind": "fields",
+    "fields": {
+      "maximumPlayerCount": "?: number | undefined",
+      "maximumSpectatorCount": "?: number | undefined",
+      "ticksPerSec": "?: number | undefined",
+      "hostControlsEnabled": "?: boolean | undefined",
+      "idleCheck": "?: IdleCheck | undefined",
+      "idleTimeoutSec": "?: number | undefined",
+      "awayMode": "?: AwayMode | undefined",
+      "seatHoldDurationSec": "?: number | undefined",
+      "reconnectTimeoutSec": "?: number | undefined",
+      "stateSyncEnabled": "?: boolean | undefined",
+      "stateSaveIntervalSec": "?: number | undefined",
+      "setup": "?: ((setupData: unknown) => S) | undefined",
+      "onRequest": "?: ((player: Player, request: unknown, server: Server) => unknown) | undefined",
+      "schedules": "?: Array<Schedule> | undefined",
+      "onSchedule": "?: ((run: ScheduledRun, server: Server) => unknown) | undefined",
+      "onWebhook": "?: ((event: WebhookEvent, server: Server) => unknown) | undefined",
+      "onJoin": "?: ((state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => HandlerResult<S>) | undefined",
+      "canJoin": "?: ((state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => JoinAnswer | Promise<JoinAnswer>) | undefined",
+      "onMoved": "?: ((state: S, moveResult: MoveResult, room: Room) => HandlerResult<S>) | undefined",
+      "onLeave": "?: ((state: S, player: Player, room: Room, leaveInfo: LeaveInfo) => HandlerResult<S>) | undefined",
+      "onSpectatorJoin": "?: ((state: S, spectator: Player, room: Room) => HandlerResult<S>) | undefined",
+      "onSpectatorLeave": "?: ((state: S, spectator: Player, room: Room) => HandlerResult<S>) | undefined",
+      "onAway": "?: ((state: S, player: Player, room: Room, awayInfo: AwayInfo) => HandlerResult<S>) | undefined",
+      "onBack": "?: ((state: S, player: Player, room: Room) => HandlerResult<S>) | undefined",
+      "onMessage": "?: ((state: S, player: Player, room: Room, message: unknown) => HandlerResult<S>) | undefined",
+      "onBytes": "?: ((state: S, player: Player, room: Room, bytes: Uint8Array<ArrayBufferLike>) => HandlerResult<S>) | undefined",
+      "onTick": "?: ((state: S, tickDurationSec: number, room: Room) => HandlerResult<S>) | undefined",
+      "onEnding": "?: ((state: S, room: Room) => HandlerResult<S>) | undefined",
+      "onRestored": "?: ((state: S, restoreInfo: RestoreInfo, room: Room) => HandlerResult<S>) | undefined",
+      "stateView": "?: ((state: S, viewer: Player, room: Room) => unknown) | undefined",
+      "onVersionUpdate": "?: ((state: S, versionUpdate: VersionUpdate, room: Room) => HandlerResult<S>) | undefined"
+    }
+  },
+  "GameServerError": {
+    "kind": "signature",
+    "signature": "(code: GameServerErrorCode, field: string, message: string, fix: string): GameServerError"
+  },
+  "GameServerErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_handler_answer",
+      "bad_option",
+      "bad_room_call",
+      "room_call_limit",
+      "room_call_unavailable",
+      "unknown_option"
+    ]
+  },
+  "HandlerResult": {
+    "kind": "fields",
+    "fields": {}
+  },
+  "IdleCheck": {
+    "kind": "values",
+    "values": [
+      "client",
+      "off",
+      "server"
+    ]
+  },
+  "JoinAnswer": {
+    "kind": "fields",
+    "fields": {
+      "valueOf": ": (() => boolean) | (() => Object)"
+    }
+  },
+  "JoinInfo": {
+    "kind": "fields",
+    "fields": {
+      "fromRoomCode": ": string | null",
+      "isReturning": ": boolean",
+      "isSpectator": ": boolean"
+    }
+  },
+  "KickOptions": {
+    "kind": "fields",
+    "fields": {
+      "message": "?: string | undefined",
+      "keepOut": "?: boolean | undefined"
+    }
+  },
+  "LeaveInfo": {
+    "kind": "fields",
+    "fields": {
+      "reason": ": LeaveReason"
+    }
+  },
+  "LeaveReason": {
+    "kind": "values",
+    "values": [
+      "hidden",
+      "idle",
+      "kicked",
+      "left",
+      "lost"
+    ]
+  },
+  "MoveOptions": {
+    "kind": "fields",
+    "fields": {
+      "playerIds": ": Array<string>",
+      "joinData": "?: unknown"
+    }
+  },
+  "MoveResult": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "movedPlayers": ": Array<Player>",
+      "refusals": ": Array<Refusal>"
+    }
+  },
+  "NO_ANSWER_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4003
+  },
+  "OUTSIDE_CALL_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumBodySizeBytes": 5242880,
+      "timeoutSec": 10,
+      "maximumCallsPerMin": 600
+    }
+  },
+  "OutsideCallError": {
+    "kind": "signature",
+    "signature": "(code: OutsideCallErrorCode, message: string, fix: string): OutsideCallError"
+  },
+  "OutsideCallErrorCode": {
+    "kind": "values",
+    "values": [
+      "host_not_allowed",
+      "not_https",
+      "outside_call_failed",
+      "outside_call_limit",
+      "outside_call_timeout",
+      "too_big",
+      "unreachable_host"
+    ]
+  },
+  "PASS_ISSUER_URL": {
+    "kind": "constant",
+    "value": "https://rooms.zaisma.com"
+  },
+  "PASS_TOKEN_TYPE": {
+    "kind": "constant",
+    "value": "pass+jwt"
+  },
+  "PASS_VERSION_NUMBER": {
+    "kind": "constant",
+    "value": 1
+  },
+  "PassClaims": {
+    "kind": "fields",
+    "fields": {
+      "sub": ": string",
+      "name": "?: string | undefined",
+      "aud": ": string",
+      "iss": ": string",
+      "pass_version_number": ": number",
+      "kind": ": PlayerKind | (string & {})",
+      "who_can_chat": "?: (string & {}) | WhoCanChat | undefined",
+      "chat_group_id": "?: string | undefined",
+      "player_tag_id": "?: string | undefined",
+      "friend_player_tag_ids": "?: Array<string> | undefined",
+      "block_player_tag_ids": "?: Array<string> | undefined",
+      "owned_item_names": ": Array<string>",
+      "iat": ": number",
+      "exp": ": number"
+    }
+  },
+  "PassError": {
+    "kind": "signature",
+    "signature": "(code: PassErrorCode): PassError"
+  },
+  "PassErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_signature",
+      "expired",
+      "malformed",
+      "unknown_key",
+      "wrong_game",
+      "wrong_issuer",
+      "wrong_kind",
+      "wrong_version"
+    ]
+  },
+  "PassExpectations": {
+    "kind": "fields",
+    "fields": {
+      "gameSlug": ": string",
+      "issuerUrl": "?: string | undefined",
+      "nowMs": "?: number | undefined"
+    }
+  },
+  "Player": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "name": ": string",
+      "kind": ": PlayerKind",
+      "ownedItemNames": "?: Array<string> | undefined"
+    }
+  },
+  "PlayerKind": {
+    "kind": "values",
+    "values": [
+      "account",
+      "guest"
+    ]
+  },
+  "PublicKey": {
+    "kind": "fields",
+    "fields": {
+      "alg": "?: string | undefined",
+      "crv": "?: string | undefined",
+      "d": "?: string | undefined",
+      "dp": "?: string | undefined",
+      "dq": "?: string | undefined",
+      "e": "?: string | undefined",
+      "ext": "?: boolean | undefined",
+      "k": "?: string | undefined",
+      "key_ops": "?: Array<string> | undefined",
+      "kty": "?: string | undefined",
+      "n": "?: string | undefined",
+      "oth": "?: Array<RsaOtherPrimesInfo> | undefined",
+      "p": "?: string | undefined",
+      "q": "?: string | undefined",
+      "qi": "?: string | undefined",
+      "use": "?: string | undefined",
+      "x": "?: string | undefined",
+      "y": "?: string | undefined",
+      "kid": ": string"
+    }
+  },
+  "RECEIPT_ISSUER_URL": {
+    "kind": "constant",
+    "value": "https://rooms.zaisma.com/receipts"
+  },
+  "RECEIPT_TOKEN_TYPE": {
+    "kind": "constant",
+    "value": "receipt+jwt"
+  },
+  "RECEIPT_VERSION_NUMBER": {
+    "kind": "constant",
+    "value": 1
+  },
+  "REMOVED_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4001
+  },
+  "REQUEST_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumRequestSizeBytes": 16384,
+      "maximumPassSizeBytes": 98304,
+      "maximumAnswerSizeBytes": 1048576,
+      "answerTimeoutSec": 10
+    }
+  },
+  "ROOM_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumPlayerCount": 100,
+      "defaultMaximumPlayerCount": 8,
+      "maximumSpectatorCount": 100,
+      "maximumTicksPerSec": 60,
+      "maximumNameCharacterCount": 40,
+      "maximumLabelCount": 4,
+      "maximumLabelNameCharacterCount": 16,
+      "maximumLabelValueCharacterCount": 24,
+      "maximumJoinDataSizeBytes": 4096,
+      "maximumSetupDataSizeBytes": 4096,
+      "maximumReservesPerMin": 20,
+      "maximumKickMessageCharacterCount": 200,
+      "maximumRefusalMessageCharacterCount": 200,
+      "maximumGameMessageSizeBytes": 16384,
+      "maximumGameMessagesPerSec": 30,
+      "maximumGameMessageBurstCount": 60,
+      "defaultIdleTimeoutSec": 600,
+      "minimumIdleTimeoutSec": 30,
+      "maximumIdleTimeoutSec": 86400,
+      "hiddenTimeoutSec": 120,
+      "defaultSeatHoldDurationSec": 300,
+      "maximumSeatHoldDurationSec": 1800,
+      "defaultReconnectTimeoutSec": 30,
+      "maximumReconnectTimeoutSec": 300,
+      "defaultStateSaveIntervalSec": 5,
+      "minimumStateSaveIntervalSec": 1,
+      "maximumStateSaveIntervalSec": 60,
+      "defaultVersionUpdateDelaySec": 10,
+      "maximumVersionUpdateDelaySec": 300,
+      "maximumSavedStateSizeBytes": 33554432,
+      "maximumStateViewSizeBytes": 1048576,
+      "maximumLatestKeyCharacterCount": 40,
+      "maximumLatestOnlySlotCount": 64
+    }
+  },
+  "ReceiptClaims": {
+    "kind": "fields",
+    "fields": {
+      "sub": ": string",
+      "aud": ": string",
+      "iss": ": string",
+      "jti": ": string",
+      "receipt_version_number": ": number",
+      "purchase_id": ": string",
+      "purchased_at": ": string",
+      "purchase_status": ": (string & {}) | \"completed\" | \"refunded\" | \"charged_back\"",
+      "item_name": ": string",
+      "item_kind": ": (string & {}) | \"permanent\" | \"consumable\"",
+      "item_count": ": number",
+      "purchase_source": ": (string & {}) | \"sale\" | \"grant\"",
+      "paid_minor_units": ": number | null",
+      "currency_code": ": string | null",
+      "game_account_id": ": string | null",
+      "iat": ": number",
+      "exp": "?: number | undefined"
+    }
+  },
+  "ReceiptError": {
+    "kind": "signature",
+    "signature": "(code: ReceiptErrorCode): ReceiptError"
+  },
+  "ReceiptErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_signature",
+      "expired",
+      "malformed",
+      "unknown_key",
+      "wrong_game",
+      "wrong_issuer",
+      "wrong_kind",
+      "wrong_version"
+    ]
+  },
+  "ReceiptExpectations": {
+    "kind": "fields",
+    "fields": {
+      "gameSlug": ": string",
+      "issuerUrl": "?: string | undefined",
+      "nowMs": "?: number | undefined"
+    }
+  },
+  "Refusal": {
+    "kind": "fields",
+    "fields": {
+      "player": ": Player",
+      "code": ": RoomErrorCode",
+      "message": ": string"
+    }
+  },
+  "RequestErrorCode": {
+    "kind": "values",
+    "values": [
+      "account_needed",
+      "bad_origin",
+      "bad_pass",
+      "bad_request",
+      "busy",
+      "game_not_open_to_player",
+      "game_server_error",
+      "game_unavailable",
+      "hosting_paused",
+      "no_request_handler",
+      "slow_down",
+      "too_big"
+    ]
+  },
+  "ReserveOptions": {
+    "kind": "fields",
+    "fields": {
+      "playerIds": ": Array<string>",
+      "setupData": "?: unknown",
+      "isListed": "?: boolean | undefined",
+      "friendJoinsEnabled": "?: boolean | undefined",
+      "isKept": "?: boolean | undefined",
+      "name": "?: string | null | undefined",
+      "labels": "?: Record<string, string | number> | null | undefined"
+    }
+  },
+  "RestoreInfo": {
+    "kind": "fields",
+    "fields": {
+      "savedAt": ": string",
+      "lostDurationSec": ": number",
+      "savedVersionId": ": string | null"
+    }
+  },
+  "Room": {
+    "kind": "fields",
+    "fields": {
+      "roomCode": ": string",
+      "players": ": ReadonlyArray<Player>",
+      "spectators": ": ReadonlyArray<Player>",
+      "broadcast": ": (message: unknown, broadcastOptions?: BroadcastOptions | undefined) => void",
+      "send": ": (playerId: string, message: unknown, sendOptions?: SendOptions | undefined) => void",
+      "broadcastBytes": ": (bytes: Uint8Array<ArrayBufferLike>, broadcastOptions?: BroadcastOptions | undefined) => void",
+      "sendBytes": ": (playerId: string, bytes: Uint8Array<ArrayBufferLike>, sendOptions?: SendOptions | undefined) => void",
+      "end": ": (message?: string | undefined) => void",
+      "endsAt": ": string | null",
+      "isListed": ": boolean",
+      "setListed": ": (isListed: boolean) => void",
+      "isOpen": ": boolean",
+      "setOpen": ": (isOpen: boolean) => void",
+      "friendJoinsEnabled": ": boolean",
+      "setFriendJoinsEnabled": ": (isEnabled: boolean) => void",
+      "isKept": ": boolean",
+      "setKept": ": (isKept: boolean) => void",
+      "name": ": string | null",
+      "labels": ": Readonly<Record<string, string>>",
+      "setInfo": ": (nameAndLabels: RoomInfo) => void",
+      "reserve": ": (reserveOptions: ReserveOptions) => string",
+      "kick": ": (playerId: string, kickOptions?: KickOptions | undefined) => void",
+      "moveTo": ": (roomCode: string, moveOptions: MoveOptions) => void",
+      "database": ": GameDatabase",
+      "secrets": ": Readonly<Record<string, string>>",
+      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>",
+      "hasBlockBetween": ": (firstPlayerId: string, secondPlayerId: string) => boolean",
+      "areFriends": ": (firstPlayerId: string, secondPlayerId: string) => boolean",
+      "pingDurationMs": ": (playerId: string) => number | null",
+      "serverTimeMs": ": () => number",
+      "awayReason": ": (playerId: string) => AwayReason | null",
+      "applyVersionUpdate": ": () => void"
+    }
+  },
+  "RoomErrorCode": {
+    "kind": "values",
+    "values": [
+      "account_needed",
+      "already_playing",
+      "bad_message",
+      "bad_origin",
+      "bad_pass",
+      "blocked_player_here",
+      "busy",
+      "ended",
+      "game_not_open_to_player",
+      "game_unavailable",
+      "hosting_paused",
+      "kept_out",
+      "no_hello",
+      "not_allowed",
+      "other_version",
+      "refused",
+      "room_closed",
+      "room_full",
+      "room_not_running",
+      "send_queue_full",
+      "spectator_cannot_send",
+      "spectators_full",
+      "too_big",
+      "too_fast"
+    ]
+  },
+  "RoomInfo": {
+    "kind": "fields",
+    "fields": {
+      "name": "?: string | null | undefined",
+      "labels": "?: Record<string, string | number> | null | undefined"
+    }
+  },
+  "SCHEDULE_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "maximumScheduleCount": 10,
+      "maximumNameCharacterCount": 40,
+      "runTimeoutSec": 30
+    }
+  },
+  "SEAT_GONE_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4002
+  },
+  "Schedule": {
+    "kind": "fields",
+    "fields": {
+      "name": ": string",
+      "cron": ": string"
+    }
+  },
+  "ScheduledRun": {
+    "kind": "fields",
+    "fields": {
+      "name": ": string",
+      "cron": ": string",
+      "scheduledAt": ": string"
+    }
+  },
+  "SendOptions": {
+    "kind": "fields",
+    "fields": {
+      "delivery": "?: Delivery | undefined",
+      "latestKey": "?: string | undefined",
+      "fromPlayerId": "?: string | undefined"
+    }
+  },
+  "Server": {
+    "kind": "fields",
+    "fields": {
+      "database": ": GameDatabase",
+      "secrets": ": Readonly<Record<string, string>>",
+      "verifyReceipt": ": (receipt: string) => Promise<ReceiptClaims>"
+    }
+  },
+  "VERSION_UPDATE_CLOSE_CODE": {
+    "kind": "constant",
+    "value": 4004
+  },
+  "VersionUpdate": {
+    "kind": "fields",
+    "fields": {
+      "versionId": ": string",
+      "appliesAt": ": string",
+      "isReloading": ": boolean"
+    }
+  },
+  "WEBHOOK_LIMITS": {
+    "kind": "constant",
+    "value": {
+      "answerTimeoutSec": 10,
+      "maximumEventSizeBytes": 16777216,
+      "timestampToleranceDurationSec": 300
+    }
+  },
+  "WebhookError": {
+    "kind": "fields",
+    "fields": {
+      "code": ": WebhookErrorCode",
+      "message": ": string",
+      "fix": ": string"
+    }
+  },
+  "WebhookErrorCode": {
+    "kind": "values",
+    "values": [
+      "bad_signature",
+      "bad_signing_secret",
+      "game_server_error",
+      "missing_headers",
+      "no_webhook_handler",
+      "not_an_event",
+      "old_timestamp",
+      "too_large"
+    ]
+  },
+  "WebhookEvent": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string",
+      "kind": ": (string & {}) | WebhookEventKind",
+      "created_at": ": string",
+      "game": ": Record<string, unknown> | null",
+      "version": ": Record<string, unknown> | null",
+      "bug_report": ": Record<string, unknown> | null",
+      "player_report": ": Record<string, unknown> | null",
+      "game_server_error": ": Record<string, unknown> | null",
+      "alert": ": Record<string, unknown> | null",
+      "account_deletion": ": AccountDeletion | null",
+      "sign_in_app": ": Record<string, unknown> | null",
+      "security_event": ": Record<string, unknown> | null"
+    }
+  },
+  "WebhookEventKind": {
+    "kind": "values",
+    "values": [
+      "account_deleted",
+      "alert_raised",
+      "bug_reported",
+      "country_blocks_changed",
+      "game_server_error_found",
+      "live_version_changed",
+      "player_reported",
+      "review_status_changed",
+      "scan_status_changed",
+      "security_alert",
+      "test"
+    ]
+  },
+  "WebhookHeaders": {
+    "kind": "fields",
+    "fields": {
+      "webhookId": ": string | null",
+      "webhookTimestamp": ": string | null",
+      "webhookSignature": ": string | null"
+    }
+  },
+  "WhoCanChat": {
+    "kind": "values",
+    "values": [
+      "anyone",
+      "friends",
+      "nobody"
+    ]
+  },
+  "canChat": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  },
+  "checkChat": {
+    "kind": "signature",
+    "signature": "({ text, senderPass, receiverPasses }: ChatCheckOptions): Promise<ChatCheck>"
+  },
+  "defineGameServer": {
+    "kind": "signature",
+    "signature": "<S>(server: GameServer<S>): GameServer<S>"
+  },
+  "guestName": {
+    "kind": "signature",
+    "signature": "(): string"
+  },
+  "isRoomCode": {
+    "kind": "signature",
+    "signature": "(code: string): boolean"
+  },
+  "passesAreFriends": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  },
+  "passesHaveBlockBetween": {
+    "kind": "signature",
+    "signature": "(first: PassClaims, second: PassClaims): boolean"
+  },
+  "relay": {
+    "kind": "constant",
+    "value": "GameServer<{}>"
+  },
+  "verifyPass": {
+    "kind": "signature",
+    "signature": "(token: string, keys: Array<PublicKey>, expect: PassExpectations): Promise<PassClaims>"
+  },
+  "verifyReceipt": {
+    "kind": "signature",
+    "signature": "(token: string, keys: Array<PublicKey>, expect: ReceiptExpectations): Promise<ReceiptClaims>"
+  },
+  "verifyWebhook": {
+    "kind": "signature",
+    "signature": "(signingSecret: string, headers: WebhookHeaders, body: string, nowMs?: number): Promise<{ event: WebhookEvent; } | { error: WebhookError; }>"
+  },
+  "RunningServer": {
+    "kind": "fields",
+    "fields": {
+      "close": ": () => Promise<void>",
+      "httpServer": ": Server"
+    }
+  },
+  "StartServerOptions": {
+    "kind": "fields",
+    "fields": {
+      "gameServer": ": GameServer<any>",
+      "gameSlug": ": string",
+      "port": "?: number | undefined",
+      "origins": "?: Array<string> | undefined",
+      "issuerUrl": "?: string | undefined",
+      "loadPassKeys": "?: ((isRefreshing?: boolean | undefined) => Promise<Array<PublicKey>>) | undefined",
+      "loadReceiptKeys": "?: ((isRefreshing?: boolean | undefined) => Promise<Array<PublicKey>>) | undefined",
+      "loadProfile": "?: ((playerId: string) => Promise<{ name: string; } | null>) | undefined",
+      "database": "?: GameDatabase | undefined",
+      "secrets": "?: Readonly<Record<string, string>> | undefined",
+      "webhookSigningSecret": "?: string | undefined",
+      "roomStateFile": "?: string | null | undefined"
+    }
+  },
+  "startServer": {
+    "kind": "signature",
+    "signature": "(options: StartServerOptions): RunningServer"
+  }
+}

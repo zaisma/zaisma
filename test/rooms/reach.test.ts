@@ -109,7 +109,7 @@ describe("game server reach and secrets", () => {
       "secret-room",
       `export default {
         setup: () => ({}),
-        onMessage(state, player, message, room) { room.send(player.id, { token: room.secrets.API_TOKEN ?? null, names: Object.keys(room.secrets) }); },
+        onMessage(state, player, room, message) { room.send(player.id, { token: room.secrets.API_TOKEN ?? null, names: Object.keys(room.secrets) }); },
       };`,
       [],
       "own",

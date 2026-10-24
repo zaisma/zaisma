@@ -4,7 +4,7 @@
  * or a GitHub issue made with the developer's own tokens from server.secrets (docs/DECISIONS.md,
  * "Webhooks to the game server"). Zaisma runs it in the game's own object (apps/rooms/src/game-server.ts)
  * for a webhook whose destination_kind is game_server. On the developer's own server the Node runner
- * (bin/node.js) takes the same event as a signed POST at /v1/webhooks, checks it here with the
+ * (@zaisma/game-server/node) takes the same event as a signed POST at /v1/webhooks, checks it here with the
  * webhook's whsec_ signing secret (Standard Webhooks, standardwebhooks.com) and runs the same
  * onWebhook, so the code moves unchanged.
  */
