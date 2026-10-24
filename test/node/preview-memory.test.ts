@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitingInOrder } from "../../scripts/preview/memory.mjs";
+import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
 
 /**
  * The memory cap on every preview and test run on a machine and its line (scripts/preview/memory.mjs): where the cap comes from,
@@ -109,6 +109,39 @@ describe("a test run's turn", () => {
   });
   it("gets every file it asked for with no cap", () => {
     expect(turnFor([testEntry(21, 4)], [awake(0, 9 * GB)], 0)).toMatchObject({ turnPid: 21, turnWorkerCount: 4 });
+  });
+  it("counts a waiting run as nothing, however many wait with their processes alive", () => {
+    // 14 waiting runs of ~115 MB each beside a 1.7 GB preview: 3.3 GB measured, yet a node run (0.8 GB) fits in 3 GB.
+    const waiting = Array.from({ length: 14 }, (_, i) => testEntry(100 + i, 2, { isNodeOnly: true, askedAtMs: 10 + i }));
+    const measured = waiting.map((each) => ({ pid: each.pid, sizeBytes: 115 * MB }));
+    const turn = nextTurn({ entries: waiting, previews: [awake(0, 1700 * MB)], testRuns: measured, capBytes: 3 * GB, awakeSizeBytes: GB, nowMs: 1000 });
+    expect(turn).toMatchObject({ turnPid: 100, usedBytes: 1700 * MB });
+  });
+  it("passes over a Workers run that can never fit beside the awake previews, and keeps order for the rest", () => {
+    const workers = testEntry(21, 4, { askedAtMs: 1 });
+    const nodeRun = testEntry(22, 2, { askedAtMs: 2, isNodeOnly: true });
+    const turn = turnFor([workers, nodeRun], [awake(0, 1700 * MB)], 3 * GB, [{ pid: 21, sizeBytes: 100 * MB }, { pid: 22, sizeBytes: 100 * MB }]);
+    expect(turn).toMatchObject({ turnPid: 22, turnWorkerCount: 2 });
+    // One that only has to wait for a run to end holds its place: the node run behind it doesn't jump the line.
+    const running = testEntry(30, 2, { turnGivenAtMs: 0, workerCount: 2 });
+    const held = nextTurn({ entries: [running, testEntry(31, 1, { askedAtMs: 1 }), testEntry(32, 1, { askedAtMs: 2, isNodeOnly: true })], previews: [], testRuns: [{ pid: 30, sizeBytes: testRunSizeBytes(2) }], capBytes: 3 * GB, awakeSizeBytes: GB, nowMs: 1000 });
+    expect(held.turnPid).toBeNull();
+  });
+  it.skipIf(process.platform !== "darwin")("answers a Workers run at once while a preview is awake, and leaves the line", async () => {
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(directory, { recursive: true });
+    const savedCap = process.env.PREVIEW_MEMORY_CAP_BYTES;
+    process.env.PREVIEW_MEMORY_CAP_BYTES = String(3 * GB);
+    const measurement = { measured_at_ms: Date.now(), cap_bytes: 3 * GB, used_bytes: 1700 * MB, kept_bytes: 0, needed_bytes: 0, is_alone: false, previews: [{ offset: 0, size_bytes: 1700 * MB, is_awake: true }], test_runs: [] };
+    writeFileSync(join(directory, "line.json"), JSON.stringify({ entries: [], measurement, awake_size_bytes: null }));
+    const say = () => {};
+    try {
+      await expect(waitForTurn({ kind: "test", folder: "/checkout", requestedWorkerCount: 2, isNodeOnly: false, say, directory })).rejects.toThrow(/workers_tests_while_preview_awake.*Workers tests go to GitHub/);
+    } finally {
+      if (savedCap === undefined) delete process.env.PREVIEW_MEMORY_CAP_BYTES;
+      else process.env.PREVIEW_MEMORY_CAP_BYTES = savedCap;
+    }
+    expect(JSON.parse(readFileSync(join(directory, "line.json"), "utf8")).entries).toEqual([]);
   });
 });
 
