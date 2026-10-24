@@ -433,9 +433,13 @@ describe("the SDK's types say what the SDK does", () => {
     const unsold = sdk.Zaisma.items.buy("free_hat");
     sdk.page.say({ type: "zaisma:buy", requestNumber: 4, status: "error", code: "not_for_sale", message: "Free Hat can't be bought: it has no price." });
     expect(await failureCode(() => unsold)).toBe("not_for_sale");
+    // The server's fix rides in the message, as the SDK's errors all say what to fix.
+    const unpaid = sdk.Zaisma.items.buy("revive");
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 5, status: "error", code: "stripe_cannot_take_payments", message: "Stripe hasn't turned on payments yet.", fix: "Finish setting up on Stripe's dashboard." });
+    await expect(unpaid).rejects.toMatchObject({ code: "stripe_cannot_take_payments", message: "Stripe hasn't turned on payments yet. Finish setting up on Stripe's dashboard." });
     expect(valuesOf("ErrorCode")).toEqual(expect.arrayContaining(["not_for_sale", "no_game", "bad_item_name"]));
     const odd = sdk.Zaisma.items.buy("revive");
-    sdk.page.say({ type: "zaisma:buy", requestNumber: 5, status: "error", code: "not_a_code", message: "Something." });
+    sdk.page.say({ type: "zaisma:buy", requestNumber: 6, status: "error", code: "not_a_code", message: "Something." });
     expect(await failureCode(() => odd)).toBe("request_failed");
   });
 

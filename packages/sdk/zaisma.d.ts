@@ -369,7 +369,8 @@ declare namespace Zaisma {
      * (declined, or still settling when the sheet closed: a "purchase" event follows if it completes later).
      * Fails with error.code needs_player_tap, bad_item_name, no_item, no_game, not_for_sale,
      * stripe_not_connected, stripe_cannot_take_payments, bad_item_count, bad_game_account_id, unknown_option,
-     * not_on_zaisma and request_failed: your mistakes, never the player's.
+     * not_on_zaisma and request_failed: your mistakes, never the player's; for the ones Zaisma finds,
+     * error.message ends with the fix (finish setting up Stripe, connect_stripe_account, set_item).
      *
      * @example
      * buyButton.onclick = async () => {

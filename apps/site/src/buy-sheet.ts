@@ -241,9 +241,15 @@ function refused(error) {
   moment = "refused";
   if (error.code === "account_needed") return guest();
   if (DEVELOPER_MISTAKES.includes(error.code)) {
-    ended.error = { code: error.code, message: error.message };
+    ended.error = { code: error.code, message: error.message, fix: error.fix || null };
     title.textContent = "This item can't be bought right now.";
     setText("buy-message", "Nothing was charged.");
+    showCells(["buy-message"]);
+    return showButtons(["back"]);
+  }
+  if (error.code === "game_unavailable") {
+    title.textContent = "This game isn't available in your country";
+    setText("buy-message", error.message + " Nothing was charged.");
     showCells(["buy-message"]);
     return showButtons(["back"]);
   }

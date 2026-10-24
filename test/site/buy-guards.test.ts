@@ -445,3 +445,77 @@ describe("refunding after Stripe was disconnected (review 26) and a partial refu
     expect(rest.answer.purchase).toMatchObject({ purchase_status: "refunded", refunded_minor_units: 999, refunded_at: expect.any(String) });
   });
 });
+
+describe("a game blocked in the player's country (review 31)", () => {
+  const blockDe = () => env.DB.prepare("UPDATE games SET country_blocks = ? WHERE slug = 'tiny-farm'").bind(JSON.stringify([{ country_code: "DE", review_reason: { code: "country_law_notice", content_rule: null, message: "A notice.", fix: "None." }, blocked_at_ms: Date.now() }])).run();
+
+  it("refuses the sheet with a 451 and records nothing, and refuses the buy window the same way", async () => {
+    await setItem("revive", revive);
+    await blockDe();
+    const turned = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
+    expect(turned).toMatchObject({ status: 451, answer: { error: { code: "game_unavailable" } } });
+    expect(turned.answer.error.message).toContain("Germany");
+    expect(await env.DB.prepare("SELECT 1 FROM purchases").first()).toBeNull();
+    const window = await SELF.fetch(`${SITE}/buy/tiny-farm/revive`, { headers: { cookie: `${await sessionCookie("player-1")}; __Host-zaisma_in=1`, "cf-ipcountry": "DE" } });
+    expect(window.status).toBe(451);
+    expect(await window.text()).toContain("isn&#39;t available in your country");
+  });
+
+  it("refuses to pay a sale left pending before the block, by saved card and by wallet, and calls nothing at Stripe", async () => {
+    await setItem("revive", revive);
+    await saveCard();
+    await confirmed();
+    const purchaseId = await started();
+    await blockDe();
+    stripeCalls = [];
+    expect(await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" })).toMatchObject({ status: 451, answer: { error: { code: "game_unavailable" } } });
+    expect(await player(`/api/buy/purchases/${purchaseId}/wallet-intent`, { method: "POST" })).toMatchObject({ status: 451, answer: { error: { code: "game_unavailable" } } });
+    expect(stripeCalls).toEqual([]);
+    expect(await statusOf(purchaseId)).toBe("pending");
+  });
+});
+
+describe("the rate limit on paying and forgetting the card (review 32)", () => {
+  async function limited(path: string, method: string) {
+    const keys: string[] = [];
+    const used = { ...env, PURCHASE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
+    const request = new Request(`${SITE}${path}`, { method, headers: { cookie: await sessionCookie("player-1"), origin: SITE, "content-type": "application/json" }, body: method === "DELETE" ? undefined : "{}" });
+    const response = (await handleBuy(request as never, used as never, path))!;
+    return { status: response.status, answer: (await response.json()) as any, keys };
+  }
+
+  it("answers slow_down for pay-with-saved-card (key pay:) and forgetting the card (key card:), calling nothing at Stripe", async () => {
+    await setItem("revive", revive);
+    await saveCard();
+    const purchaseId = await started();
+    stripeCalls = [];
+    const paid = await limited(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, "POST");
+    expect(paid).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["pay:player-1"] });
+    const forgotten = await limited("/api/payment-methods/saved", "DELETE");
+    expect(forgotten).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["card:player-1"] });
+    expect(stripeCalls).toEqual([]);
+    expect(await env.DB.prepare("SELECT 1 FROM saved_payment_methods").first()).not.toBeNull();
+  });
+});
+
+describe("set_item's next steps when Stripe can't take payments yet (review 33)", () => {
+  it("points at get_stripe_account to finish setting up on Stripe, and at nothing once payments are on", async () => {
+    await env.DB.prepare("UPDATE owners SET can_take_stripe_payments = 0 WHERE id = ?").bind(ownerId).run();
+    const waiting = await setItem("revive", revive);
+    expect(waiting.answer.next_steps).toEqual([expect.objectContaining({ tool: "get_stripe_account", reason: expect.stringContaining("Stripe's dashboard") })]);
+    await connect();
+    expect((await setItem("revive", revive)).answer.next_steps).toEqual([]);
+  });
+});
+
+describe("a developer's mistake names its fix (review 34)", () => {
+  it("answers the sheet with the developer's message and fix, from /start", async () => {
+    await setItem("revive", revive);
+    await env.DB.prepare("UPDATE owners SET can_take_stripe_payments = 0 WHERE id = ?").bind(ownerId).run();
+    const cannot = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
+    expect(cannot).toMatchObject({ status: 409, answer: { error: { code: "stripe_cannot_take_payments", message: expect.stringContaining("hasn't turned on payments"), fix: expect.stringContaining("Stripe's dashboard") } } });
+    await env.DB.prepare("UPDATE owners SET stripe_account_id = NULL WHERE id = ?").bind(ownerId).run();
+    const unconnected = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" } });
+    expect(unconnected.answer.error).toMatchObject({ code: "stripe_not_connected", fix: expect.stringContaining("connect_stripe_account") });
+  });
+});

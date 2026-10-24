@@ -1746,7 +1746,8 @@
     if (waiter.isOpen) itemsEvents._emit("sheetClose", { itemName: waiter.itemName });
     if (event.data.status === "error") {
       var code = BUY_ERROR_CODES.indexOf(event.data.code) === -1 ? "request_failed" : event.data.code;
-      return waiter.reject(codedError(code, typeof event.data.message === "string" ? event.data.message : "Zaisma didn't answer, so check the connection and try again."));
+      var errorText = typeof event.data.message === "string" ? event.data.message : "Zaisma didn't answer, so check the connection and try again.";
+      return waiter.reject(codedError(code, typeof event.data.fix === "string" && event.data.fix ? errorText + " " + event.data.fix : errorText));
     }
     var status = event.data.status === "bought" || event.data.status === "failed" ? event.data.status : "cancelled";
     var purchase = status !== "cancelled" && event.data.purchase && typeof event.data.purchase === "object" ? purchaseFromSheet(event.data.purchase) : null;

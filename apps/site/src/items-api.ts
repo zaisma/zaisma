@@ -156,8 +156,13 @@ export async function itemsRoute(request: Request, env: Env, game: Game, itemNam
     await logCallerEvent(env, caller, "item_changed", { gameId: game.id, subjectName: itemName });
     const answered = (await itemByName(env.DB, game.id, itemName))!;
     const nextSteps: NextStep[] = [];
-    if (answered.price_minor_units !== null && !(game.owner_id && (await stripeAccountRow(env, game.owner_id))?.stripe_account_id)) {
-      nextSteps.push({ tool: "get_stripe_account", arguments: {}, after_sec: null, reason: "Players can buy priced items only once the developer connects their Stripe account; until then the buy sheet answers stripe_not_connected. connect_stripe_account gives the link." });
+    if (answered.price_minor_units !== null) {
+      const seller = game.owner_id ? await stripeAccountRow(env, game.owner_id) : null;
+      if (!seller?.stripe_account_id) {
+        nextSteps.push({ tool: "get_stripe_account", arguments: {}, after_sec: null, reason: "Players can buy priced items only once the developer connects their Stripe account; until then the buy sheet answers stripe_not_connected. connect_stripe_account gives the link." });
+      } else if (seller.can_take_stripe_payments !== 1) {
+        nextSteps.push({ tool: "get_stripe_account", arguments: {}, after_sec: null, reason: "The Stripe account is connected, but Stripe hasn't turned on payments for it yet, so the buy sheet answers stripe_cannot_take_payments. Finish setting it up on Stripe's dashboard; get_stripe_account shows can_take_payments true once it's ready." });
+      }
     }
     return [{ item: itemJson(answered), next_steps: nextSteps }, existing ? 200 : 201];
   }

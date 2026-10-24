@@ -91,7 +91,7 @@ document.querySelectorAll("[data-item]").forEach((button) => button.onclick = as
   shopStatus.textContent = itemName + ": the sheet is open";
   try {
     const result = await Zaisma.items.buy(itemName);
-    shopStatus.textContent = itemName + ": " + result.status + (result.purchase ? " (" + result.purchase.purchase_status + ")" : "");
+    shopStatus.textContent = itemName + ": " + result.status + (result.purchase ? " (" + result.purchase.purchaseStatus + ")" : "");
   } catch (error) {
     shopStatus.textContent = itemName + ": " + error.code + ": " + error.message;
   }

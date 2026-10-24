@@ -3,9 +3,11 @@ import {
   ITEM_LIMITS,
   PURCHASE_PIN_LIMITS,
   accountById,
+  countryName,
   gameById,
   gameBySlug,
   hashPurchasePin,
+  isBlockedInCountry,
   isPurchasePin,
   isWithdrawalLineShownFor,
   isOldEnoughFor,
@@ -73,14 +75,14 @@ import type { Env } from "./env.ts";
 const CONFIRMATION_DURATION_MS = PURCHASE_PIN_LIMITS.confirmationDurationMin * 60_000;
 const MAXIMUM_BODY_SIZE_BYTES = 8192;
 
-type Refusal = { httpStatus: number; code: string; message: string };
+type Refusal = { httpStatus: number; code: string; message: string; fix?: string };
 class BuyRefusal extends Error {
   constructor(readonly refusal: Refusal) {
     super(refusal.message);
   }
 }
-const refuse = (httpStatus: number, code: string, message: string): never => {
-  throw new BuyRefusal({ httpStatus, code, message });
+const refuse = (httpStatus: number, code: string, message: string, fix?: string): never => {
+  throw new BuyRefusal({ httpStatus, code, message, ...(fix ? { fix } : {}) });
 };
 
 interface Signed {
@@ -116,10 +118,13 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
     if (purchase) {
       const sale = await saleById(env, purchase[1]!);
       if (!sale || sale.player_id !== signedAccount.player_id) refuse(404, "no_purchase", "You have no purchase with that ID.");
-      if (purchase[2] === "/pay-with-saved-card" && method === "POST") return answer(await payWithSavedCard(request, env, signedSession, signedAccount, sale!, nowMs), cookies);
+      if (purchase[2] === "/pay-with-saved-card" && method === "POST") {
+        await checkPurchaseLimit(env, `pay:${signedAccount.id}`);
+        return answer(await payWithSavedCard(request, env, signedSession, signedAccount, sale!, body, nowMs), cookies);
+      }
       if (purchase[2] === "/wallet-intent" && method === "POST") {
         await checkPurchaseLimit(env, `wallet:${signedAccount.id}`);
-        return answer(await walletIntent(request, env, sale!), cookies);
+        return answer(await walletIntent(request, env, sale!, body), cookies);
       }
       if (!purchase[2] && method === "GET") {
         await checkPurchaseLimit(env, `poll:${signedAccount.id}`);
@@ -134,7 +139,10 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
       await checkPurchaseLimit(env, `card:${signedAccount.id}`);
       return answer(await keepCard(env, signedAccount, body, nowMs), cookies);
     }
-    if (path === "/api/payment-methods/saved" && method === "DELETE") return answer(await forgetCard(env, signedAccount), cookies);
+    if (path === "/api/payment-methods/saved" && method === "DELETE") {
+      await checkPurchaseLimit(env, `card:${signedAccount.id}`);
+      return answer(await forgetCard(env, signedAccount), cookies);
+    }
     if (path === "/api/account/purchase-pin" && method === "PUT") return answer(await setPurchasePin(request, env, signedSession, signedAccount, body), cookies);
     if (path === "/api/account/purchase-pin" && method === "DELETE") {
       await env.DB.prepare("UPDATE accounts SET purchase_pin_hash = NULL, purchase_pin_failed_count = 0 WHERE id = ?").bind(signedAccount.id).run();
@@ -142,7 +150,7 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
     }
     return new Response(null, { status: 405 });
   } catch (error) {
-    if (error instanceof BuyRefusal) return answer({ error: { code: error.refusal.code, message: error.refusal.message } }, cookies, error.refusal.httpStatus);
+    if (error instanceof BuyRefusal) return answer({ error: { code: error.refusal.code, message: error.refusal.message, ...(error.refusal.fix ? { fix: error.refusal.fix } : {}) } }, cookies, error.refusal.httpStatus);
     if (error instanceof ApiError) return answer({ error: { code: error.code, message: error.message } }, cookies, error.httpStatus);
     throw error;
   }
@@ -177,6 +185,11 @@ function countryOf(request: Request, env: Env, body: Record<string, unknown>): s
   return request.headers.get("cf-ipcountry");
 }
 
+/** Refuses, as the game's page does (451), when the game is blocked in the player's country: a sale left pending is checked again before it is paid. */
+function refuseIfBlocked(game: Parameters<typeof isBlockedInCountry>[0], countryCode: string | null): void {
+  if (isBlockedInCountry(game, countryCode)) refuse(451, "game_unavailable", `A legal notice under your country's law (${countryName(countryCode!)}) blocks this game here. It's still available everywhere else.`);
+}
+
 /** Whether this session confirmed a buy in the last 15 minutes. */
 async function isConfirmedHere(env: Env, session: Session, accountId: string, nowMs: number): Promise<boolean> {
   if (!session.sessionId) return false;
@@ -201,24 +214,25 @@ const savedCardOf = (env: Env, accountId: string) =>
  */
 async function startBuying(request: Request, env: Env, slug: string, body: Record<string, unknown>, signed: Signed | null, nowMs: number) {
   const game = await gameBySlug(env.DB, slug);
-  if (!game || !(await isOpenHere(env, game, body.tester_token))) return refuse(404, "no_game", "There's no game here by that name.");
+  if (!game || !(await isOpenHere(env, game, body.tester_token))) return refuse(404, "no_game", "There's no game here by that name.", "Check the slug: list_games shows the developer's games.");
+  const countryCode = countryOf(request, env, body);
+  refuseIfBlocked(game, countryCode);
   // A game for older players turns younger accounts away from buying too, as it does from playing (plays.ts, ageRefusal).
   if (signed && !isOldEnoughFor(signed.account.age_band, game.minimum_player_age_years)) return refuse(403, "game_not_open_to_player", "This game isn't open to your account.");
   const itemName = body.item_name;
   const gameItem = typeof itemName === "string" ? await itemByName(env.DB, game.id, itemName) : null;
-  if (!gameItem) return refuse(404, "no_item", `${game.title} has no item named ${JSON.stringify(itemName)}.`);
+  if (!gameItem) return refuse(404, "no_item", `${game.title} has no item named ${JSON.stringify(itemName)}.`, "list_items names the game's items; set_item adds one.");
   const requestedItemCount = body.item_count ?? 1;
   if (!Number.isInteger(requestedItemCount) || (requestedItemCount as number) < 1 || (requestedItemCount as number) > ITEM_LIMITS.maximumGrantItemCount || (gameItem.item_kind === "permanent" && requestedItemCount !== 1)) {
     return refuse(400, "bad_item_count", `item_count is a whole number from 1 to ${ITEM_LIMITS.maximumGrantItemCount}, and 1 for a permanent item.`);
   }
   const gameAccountId = body.game_account_id ?? null;
   if (gameAccountId !== null && (typeof gameAccountId !== "string" || gameAccountId.length > 200)) return refuse(400, "bad_game_account_id", "game_account_id is text of up to 200 characters, or null.");
-  const countryCode = countryOf(request, env, body);
   const price = priceFor(gameItem, countryCode);
-  if (!price) return refuse(409, "not_for_sale", `${gameItem.title} can't be bought: it has no price.`);
+  if (!price) return refuse(409, "not_for_sale", `${gameItem.title} can't be bought: it has no price.`, "set_item with price_minor_units and currency_code puts it on sale.");
   const seller = game.owner_id ? await stripeAccountRow(env, game.owner_id) : null;
-  if (!seller?.stripe_account_id) return refuse(409, "stripe_not_connected", "This item can't be bought right now.");
-  if (!seller.can_take_stripe_payments) return refuse(409, "stripe_cannot_take_payments", "This item can't be bought right now.");
+  if (!seller?.stripe_account_id) return refuse(409, "stripe_not_connected", "The developer hasn't connected a Stripe account, so nothing can be sold yet.", "get_stripe_account shows where the account stands; connect_stripe_account gives the link the developer connects on.");
+  if (!seller.can_take_stripe_payments) return refuse(409, "stripe_cannot_take_payments", "The developer's Stripe account is connected, but Stripe hasn't turned on payments for it yet.", "Finish setting up the account on Stripe's dashboard; get_stripe_account shows can_take_payments true once it's ready.");
   if (!signed) return refuse(403, "account_needed", "Make a free account (or sign in) to buy.");
   const { session, account } = signed;
   if (gameItem.item_kind === "permanent" && (await owningPurchaseOf(env.DB, game.id, account.player_id, gameItem.item_name))) return refuse(409, "already_owned", `You already own ${gameItem.title}.`);
@@ -321,8 +335,9 @@ async function pendingCheck(sale: Sale): Promise<void> {
  * Pays with the saved card: needs a confirm on this device in the last 15 minutes. The card is cloned onto the
  * developer's account for this purchase only, and charged once (its idempotency key is the purchase's ID).
  */
-async function payWithSavedCard(request: Request, env: Env, session: Session, account: Account, sale: Sale, nowMs: number) {
+async function payWithSavedCard(request: Request, env: Env, session: Session, account: Account, sale: Sale, body: Record<string, unknown>, nowMs: number) {
   await pendingCheck(sale);
+  await refuseIfSaleBlocked(env, request, body, sale);
   if (!(await isConfirmedHere(env, session, account.id, nowMs))) return refuse(403, "purchase_confirmation_needed", "Confirm it's you first, with your passkey, purchase PIN or password.");
   const card = await savedCardOf(env, account.id);
   if (!card) return refuse(409, "no_saved_card", "You have no saved card. Add one, or pay with Apple Pay or Google Pay.");
@@ -358,6 +373,12 @@ async function payWithSavedCard(request: Request, env: Env, session: Session, ac
   return refuse(402, "payment_declined", "The card was declined. Try another card, or Apple Pay or Google Pay.");
 }
 
+/** A sale can sit pending while a notice blocks its game in the player's country: it isn't paid there. */
+async function refuseIfSaleBlocked(env: Env, request: Request, body: Record<string, unknown>, sale: Sale): Promise<void> {
+  const game = await gameById(env.DB, sale.game_id);
+  if (game) refuseIfBlocked(game, countryOf(request, env, body));
+}
+
 /** With Stripe Tax on, the tax inside the price; a calculation Stripe can't make never stops the sale (the price doesn't change). */
 async function taxCalculationFor(request: Request, env: Env, sale: Sale): Promise<string | null> {
   const owner = await env.DB.prepare("SELECT is_stripe_tax_used FROM owners WHERE stripe_account_id = ?").bind(sale.stripe_account_id).first<{ is_stripe_tax_used: number }>();
@@ -371,8 +392,9 @@ async function taxCalculationFor(request: Request, env: Env, sale: Sale): Promis
 }
 
 /** A payment for Apple Pay or Google Pay to finish on the developer's account. */
-async function walletIntent(request: Request, env: Env, sale: Sale) {
+async function walletIntent(request: Request, env: Env, sale: Sale, body: Record<string, unknown>) {
   await pendingCheck(sale);
+  await refuseIfSaleBlocked(env, request, body, sale);
   const gameSlug = (await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(sale.game_id).first<{ slug: string }>())?.slug ?? "";
   const taxCalculationId = await taxCalculationFor(request, env, sale);
   const paymentIntent = await walletIntentOnAccount(env, { stripeAccountId: sale.stripe_account_id!, amountMinorUnits: sale.paid_minor_units!, currencyCode: sale.currency_code!, purchaseId: sale.id, gameSlug, playerId: sale.player_id, description: sale.item_name, taxCalculationId });
@@ -527,6 +549,9 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
   if (!game || !(await isOpenHere(env, game, undefined))) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
+  // Blocked in the player's country on a notice under its law, as the game's page is (pages.ts): no sheet there either.
+  const countryCode = countryOf(request, env, { preview_country_code: url.searchParams.get("preview_country") });
+  if (isBlockedInCountry(game, countryCode)) return glassMessage(env, "This game isn't available in your country", `A legal notice under your country's law (${countryName(countryCode!)}) blocks it here. It's still available everywhere else.`, 451);
   // The same turning away as startBuying: a signed-in account too young for the game doesn't get its sheet.
   const viewer = game.minimum_player_age_years > 13 ? await viewerOf(request, env) : null;
   if (viewer?.account && !isOldEnoughFor(viewer.account.age_band, game.minimum_player_age_years)) return glassMessage(env, "Not open to your account", "This game isn't open to your account.", 403);
