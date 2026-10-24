@@ -296,17 +296,19 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
         if (event.key === "Enter") { close(true); event.preventDefault(); }
       });
     });
-    function open() {
+    // Shown open as the page loads (a gallery's state), it neither takes the focus nor scrolls the page to itself.
+    function open(isOnLoad) {
       // Nothing picked yet: it starts on the next whole hour, or the earliest it takes.
       if (!isSet) { var next = new Date(); next.setMinutes(60, 0, 0); picked = pickedOf(next < minimum ? minimum : next); isSet = true; Object.keys(wheels).forEach(mark); show(); }
       pick.hidden = false; field.setAttribute("aria-expanded", "true"); place(false);
+      if (isOnLoad) return;
       wheels.day.el.focus({ preventScroll: true });
       pick.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     }
     function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
     field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
     pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
-    if (!pick.hidden) { if (!isSet) open(); else requestAnimationFrame(function () { place(false); }); }
+    if (!pick.hidden) { if (!isSet) open(true); else requestAnimationFrame(function () { place(false); }); }
     show();
   });
 })();
