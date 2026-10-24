@@ -452,8 +452,8 @@ const FIELD_STYLES = `
 .field:has(> input)::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; --face-color: var(--field-face); background: var(--face-color);
   box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field:has(> input):hover::before { --face-color: var(--field-hover); }
-.field:has(> input:focus)::before, .field.is-focused::before { --face-color: var(--field-focus); }
-.field input:focus, .field.is-focused input { outline: none; border: 0; }
+.field:has(> input:focus-visible)::before, .field.is-focused::before { --face-color: var(--field-focus); }
+.field input:focus-visible, .field.is-focused input { outline: none; border: 0; }
 :is(.field, .find) > input { --fade-start: 0px; --fade-end: 0px; }
 :is(.field, .find).more-left > input { --fade-start: 24px; }
 :is(.field, .find).more-right > input { --fade-end: 24px; }
@@ -463,10 +463,10 @@ const FIELD_STYLES = `
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
-.field:focus-within, .field.is-focused { color: var(--ink); }
+.field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
-.field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; padding-inline: var(--pad-words); font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
@@ -537,12 +537,12 @@ component({
   box-shadow: var(--field-shade); clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .find:hover::before { --face-color: var(--field-hover); }
 .find input::placeholder { color: var(--muted); }
-.find input:focus, .find.is-focused input { outline: none; }
-.find:has(> input:focus)::before, .find.is-focused::before { --face-color: var(--field-focus); }
-.find:focus-within, .find.is-focused { color: var(--ink); }
+.find input:focus-visible, .find.is-focused input { outline: none; }
+.find:has(> input:focus-visible)::before, .find.is-focused::before { --face-color: var(--field-focus); }
+.find:has(:focus-visible), .find.is-focused { color: var(--ink); }
 .find > .cut-line { z-index: 4; }
 .find > .cut-line polygon { stroke: var(--field-outline); }
-.find:focus-within > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
 /* Clear: only once something's typed, and then what's typed stops short of it: its width (46px) and its inset on each side. */

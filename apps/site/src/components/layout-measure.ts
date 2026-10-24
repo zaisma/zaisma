@@ -209,6 +209,17 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       flagged.add(line.el);
       report("words off the pane's margin", line.el, round(d.left) + "px from the start edge, its margin " + round(marginPx) + "px");
     });
+    // Words under something with an edge (a game card's title and players now) keep the margin only where they meet the surface's edge: at the
+    // row's or grid's start and end. Anywhere else they line up with the edge above them, never inset (GLASS_SCRIPT's placeWords). A row that
+    // scrolls sideways counts its whole length.
+    Array.prototype.forEach.call(pane.querySelectorAll(".cover-meta"), function (meta) {
+      if (!isShown(meta) || isScrolledAway(meta, pane)) return;
+      var r = meta.getBoundingClientRect(), d = distances(r), metaCss = getComputedStyle(meta), track = meta.parentElement && meta.parentElement.closest(".layout-track");
+      if (track && pane.contains(track)) { d = { left: d.left + track.scrollLeft, right: d.right + track.scrollWidth - track.clientWidth - track.scrollLeft }; }
+      var neededPx = gap.left + words;
+      if (d.left >= neededPx + TOLERANCE_PX && parseFloat(metaCss.paddingLeft) > TOLERANCE_PX) report("words inset where the pane's edge is far", meta, "its words are " + round(parseFloat(metaCss.paddingLeft)) + "px in from the start of what they're under, " + round(d.left) + "px from the pane's edge: they line up with it");
+      if (d.right >= neededPx + TOLERANCE_PX && parseFloat(metaCss.paddingRight) > TOLERANCE_PX) report("words inset where the pane's edge is far", meta, "its words are " + round(parseFloat(metaCss.paddingRight)) + "px in from the end of what they're under, " + round(d.right) + "px from the pane's edge: they line up with it");
+    });
   });
   // Rows: every control one height, on one line.
   document.querySelectorAll(".layout-row").forEach(function (row) {

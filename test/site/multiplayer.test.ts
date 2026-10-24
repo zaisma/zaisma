@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { auditLog, gameById, listRoomPage, listRooms, type Game } from "@zaisma/core";
+import { auditLog, gameById, hasSpace, listRoomPage, listRooms, type Game } from "@zaisma/core";
 import { codeBox } from "../../apps/site/src/rooms.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
@@ -297,6 +297,103 @@ describe("room browsing on the game page", () => {
     expect(everyone.nextCursor).toBeNull();
     expect((await listRoomPage(env.DB, id, { pageRoomCount: 10 })).nextCursor).toBe("10");
     expect((await listRoomPage(env.DB, id, { pageRoomCount: 10, cursor: "40" })).nextCursor).toBeNull();
+  });
+
+  it("orders the rooms by players and leaves full rooms out, on every page, with matches in progress always last", async () => {
+    const id = await addGame("arena", "relay");
+    const alphabet = "BCDFGHJKLMNPQRSTVWXYZ23456789".split("");
+    const code = (index: number) => `${alphabet[index]}${"AAAAA"}`;
+    // 12 open rooms of 8 seats (players 5, 1, 3, 8, 3, 6, 1, 8, 2, 4, 3, 7; two are full), the older ones listed later when players tie, and 3
+    // matches in progress (7, 2 and 5 players) that no order may put before an open room.
+    const players = [5, 1, 3, 8, 3, 6, 1, 8, 2, 4, 3, 7];
+    const now = Date.now();
+    for (const [index, count] of players.entries()) await room(id, code(index), count, 1, now - index * 1000);
+    for (const [index, count] of [7, 2, 5].entries()) await room(id, code(12 + index), count, 0, now - (12 + index) * 1000);
+    const pageOf = async (roomOrder: "best_to_join" | "most_players" | "fewest_players", isHidingFullRooms: boolean, cursor?: string, pageRoomCount = 6) =>
+      listRoomPage(env.DB, id, { roomOrder, isHidingFullRooms, cursor, pageRoomCount });
+    const everything = async (roomOrder: "best_to_join" | "most_players" | "fewest_players", isHidingFullRooms = false) => (await pageOf(roomOrder, isHidingFullRooms, undefined, 100)).rooms;
+
+    const best = await everything("best_to_join");
+    expect(best).toHaveLength(15);
+    // The default is the order of the list before there were choices: rooms with space first, then the busiest, then full ones, then matches in progress.
+    expect(best.slice(-3).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
+    expect((await pageOf("best_to_join", false)).roomOrder).toBe("best_to_join");
+
+    // Most players: the open rooms from the fullest down, then the matches in progress from the busiest down; ties keep the best-to-join order.
+    const most = await everything("most_players");
+    expect(most.map((listedRoom) => listedRoom.playerCount)).toEqual([8, 8, 7, 6, 5, 4, 3, 3, 3, 2, 1, 1, 7, 5, 2]);
+    expect(most.slice(-3).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
+    const tied = (roomOrdered: typeof most, playerCount: number) => roomOrdered.filter((listedRoom) => listedRoom.isOpen && listedRoom.playerCount === playerCount).map((listedRoom) => listedRoom.roomCode);
+    for (const playerCount of [1, 3, 8]) expect(tied(most, playerCount)).toEqual(tied(best, playerCount));
+    // Fewest players: the other way, matches in progress still last, from the quietest.
+    const fewest = await everything("fewest_players");
+    expect(fewest.map((listedRoom) => listedRoom.playerCount)).toEqual([1, 1, 2, 3, 3, 3, 4, 5, 6, 7, 8, 8, 2, 5, 7]);
+    for (const playerCount of [1, 3, 8]) expect(tied(fewest, playerCount)).toEqual(tied(best, playerCount));
+
+    // Page two continues the same order: the pages put end to end are the whole list, and the cursor follows.
+    for (const roomOrder of ["most_players", "fewest_players"] as const) {
+      const one = await pageOf(roomOrder, false);
+      const two = await pageOf(roomOrder, false, one.nextCursor!);
+      const three = await pageOf(roomOrder, false, two.nextCursor!);
+      expect([...one.rooms, ...two.rooms, ...three.rooms].map((listedRoom) => listedRoom.roomCode)).toEqual((await everything(roomOrder)).map((listedRoom) => listedRoom.roomCode));
+      expect([one.nextCursor, two.nextCursor, three.nextCursor]).toEqual(["6", "12", null]);
+      expect(three.rooms).toHaveLength(3);
+    }
+
+    // Hide full rooms: open rooms with no space are gone, matches in progress stay (they aren't full rooms), the rest keep their order.
+    for (const roomOrder of ["best_to_join", "most_players", "fewest_players"] as const) {
+      const without = await everything(roomOrder, true);
+      expect(without).toHaveLength(13);
+      expect(without.filter((listedRoom) => listedRoom.isOpen && !hasSpace(listedRoom))).toEqual([]);
+      expect(without.slice(-3).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
+      expect(without.map((listedRoom) => listedRoom.roomCode)).toEqual((await everything(roomOrder)).filter((listedRoom) => !listedRoom.isOpen || hasSpace(listedRoom)).map((listedRoom) => listedRoom.roomCode));
+    }
+    // Page two of the filtered list continues it, and its cursor counts the rooms that are left.
+    const filteredOne = await pageOf("most_players", true, undefined, 10);
+    expect(filteredOne.nextCursor).toBe("10");
+    expect((await pageOf("most_players", true, "10", 10)).rooms).toHaveLength(3);
+    // listRooms, which the developer API and the SDK read, knows neither, and its answer is as it was.
+    const listed = await listRooms(env.DB, id);
+    expect(listed.rooms).toHaveLength(15);
+    expect(listed).not.toHaveProperty("roomOrder");
+
+    // The page's route: the panel shows the pick, the Load more carries it, and the number by Rooms counts the full rooms too.
+    const full = await roomsList();
+    expect(full).toContain('name="room_order" value="best_to_join"');
+    expect(full).toContain("Best to join");
+    expect(full).toContain('name="is_hiding_full_rooms" value="true"');
+    expect(full).not.toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
+    expect(full).toContain('data-shown="|[]|best_to_join|false"');
+    expect(full).toContain('href="/g/arena/rooms?cursor=6"');
+    const fewestPanel = await roomsList("?room_order=fewest_players&is_hiding_full_rooms=true");
+    expect(fewestPanel).toContain('name="room_order" value="fewest_players"');
+    expect(fewestPanel).toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
+    expect(fewestPanel).toContain('data-shown="|[]|fewest_players|true"');
+    expect(fewestPanel).toContain("cursor=6&amp;room_order=fewest_players&amp;is_hiding_full_rooms=true");
+    expect(fewestPanel).toContain('data-count="12"');
+    expect(fewestPanel).not.toContain(">Full<");
+    expect(fewestPanel.match(/<div class="list-row">/g)).toHaveLength(6);
+    const fewestNext = await roomsList("?cursor=6&room_order=fewest_players&is_hiding_full_rooms=true");
+    expect(fewestNext.match(/<div class="list-row">/g)).toHaveLength(7);
+    expect(fewestNext.match(/<span class="list-row-end">In a match<\/span>/g)).toHaveLength(3);
+    expect(fewestNext).not.toContain(">Full<");
+    expect(fewestNext).not.toContain("data-load-more");
+    expect(pageProblems(fewestPanel)).toEqual([]);
+    // Full rooms shown, they are where the order puts them: the fullest first.
+    const mostNext = await roomsList("?room_order=most_players&shown_row_count=15");
+    expect(mostNext.match(/<span class="list-row-end">Full<\/span>/g)).toHaveLength(2);
+    expect(mostNext.indexOf(">Full<")).toBeLessThan(mostNext.indexOf("In a match"));
+
+    // Anything that isn't a known order, or isn't "true", is the default: the same list as no parameter at all.
+    for (const query of ["?room_order=nonsense", "?room_order=", "?is_hiding_full_rooms=yes", "?is_hiding_full_rooms=1", "?room_order=MOST_PLAYERS"]) {
+      expect(await roomsList(query)).toBe(full);
+    }
+    // Everything hidden: a say-so with the box still there to untick.
+    await env.DB.exec("DELETE FROM live_rooms WHERE is_open = 0");
+    await env.DB.exec("UPDATE live_rooms SET player_count = maximum_player_count");
+    const none = await roomsList("?is_hiding_full_rooms=true");
+    expect(none).toContain("No open rooms with space right now.");
+    expect(none).toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
   });
 
   it("carries the region and labels picked into the next page, and tells no sentences about rooms past the list", async () => {

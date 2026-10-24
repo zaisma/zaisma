@@ -64,7 +64,24 @@ const MAXIMUM_SHOWN_ROOM_COUNT = 50;
 export interface RoomPage extends RoomList {
   /** Where the next page starts, to hand back as cursor; null on the last page. */
   nextCursor: string | null;
+  /** The order the page's rooms are in, and whether open rooms with no space left are left out of it. */
+  roomOrder: RoomOrder;
+  isHidingFullRooms: boolean;
 }
+
+/**
+ * The orders the game page's list can be in, each with matches in progress last: "best_to_join" is the order of listRooms (rooms with space
+ * first, then the player's country and continent, then the busiest), "most_players" and "fewest_players" go by the players in each room, ties
+ * keeping the best-to-join order.
+ */
+export const ROOM_ORDERS = ["best_to_join", "most_players", "fewest_players"] as const;
+export type RoomOrder = (typeof ROOM_ORDERS)[number];
+
+/** The order a list request asks for (room_order): anything that isn't one of ROOM_ORDERS is the default, best_to_join. */
+export const readRoomOrderParameter = (given: string | null | undefined): RoomOrder => ROOM_ORDERS.find((roomOrder) => roomOrder === given) ?? "best_to_join";
+
+/** Whether a list request leaves full rooms out (is_hiding_full_rooms): only "true" does. */
+export const readIsHidingFullRoomsParameter = (given: string | null | undefined): boolean => given === "true";
 
 /** The most rooms one page of the game page's room list holds. */
 export const MAXIMUM_PAGE_ROOM_COUNT = 200;
@@ -200,19 +217,26 @@ type RoomListOptions = { country?: string | null; continent?: string | null; reg
  * the open ones, full or not, and no cut at 50. cursor says where the page starts (the nextCursor of the page before; left out, the first
  * page) and pageRoomCount how many rooms it holds (up to MAXIMUM_PAGE_ROOM_COUNT). A game with thousands of rooms is sent a page at a time.
  */
-export async function listRoomPage(database: D1Database, gameId: string, options: RoomListOptions & { cursor?: string | null; pageRoomCount: number }): Promise<RoomPage> {
+export async function listRoomPage(
+  database: D1Database,
+  gameId: string,
+  options: RoomListOptions & { cursor?: string | null; pageRoomCount: number; roomOrder?: RoomOrder | null; isHidingFullRooms?: boolean },
+): Promise<RoomPage> {
   const pageRoomCount = Math.max(1, Math.min(MAXIMUM_PAGE_ROOM_COUNT, Math.floor(options.pageRoomCount)));
-  return (await readRooms(database, gameId, options, { startIndex: roomPageStart(options.cursor), pageRoomCount })) as RoomPage;
+  const page: RoomPageRequest = { startIndex: roomPageStart(options.cursor), pageRoomCount, roomOrder: readRoomOrderParameter(options.roomOrder), isHidingFullRooms: options.isHidingFullRooms === true };
+  return (await readRooms(database, gameId, options, page)) as RoomPage;
 }
 
-async function readRooms(database: D1Database, gameId: string, options: RoomListOptions, page: { startIndex: number; pageRoomCount: number } | null): Promise<RoomList> {
+type RoomPageRequest = { startIndex: number; pageRoomCount: number; roomOrder: RoomOrder; isHidingFullRooms: boolean };
+
+async function readRooms(database: D1Database, gameId: string, options: RoomListOptions, page: RoomPageRequest | null): Promise<RoomList> {
   const near = options.continent && CONTINENTS[options.continent] ? options.continent : null;
   const here = isCountry(options.country ?? null) ? options.country! : null;
   const region = options.region && CONTINENTS[options.region] ? options.region : null;
   const wanted = Object.entries(options.labels ?? {}).filter(([labelName, labelValue]) => typeof labelName === "string" && typeof labelValue === "string" && labelName && labelValue).slice(0, 4);
   const cacheDurationSec = options.cacheDurationSec ?? 0;
   const key = new Request(
-    `https://rooms-list.zaisma.internal/v3/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}${page ? `/page-${page.startIndex}-${page.pageRoomCount}` : ""}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
+    `https://rooms-list.zaisma.internal/v4/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}${page ? `/page-${page.startIndex}-${page.pageRoomCount}-${page.roomOrder}-${page.isHidingFullRooms ? "no-full" : "all-rooms"}` : ""}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
   );
   const cache = cacheDurationSec > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
@@ -273,19 +297,26 @@ async function readRooms(database: D1Database, gameId: string, options: RoomList
   }
   const same = (first: string, second: string) => first.localeCompare(second, "en", { sensitivity: "base" }) === 0;
   const fits = (room: ListedRoom) => wanted.every(([labelName, labelValue]) => Object.entries(room.labels).some(([roomLabelName, roomLabelValue]) => same(roomLabelName, labelName) && same(roomLabelValue, labelValue)));
-  const inRegion = all.filter((room) => (!region || where.get(room.roomCode) === region) && fits(room));
+  const matching = all.filter((room) => (!region || where.get(room.roomCode) === region) && fits(room));
+  // The page can leave out open rooms with no space (matches in progress aren't full rooms: they stay), and order the rest by players. The
+  // sort is stable, so matches in progress stay last and ties keep the best-to-join order.
+  const inRegion = page?.isHidingFullRooms ? matching.filter((room) => !room.isOpen || hasSpace(room)) : matching;
+  if (page && page.roomOrder !== "best_to_join") {
+    const isMostFirst = page.roomOrder === "most_players";
+    inRegion.sort((first, second) => Number(second.isOpen) - Number(first.isOpen) || (isMostFirst ? second.playerCount - first.playerCount : first.playerCount - second.playerCount));
+  }
   const shown = page ? inRegion.slice(page.startIndex, page.startIndex + page.pageRoomCount) : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {
     rooms: shown,
     playing: { playerCount: results.reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0), roomCount: playingRows.length, closedRoomCount: all.filter((room) => !room.isOpen).length },
     joinableRoomCount: all.filter(hasSpace).length,
-    openRoomCount: inRegion.filter((room) => room.isOpen).length,
+    openRoomCount: matching.filter((room) => room.isOpen).length,
     regions: [...regions.values()].sort((first, second) => second.playerCount - first.playerCount || second.roomCount - first.roomCount),
     region,
     moreOpenRoomCount: page ? inRegion.slice(page.startIndex + page.pageRoomCount).filter((room) => room.isOpen).length : inRegion.filter((room) => room.isOpen).length - shown.filter((room) => room.isOpen).length,
     filters: labelFilters(all),
     changedAtMs: Object.fromEntries(shown.map((room) => [room.roomCode, updated.get(room.roomCode)!])),
-    ...(page ? { nextCursor: page.startIndex + page.pageRoomCount < inRegion.length ? String(page.startIndex + page.pageRoomCount) : null } : {}),
+    ...(page ? { nextCursor: page.startIndex + page.pageRoomCount < inRegion.length ? String(page.startIndex + page.pageRoomCount) : null, roomOrder: page.roomOrder, isHidingFullRooms: page.isHidingFullRooms } : {}),
   };
   if (cache) await cache.put(key, Response.json(list, { headers: { "Cache-Control": `max-age=${cacheDurationSec}` } }));
   return list;

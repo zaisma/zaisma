@@ -145,8 +145,6 @@ html.is-leaving body > main > :not(.playing-bar, .playing-card, .playing-check, 
 .screenshot:hover img { transform: scale(1.03); }
 .screenshot:focus-visible { outline: none; }
 .screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* On a phone, a game's row of them starts at the words' margin, so it lines up with the words and links around it; scrolling, it still runs out to the pane's frame gap. */
-@media (max-width: 760px) { .layout-track:has(> .screenshot) { padding-inline: var(--pad-words); scroll-padding-inline: var(--pad-words); } }
 .screenshot-large { display: block; width: min(1280px, calc(100vw - 6 * var(--pad-pane))); max-height: 70dvh; object-fit: contain; }
 @media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
 

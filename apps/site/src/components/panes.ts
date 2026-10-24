@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { CUT_LINE, EDGE, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton, textButton } from "./actions.ts";
-import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
+import { REPORT_REASONS, STAND_IN_QR_CODE, birthdayField, choiceCards, codeField, cutField, longField, qrCode } from "./inputs.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem } from "./layout.ts";
 
 /*
@@ -294,9 +294,13 @@ const COVER_STYLES = `
 .cover-meta .when, .cover-meta .count, .cover-meta .device-note { white-space: nowrap; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
-/* What's under a cover is words, so it keeps the pane's words margin (--pad-words) in from the art's edges. With a title it belongs to the
-   cover above it: just under the orange line, with more room after it before the next row. */
+/* What's under a cover is words, so where it meets the pane's edge it keeps the pane's words margin (--pad-words) in from the art's edge. The
+   edge rule (GLASS_SCRIPT, placeWords) says which sides don't meet it (data-words-flush), the covers between the first and the last of a row
+   or a grid's lines, and there the words line up with the art. With a title it belongs to the cover above it: just under the orange line,
+   with more room after it before the next row. */
 .cover-meta { padding-inline: var(--pad-words); }
+.cover-meta[data-words-flush~="start"] { padding-inline-start: 0; }
+.cover-meta[data-words-flush~="end"] { padding-inline-end: 0; }
 .cover-meta.has-title { margin-top: var(--gap-control-row); margin-bottom: var(--gap-words-words); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-name); color: var(--ink); }
 .cover-meta .cover-more { flex: 1 0 100%; display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
@@ -484,6 +488,8 @@ export interface SheetOptions {
   placement?: "center" | "foot";
   /** Open in place rather than over the page: the gallery's still copy. */
   isShown?: boolean;
+  /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
+  isCompact?: boolean;
 }
 
 /**
@@ -548,8 +554,16 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
   HTMLDialogElement.prototype.showModal = function () {
     var wasOpen = this.open;
     showModal.apply(this, arguments);
-    if (!wasOpen && this.matches(".sheet")) { hold(this); place(this); }
+    if (!wasOpen && this.matches(".sheet")) { hold(this); place(this); focusSheet(this); }
   };
+  // Focus moves into a sheet as it opens (a screen reader and the keyboard need it there), but a ring only ever shows for the keyboard: opened by a
+  // press (a mouse, a touch), the sheet takes the focus itself, no ring, and Tab goes on to its first control; opened from the keyboard, the browser's
+  // choice (its first control, or the one marked autofocus) stands. Closing returns the focus to the opening button as the browser does.
+  function focusSheet(sheet) {
+    if (window.zaismaInput && window.zaismaInput.isKeyboard()) return;
+    sheet.setAttribute("tabindex", "-1");
+    sheet.focus({ preventScroll: true });
+  }
   function hold(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
     if (!opener || sheet.matches(".in-place") || opener.closest("[popover]") || sheet.contains(opener)) return;
@@ -618,6 +632,8 @@ const SHEET_STYLES = `
   transition: var(--glass-transition), opacity 0.25s, transform 0.3s cubic-bezier(.2,.8,.2,1), overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
 /* Over the page, fixed to the window whether it's opening, open or closing (it stops being :modal the moment it starts to close). */
 .sheet:not(.in-place) { position: fixed; inset: 0; z-index: 40; }
+/* The sheet itself takes the focus when a press opened it (SHEET_SCRIPT): no ring, a ring is for the keyboard. */
+.sheet:focus-visible { outline: none; }
 .sheet:is(:not([open]), .is-leaving) { opacity: 0; transform: translateY(16px) scale(0.98); pointer-events: none; transition-timing-function: ease, ease, cubic-bezier(.4,0,1,1); }
 @starting-style { .sheet[open] { opacity: 0; transform: translateY(12px) scale(0.985); } }
 .sheet::backdrop { background: rgba(6, 9, 14, 0.42); opacity: 1; transition: opacity 0.3s, overlay 0.3s allow-discrete, display 0.3s allow-discrete; }
@@ -660,6 +676,10 @@ ${touchReach(".sheet")}
   .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(-8px) scale(0.98); }
   .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving) { transform: translateY(8px) scale(0.98); }
   @starting-style { .sheet.is-anchored:not(.in-place)[open] { transform: translateY(-8px) scale(0.98); } .sheet.is-anchored.is-above:not(.in-place)[open] { transform: translateY(8px) scale(0.98); } }
+  /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. */
+  .sheet.is-compact { width: 320px; }
+  .sheet.is-compact .sheet-in, .sheet.is-compact .sheet-body { gap: var(--gap-control-stack); }
+  .sheet.is-compact .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
   .sheet.is-anchored:not(.in-place)::backdrop { background: rgba(6, 9, 14, 0.16); }
   .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
 }
@@ -681,6 +701,11 @@ component({
   examples: [
     { label: "Try it: from its button (on a short screen its title and Send report stay while the reasons scroll)", markup: html`${cutButton("Report this game", { type: "button", controls: "example-sheet-try" })}${reportSheet("example-sheet-try")}` },
     { label: "Open", markup: reportSheet("example-sheet-shown", { isShown: true }), isWide: true, isStill: true },
+    {
+      label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
+      isStill: true,
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "block", markup: qrCode({ id: "example-sheet-compact-qr", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true }) }, { kind: "block", markup: codeField({ id: "example-sheet-compact-link", label: "Link", code: "https://zaisma.com/g/ashen-crown" }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+    },
     {
       label: "A long title",
       isStill: true,

@@ -241,7 +241,7 @@ label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 input,textarea,select{background:#0d0f12;color:var(--text);border:1px solid #000;padding:0 12px;min-height:44px;font:inherit;
   box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
 textarea{min-height:100px;padding:10px 12px}
-input:focus,textarea:focus,select:focus{outline:none;border-color:#000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none;border-color:#000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
 input[type=checkbox]{box-shadow:none}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:9px 8px;vertical-align:top;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}

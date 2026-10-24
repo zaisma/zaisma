@@ -16,6 +16,7 @@ import {
   ownServerUrlsOf,
   readPlayModes,
   requestCountryCode,
+  ROOM_ORDERS,
   SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
   testerLinkOpened,
@@ -49,7 +50,7 @@ import { playersSheet } from "./players-sheet.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
+import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
@@ -141,7 +142,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     showcase(env, viewer.ageFloorYears, 60, countryCode),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
     // Not on tester links: their rooms are reached by code and invite link.
-    game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
+    game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request, readRoomPick(url.searchParams)) : null,
     playingNowCounts(env),
     // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
     playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
@@ -720,7 +721,12 @@ if (roomsPanel) new IntersectionObserver((entries) => { isRoomsSeen = entries.so
 let roomsAt = Date.now();
 let roomsRegion = "";
 let roomsLabels = {};
-const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort());
+// The order and the full-rooms box are in the address (room_order, is_hiding_full_rooms), so a refresh or a shared link keeps them.
+const roomOrders = ${JSON.stringify(ROOM_ORDERS)};
+const askedFor = new URLSearchParams(location.search);
+let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get("room_order") : roomOrders[0];
+let isHidingFullRooms = askedFor.get("is_hiding_full_rooms") === "true";
+const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|" + isHidingFullRooms;
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
@@ -743,7 +749,7 @@ async function refreshRooms(force) {
   // The automatic refresh waits while nobody's looking; a pick the player just made always loads.
   if (!roomsPanel || (!isRoomsSeen && !force) || frame || (document.hidden && !force)) return;
   const list = document.getElementById("rooms-list");
-  const shown = list.firstElementChild?.dataset.shown || "|[]";
+  const shown = list.firstElementChild?.dataset.shown || "|[]|" + roomOrders[0] + "|false";
   if (!force && shown === roomsKey() && Date.now() - roomsAt < 19000) return;
   // A refresh keeps the rooms the player loaded (Load more); past ${MAXIMUM_REFRESHED_ROOM_COUNT} rows the list is left as it is, and another region or label starts over at the first page.
   const isSamePick = shown === roomsKey();
@@ -754,6 +760,8 @@ async function refreshRooms(force) {
     const query = new URLSearchParams();
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
+    if (roomsOrder !== roomOrders[0]) query.set("room_order", roomsOrder);
+    if (isHidingFullRooms) query.set("is_hiding_full_rooms", "true");
     if (loadedRows > 0) query.set("shown_row_count", String(Math.min(loadedRows, ${MAXIMUM_REFRESHED_ROOM_COUNT})));
     const left = justLeft();
     if (left) query.set("left", left);
@@ -796,6 +804,19 @@ if (roomsPanel) {
     }
   });
   roomsPanel.addEventListener("change", (e) => {
+    const orderPick = e.target.closest('input[name="room_order"]');
+    const fullPick = e.target.closest('input[name="is_hiding_full_rooms"]');
+    if (orderPick || fullPick) {
+      if (orderPick) roomsOrder = roomOrders.includes(orderPick.value) ? orderPick.value : roomOrders[0];
+      else isHidingFullRooms = fullPick.checked;
+      // The address keeps the pick without adding a step to Back.
+      const address = new URL(location.href);
+      roomsOrder === roomOrders[0] ? address.searchParams.delete("room_order") : address.searchParams.set("room_order", roomsOrder);
+      isHidingFullRooms ? address.searchParams.set("is_hiding_full_rooms", "true") : address.searchParams.delete("is_hiding_full_rooms");
+      history.replaceState(history.state, "", address);
+      refreshRooms(true);
+      return;
+    }
     const pick = e.target.closest("input[data-label]");
     if (!pick) return;
     if (pick.value) roomsLabels[pick.dataset.label] = pick.value;

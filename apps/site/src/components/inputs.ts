@@ -240,7 +240,7 @@ component({
 .file-drop.is-disabled .file-drop-input { cursor: default; }
 .file-drop.is-disabled .file-drop-words label { color: var(--muted); }
 .file-drop.is-disabled > .cut-line polygon { stroke: var(--line); }
-.file-drop:focus-within > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
+.file-drop:has(:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); stroke-dasharray: none; }
 /* What's picked: a row for each file, its words keeping the pane's margin all round (so the last row's keep it at a pane's foot), its name
    whole, on more lines where it's long; while one uploads, a line along its foot fills as it goes. */
 .file-drop-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -341,7 +341,7 @@ component({
 .code-text:focus-visible { outline: none; }
 /* Masked: the code's letters blur into their own glow, unreadable, until the page shows them; Copy still copies them. */
 .code-field.is-masked .code-text { color: transparent; text-shadow: 0 0 10px var(--ink); cursor: pointer; }
-.field.code:focus-within > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.field.code:has(:focus-visible) > .cut-line polygon, .field.code.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* On a phone, Copy takes a whole control's height (--control-height-regular, 44px) to touch. */
 @media (pointer: coarse) { .field.code > .cut-btn::before { content: ""; position: absolute; inset: calc((var(--control-height-small) - var(--control-height-regular)) / 2); } }
 `,
@@ -368,15 +368,17 @@ export interface QrCodeOptions {
   imageUrl?: string;
   /** A secret on a screen others may see (a streamer's room): blurred until a page script takes is-masked off it. */
   isMasked?: boolean;
+  /** On a wide screen, smaller, with its line beside it (a compact sheet's): a phone camera still reads it at that size. On a phone it's as wide as the room allows. */
+  isCompact?: boolean;
 }
 
 /** A QR code: a link as a picture any phone's camera reads, on white whatever the glass, with a line under it saying what it opens. */
 export function qrCode(options: QrCodeOptions): Raw {
-  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
+  return html`<figure class="qr-code${options.isMasked ? " is-masked" : ""}${options.isCompact ? " is-compact" : ""}"><img class="qr-picture" id="${options.id}"${options.imageUrl ? html` src="${options.imageUrl}"` : ""} alt="${options.label}" width="220" height="220"><figcaption class="qr-caption" id="${options.id}-caption">${options.caption}</figcaption></figure>`;
 }
 
 /** The gallery's QR code: a stand-in game's address, made as Zaisma makes every game's. */
-const STAND_IN_QR_CODE = `data:image/svg+xml,${encodeURIComponent(qrCodeSvg("https://zaisma.com/g/ashen-crown"))}`;
+export const STAND_IN_QR_CODE = `data:image/svg+xml,${encodeURIComponent(qrCodeSvg("https://zaisma.com/g/ashen-crown"))}`;
 
 component({
   name: "QR code",
@@ -390,10 +392,17 @@ component({
 .qr-picture { display: block; width: min(220px, 100%); height: auto; aspect-ratio: 1; background: #fff; transition: filter 0.25s; }
 .qr-caption { font: var(--type-label); color: var(--ink); text-align: center; }
 .qr-code.is-masked > .qr-picture { filter: blur(8px); }
+/* Compact, on a wide screen: smaller, with its line beside it, the width of what a compact sheet holds. */
+@media (min-width: 761px) {
+  .qr-code.is-compact { grid-template-columns: auto 1fr; justify-items: start; align-items: center; column-gap: var(--gap-block-block); }
+  .qr-code.is-compact > .qr-picture { width: 104px; }
+  .qr-code.is-compact > .qr-caption { text-align: start; padding-inline-end: var(--pad-words); }
+}
 `,
   render: qrCode,
   examples: [
     { label: "A game's link", markup: examplePane(qrCode({ id: "example-qr-game", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE })) },
+    { label: "Compact, on a wide screen: smaller, its line beside it", markup: examplePane(qrCode({ id: "example-qr-compact", label: "QR code for this link", caption: "Scan to play", imageUrl: STAND_IN_QR_CODE, isCompact: true })) },
     { label: "Masked, for a streamer: blurred until shown", markup: examplePane(qrCode({ id: "example-qr-masked", label: "QR code for this link", caption: "Scan to join this match", imageUrl: STAND_IN_QR_CODE, isMasked: true })), isStill: true },
   ],
 });

@@ -162,6 +162,8 @@ export interface SheetMarkupOptions {
   placement?: "center" | "foot";
   /** Shown in place, not over the page: the gallery's still copies. */
   isShown?: boolean;
+  /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
+  isCompact?: boolean;
 }
 
 /**
@@ -177,7 +179,7 @@ export function sheetMarkup(options: SheetMarkupOptions): Raw {
     foot: buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const form = options.action === undefined ? html`<form class="sheet-in" method="dialog">${parts}</form>` : html`<form class="sheet-in" method="post" action="${options.action}">${parts}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : ""}${options.isCompact ? " is-compact" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.id}-title" data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */

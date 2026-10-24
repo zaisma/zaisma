@@ -580,7 +580,38 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     draw();
   }
   var PANE = "[data-glass]:not([data-cut-line])";
+  /*
+   * Words under something with an edge (a game card's title and its players now, under its cover) keep their surface's words margin only
+   * where they meet the surface's edge: the first words of an item at the row's or the grid's start, the last of one at its end. Between,
+   * with nothing to account for, they line up flush with the item above them. Each item says which of its sides are flush
+   * (data-words-flush="start", "end" or "start end", CSS pads the rest) by how far its box is from the surface's: the margin or more is
+   * flush. A row that scrolls sideways counts its whole length, so its first item is at the start and its last at the end wherever it's
+   * scrolled to. An item that finds no surface (or no room to read) keeps the margin at both sides.
+   */
+  function placeWords() {
+    var found = [];
+    Array.prototype.forEach.call(document.querySelectorAll(".cover-meta"), function (meta) {
+      var surface = meta.parentElement && meta.parentElement.closest(PANE), track = meta.parentElement && meta.parentElement.closest(".layout-track");
+      if (!surface) { found.push([meta, ""]); return; }
+      var r = meta.getBoundingClientRect(), p = surface.getBoundingClientRect(), css = getComputedStyle(meta);
+      if (!r.width) return;
+      var startPx = r.left - p.left, endPx = p.right - r.right;
+      if (track && surface.contains(track)) {
+        var along = readScroll(track);
+        startPx += along.scrollLeft; endPx += along.scrollWidth - along.clientWidth - along.scrollLeft;
+      }
+      var needPx = (parseFloat(css.getPropertyValue("--pad-frame")) || 0) + (parseFloat(css.getPropertyValue("--pad-words")) || 0) - 0.5, isRtl = css.direction === "rtl";
+      var isLeftFlush = startPx >= needPx, isRightFlush = endPx >= needPx;
+      found.push([meta, ((isRtl ? isRightFlush : isLeftFlush) ? "start " : "") + ((isRtl ? isLeftFlush : isRightFlush) ? "end" : "")]);
+    });
+    found.forEach(function (each) {
+      var flush = each[1].trim(), now = each[0].getAttribute("data-words-flush");
+      if (flush === (now || "")) return;
+      if (flush) each[0].setAttribute("data-words-flush", flush); else each[0].removeAttribute("data-words-flush");
+    });
+  }
   function cutEdgedOnPage() {
+    placeWords();
     var panes = isEveryPaneDue ? Array.prototype.slice.call(document.querySelectorAll(PANE)) : Array.from(edgedPanes);
     isEveryPaneDue = false; edgedPanes.clear();
     runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
@@ -602,6 +633,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   };
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;
+  // How the page was last used, keyboard or pointer (a mouse, a touch, a pen): a ring only ever shows for the keyboard (:focus-visible), so a sheet
+  // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (SHEET_SCRIPT).
+  window.zaismaInput = (function () {
+    var isKeyboard = false;
+    document.addEventListener("keydown", function (event) { if (!/^(Shift|Control|Alt|Meta|AltGraph|CapsLock)$/.test(event.key)) isKeyboard = true; }, true);
+    ["pointerdown", "mousedown", "touchstart"].forEach(function (name) { document.addEventListener(name, function () { isKeyboard = false; }, true); });
+    return { isKeyboard: function () { return isKeyboard; } };
+  })();
   var done = typeof WeakSet === "function" ? new WeakSet() : { has: function () { return false; }, add: function () {} };
   function apply(root) {
     if (!root.querySelectorAll) return;
@@ -644,6 +683,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     while (holder) { found.push(holder); holder = holder.parentElement && holder.parentElement.closest(PANE); }
     return found;
   }
+  placeWords();
   findEdgedSoon();
   window.zaismaWatch.page(findEdgedSoon);
 })();

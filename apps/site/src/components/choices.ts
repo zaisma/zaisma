@@ -82,7 +82,7 @@ const LONG_STYLES = `
   --face-color: var(--field-face); background: var(--face-color); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-color 0.25s; }
 .field.long:not(.is-disabled):hover textarea { --face-color: var(--field-hover); }
-.field.long textarea:focus, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
+.field.long textarea:focus-visible, .field.long.is-focused textarea { outline: none; --face-color: var(--field-focus); }
 .field.long textarea::placeholder { color: var(--muted); }
 /* Past 12 lines it scrolls, and its words keep clear of its rail, laid over its end. */
 .field.long textarea.is-scrolling { padding-right: calc(var(--pad-inside-words) + 16px); }
@@ -288,7 +288,7 @@ component({
 .select-sizes > span { display: block; white-space: nowrap; }
 .field.select:not(.is-disabled):hover .select-button { --face-color: var(--field-hover); }
 .select-button:focus-visible, .field.select.is-focused .select-button, .field.select.is-open .select-button { outline: none; --face-color: var(--field-focus); }
-.field.select:focus-within > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+.field.select:has(:focus-visible) > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }

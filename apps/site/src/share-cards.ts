@@ -133,11 +133,11 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
  */
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   const items: LayoutItem[] = [
-    ...(hasQrCode ? [{ kind: "block" as const, markup: qrCode({ id: "share-qr", label: "QR code for this link", caption: "Scan to play" }) }] : []),
+    ...(hasQrCode ? [{ kind: "block" as const, markup: qrCode({ id: "share-qr", label: "QR code for this link", caption: "Scan to play", isCompact: true }) }] : []),
     { kind: "control", markup: cutButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: codeField({ id: "share-room-code", label: "Room code", code: "" }) },
     { kind: "block", markup: codeField({ id: "share-link", label: "Link", code: "" }) },
     { kind: "control", markup: cutButton("More ways to share", { id: "share-more", type: "button", icon: "share", isHidden: true }) },
   ];
-  return sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }) });
+  return sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true });
 }

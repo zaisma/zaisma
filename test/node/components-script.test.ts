@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE } from "../../apps/site/src/components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-components.mjs";
 
@@ -21,5 +21,16 @@ describe("the components' script", () => {
 
   it("keeps what the pages and tests look for in it: the page watcher and the attributes it reads", () => {
     for (const word of ["zaismaWatch", "data-cut-line", "data-glass", "data-compacts"]) expect(COMPONENT_SCRIPT.sourceText, word).toContain(word);
+  });
+
+  it("isolates the parent of a stage under the page (the backdrop, the city), so the body's own color never paints over it", () => {
+    const styles = COMPONENT_STYLES();
+    for (const stage of [".backdrop", ".city-stage"]) expect(styles, stage).toContain(`:has(> ${stage}) { isolation: isolate; }`);
+  });
+
+  it("shows a focus ring only for the keyboard: no component's style rings on plain :focus or :focus-within, and a sheet opened by a press takes the focus itself", () => {
+    expect(COMPONENT_STYLES().match(/:focus(?![-\w])|:focus-within/g) ?? []).toEqual([]);
+    expect(COMPONENT_SCRIPT.sourceText).toContain("zaismaInput");
+    expect(COMPONENT_SCRIPT_SOURCE).toContain("function focusSheet");
   });
 });
