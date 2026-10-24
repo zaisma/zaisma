@@ -119,10 +119,11 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // nothing is laid out or redrawn while the new page is still starting, and the settles that follow (fonts, the first resize) can't cut it short.
     var came = window.navigation && navigation.activation && navigation.activation.from;
     if (came && came.url && slab.animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      // The tab whose page it came from: by its whole address where tabs share a path (Browse's sorts are all /games), else by its path.
+      // The tab whose page it came from: by its whole address, or by its path where only one tab has it (Browse's sorts are all /games, so
+      // coming from a Browse address no tab has, none of them is the last page's and nothing slides).
       var cameFrom = new URL(came.url), lastPath = cameFrom.pathname;
-      var last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname + new URL(tab.href).search === lastPath + cameFrom.search; })
-        || Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      var samePath = Array.prototype.filter.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      var last = samePath.find(function (tab) { return new URL(tab.href).search === cameFrom.search; }) || (samePath.length === 1 ? samePath[0] : undefined);
       var on = current();
       if (last && on && last !== on) {
         // Measured once the fonts are in (from the cache, on a page of the same site), when the tabs have their widths, so it lands where the slab is.
@@ -134,7 +135,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         // Until then it waits on the last page's tab; it starts with the page, as the view transition fades it in.
         slab.style.transition = "none"; put(slab, last); slab.offsetWidth; slab.style.transition = "";
         isWaitingToSlide = true;
-        var start = function () { isWaitingToSlide = false; settle(); slide(); };
+        // It starts on the first frame the page draws, not before: a slow phone draws the new page late, and a slide started earlier would
+        // show up already halfway there.
+        var start = function () { requestAnimationFrame(function () { isWaitingToSlide = false; settle(); slide(); }); };
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
       }
     }

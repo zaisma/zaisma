@@ -242,6 +242,7 @@ function swap(next) {
   const rows = (root) => { const sorts = root.querySelector(".tab-switch"); return sorts ? Array.from(sorts.closest(".stack-cell").parentElement.children) : []; };
   const here = rows(browse), there = rows(next);
   if (!here.length || !there.length) { browse.replaceChildren(...Array.from(next.childNodes).map((node) => document.importNode(node, true))); return; }
+  const parent = here[0].parentElement;
   here.forEach((row, at) => {
     const to = there[at];
     if (!to) { row.remove(); return; }
@@ -255,7 +256,6 @@ function swap(next) {
       });
     } else row.replaceWith(document.importNode(to, true));
   });
-  const parent = here[0].parentElement;
   there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
 }
 function show(href, isNewEntry, isSearch) {
