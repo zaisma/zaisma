@@ -140,6 +140,13 @@ describe("save history", () => {
     const old = [copy(0), copy(1), copy(2), copy(3), copy(4), copy(31 * 24, "account_lost")];
     expect(copiesToDrop(old, 1e12).map((c) => c.id)).toEqual([`c${31 * 24}`]);
   });
+
+  it("never drops the copy being added, even one dated to a device's play long ago", () => {
+    const deviceCopy = copy(35 * 24, "device_lost");
+    expect(copiesToDrop([deviceCopy, copy(0), copy(1), copy(2), copy(3), copy(4)], 1e12, deviceCopy.id).map((c) => c.id)).toEqual(["c4"]);
+    const allProtected = [copy(0, "account_lost"), copy(1, "smaller"), copy(2, "restore"), copy(3, "account_lost"), copy(4, "smaller")];
+    expect(copiesToDrop([deviceCopy, ...allProtected], 1e12, deviceCopy.id).map((c) => c.id)).toEqual(["c4"]);
+  });
 });
 
 describe("IndexedDB databases a browser can restore", () => {
@@ -189,6 +196,25 @@ describe("IndexedDB databases a browser can restore", () => {
 
   it("answers a message that says what's wrong at that field", () => {
     expect(indexeddbDatabasesProblem([database([store(), store()])])).toEqual({ field: "indexeddb_databases[0].stores[1].name", message: 'indexeddb_databases[0].stores[1].name "saves" is there twice in its database.' });
+  });
+
+  it("refuses a value nested too deep instead of overflowing the stack", () => {
+    // Built iteratively: a list inside a list, and an object inside an object, 100000 levels deep.
+    let list: unknown = "bottom";
+    let nested: unknown = "bottom";
+    for (let level = 0; level < 100000; level++) {
+      list = [list];
+      nested = { next: nested };
+    }
+    for (const value of [list, nested]) {
+      const problem = indexeddbDatabasesProblem([database([store({ records: [["slot-1", value]] })])]);
+      expect(problem?.field.startsWith("indexeddb_databases[0].stores[0].records[0][1]")).toBe(true);
+      expect(problem?.message).toContain("nested more than 1000 levels deep");
+    }
+    // 100 levels is fine.
+    let shallow: unknown = "bottom";
+    for (let level = 0; level < 100; level++) shallow = [shallow];
+    expect(indexeddbDatabasesProblem([database([store({ records: [["slot-1", shallow]] })])])).toBeNull();
   });
 });
 

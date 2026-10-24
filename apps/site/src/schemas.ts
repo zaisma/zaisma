@@ -801,7 +801,7 @@ const SAVE_SUMMARY_FIELDS = {
     "Who made the save as it is now.",
   ),
   save_copy_count: countOf("Earlier versions kept, up to 5: list_save_copies lists them."),
-  version_id: nullable(idOf("version", "The game version that saved it, as the page reported it; null for a save the developer wrote, or one from before Zaisma kept it.")),
+  version_id: nullable(idOf("version", "The game version that saved it, as the page reported it; null for a save the developer changed, replaced or reset, and for one from before Zaisma kept it; a restored save has the restored copy's.")),
 };
 /** A key path, IndexedDB's own: "" or names joined by dots, like "player.id". */
 const KEY_PATH = text('A key path: "" (the whole value) or names joined by dots, like "player.id".');
@@ -867,7 +867,7 @@ const SAVE_COPY_FIELDS = {
   sha256: text(),
   size_bytes: countOf(),
   is_current_save: yes("The save holds exactly this progress now."),
-  version_id: nullable(idOf("version", "The game version that saved this progress; null when you wrote it, or from before Zaisma kept it.")),
+  version_id: nullable(idOf("version", "The game version that saved this progress; null for a save you changed, replaced or reset, and for one from before Zaisma kept it; a restored save has the restored copy's.")),
 };
 export const SAVE_SUMMARY = object(SAVE_SUMMARY_FIELDS);
 export const SAVE_LIST = object({

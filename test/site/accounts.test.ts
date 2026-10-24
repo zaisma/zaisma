@@ -2207,6 +2207,29 @@ describe("cloud saves", () => {
       expect(await env.DB.prepare("SELECT version_id FROM saves WHERE game_id = ?").bind(gameId).first()).toEqual({ version_id: "version_owl1" });
     });
 
+    it("upgrades a save's copies when it's upgraded, so a copy of the same progress is the current save", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      const accountId = users.get("fox@example.com")!;
+      await put(b, 0, { level: "1" });
+      await put(b, 1, { level: "2" });
+      const [copy] = await copies();
+      // The save and its copy, both stored before v1 with the same progress, and so with the same old hash.
+      const legacy = JSON.stringify({ level: "2" });
+      const legacyHash = await sha256Hex(new TextEncoder().encode(legacy));
+      await env.SAVES.put(saveKey(accountId, gameId), legacy, { customMetadata: { version_number: "2" } });
+      await env.SAVES.put(`${id()}/${gameId}/${copy!.id}.json`, legacy);
+      await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ?").bind(legacyHash, legacy.length, accountId).run();
+      await env.DB.prepare("UPDATE save_history SET sha256 = ?, size_bytes = ? WHERE id = ?").bind(legacyHash, legacy.length, copy!.id).run();
+      // The first read of the save upgrades the copy too, without anyone opening it.
+      await b.go("/api/saves/owl-game");
+      const text = savedText({ level: "2" });
+      expect(await env.DB.prepare("SELECT sha256, size_bytes FROM save_history WHERE id = ?").bind(copy!.id).first()).toEqual({ sha256: await sha256Hex(new TextEncoder().encode(text)), size_bytes: text.length });
+      const listed = (await (await b.go("/api/saves/owl-game/copies")).json()) as { save_copies: { id: string; is_current_save: boolean }[] };
+      expect(listed.save_copies.find((savedCopy) => savedCopy.id === copy!.id)!.is_current_save).toBe(true);
+    });
+
     it("keeps five, dropping routine copies before ones from right before progress was lost", async () => {
       await liveGame();
       const b = new Browser();
@@ -4075,7 +4098,8 @@ describe("download your data", () => {
     const id = users.get("fox@example.com")!;
     await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ level: "3" }) }) });
     await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('copy-1', ?, 'g-owl', ?, 'hourly', 'abc', 20)").bind(id, now - 3600_000).run();
-    // A copy stored before v1: the export reads it as v1 and leaves it as it is.
+    // A save and a copy stored before v1: the export reads them as v1, with the v1 text's hash and size, and leaves them as they are.
+    await env.SAVES.put(saveKey(id, "g-owl"), JSON.stringify({ level: "3" }), { customMetadata: { version_number: "1" } });
     await env.SAVES.put(saveCopyKey(id, "g-owl", "copy-1"), JSON.stringify({ level: "1" }));
     await recordPlayed(env.DB, id, "g-owl");
     await createAccount(env.DB, { id: "u-friend", username: "Kind_Badger", ageBand: "18+" });
@@ -4112,6 +4136,11 @@ describe("download your data", () => {
     expect(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]).toBeTruthy();
     expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ copy_reason: "hourly", local_storage_items: { level: "1" }, indexeddb_databases: [] });
     expect(await (await env.SAVES.get(saveCopyKey(id, "g-owl", "copy-1")))!.text()).toBe(JSON.stringify({ level: "1" }));
+    expect(await (await env.SAVES.get(saveKey(id, "g-owl")))!.text()).toBe(JSON.stringify({ level: "3" }));
+    const v1Save = savedText({ level: "3" });
+    const v1Copy = savedText({ level: "1" });
+    expect(zip.json("saves/owl-game/save.json")).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(v1Save)), size_bytes: v1Save.length });
+    expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ sha256: await sha256Hex(new TextEncoder().encode(v1Copy)), size_bytes: v1Copy.length });
     expect(zip.json("friends.json")).toMatchObject({ friends: [{ username: "Kind_Badger" }], blocks: [{ username: "Loud_Crow" }] });
     expect(zip.json("games-played.json")).toMatchObject({ continue_playing: [{ game_slug: "owl-game" }], games_ever_played: [{ game_slug: "owl-game" }] });
     expect(zip.json("developer.json").api_keys).toMatchObject([{ name: "my laptop" }]);

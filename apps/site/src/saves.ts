@@ -178,14 +178,22 @@ export async function readUpgradedSave(env: Env, key: string, update: (sha256: s
   return text;
 }
 
-/** The player's save as v1 (readUpgradedSave); a rewrite also brings `row`'s sha256 and size_bytes up to date. Null when its data is gone. */
-export function readSave(env: Env, row: SaveRow): Promise<string | null> {
-  return readUpgradedSave(env, saveKey(row.account_id, row.game_id), async (sha256, sizeBytes, oldSha256) => {
+/**
+ * The player's save as v1 (readUpgradedSave); a rewrite also brings `row`'s sha256 and size_bytes up to date. Null when its data is gone.
+ * A save that needed the rewrite was stored before v1, and so were likely its copies, which keep their old hash until they're read
+ * (so is_current_save and keepCopy's dedupe would miss them): they're read, and upgraded, right then.
+ */
+export async function readSave(env: Env, row: SaveRow): Promise<string | null> {
+  let isRewritten = false;
+  const text = await readUpgradedSave(env, saveKey(row.account_id, row.game_id), async (sha256, sizeBytes, oldSha256) => {
+    isRewritten = true;
     const { meta } = await env.DB.prepare("UPDATE saves SET sha256 = ?, size_bytes = ? WHERE account_id = ? AND game_id = ? AND version_number = ? AND sha256 = ?")
       .bind(sha256, sizeBytes, row.account_id, row.game_id, row.version_number, oldSha256)
       .run();
     if (meta.changes === 1) Object.assign(row, { sha256, size_bytes: sizeBytes });
   });
+  if (isRewritten) for (const copy of await saveHistory(env.DB, row.account_id, row.game_id)) await readCopy(env, copy);
+  return text;
 }
 
 /** An earlier version as v1 (readUpgradedSave); a rewrite also brings `copy`'s sha256 and size_bytes up to date. Null when its data is gone. */

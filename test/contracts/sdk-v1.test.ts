@@ -23,7 +23,7 @@ const FROZEN_TYPES = join(ROOT, FROZEN_TYPES_PATH);
 const isWritingBaseline = Boolean(process.env.CONTRACTS_WRITE_BASELINE);
 
 /** sdk.d.ts's SHA-256. A new baseline prints the new one: change it here, in the same reviewed diff. */
-const FROZEN_TYPES_SHA256 = "41986bd9aabc4db16a38554e5860eea167b04e303479523d785c80bda38837c4";
+const FROZEN_TYPES_SHA256 = "135bdbbe6bebee742ce873289b2f7758c15a87ee43fe31bc1adbecadf3e46ac2";
 
 /** window.Zaisma's members this lock holds: everything but joinRoom and rooms (rooms-v1.test.ts). */
 const ROOTS = ["sdkVersionNumber", "gameSlug", "player", "invite", "checkChat", "openPlayersPanel", "friends", "links", "server", "saves", "versions", "items"];

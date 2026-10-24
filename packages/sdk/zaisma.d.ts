@@ -525,7 +525,8 @@ declare namespace Zaisma {
     isCurrentSave: boolean;
     /**
      * The game version that saved it, like "version_k2v9q4x7m1p3w8r5t6y0", as the game's page reported it;
-     * null for one you wrote through the API or MCP, or one from before Zaisma kept it.
+     * null for a save you changed, replaced or reset through the API or MCP, and for one from before Zaisma kept it;
+     * a restored save has the restored copy's.
      */
     versionId: string | null;
   }

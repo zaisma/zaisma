@@ -1,4 +1,4 @@
-import { iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveKey, type Account } from "@zaisma/core";
+import { canonicalSave, iso, linkUrlsOf, readStoredSave, saveContentsJson, saveCopyKey, saveHash, saveKey, type Account } from "@zaisma/core";
 import { authUserRecord, realEmail } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { zipStream, type ZipSource } from "./zip-writer.ts";
@@ -184,12 +184,19 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     const folder = `saves/${save.slug}`;
     const text = await (await env.SAVES.get(saveKey(id, save.game_id)))?.text();
     if (text === undefined) missing.push(`${folder}/save.json`);
-    else yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: save.sha256, size_bytes: save.size_bytes, saved_at: iso(save.saved_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(text), null) });
+    else {
+      // Hash and size are of the v1 text the contents are written as, whatever shape the stored one is in.
+      const v1Text = canonicalSave(readStoredSave(text));
+      yield jsonFile(`${folder}/save.json`, { game_slug: save.slug, sha256: await saveHash(v1Text), size_bytes: encoder.encode(v1Text).byteLength, saved_at: iso(save.saved_at_ms), changed_by_kind: save.changed_by_kind, ...saveContentsJson(readStoredSave(v1Text), null) });
+    }
     for (const copy of copies.results.filter((candidate) => candidate.game_id === save.game_id)) {
       const path = `${folder}/earlier/${new Date(copy.saved_at_ms).toISOString().replace(/:/g, "-")}.json`;
       const copyText = await (await env.SAVES.get(saveCopyKey(id, copy.game_id, copy.id)))?.text();
       if (copyText === undefined) missing.push(path);
-      else yield jsonFile(path, { game_slug: save.slug, saved_at: iso(copy.saved_at_ms), copy_reason: copy.copy_reason, sha256: copy.sha256, size_bytes: copy.size_bytes, ...saveContentsJson(readStoredSave(copyText), null) });
+      else {
+        const v1Text = canonicalSave(readStoredSave(copyText));
+        yield jsonFile(path, { game_slug: save.slug, saved_at: iso(copy.saved_at_ms), copy_reason: copy.copy_reason, sha256: await saveHash(v1Text), size_bytes: encoder.encode(v1Text).byteLength, ...saveContentsJson(readStoredSave(v1Text), null) });
+      }
     }
   }
 
