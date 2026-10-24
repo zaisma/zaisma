@@ -38,6 +38,7 @@ const ROOM_TYPES = new Set(["Room", "Rooms"]);
 const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
   // Zaisma.items.buy, the buy sheet.
   { union: "ErrorCode", value: "no_item" },
+  { union: "ErrorCode", value: "no_game" },
   { union: "ErrorCode", value: "not_for_sale" },
   { union: "ErrorCode", value: "stripe_not_connected" },
   { union: "ErrorCode", value: "stripe_cannot_take_payments" },
