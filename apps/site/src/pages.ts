@@ -1,5 +1,9 @@
 import {
   ALLOWED_CONTENT,
+  purchaseLabelFor,
+  purchaseSettingsOf,
+  refundPolicyWords,
+  type PurchaseLabel,
   canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
@@ -53,6 +57,8 @@ import { profilePath } from "./profiles.ts";
 import { MAXIMUM_REFRESHED_ROOM_COUNT, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
+import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
+import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
 import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH } from "./security-policy.ts";
@@ -84,6 +90,15 @@ const isPhoneRequest = (request: Request) => /iPhone|iPod|Android.*Mobile|Mobi/.
 
 /** The game's own servers in the ⋯ menu, in neutral words: "Online play runs on the developer's own server: play.example.com". */
 const ownServersLine = (hosts: string[]) => `Online play runs on the developer's own ${hosts.length === 1 ? "server" : "servers"}: ${hosts.join(", ")}`;
+
+const PURCHASE_CATEGORY_WORDS: Record<PurchaseLabel["categories"][number], string> = { cosmetic: "cosmetic items", gameplay: "items that help you play", content: "more of the game", currency: "in-game currency" };
+
+/** A game page's purchase label: what the game sells through Zaisma and its own payments, and that some goes past Zaisma. */
+function purchaseWords(purchaseLabel: PurchaseLabel): string {
+  if (!purchaseLabel.categories.length) return "No in-game purchases";
+  const sold = purchaseLabel.categories.map((category) => PURCHASE_CATEGORY_WORDS[category]).join(", ");
+  return `${sold.charAt(0).toUpperCase()}${sold.slice(1)}${purchaseLabel.has_own_payments ? "; some handled by the developer, not Zaisma" : ""}`;
+}
 
 export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
@@ -152,6 +167,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const playingNowPlayerCount = Math.max(playingNow.get(game.id) ?? 0, live ? live.playing.playerCount : 0);
   const shots = pictures.results.map((picture) => `/img/${picture.id}`);
   const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
+  const purchaseLabel = await purchaseLabelFor(env.DB, game);
+  const refundWords = refundPolicyWords(purchaseSettingsOf(game));
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
   const playModes = readPlayModes(game.play_modes);
@@ -159,6 +176,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const gameFacts = [
     ...(describedModes.length ? [{ label: "Players", entries: describedModes.map((playMode) => ({ text: playMode.playerCount ? `${playMode.label}, ${playMode.playerCount}` : playMode.label, icon: MODE_ICON_NAMES[playMode.mode] })) }] : []),
     ...(devices.length ? [{ label: "Works on", entries: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICON_NAMES[device] ?? ("computer" as const) })) }] : []),
+    // What the game sells, before anyone plays ("Every game that sells something states its refund policy").
+    { label: "Purchases", text: purchaseWords(purchaseLabel) },
+    ...(purchaseLabel.categories.length && refundWords ? [{ label: "Refunds", text: refundWords }] : []),
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
   const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
@@ -313,6 +333,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13,
+    hasStripePayments: !isClosed,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
 ${screenshotSheets}
 ${playingBar({ title: game.title, controls: barControls })}
@@ -330,6 +351,7 @@ ${saves ? playingCard({ id: "save-toast", body: stack({ items: [{ kind: "words",
 ${signInCard}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
+${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere })}
 ${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
@@ -359,6 +381,7 @@ ${pageData("game-page-data", {
       // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
       autoplay: autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "when_signed_in" : "always") : "never",
     })}
+${isClosed ? "" : buySheetData({ slug: game.slug, tester_token: tester?.token ?? null, place: "game_page", ...buySheetStripe(env), asked: null, opener_origin: null })}
 ${saves && !isClosed ? pageData("saves-data", { api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: roomQuery, frameOrigin: gameOrigin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000, isAccountOfferEnabled: Boolean(game.account_offer_enabled) }) : ""}
 ${isClosed
       ? scriptTags(GAME_PAGE_SCRIPT, GAME_EMBEDDED_SCRIPT)
@@ -370,6 +393,8 @@ ${isClosed
           ...(canSignIn ? [SIGN_IN_WHILE_PLAYING_SCRIPT] : []),
           ...(multiplayer ? [STILL_THERE_SCRIPT] : []),
           GAME_LINKS_SCRIPT,
+          PASSKEY_SCRIPT,
+          BUY_SHEET_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
           GAME_UPDATES_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
@@ -1005,6 +1030,8 @@ addEventListener("message", (e) => {
   if (d && d.type === "zaisma:sign-in" && window.askSignIn) askSignIn();
   // The game asks to open one of its registered links (Zaisma.links.open).
   if (d && d.type === "zaisma:link" && typeof d.requestNumber === "number" && typeof d.linkName === "string") askLink(d);
+  // The game asks to buy one of its items (Zaisma.items.buy): the buy sheet rises over it.
+  if (d && d.type === "zaisma:buy" && typeof d.requestNumber === "number" && typeof d.itemName === "string" && window.askBuy) askBuy(d);
   // The game's own save screens (Zaisma.saves) and its moment for "Keep your progress" (Zaisma.player.offerAccount),
   // answered by the saves script; a game without cloud saves here has none: cloud_saves_not_here when the game has
   // them on but this page can't (a tester link, or no accounts), cloud_saves_off when the game has them off.

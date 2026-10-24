@@ -9,18 +9,24 @@ import {
   isPurchasePin,
   isWithdrawalLineShownFor,
   itemByName,
+  ownServerUrlsOf,
   owningPurchaseOf,
   passkeysFor,
   priceFor,
   priceText,
   purchasePinProblem,
   purchaseSettingsOf,
+  redirectUrlsOf,
   refundPolicyWords,
+  signInAppsFor,
   type Account,
 } from "@zaisma/core";
 import { tryPassword } from "./account.ts";
 import { currentSession, realEmail, sessionCookies, type Session } from "./auth.ts";
+import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { isOpenHere } from "./game-links.ts";
+import { glassMessage, html, layout, scriptTags } from "./html.ts";
+import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { purchaseJson, withReceipts } from "./items-api.ts";
 import { checkPasskeyTap, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
 import { completePurchase, failPurchase, notePayment, recordPendingSale, saleById, staleSales, type Sale } from "./sales.ts";
@@ -456,4 +462,56 @@ export async function failStaleSales(env: Env, nowMs = Date.now()): Promise<void
 /** Whether a receipt email is one: an address like alex@example.com, at most 254 characters. */
 export function isReceiptEmail(receiptEmail: unknown): receiptEmail is string {
   return typeof receiptEmail === "string" && receiptEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail);
+}
+
+/**
+ * zaisma.com/buy/<slug>/<item_name>: the buy sheet alone in a window, for a game on its own site (the SDK opens it with item_count,
+ * request_number and game_account_id). It answers the page that opened it only at an origin the developer already registered: one of the
+ * game's own servers (https) or a redirect address of one of their sign-in apps. That origin comes from the opener's address (Referer) and
+ * rides along as opener_origin through a guest's sign-in; postMessage delivers only to a window at that origin, so no other site hears it.
+ * With none, the purchase still completes and the game sees it in its next pass.
+ */
+export async function buyWindowPage(env: Env, request: Request, slug: string, itemName: string): Promise<Response> {
+  const url = new URL(request.url);
+  const game = await gameBySlug(env.DB, slug);
+  if (!game || !(await isOpenHere(env, game, undefined))) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
+  const wholeNumber = (text: string | null) => (text !== null && /^\d{1,9}$/.test(text) ? Number(text) : 0);
+  const itemCount = url.searchParams.has("item_count") ? wholeNumber(url.searchParams.get("item_count")) : 1;
+  const given = url.searchParams.get("opener_origin") ?? originOf(request.headers.get("referer"));
+  const openerOrigin = given && (await openerOriginsOf(env, game)).includes(given) ? given : null;
+  const query = new URLSearchParams(url.searchParams);
+  if (openerOrigin) query.set("opener_origin", openerOrigin);
+  const here = `/buy/${game.slug}/${encodeURIComponent(itemName)}?${query}`;
+  return layout(env, {
+    title: `Buy from ${game.title} · Zaisma`,
+    checkedPage: "Buy window",
+    isBare: true,
+    isPrivate: true,
+    hasStripePayments: true,
+    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}` })}
+${buySheetData({
+      slug: game.slug,
+      tester_token: null,
+      place: "window",
+      ...buySheetStripe(env),
+      asked: { item_name: itemName, item_count: itemCount, game_account_id: url.searchParams.get("game_account_id"), request_number: wholeNumber(url.searchParams.get("request_number")) },
+      opener_origin: openerOrigin,
+    })}
+${scriptTags(PASSKEY_SCRIPT, BUY_SHEET_SCRIPT)}`,
+  });
+}
+
+function originOf(address: string | null): string | null {
+  try {
+    return address ? new URL(address).origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The origins the buy window may answer: the game's own servers on https, and its developer's sign-in apps' redirect addresses. */
+async function openerOriginsOf(env: Env, game: { owner_id: string | null; own_server_urls: string }): Promise<string[]> {
+  const servers = ownServerUrlsOf(game).filter((server) => server.startsWith("https://"));
+  const apps = game.owner_id ? await signInAppsFor(env.DB, game.owner_id) : [];
+  return [...servers, ...apps.flatMap(redirectUrlsOf)].map(originOf).filter((origin): origin is string => origin !== null && origin !== "null");
 }
