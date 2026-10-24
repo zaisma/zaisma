@@ -31,18 +31,18 @@ describe("preview router on the tailnet", () => {
     const answer = new Response(`<iframe src="https://${HOST}:8801/tiny-farm/">`, { headers: { "content-type": "text/html" } });
     const { seen, send } = preview(() => answer);
     const response = await send(new Request(`http://${HOST}:8800/g/tiny-farm`, { method: "POST", headers: { origin: `http://${HOST}:8800` } }));
-    expect(seen[0].request.url).toBe(`https://${HOST}:8800/g/tiny-farm`);
-    expect(seen[0].request.headers.get("origin")).toBe(`https://${HOST}:8800`);
+    expect(seen[0]!.request.url).toBe(`https://${HOST}:8800/g/tiny-farm`);
+    expect(seen[0]!.request.headers.get("origin")).toBe(`https://${HOST}:8800`);
     expect(response).toBe(answer);
   });
 
   it("tells the Workers a localhost browser's Origin and Referer at the tailnet address", async () => {
     const { seen, send } = preview(page("ok"));
     await send(new Request("http://localhost:8800/signin", { method: "POST", headers: { origin: "http://localhost:8800", referer: "http://localhost:8800/signin?next=%2Fdashboard" } }));
-    expect(seen[0].worker).toBe("site");
-    expect(seen[0].request.url).toBe(`https://${HOST}:8800/signin`);
-    expect(seen[0].request.headers.get("origin")).toBe(`https://${HOST}:8800`);
-    expect(seen[0].request.headers.get("referer")).toBe(`https://${HOST}:8800/signin?next=%2Fdashboard`);
+    expect(seen[0]!.worker).toBe("site");
+    expect(seen[0]!.request.url).toBe(`https://${HOST}:8800/signin`);
+    expect(seen[0]!.request.headers.get("origin")).toBe(`https://${HOST}:8800`);
+    expect(seen[0]!.request.headers.get("referer")).toBe(`https://${HOST}:8800/signin?next=%2Fdashboard`);
   });
 
   it("tells a game's requests from 127.0.0.1 at the tailnet address, to the games and rooms Workers by their port", async () => {
@@ -51,10 +51,10 @@ describe("preview router on the tailnet", () => {
     await send(new Request("http://127.0.0.1:8801/tiny-farm/", { headers: { referer: "http://localhost:8800/g/tiny-farm" } }));
     await send(new Request("http://localhost:8802/rooms/abc", { headers: { origin: "http://127.0.0.1:8801" } }));
     expect(seen.map(({ worker }) => worker)).toEqual(["site", "games", "rooms"]);
-    expect(seen[0].request.headers.get("origin")).toBe(`https://${HOST}:8801`);
-    expect(seen[1].request.url).toBe(`https://${HOST}:8801/tiny-farm/`);
-    expect(seen[1].request.headers.get("referer")).toBe(`https://${HOST}:8800/g/tiny-farm`);
-    expect(seen[2].request.headers.get("origin")).toBe(`https://${HOST}:8801`);
+    expect(seen[0]!.request.headers.get("origin")).toBe(`https://${HOST}:8801`);
+    expect(seen[1]!.request.url).toBe(`https://${HOST}:8801/tiny-farm/`);
+    expect(seen[1]!.request.headers.get("referer")).toBe(`https://${HOST}:8800/g/tiny-farm`);
+    expect(seen[2]!.request.headers.get("origin")).toBe(`https://${HOST}:8801`);
   });
 
   it("leaves another site's Origin on this Mac as it was (Sky Hopper Online, the sign-in stand-in's site)", async () => {
@@ -126,9 +126,9 @@ describe("preview router on the tailnet", () => {
     const answer = new Response(`https://${HOST}:8800/`, { headers: { "content-type": "text/plain" } });
     const { seen, send } = preview(() => answer);
     const response = await send(new Request("http://localhost:8800/api/dev/games", { headers: { "x-preview-script": "1", origin: `https://${HOST}:8800` } }));
-    expect(seen[0].request.url).toBe(`https://${HOST}:8800/api/dev/games`);
-    expect(seen[0].request.headers.has("x-preview-script")).toBe(false);
-    expect(seen[0].request.headers.get("origin")).toBe(`https://${HOST}:8800`);
+    expect(seen[0]!.request.url).toBe(`https://${HOST}:8800/api/dev/games`);
+    expect(seen[0]!.request.headers.has("x-preview-script")).toBe(false);
+    expect(seen[0]!.request.headers.get("origin")).toBe(`https://${HOST}:8800`);
     expect(response).toBe(answer);
   });
 
@@ -137,6 +137,6 @@ describe("preview router on the tailnet", () => {
     const { seen, send } = preview(() => answer, "");
     const request = new Request("http://localhost:8800/", { headers: { origin: "http://localhost:8800" } });
     expect(await send(request)).toBe(answer);
-    expect(seen[0].request).toBe(request);
+    expect(seen[0]!.request).toBe(request);
   });
 });
