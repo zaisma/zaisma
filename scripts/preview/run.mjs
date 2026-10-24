@@ -54,10 +54,20 @@ const ROOMS_ISSUER = `http://localhost:${PORTS.rooms}`;
 // The stand-in mailbox the site sends email codes to (fake-mail.mjs): open it to read them.
 const MAIL = browserOrigin("localhost", PORTS.mail);
 // This script's own calls (test data, waiting for the servers) go straight to the servers here, not round the tailnet: the
-// router sees every request as sent to the phone address anyway.
+// router sees every request as sent to the phone address anyway. They're marked as this script's (the router's
+// PREVIEW_SCRIPT_HEADER), so their answers name the tailnet address, as a browser there sees them, not localhost.
 if (PHONE_HOST) {
   const fetchHere = globalThis.fetch;
-  globalThis.fetch = (input, init) => fetchHere(input instanceof Request ? input : String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), init);
+  const PREVIEW_SCRIPT_HEADER = "x-preview-script";
+  globalThis.fetch = (input, init) => {
+    if (input instanceof Request) {
+      input.headers.set(PREVIEW_SCRIPT_HEADER, "1");
+      return fetchHere(input, init);
+    }
+    const headers = new Headers(init?.headers);
+    headers.set(PREVIEW_SCRIPT_HEADER, "1");
+    return fetchHere(String(input).replace(`https://${PHONE_HOST}:`, "http://localhost:"), { ...init, headers });
+  };
 }
 // The feedback layer on every page (feedback-server.mjs): the site's preview entry sends /__preview/feedback/* here.
 const FEEDBACK = `http://localhost:${PORTS.feedback}`;
@@ -422,7 +432,7 @@ const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
   compatibility_date: "2026-10-01",
-  vars: { GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
+  vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), MAIL_PORT: String(PORTS.mail), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
 const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
