@@ -1,11 +1,10 @@
+import { DEVICE_KINDS, type DeviceKind } from "@zaisma/core";
+
 /**
  * The viewer's kind of device (phone, tablet or computer), which Browse and the home put games for first. Measured in the browser the way
  * the game page does (a coarse pointer is a phone under 600 px on its short side, else a tablet; otherwise a computer) and kept in
  * DEVICE_KIND_COOKIE; a first visit without it is guessed from the browser's name.
  */
-
-export const DEVICE_KINDS = ["phone", "tablet", "computer"] as const;
-export type DeviceKind = (typeof DEVICE_KINDS)[number];
 
 /** The cookie the device's kind is kept in. Not zaisma_device, which holds the sign-in device marks. */
 export const DEVICE_KIND_COOKIE = "zaisma_device_kind";

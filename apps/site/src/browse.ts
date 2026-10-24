@@ -1,4 +1,4 @@
-import { GENRE_LABELS, GENRES, requestCountryCode, type Genre } from "@zaisma/core";
+import { GENRE_LABELS, GENRES, requestCountryCode, type DeviceKind, type Genre } from "@zaisma/core";
 import { textButton } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { grid, stack, type LayoutItem } from "./components/layout.ts";
@@ -7,7 +7,7 @@ import { emptyState } from "./components/data.ts";
 import { gameCover } from "./components/panes.ts";
 import { dividerWords } from "./components/reading.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
-import { DEVICE_KIND_SOURCE, viewerDeviceKind, type DeviceKind } from "./device-kind.ts";
+import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
 import { MINIMUM_POPULAR_PLAYER_COUNT, isTrending, shelfCounts, showcase, trendingScore, type ShelfCount, type ShowGame } from "./home.ts";
 import { GAME_SEARCH, html, layout, scriptTags } from "./html.ts";
@@ -64,13 +64,14 @@ const DEVICE_PLURALS: Record<string, string> = { phone: "phones", tablet: "table
 const madeFor = (devices: string[]): string => `Made for ${devices.map((device) => DEVICE_PLURALS[device] ?? device).join(" and ")}`;
 
 /** Why a game may not suit this device, in the game page's own words; null when it's made for it (or says nothing about devices). */
-export function deviceNote(game: Pick<ShowGame, "devices" | "controls">, deviceKind: DeviceKind): string | null {
+export function deviceNote(game: Pick<ShowGame, "devices" | "controls" | "screen_orientation">, deviceKind: DeviceKind): string | null {
   if (!game.devices.length || game.devices.includes(deviceKind)) return null;
   const isTouch = deviceKind !== "computer";
   if (game.controls.length) {
     if (isTouch && !game.controls.includes("touch")) return game.controls.includes("keyboard_mouse") ? "Needs a keyboard" : "Needs a gamepad";
     if (!isTouch && !game.controls.includes("keyboard_mouse") && !game.controls.includes("touch")) return "Needs a gamepad";
   }
+  if (isTouch && (game.screen_orientation === "landscape" || game.screen_orientation === "portrait")) return `Best in ${game.screen_orientation}`;
   return madeFor(game.devices);
 }
 
@@ -95,18 +96,20 @@ export async function browseGames(env: Env, options: { sort: BrowseSort; filter:
   const updatedAtMs = (game: ShowGame) => game.published_at_ms ?? 0;
   const byUpdate = (first: ShowGame, second: ShowGame) => updatedAtMs(second) - updatedAtMs(first);
   const countsOf = (game: ShowGame): ShelfCount | undefined => counts.get(game.slug);
-  const ranked = (isRanked: (gameCounts: ShelfCount) => boolean, score: (gameCounts: ShelfCount) => number) => (first: ShowGame, second: ShowGame) => {
+  type Order = (first: ShowGame, second: ShowGame) => number;
+  // Games a rule ranks first, by their score; the rest after them in the fallback's order (newest update first unless said).
+  const ranked = (isRanked: (gameCounts: ShelfCount) => boolean, score: (gameCounts: ShelfCount) => number, fallback: Order = byUpdate): Order => (first, second) => {
     const [firstCounts, secondCounts] = [countsOf(first), countsOf(second)];
     const [isFirstRanked, isSecondRanked] = [Boolean(firstCounts && isRanked(firstCounts)), Boolean(secondCounts && isRanked(secondCounts))];
     if (isFirstRanked !== isSecondRanked) return isFirstRanked ? -1 : 1;
     if (isFirstRanked) return score(secondCounts!) - score(firstCounts!) || byUpdate(first, second);
-    return byUpdate(first, second);
+    return fallback(first, second);
   };
   const popularOrder = ranked((gameCounts) => gameCounts.weekPlayerCount >= MINIMUM_POPULAR_PLAYER_COUNT, (gameCounts) => gameCounts.weekPlayerCount);
-  const order: Record<BrowseSort, (first: ShowGame, second: ShowGame) => number> = {
+  const order: Record<BrowseSort, Order> = {
     popular: popularOrder,
     // Trending games first by how strongly they trend, then the rest as Popular has them.
-    trending: (first, second) => ranked(isTrending, trendingScore)(first, second) || popularOrder(first, second),
+    trending: ranked(isTrending, trendingScore, popularOrder),
     new: (first, second) => (second.first_published_at_ms ?? 0) - (first.first_published_at_ms ?? 0),
     updated: byUpdate,
   };
@@ -136,7 +139,7 @@ const coverOf = (game: BrowseGame, coverIndex: number): LayoutItem => ({
     title: game.title,
     imageUrl: game.cover,
     href: `/g/${game.slug}`,
-    facts: game.device_note ? { deviceNote: game.device_note } : { playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined },
+    facts: { deviceNote: game.device_note ?? undefined, playerCount: game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined },
     // The first row loads with the page, the very first cover before anything else.
     isEager: coverIndex < 6,
     hasHighPriority: coverIndex === 0,

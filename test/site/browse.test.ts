@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
-import { BROWSE_PAGE_GAME_COUNT, browseQuery, deviceNote } from "../../apps/site/src/browse.ts";
+import { BROWSE_PAGE_GAME_COUNT, browseQuery, deviceNote as note } from "../../apps/site/src/browse.ts";
 import { viewerDeviceKind } from "../../apps/site/src/device-kind.ts";
 import { HOME_SCRIPT } from "../../apps/site/src/home-script.ts";
 
@@ -14,13 +14,17 @@ const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebK
 interface SeedGame {
   slug: string;
   title: string;
-  /** Players each of the last days, on five networks so no one network is capped; 0 for none. */
+  /** Players each day, on five networks so no one network is capped; 0 for none. */
   dailyPlayerCount?: number;
   publishedAgoDays: number;
   devices?: string;
   controls?: string;
   genres?: string;
   playModes?: string;
+  /** Played only in the last 2 days, so it trends. */
+  isRising?: boolean;
+  /** Set straight on the row: what Browse must leave out, or rank as unplayed. */
+  columns?: Record<string, string | number>;
 }
 
 const GAMES: SeedGame[] = [
@@ -29,6 +33,12 @@ const GAMES: SeedGame[] = [
   { slug: "browse-keys", title: "Key Tactics", dailyPlayerCount: 5, publishedAgoDays: 20, devices: "computer", controls: "keyboard_mouse", genres: "strategy,role_playing" },
   { slug: "browse-thumbs", title: "Thumb Garden", publishedAgoDays: 2, devices: "phone", controls: "touch", genres: "puzzle" },
   { slug: "browse-quiet", title: "Quiet Lake", publishedAgoDays: 1, genres: "adventure" },
+  { slug: "browse-rising", title: "Rising Tide", dailyPlayerCount: 4, isRising: true, publishedAgoDays: 10 },
+  { slug: "browse-shelved", title: "Shelved Saga", dailyPlayerCount: 50, publishedAgoDays: 70, columns: { is_off_shelves: 1 } },
+  { slug: "browse-relay", title: "Relay Race", publishedAgoDays: 15, columns: { multiplayer_mode: "relay" } },
+  { slug: "browse-private", title: "Private Peak", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { visibility: "private" } },
+  { slug: "browse-grown", title: "Grown Ground", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { minimum_player_age_years: 18 } },
+  { slug: "browse-held", title: "Held Hollow", dailyPlayerCount: 50, publishedAgoDays: 3, columns: { title_listing_reason: "Held for review." } },
 ];
 
 /** The covers' games on a Browse page, in order, and which list each is in. */
@@ -53,9 +63,14 @@ beforeAll(async () => {
     await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, devices = ?, controls = ?, genres = ?, play_modes = COALESCE(?, play_modes) WHERE id = ?")
       .bind(`v-${seed.slug}`, seed.devices ?? "", seed.controls ?? "", seed.genres ?? "", seed.playModes ?? null, game.id)
       .run();
-    for (const agoDays of [1, 2, 3, 4, 5, 6]) {
-      for (const asn of [7922, 3320, 5089, 2856, 701]) {
-        if (seed.dailyPlayerCount) await env.DB.prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES (?, ?, ?, ?)").bind(game.id, day(agoDays), asn, seed.dailyPlayerCount).run();
+    for (const [column, value] of Object.entries(seed.columns ?? {})) await env.DB.prepare(`UPDATE games SET ${column} = ? WHERE id = ?`).bind(value, game.id).run();
+    // Played the same every day for two weeks and more, so it doesn't trend; a rising game only in the last 2 days, so it does.
+    if (seed.dailyPlayerCount) {
+      const rows = (seed.isRising ? [1, 2] : Array.from({ length: 16 }, (_, index) => index + 1)).flatMap((agoDays) => [7922, 3320, 5089, 2856, 701].map((asn) => [game.id, day(agoDays), asn, seed.dailyPlayerCount!]));
+      // 20 rows a statement, inside D1's 100 values.
+      for (let first = 0; first < rows.length; first += 20) {
+        const part = rows.slice(first, first + 20);
+        await env.DB.prepare(`INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES ${part.map(() => "(?, ?, ?, ?)").join(", ")}`).bind(...part.flat()).run();
       }
     }
   }
@@ -80,6 +95,7 @@ describe("the viewer's device", () => {
   });
 
   it("gives a game made for other devices the game page's own note", () => {
+    const deviceNote = (game: { devices: string[]; controls: string[]; screen_orientation?: string }, deviceKind: Parameters<typeof note>[1]) => note({ screen_orientation: "any", ...game }, deviceKind);
     expect(deviceNote({ devices: [], controls: [] }, "phone")).toBeNull();
     expect(deviceNote({ devices: ["phone", "computer"], controls: ["touch"] }, "phone")).toBeNull();
     expect(deviceNote({ devices: ["computer"], controls: ["keyboard_mouse"] }, "phone")).toBe("Needs a keyboard");
@@ -87,6 +103,8 @@ describe("the viewer's device", () => {
     expect(deviceNote({ devices: ["computer"], controls: ["gamepad"] }, "computer")).toBeNull();
     expect(deviceNote({ devices: ["phone"], controls: ["touch"] }, "computer")).toBe("Made for phones");
     expect(deviceNote({ devices: ["tablet", "phone"], controls: [] }, "computer")).toBe("Made for tablets and phones");
+    expect(deviceNote({ devices: ["computer"], controls: [], screen_orientation: "landscape" }, "phone")).toBe("Best in landscape");
+    expect(deviceNote({ devices: ["computer"], controls: [], screen_orientation: "landscape" }, "tablet")).toBe("Best in landscape");
   });
 });
 
@@ -100,16 +118,31 @@ describe("Browse", () => {
     expect(text).toMatch(/<h1>Browse<\/h1>/);
   });
 
+  it("leaves out private, older players' and held games, and ranks an off-shelf game as if nobody played it", async () => {
+    const { slugs, otherSlugs } = await browse("", { headers: { cookie: "zaisma_device_kind=computer" } });
+    for (const hidden of ["browse-private", "browse-grown", "browse-held"]) expect([...slugs, ...otherSlugs]).not.toContain(hidden);
+    expect(slugs).toContain("browse-shelved");
+    expect(slugs.indexOf("browse-shelved")).toBeGreaterThan(slugs.indexOf("browse-rising"));
+  });
+
+  it("puts trending games first on Trending, then the rest as Popular has them", async () => {
+    const { slugs } = await browse("?sort=trending", { headers: { cookie: "zaisma_device_kind=computer" } });
+    expect(slugs.slice(0, 4)).toEqual(["browse-rising", "browse-crowded", "browse-busy", "browse-keys"]);
+  });
+
   it("sorts by New and Recently updated", async () => {
     const { slugs: fresh } = await browse("?sort=new", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(fresh.indexOf("browse-quiet")).toBeLessThan(fresh.indexOf("browse-crowded"));
+    // No 60-day window, unlike the home's New row.
+    expect(fresh.indexOf("browse-shelved")).toBeGreaterThan(fresh.indexOf("browse-crowded"));
     const { slugs: updated } = await browse("?sort=updated", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(updated.indexOf("browse-quiet")).toBeLessThan(updated.indexOf("browse-busy"));
   });
 
   it("filters by Multiplayer and by a genre", async () => {
     const { slugs: multiplayer } = await browse("?filter=multiplayer", { headers: { cookie: "zaisma_device_kind=computer" } });
-    expect(multiplayer).toEqual(["browse-busy"]);
+    expect(multiplayer).toEqual(expect.arrayContaining(["browse-busy", "browse-relay"]));
+    expect(multiplayer).toHaveLength(2);
     const { slugs: strategy } = await browse("?filter=strategy", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(strategy).toEqual(["browse-crowded", "browse-keys"]);
   });

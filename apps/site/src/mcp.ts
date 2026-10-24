@@ -138,7 +138,7 @@ const details = {
     items: { enum: GENRES },
     uniqueItems: true,
     maxItems: MAXIMUM_GENRE_COUNT,
-    description: `Up to ${MAXIMUM_GENRE_COUNT} genres from Zaisma's list; players filter Browse (zaisma.com/games) by them, and [] clears them. Only these words: not ["rpg"] or ["multiplayer"] (answers bad_genres; multiplayer comes from play_modes)`,
+    description: `Up to ${MAXIMUM_GENRE_COUNT} genres from Zaisma's list; players filter Browse by them (a genre's own list is zaisma.com/games?filter=<genre>, like ?filter=horror), and [] clears them. Only these words: not ["rpg"] or ["multiplayer"] (answers bad_genres; multiplayer comes from play_modes)`,
     examples: [["role_playing", "strategy"], ["horror", "survival"], []],
   },
   screen_orientation: { type: ["string", "null"], enum: [...SCREENS, null], description: "null: not set" },
