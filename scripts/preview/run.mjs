@@ -97,7 +97,7 @@ if (!existsSync(signInKeyFile)) {
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
 const siteSettings = {
-  SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20",
+  SITE_ORIGIN: SITE, SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
   // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC: "30",

@@ -6,7 +6,7 @@ import { cutButton, runButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { grid, paneParts, row, stack } from "./layout.ts";
 import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
-import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage } from "./checked-pages.ts";
+import { CHECKED_PAGES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
 
 /** Zaisma's branches, in the order Screens shows them. */
 const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Developers", "Gallery"];
@@ -20,6 +20,8 @@ const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Developers", "Ga
 
 export const SCREENS_PATH = "/design/screens";
 export const screensHref = (paths: string[]): string => `${SCREENS_PATH}?${paths.map((path) => `page=${encodeURIComponent(path)}`).join("&")}`;
+/** Screens showing one state on the checks' list by its name (checked-pages.ts), forms sent and all. */
+export const screensStateHref = (name: string): string => `${SCREENS_PATH}?state=${encodeURIComponent(name)}`;
 
 /** A path on this site (never another site's address), as the Screens page takes it. */
 export const isSitePath = (path: string): boolean => /^\/(?![/\\])/.test(path);
@@ -29,6 +31,8 @@ export interface ScreensOptions {
   path: string;
   /** What it's called, for its frames' titles. */
   title: string;
+  /** Taken in each screen once its page loads, to show a state only forms and links reach (checked-pages.ts). */
+  stepsToTake?: readonly StepToTake[];
 }
 
 /** The measuring check, as a script each screen puts in its page to run once it has drawn (scripts/layout-check.mjs runs the same). */
@@ -37,7 +41,7 @@ export const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaisma
 /** One page on the four screens: a desktop beside a phone, light over dark, each with what the measuring check finds under it. */
 export function screens(options: ScreensOptions): Raw {
   const shown = SCREEN_THEMES.flatMap((theme) => [SCREEN_SIZES[1], SCREEN_SIZES[0]].map((screenSize) => ({ theme, screenSize })));
-  return html`<div class="screens" data-screens data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
+  return html`<div class="screens" data-screens${options.stepsToTake ? html` data-steps-to-take="${JSON.stringify(options.stepsToTake)}"` : ""} data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
@@ -50,7 +54,7 @@ export function screens(options: ScreensOptions): Raw {
 
 /** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show. */
 export function screensPicker(path: string): Raw {
-  const ownPages = CHECKED_PAGES.filter((page) => !page.isOnSignInSite && !page.path.startsWith(SCREENS_PATH));
+  const ownPages = CHECKED_PAGES.filter((page) => !page.isOnSignInSite && !page.isOffScreens && !page.path.startsWith(SCREENS_PATH));
   return glassPane({
     paneWidth: "full",
     label: "Pick a page",
@@ -69,7 +73,7 @@ export function screensPicker(path: string): Raw {
                 label: area,
                 items: [
                   { kind: "words", markup: html`<p><strong>${area}</strong></p>` },
-                  { kind: "words", markup: row({ widths: "fit", items: ownPages.filter((page) => page.area === area).map((page) => ({ kind: "words" as const, markup: textLink(page.name.replace(/^Gallery: (.)/, (_, first: string) => first.toUpperCase()), screensHref([page.path])) })) }) },
+                  { kind: "words", markup: row({ widths: "fit", items: ownPages.filter((page) => page.area === area).map((page) => ({ kind: "words" as const, markup: textLink(page.name.replace(/^Gallery: (.)/, (_, first: string) => first.toUpperCase()), screensStateHref(page.name)) })) }) },
                 ],
               }),
             })),
@@ -162,6 +166,22 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
     var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
     var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
     var scripts = figure.closest("[data-screens]").dataset, idle = pointed.textContent;
+    // A state only forms and links reach: each step is taken once its page is there, and the last one's answer is measured.
+    var steps = scripts.stepsToTake ? JSON.parse(scripts.stepsToTake) : [], stepIndex = 0;
+    function takeStep(doc) {
+      var step = steps[stepIndex++];
+      if (step.path) { frame.contentWindow.location.assign(step.path); return; }
+      var found = Array.prototype.find.call(doc.querySelectorAll("form"), function (each) { return each.getAttribute("action") === step.formAction; });
+      if (!found) { verdict.textContent = "Couldn't send the form for " + step.formAction; return; }
+      var word = Math.random().toString(36).slice(2, 10);
+      Object.keys(step.fieldValues).forEach(function (name) {
+        var field = found.elements.namedItem(name);
+        if (!field) { field = doc.createElement("input"); field.type = "hidden"; field.name = name; found.append(field); }
+        field.value = step.fieldValues[name].split(${JSON.stringify(UNIQUE_WORD)}).join(word);
+      });
+      // As a browser without the page's scripts would send it (checked-pages.ts, FormToSend): its answer loads whole, and measures.
+      HTMLFormElement.prototype.submit.call(found);
+    }
     function fit() { scale = Math.min(1, view.clientWidth / widthPx); frame.style.transform = "scale(" + scale + ")"; view.style.height = Math.round(heightPx * scale) + "px"; }
     fit(); window.zaismaWatch.size(view, fit);
     function found(failures) {
@@ -171,9 +191,11 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
       problems.hidden = !failures.length;
     }
     function hide() { pointer.hidden = true; pointed.textContent = idle; }
-    frame.addEventListener("load", function () {
+    frame.addEventListener("load", ready);
+    function ready() {
       var doc = null; try { doc = frame.contentDocument; } catch (error) {}
       if (!doc || !doc.documentElement) { verdict.textContent = "Not a page on this site"; return; }
+      if (stepIndex < steps.length) { takeStep(doc); return; }
       var inside = frame.contentWindow;
       doc.documentElement.setAttribute("data-theme-choice", theme);
       frame.classList.add("is-shown");
@@ -191,7 +213,7 @@ export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
         }, { passive: true }); });
         doc.documentElement.addEventListener("mouseleave", hide);
       });
-    });
+    }
   });
 })();
 `);

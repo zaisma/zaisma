@@ -27,5 +27,5 @@ export function examplePage(env: Env): Response {
     }),
   });
   // The gallery shows it on the four screens (Screens, in the layout group), so the site's own pages may frame it.
-  return layout(env, { title: "Example page · Design · Zaisma", body, isRebuilt: true, isFramedBySelf: true });
+  return layout(env, { title: "Example page · Design · Zaisma", body, checkedPage: "Example page", isFramedBySelf: true });
 }

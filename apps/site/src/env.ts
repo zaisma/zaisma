@@ -134,6 +134,8 @@ export interface Env {
   DEV_ADMIN?: string;
   /** Seconds a guest plays with progress before "Keep your progress" shows. Default 300; the local preview uses less. */
   KEEP_OFFER_SECONDS?: string;
+  /** Seconds a too-young answer keeps that browser from joining. A day unless set; the local preview sets 0, so trying it blocks nothing. */
+  TOO_YOUNG_BLOCK_SECONDS?: string;
   /** The longest a run in Chrome waits for a first frame. PERFORMANCE_CHECK_LIMITS' unless set; the local preview waits less. */
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC?: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */

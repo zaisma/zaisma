@@ -2803,8 +2803,6 @@ html:has(.city-page) { height: 100%; }
 .city-pane .or { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .city-pane .or::before, .city-pane .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .city-pane .note { font: var(--type-note); color: var(--muted); }
-/* How do you play?: the pane's heading is the question, so the choices' own legend is for screen readers only. */
-.city-pane .is-play-step .choices > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* Its cards sit two to a row where the pane has room: an odd one out on the last row is centred under the two above it, one column wide. */
 .city-pane .is-play-step .choice-cards { container-type: inline-size; }
 @container (min-width: 368px) {

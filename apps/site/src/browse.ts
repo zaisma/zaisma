@@ -14,6 +14,7 @@ import { GAME_SEARCH, html, layout, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
+import type { CheckedPageName } from "./components/checked-pages.ts";
 
 /**
  * Browse (/games): every listed game in one grid of covers on Zaisma's own glass, with players now under each, a calm search tool you find
@@ -155,6 +156,16 @@ function otherDevicesWords(games: BrowseGame[]): string {
   return madeFor(mostCommon.split(","));
 }
 
+/**
+ * Which state on the checks' list this Browse is (components/checked-pages.ts). The sort and the page number don't change how it's laid
+ * out, and no games at all (never so in the preview, which has games) counts as Games.
+ */
+function browseState(query: BrowseQuery, isSignedIn: boolean, gameCount: number): CheckedPageName {
+  if (query.searchText) return gameCount ? "Games, a search" : "Games, nothing found";
+  if (query.filter !== "all") return gameCount ? (query.filter === "multiplayer" ? "Games, multiplayer" : "Games, one genre") : "Games, an empty genre";
+  return isSignedIn ? "Games, signed in" : "Games";
+}
+
 /** The results: this page's covers for the viewer's device, then those for others after their divider, then Load more or nothing. */
 function results(query: BrowseQuery, games: BrowseGame[]): LayoutItem[] {
   if (!games.length) {
@@ -216,7 +227,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     isPrivate: Boolean(viewer.account),
     nav: "browse",
     viewer,
-    isRebuilt: true,
+    checkedPage: browseState(query, viewer.account !== null && viewer.account !== undefined, games.length),
     search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.filter !== "all" ? { filter: query.filter } : {}) } },
     body: html`${body}${scriptTags(BROWSE_SCRIPT)}`,
   });
