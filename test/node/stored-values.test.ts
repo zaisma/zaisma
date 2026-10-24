@@ -97,7 +97,7 @@ describe("the site's code", () => {
 const REVIEWED_SINK_COUNTS: Record<string, number> = {
   "access-choices": 3, "account-gate": 1, "account-link": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "block-sheet": 1, "bot-check": 2, browse: 2, city: 3, "city-pane": 5,
   components: 37, "design-loops": 3, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 9, "game-updates": 2, home: 8, "layout-inspect": 1,
-  "passkey-add": 4, "passkey-confirm": 1, passkeys: 1, "play-counter": 1, "players-sheet": 3, profile: 1, "qr-png": 1, "report-sheet": 1, saves: 2, screens: 1, "sign-in-while-playing": 1, site: 4, upload: 1,
+  "passkey-add": 4, "passkey-confirm": 1, passkeys: 1, "play-counter": 1, "players-sheet": 3, profile: 1, "qr-png": 1, "report-sheet": 1, saves: 2, screens: 2, "sign-in-while-playing": 1, site: 4, upload: 1,
 };
 
 const SINK = /\.innerHTML\s*\+?=|\.outerHTML\s*=|insertAdjacentHTML\(|\.style\.setProperty\(|\.style\.cssText\s*=|\.href\s*=(?!=)|\.src\s*=(?!=)|\.srcset\s*=(?!=)|window\.open\(|location\.(assign|replace)\(|location\.href\s*=(?!=)|setAttribute\(\s*["'](style|href|src|srcset|action|formaction)["']/g;

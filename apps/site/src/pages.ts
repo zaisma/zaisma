@@ -303,7 +303,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     title: `${game.title} on Zaisma`,
     // What chat apps, social sites and search engines read; tester links are secret, so they get none.
     head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
-    isRebuilt: true,
+    checkedPage: tester ? "Tester link" : rooms ? "Game page" : "Game page, no rooms",
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     // The home opens the game page in a frame to play in place; only such a request (a same-site frame) may do it, every other still refuses framing.

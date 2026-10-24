@@ -284,7 +284,7 @@ export async function reportForm(env: Env, slug: string, error = "", httpStatus 
   });
   const response = layout(env, {
     viewer,
-    isRebuilt: true,
+    checkedPage: "Report a game",
     title: named ? `Report ${game.title}` : "Report a game",
     body: glassPane({
       paneWidth: "fit",
@@ -321,7 +321,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     if (body.error) return reportForm(env, slug, body.error, httpStatus);
     const response = layout(env, {
       title: "Thanks for the report",
-      isRebuilt: true,
+      checkedPage: "A message",
       body: glassPane({
         paneWidth: "fit",
         body: stack({

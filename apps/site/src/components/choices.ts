@@ -470,6 +470,8 @@ export interface ChoiceCardsOptions {
   name: string;
   /** The question, as the group's legend. */
   label: string;
+  /** The legend is for screen readers only: a heading above already asks the question (How do you play?). */
+  isLabelHidden?: boolean;
   choices: ChoiceCard[];
   pickedValue?: string;
   /** Unique on the page. Defaults to choice-<name>. */
@@ -497,7 +499,7 @@ export function choiceCards(options: ChoiceCardsOptions): Raw {
   const cards = options.isCompact
     ? html`<div class="choice-list cut-carved" data-cut-line="10">${CUT_LINE}<div class="choice-list-in" data-own-fade>${options.choices.map(card)}</div></div>`
     : html`<div class="choice-cards" style="--choice-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
-  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
+  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend${options.isLabelHidden ? raw(' class="sr"') : ""}>${options.label}</legend>${cards}${options.error ? html`<p class="field-error" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
 
 const VISIBILITIES: ChoiceCard[] = [
