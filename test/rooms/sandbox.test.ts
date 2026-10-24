@@ -321,7 +321,9 @@ describe("sandboxed game servers", () => {
     await vi.waitFor(async () => expect(await handlingOf("purchase_twinrooms0001")).toMatchObject({ handled_at_ms: expect.any(Number), handling_until_ms: null }));
     expect(await heardIn(inFirst)).toEqual([{ kind: "purchase", id: "purchase_twinrooms0001", purchaseStatus: "completed", isBroken: false }]);
     inFirst.ws.close(1000);
-    const inSecond = await join("twin-rooms", "TWINBB", undefined, await accountPassFor("twin-rooms", account.id));
+    // The second room lets the player in once the first has seen them leave.
+    const secondPass = await accountPassFor("twin-rooms", account.id);
+    const inSecond = await vi.waitFor(() => join("twin-rooms", "TWINBB", undefined, secondPass), { timeout: 5000, interval: 200 });
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await heardIn(inSecond)).toEqual([]);
     inSecond.ws.close(1000);
