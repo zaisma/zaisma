@@ -289,6 +289,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
   - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon?: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `pattern?: string`, `isPasswordShown?: boolean`, `isReadOnly?: boolean`, `isDisabled?: boolean`, `state?: "is-focused"`
+- **PIN field** (`pinField(options: PinFieldOptions)`, `fields.ts`): A PIN, one box for each digit, in one row that fills its pane. Digits only, hidden as they're typed; the cursor moves on by itself, and when the last digit goes in the PIN is sent, so there's no button to press. A wrong PIN is said under the boxes.
+  - `options`: `name: string`, `label: string`, `id?: string`, `digits?: string`, `error?: string`, `isDisabled?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.

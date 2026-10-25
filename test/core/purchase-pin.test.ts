@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PURCHASE_PIN_LIMITS, hashPurchasePin, isPurchasePin, purchasePinProblem } from "@zaisma/core";
 
-// The purchase PIN (the Zaisma buy sheet): hashed like a password, 6+ digits or a passphrase.
+// The purchase PIN (the Zaisma buy sheet): hashed like a password, exactly 6 digits.
 
 describe("a purchase PIN", () => {
   it("hashes and checks, and a wrong PIN doesn't match", async () => {
@@ -12,16 +12,16 @@ describe("a purchase PIN", () => {
     expect(await hashPurchasePin("482913")).not.toBe(stored);
   });
 
-  it("takes a passphrase", async () => {
-    expect(purchasePinProblem("correct horse battery")).toBeNull();
-    expect(await isPurchasePin("correct horse battery", await hashPurchasePin("correct horse battery"))).toBe(true);
+  it("takes exactly 6 digits", () => {
+    expect(purchasePinProblem("482913")).toBeNull();
+    expect(purchasePinProblem("000000")).toBeNull();
+    expect(PURCHASE_PIN_LIMITS.pinDigitCount).toBe(6);
   });
 
-  it("refuses a 5-character PIN, one that isn't text and one over 64 characters", () => {
-    expect(purchasePinProblem("48291")).toMatch(/at least 6/);
-    expect(purchasePinProblem(482913)).toMatch(/must be text/);
-    expect(purchasePinProblem("x".repeat(PURCHASE_PIN_LIMITS.maximumPinLength + 1))).toMatch(/at most 64/);
-    expect(purchasePinProblem("482913")).toBeNull();
+  it("refuses anything else with a plain sentence: a passphrase, 5 or 7 digits, letters among digits, spaces and a number", () => {
+    for (const pin of ["correct horse battery", "48291", "4829137", "48291a", " 48291", "48 913", "", "٤٨٢٩١٣", 482913, null]) {
+      expect(purchasePinProblem(pin)).toBe("A purchase PIN is 6 digits.");
+    }
   });
 
   it("never matches a malformed stored hash", async () => {

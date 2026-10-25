@@ -296,7 +296,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     });
   });
   // Every control is its size class's height (--control-height: small, regular, field or big), never a number of its own.
-  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .glass-btn > .face, .guest-btn > .face, .danger, .cut-field > .field:not(.long, .code), .find, .bday-field").forEach(function (el) {
+  document.querySelectorAll(".run-wrap > .run, .cut-btn:not(.in-well) > .face, .glass-btn > .face, .guest-btn > .face, .danger, .cut-field > .field:not(.long, .code), .pin-box, .find, .bday-field").forEach(function (el) {
     if (!isShown(el)) return;
     var expectedPx = parseFloat(getComputedStyle(el).getPropertyValue("--control-height")), foundPx = el.getBoundingClientRect().height;
     if (expectedPx && Math.abs(foundPx - expectedPx) > 1) report("a control off its size class's height", el, round(foundPx) + "px tall, its size class " + round(expectedPx) + "px");
