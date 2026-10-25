@@ -1,8 +1,9 @@
 import { html, pageData, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cardRow, cutButton, runButton, textButton } from "./components/actions.ts";
+import { cardRow, cutButton, runButton } from "./components/actions.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
+import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { cutField } from "./components/fields.ts";
 import { row, stack } from "./components/layout.ts";
 import { storeItem, storePanel } from "./components/panes.ts";
@@ -12,10 +13,10 @@ import { isLocalPreview } from "./stripe.ts";
  * The buy sheet (docs/DECISIONS.md, "One Zaisma buy sheet; we own the buying experience, not the money."): a store panel that rises over the
  * running game when the game asks to buy an item (Zaisma.items.buy, a zaisma:buy message), and stands alone in a zaisma.com window for games
  * on their own sites (/buy/<slug>/<item_name>). The game's own cover is across its top; below it the item, its price and one quiet line on who
- * sells it; pinned at its foot the saved card and Buy, carrying the price. Pressing Buy is the confirmation: only when the start answer says
- * why (confirmation_reason) does the panel ask the player to confirm it's them first, in the same place. The script shows the parts by the
- * moment: the item, the saved card, confirming it's you, entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it
- * ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
+ * sells it; pinned at its foot the saved card and Buy, carrying the price. Pressing Buy is the confirmation, and it's pressed once: only when
+ * the start answer says why (confirmation_reason) does a "Confirm it's you" dialog (components/confirm-its-you.ts) open over the panel, and a
+ * right proof goes on to buy by itself; Cancel leaves Buy to press again. The script shows the parts by the moment: the item, the saved card,
+ * entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
  * sheet opens.
  */
 export function buySheet(options: { joinHref: string; signInHref: string; coverUrl?: string | null }): Raw {
@@ -33,20 +34,6 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
             // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so a test card stands in for it.
             { kind: "block", id: "buy-card-form", markup: html`<div id="buy-card-element"></div>` },
             { kind: "control", id: "buy-test-card", isHidden: true, markup: cutButton("Test card", { type: "button", isFullWidth: true }) },
-          ],
-        }),
-      },
-      {
-        kind: "block",
-        id: "buy-confirm",
-        isHidden: true,
-        markup: stack({
-          items: [
-            { kind: "words", markup: html`<p id="buy-confirm-text"></p>` },
-            { kind: "control", id: "buy-pin", isHidden: true, markup: cutField({ name: "purchase_pin", id: "buy-pin-field", label: "Purchase PIN", type: "password", icon: "lock", autocomplete: "off" }) },
-            { kind: "control", id: "buy-password", isHidden: true, markup: cutField({ name: "password", id: "buy-password-field", label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
-            { kind: "words", id: "buy-confirm-problem", isHidden: true, markup: html`<p></p>` },
-            { kind: "words", id: "buy-switch", isHidden: true, markup: textButton("Use your password instead", { type: "button" }) },
           ],
         }),
       },
@@ -78,7 +65,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
       { kind: "control", markup: cutButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
     ],
   });
-  return storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot });
+  return html`${storePanel({ id: "buy-sheet", title: "Buy", closeLabel: "Close", body, foot })}${confirmItsYouSheet({ id: "buy-confirm-you" })}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */
@@ -113,7 +100,7 @@ const goPrice = go.querySelector(".run-trailing");
 const back = byId("buy-back");
 const itemWords = byId("buy-item-words");
 // The body's moments and the foot's parts, each shown or hidden by showCells.
-const CELLS = ["buy-loading", "buy-card", "buy-confirm", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-other-card", "buy-eu", "buy-guest-buttons"];
+const CELLS = ["buy-loading", "buy-card", "buy-guest", "buy-message", "buy-problem", "buy-done", "buy-wallet", "buy-wallet-stand-in", "buy-other-card", "buy-eu", "buy-guest-buttons"];
 // The developer's mistakes, which the game hears as an error once the player closes the sheet; the player only sees it can't be bought.
 const DEVELOPER_MISTAKES = ["no_game", "bad_item_name", "no_item", "not_for_sale", "stripe_not_connected", "stripe_cannot_take_payments", "bad_item_count", "bad_game_account_id"];
 const BOUGHT_SHOWN_MS = 1800;
@@ -127,9 +114,6 @@ const query = new URLSearchParams(location.search);
 let asking = null;
 let sale = null;
 let moment = "closed";
-let confirmMethod = null;
-// Whether pressing Buy has opened the confirm step (only when the start answer gave a confirmation_reason).
-let isAsking = false;
 let cardForm = null;
 let wallet = null;
 let isBusy = false;
@@ -154,11 +138,11 @@ function showButtons(buttons) {
   if (buttons.includes("go") && wasGoHidden) holdBuy();
   syncGo();
 }
-// Whether Buy can be pressed: not while paying, not in its first moments on screen, and not once the confirm step is open with no way to confirm.
-function syncGo() { go.disabled = isBusy || isHeld || (moment === "confirm" && !confirmMethod); }
-// Whether this buy must be confirmed first. The start answer's confirmation_reason says why, or is null when pressing Buy is enough; an older
-// answer without one, or the pay call asking again, still needs it when is_confirmation_needed says so.
-const needsConfirm = () => sale.is_confirmation_needed && sale.confirmation_reason !== null;
+// Whether Buy can be pressed: not while paying (it shows it's working), and not in its first moments on screen.
+function syncGo() { go.disabled = isBusy || isHeld; }
+// Whether this buy must be confirmed first: the start answer says so (is_confirmation_needed, with confirmation_reason on why), or the pay call
+// asked again.
+const needsConfirm = () => sale.is_confirmation_needed;
 function holdBuy() {
   isHeld = true;
   clearTimeout(holdTimer);
@@ -212,7 +196,6 @@ async function start() {
   ended = { status: "cancelled", purchase: null, error: null };
   latestPurchase = null;
   moment = "loading";
-  isAsking = false;
   title.textContent = "Buy";
   busy(false);
   showCells(["buy-loading"], false);
@@ -291,92 +274,92 @@ try { new BroadcastChannel("zaisma").addEventListener("message", (event) => even
 const BRANDS = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", jcb: "JCB", diners: "Diners Club", unionpay: "UnionPay", cartes_bancaires: "Cartes Bancaires" };
 const cardWords = (card) => (BRANDS[card.card_brand] || "Card") + " ending " + card.card_last_digits;
 
-// The saved card and Buy: pressing Buy is the confirmation, so the confirm step opens (isAsking) only once Buy is pressed and the start
-// answer said why. Wallets and EU wording sit with it in the foot.
-function ready(confirmProblem) {
-  moment = isAsking ? "confirm" : "ready";
+// The saved card and Buy: pressing Buy is the confirmation, and it's pressed once. Wallets and EU wording sit with it in the foot.
+function ready() {
+  moment = "ready";
   busy(false);
   byId("buy-other-card").querySelector(".face > span").textContent = cardWords(sale.saved_card);
   const shown = ["buy-other-card"];
-  if (isAsking) {
-    shown.push("buy-confirm");
-    pickConfirm(confirmMethod);
-    const problemCell = byId("buy-confirm-problem");
-    problemCell.hidden = !confirmProblem;
-    problemCell.querySelector("p").textContent = confirmProblem || "";
-  }
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
   showCells(shown, true);
   goLabel.textContent = "Buy";
   showButtons(["go"]);
-  if (isAsking) revealConfirm();
 }
-// The confirm step opens under the item, below the fold on a short screen: bring it into view, and the field into reach.
-function revealConfirm() {
-  byId("buy-confirm").scrollIntoView({ block: "nearest" });
-  const field = confirmMethod === "purchase_pin" ? byId("buy-pin-field") : confirmMethod === "password" ? byId("buy-password-field") : null;
-  if (field) field.focus({ preventScroll: true });
-}
-
-// Why the player is asked to confirm it's them, in the start answer's words (an older answer, or the pay call asking, has no reason).
-const REASON_WORDS = {
-  purchase_pin: "Your account asks for your purchase PIN for every buy.",
-  old_sign_in: "It's been a while since you signed in here. Confirm it's you to buy.",
-  big_spend: "That's a lot for one day. Confirm it's you to buy.",
-};
-// How Buy confirms it's you: a passkey, then the purchase PIN, then the password; the player can switch to the password.
-function pickConfirm(method) {
-  const methods = sale.confirmation_methods;
-  const can = { passkey: methods.has_passkey, purchase_pin: methods.has_purchase_pin && !methods.is_purchase_pin_locked, password: methods.has_password };
-  confirmMethod = method && can[method] ? method : ["passkey", "purchase_pin", "password"].find((each) => can[each]) || null;
-  const reason = sale.confirmation_reason;
-  // A purchase PIN's sentence is about the PIN; confirming another way, the account only asks to confirm.
-  const why = reason === "purchase_pin" && confirmMethod !== "purchase_pin" ? "Your account asks you to confirm every buy." : REASON_WORDS[reason] || "Confirm it's you to buy.";
-  byId("buy-confirm-text").textContent = confirmMethod ? why + (confirmMethod === "passkey" ? " Use your passkey." : "") : "To buy with your saved card, add a passkey or a purchase PIN in your account first. Apple Pay and Google Pay work without one.";
-  byId("buy-pin").hidden = confirmMethod !== "purchase_pin";
-  byId("buy-password").hidden = confirmMethod !== "password";
-  const other = confirmMethod !== "password" && can.password ? "password" : confirmMethod === "password" && can.purchase_pin ? "purchase_pin" : confirmMethod === "password" && can.passkey ? "passkey" : null;
-  byId("buy-switch").hidden = !other;
-  byId("buy-switch").dataset.method = other || "";
-  byId("buy-switch").querySelector(".text-label").textContent = other === "password" ? "Use your password instead" : other === "purchase_pin" ? "Use your purchase PIN instead" : "Use your passkey instead";
-}
-byId("buy-switch").querySelector("button").addEventListener("click", () => { confirmMethod = byId("buy-switch").dataset.method; ready(); });
 byId("buy-other-card").querySelector("button").addEventListener("click", () => enterCard());
 
-async function confirmIt() {
+// Why the player is asked to confirm it's them, in the start answer's words (the pay call asking again has none).
+const REASON_WORDS = {
+  purchase_pin: "Your account asks for your purchase PIN for every buy.",
+  old_sign_in: "It's been a while since you signed in here.",
+  big_spend: "That's a lot for one day.",
+};
+// The ways to confirm, the one to ask first leading: the purchase PIN when the account has one and it isn't locked (it was set as the lock), else a passkey, else the password.
+function confirmMethods() {
+  const methods = sale.confirmation_methods;
+  const ways = [];
+  if (methods.has_purchase_pin && !methods.is_purchase_pin_locked) ways.push("purchase_pin");
+  if (methods.has_passkey) ways.push("passkey");
+  if (methods.has_password) ways.push("password");
+  return ways;
+}
+// Sends the dialog's proof (components/confirm-its-you.ts) to the server; a right one makes this buy confirmed.
+async function sendProof(proof) {
   let body;
-  if (confirmMethod === "passkey") {
-    // The passkeys script's tap (passkeys.ts), made for a purchase.
-    const tapped = await zaismaPasskeyTap("purchase");
-    if (tapped.error) return tapped.error;
-    const tap = tapped.tap;
+  if (proof.method === "passkey") {
+    const tap = proof.passkey_tap;
     body = { passkey_tap: { id: tap.passkey_id, clientDataJSON: tap.client_data_json, authenticatorData: tap.authenticator_data, signature: tap.signature, userHandle: tap.user_handle } };
-  } else if (confirmMethod === "purchase_pin") {
-    body = { purchase_pin: byId("buy-pin-field").value };
+  } else if (proof.method === "purchase_pin") {
+    body = { purchase_pin: proof.purchase_pin };
   } else {
-    body = { password: byId("buy-password-field").value };
+    body = { password: proof.password };
   }
   const answer = await call("/api/buy/confirm", body);
-  if (!answer.error) { sale.is_confirmation_needed = false; return null; }
-  if (answer.error.code === "purchase_pin_locked") { sale.confirmation_methods.is_purchase_pin_locked = true; confirmMethod = "password"; }
-  return answer.error.message;
+  if (!answer.error) { sale.is_confirmation_needed = false; return { ok: true }; }
+  if (answer.error.code === "purchase_pin_locked") { sale.confirmation_methods.is_purchase_pin_locked = true; return { ok: false, message: answer.error.message, removed_methods: ["purchase_pin"] }; }
+  return { ok: false, message: answer.error.message };
 }
 
-async function buyWithSavedCard() {
-  // Pressing Buy asks first only when the start answer said why; the next press confirms and pays.
-  if (needsConfirm() && !isAsking) { isAsking = true; return ready(); }
-  busy(true);
-  if (needsConfirm()) {
-    const confirmProblem = await confirmIt();
-    if (confirmProblem) return ready(confirmProblem);
+// Buy was pressed and the account must confirm it's them first: the dialog opens over the panel, and a right proof goes on to buy with no second press.
+// Cancelling it leaves the panel as it was, Buy ready to press again.
+function askToConfirm() {
+  const asked = asking;
+  ready();
+  const ways = confirmMethods();
+  const reason = sale.confirmation_reason;
+  if (!ways.length) {
+    setText("buy-message", "To buy with your saved card, add a passkey or a purchase PIN in your account first. Apple Pay and Google Pay work without one.");
+    byId("buy-message").hidden = false;
+    return;
   }
+  byId("buy-message").hidden = true;
+  // A purchase PIN's sentence is about the PIN; confirming another way, the account only asks to confirm.
+  const why = reason === "purchase_pin" && ways[0] !== "purchase_pin" ? "Your account asks you to confirm every buy." : REASON_WORDS[reason] || "Confirm it's you to buy.";
+  window.zaismaConfirmItsYou("buy-confirm-you", {
+    methods: ways,
+    reason: why,
+    passkeyPurpose: "purchase",
+    send: sendProof,
+    onConfirmed: () => { if (asking === asked) pay(); },
+    onCancelled: () => {},
+  });
+}
+
+// Buy is pressed: confirmed first when the account asks, then paid, and a purchase in flight can't be pressed again.
+function buyWithSavedCard() {
+  if (isBusy) return;
+  if (needsConfirm()) return askToConfirm();
+  pay();
+}
+async function pay() {
+  busy(true);
   paid(await call("/api/buy/purchases/" + sale.purchase_id + "/pay-with-saved-card"));
 }
 
 async function paid(answer) {
   if (answer.error) {
-    if (answer.error.code === "purchase_confirmation_needed") { sale.is_confirmation_needed = true; isAsking = true; return ready(answer.error.message); }
+    // The confirmation ran out or was used up while paying: ask again, the dialog saying why.
+    if (answer.error.code === "purchase_confirmation_needed") { sale.is_confirmation_needed = true; return askToConfirm(); }
     if (answer.error.code === "payment_declined") return declined(answer.error.message);
     return problem("Couldn't buy it", answer.error.message);
   }
@@ -445,7 +428,6 @@ function bought(purchase) {
 // paid with like any saved card.
 function enterCard() {
   moment = "card";
-  isAsking = false;
   busy(false);
   const shown = ["buy-card"];
   byId("buy-card-form").hidden = buyData.stripe_mode !== "stripe";
@@ -486,7 +468,6 @@ async function saveCard() {
   if (saved.error) return problem("Couldn't save your card", saved.error.message);
   sale.saved_card = saved.saved_card;
   // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why.
-  if (needsConfirm()) { isAsking = true; return ready(); }
   buyWithSavedCard();
 }
 byId("buy-test-card").querySelector("button").addEventListener("click", () => saveCard());
@@ -505,7 +486,7 @@ function showWallet(shown) {
     element.on("ready", (event) => {
       if (!event.availablePaymentMethods || sale !== forSale) return;
       wallet.isAvailable = true;
-      if (moment === "ready" || moment === "confirm" || moment === "card") byId("buy-wallet").hidden = false;
+      if (moment === "ready" || moment === "card") byId("buy-wallet").hidden = false;
     });
     element.on("confirm", async () => {
       waiting("Paying");
@@ -525,7 +506,7 @@ byId("buy-wallet-stand-in").querySelector("button").addEventListener("click", ()
 
 go.addEventListener("click", () => {
   if (isBusy || isHeld) return;
-  if (moment === "ready" || moment === "confirm") return buyWithSavedCard();
+  if (moment === "ready") return buyWithSavedCard();
   if (moment === "card") return saveCard();
   if (moment === "problem") return start();
 });
@@ -580,8 +561,8 @@ if (buyData.is_preview) {
     if (name === "open") return open({ requestNumber: 0, itemName: itemName, itemCount: 1, gameAccountId: null, tell: () => {} });
     if (name === "declined") return declined("Your card was declined.");
     if (name === "three_d_secure") return waiting("Your bank asks you to confirm");
-    // Buy pressed once, as a player would: it opens the confirm step where the account asks for one (and charges at once where it doesn't, so
-    // the check only presses it for an account that asks). A first card is saved with the stand-in's test card first.
+    // Buy pressed once, as a player would: it opens the Confirm it's you dialog where the account asks for one (and charges at once where it
+    // doesn't, so the check only presses it for an account that asks). A first card is saved with the stand-in's test card first.
     if (name === "press_buy") { isHeld = false; syncGo(); return go.click(); }
     if (name === "save_test_card") return byId("buy-test-card").querySelector("button").click();
   };

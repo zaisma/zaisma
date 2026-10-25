@@ -507,9 +507,9 @@ export interface SheetOptions {
   action?: string;
   /**
    * Where it sits: "center" over the dimmed page (report a game, add a key); "foot" risen from the screen's foot over a running game, which
-   * stays in view and isn't dimmed (a buy sheet). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
+   * stays in view and isn't dimmed (a buy sheet); "middle" stays in the middle of a wide screen whatever opened it (Confirm it's you). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
    */
-  placement?: "center" | "foot";
+  placement?: "center" | "foot" | "middle";
   /** Open in place rather than over the page: the gallery's still copy. */
   isShown?: boolean;
   /** On a wide screen, a narrow sheet with its gaps closed up, so it reads as a dropdown (the share sheet's QR code and link); on a phone it's like any sheet. */
@@ -591,7 +591,7 @@ export const SHEET_SCRIPT = `/* sheets */(function () {
   function hold(sheet) {
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
     // A store panel stands at the screen's edge whatever opened it, and a sheet in place stays where it is.
-    if (!opener || sheet.matches(".in-place, .placement-side") || opener.closest("[popover]") || sheet.contains(opener)) return;
+    if (!opener || sheet.matches(".in-place, .placement-side, .placement-middle") || opener.closest("[popover]") || sheet.contains(opener)) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect() });
     sheet.classList.add("is-anchored");
   }
@@ -862,11 +862,6 @@ component({
       label: "With Apple Pay offered and the line the EU's law asks for above Buy",
       isStill: true,
       markup: storePanel({ id: "example-store-panel-wallet", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-wallet-item")] }), foot: stack({ items: [{ kind: "control", markup: cutButton("Apple Pay", { type: "button", isFullWidth: true }) }, { kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, { kind: "words", markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` }, storeExampleBuy("example-store-panel-wallet-buy")] }) }),
-    },
-    {
-      label: "Asking it's them first: the reason, and the PIN",
-      isStill: true,
-      markup: storePanel({ id: "example-store-panel-confirm", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-confirm-item"), { kind: "words", markup: html`<p>Your account asks for your purchase PIN for every buy.</p>` }, { kind: "control", markup: cutField({ name: "purchase_pin", id: "example-store-panel-pin", label: "Purchase PIN", type: "password", icon: "lock", autocomplete: "off" }) }] }), foot: stack({ items: [{ kind: "control", markup: cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card" }) }, storeExampleBuy("example-store-panel-confirm-buy")] }) }),
     },
     {
       label: "A first card: the email for receipts and the card form",

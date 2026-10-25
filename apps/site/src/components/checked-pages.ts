@@ -94,7 +94,7 @@ const SHOW_PLAYING_CARDS = `(async () => {
 })()`;
 /**
  * The buy sheet over the game, opened for one item as a tap in the game would (buy-sheet.ts, preview only), and settled; then the moments
- * it can't reach on its own (a decline), or the presses of a player who gets to the confirm step, each given a moment to settle.
+ * it can't reach on its own (a decline), or the presses of a player who gets to the Confirm it's you dialog, each given a moment to settle.
  */
 const openBuySheet = (itemName: string, ...moments: string[]) => `(async () => {
   window.showBuyMoment("open", ${JSON.stringify(itemName)});
@@ -124,7 +124,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, one press", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },
-  // Pin_Keeper has a purchase PIN: Buy is pressed once, which opens the confirm step (the stand-in's test card is saved first where it has none).
+  // Pin_Keeper has a purchase PIN: Buy is pressed once, which opens the Confirm it's you dialog over the panel, asking for the PIN (the stand-in's test card is saved first where it has none).
   { name: "Buying, confirm with a PIN", area: "Playing", path: "/g/tiny-farm?play", account: "Pin_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive", "save_test_card", "press_buy"), stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, a first card", area: "Playing", path: "/g/tiny-farm?play", account: "Moss_Runner", mainActionShows: "nowhere", setUp: openBuySheet("spring_valley"), stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, already owned", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("straw_hat"), stateBeforeSetUp: "Game page, no rooms" },
