@@ -115,6 +115,8 @@ let asking = null;
 let sale = null;
 let moment = "closed";
 let cardForm = null;
+// The stand-in's test card, chosen in the place of Stripe's form: Buy saves it and pays, as Buy does with the form filled in.
+let isTestCardChosen = false;
 let wallet = null;
 let isBusy = false;
 let isHeld = false;
@@ -333,6 +335,9 @@ function askToConfirm() {
     return;
   }
   byId("buy-message").hidden = true;
+  // The dialog's Confirm is the one runner in view while it's open: the panel keeps only its item, and its foot comes back if it's cancelled.
+  showCells([], true);
+  showButtons([]);
   // A purchase PIN's sentence is about the PIN; confirming another way, the account only asks to confirm.
   const why = reason === "purchase_pin" && ways[0] !== "purchase_pin" ? "Your account asks you to confirm every buy." : REASON_WORDS[reason] || "Confirm it's you to buy.";
   window.zaismaConfirmItsYou("buy-confirm-you", {
@@ -341,7 +346,7 @@ function askToConfirm() {
     passkeyPurpose: "purchase",
     send: sendProof,
     onConfirmed: () => { if (asking === asked) pay(); },
-    onCancelled: () => {},
+    onCancelled: () => { if (asking === asked) ready(); },
   });
 }
 
@@ -436,8 +441,11 @@ function enterCard() {
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
   showCells(shown, true);
   goLabel.textContent = "Buy";
-  // The stand-in has no form: its test card button saves a card, and Buy is the saved card's.
-  showButtons(buyData.stripe_mode === "stripe" ? ["go"] : []);
+  // The stand-in has no form: its test card button fills it in, and Buy saves the card and pays, as with Stripe's form.
+  isTestCardChosen = false;
+  byId("buy-test-card").querySelector(".face > span:not(.loader)").textContent = "Test card";
+  byId("buy-test-card").querySelector("button").setAttribute("aria-pressed", "false");
+  showButtons(["go"]);
   if (buyData.stripe_mode === "stripe" && !cardForm) {
     cardForm = stripeFor(null).then((stripe) => {
       const elements = stripe.elements({ mode: "setup", currency: sale.price.currency_code, paymentMethodTypes: ["card"], appearance: stripeLook() });
@@ -452,6 +460,12 @@ async function saveCard() {
   busy(true);
   const receiptEmail = byId("buy-receipt-email").value.trim();
   let form = null;
+  if (buyData.stripe_mode === "stand_in" && !isTestCardChosen) {
+    busy(false);
+    setText("buy-message", "Press Test card first: it stands in for Stripe's card form here.");
+    byId("buy-message").hidden = false;
+    return;
+  }
   if (buyData.stripe_mode === "stripe") {
     form = await cardForm;
     if (!form) return;
@@ -470,7 +484,12 @@ async function saveCard() {
   // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why.
   buyWithSavedCard();
 }
-byId("buy-test-card").querySelector("button").addEventListener("click", () => saveCard());
+byId("buy-test-card").querySelector("button").addEventListener("click", (event) => {
+  isTestCardChosen = true;
+  event.currentTarget.setAttribute("aria-pressed", "true");
+  event.currentTarget.querySelector(".face > span:not(.loader)").textContent = "Test card, Visa ending 4242";
+  byId("buy-message").hidden = true;
+});
 
 // Apple Pay and Google Pay, on the developer's account: the wallet asks for Face ID or a fingerprint itself, so Zaisma doesn't, and its
 // email gets the receipt. The local preview can't show them, so ?preview_wallet=1 draws their place.
