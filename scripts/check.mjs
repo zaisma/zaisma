@@ -7,18 +7,27 @@
 //                                    and the Layout check for the changed pages when the preview is awake
 //   npm run check -- --json          the same, as JSON; a refusal is {"error": {"code", "message", "fix"}}
 //   npm run check -- --base <ref>    changes since that commit instead of since origin/main
+//   npm run check -- --pr <number>   reads GitHub's check on that pull request's latest commit instead of running anything:
+//                                    PENDING with the jobs still running, PASS, or FAIL with each failed job's failures in the
+//                                    same lines (its tests, its typecheck errors, or the last lines of the step that failed)
+//   npm run check -- --commit <sha>  the same for one commit
 //
 // While a preview is awake on this machine, the Workers tests can't fit beside it (scripts/preview/memory.mjs): this runs the Node
-// tests and lists the rest as left_to_github, which GitHub's check runs. Last line: PASS or FAIL.
-import { spawn } from "node:child_process";
+// tests and lists the rest as left_to_github, which GitHub's check runs. Last line: PASS or FAIL (or PENDING, for --pr and --commit).
+// Exit status: 0 PASS, 1 FAIL, 2 a refusal, 3 PENDING.
+import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { ROOT, affectedChecks, changedPathsSince } from "./affected-tests.mjs";
+import { GITHUB_CHECK_NAME } from "./ship-github-check.mjs";
 
 export const ERROR_LINE_COUNT = 15;
 const WORKERS_TESTS_WHILE_PREVIEW_AWAKE = "workers_tests_while_preview_awake";
+const GITHUB_REPOSITORY = "zaisma/zaisma";
+const FAILED_CONCLUSIONS = ["failure", "timed_out", "cancelled", "action_required", "startup_failure"];
 
 /** The failed tests in vitest's JSON report: the file, the test's full name and the first lines of its error. A file that failed to load has no test name. */
 export function parseVitestReport(report, { root = ROOT } = {}) {
@@ -57,6 +66,122 @@ export function formatResult(result) {
   for (const note of result.notes) lines.push(note);
   lines.push(result.is_pass ? "PASS" : "FAIL");
   return lines.join("\n");
+}
+
+/** A GitHub Actions job log's lines as printed: no timestamps, no colors. */
+export function cleanJobLog(log) {
+  return log
+    .replace(/^\uFEFF/, "")
+    .split("\n")
+    .map((line) => line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, "").replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\r$/, ""));
+}
+
+/** vitest's "Failed Tests" and "Failed Suites" blocks in a log: each failed test's file and name, and the first lines of its error. */
+export function parseVitestLog(lines) {
+  const failures = [];
+  let isInBlock = false;
+  let heads = [];
+  let errorLines = [];
+  const flush = () => {
+    const error = firstLines(errorLines.filter((text) => text.trim()).join("\n"));
+    for (const head of heads) failures.push({ ...head, error });
+    heads = [];
+    errorLines = [];
+  };
+  for (const line of lines) {
+    if (/^⎯+ Failed (Tests|Suites) \d+ ⎯+$/.test(line.trim())) {
+      flush();
+      isInBlock = true;
+      continue;
+    }
+    if (!isInBlock) continue;
+    if (/^\s*Test Files\s/.test(line) || line.startsWith("##[")) {
+      flush();
+      isInBlock = false;
+      continue;
+    }
+    if (/^⎯+(\[\d+\/\d+\])?⎯*$/.test(line.trim())) {
+      flush();
+      continue;
+    }
+    const head = line.match(/^\s*FAIL\s+(?:\S+\s+)?(\S+\.[cm]?[jt]sx?)(?:\s+>\s+(.+?))?(?:\s+\[.*\])?\s*$/);
+    if (head) {
+      if (errorLines.some((text) => text.trim())) flush();
+      heads.push({ file: head[1], test_name: head[2] ?? null });
+      continue;
+    }
+    if (heads.length) errorLines.push(line);
+  }
+  flush();
+  return failures;
+}
+
+/** The last lines the step that failed printed, when the log names no test or typecheck error (the Engine exports, the preview). */
+export function failedStepLines(lines) {
+  const errorIndex = lines.findIndex((line) => line.startsWith("##[error]"));
+  const end = errorIndex === -1 ? lines.length : errorIndex;
+  let start = 0;
+  for (let i = end - 1; i >= 0; i--) {
+    if (lines[i].startsWith("##[endgroup]")) start = i + 1;
+    if (lines[i].startsWith("##[group]Run ")) break;
+  }
+  const printed = lines.slice(start, end).filter((line) => line.trim() && !line.startsWith("##["));
+  const errors = lines.slice(end).filter((line) => line.startsWith("##[error]") && !/^##\[error\]Process completed with exit code/.test(line));
+  return [...printed.slice(-ERROR_LINE_COUNT), ...errors.map((line) => line.slice("##[error]".length))].slice(-ERROR_LINE_COUNT);
+}
+
+/** One failed job's log, read the way the local run reads its own output. */
+export function parseJobLog(log) {
+  const lines = cleanJobLog(log);
+  const test_failures = parseVitestLog(lines);
+  const typecheck_failures = parseTypecheck(lines.join("\n"));
+  return { test_failures, typecheck_failures, step_lines: test_failures.length || typecheck_failures.length ? [] : failedStepLines(lines) };
+}
+
+/** A commit's check runs (GitHub's latest of each) as PASS, PENDING or FAIL, and the jobs that failed. The required check, which only sums the others up, counts as a failed job only when nothing else failed. */
+export function judgeCheckRuns(checkRuns) {
+  const pendingJobNames = checkRuns.filter((checkRun) => checkRun.status !== "completed").map((checkRun) => checkRun.name);
+  const failedRuns = checkRuns.filter((checkRun) => checkRun.status === "completed" && FAILED_CONCLUSIONS.includes(checkRun.conclusion));
+  const failedJobs = failedRuns.some((checkRun) => checkRun.name !== GITHUB_CHECK_NAME) ? failedRuns.filter((checkRun) => checkRun.name !== GITHUB_CHECK_NAME) : failedRuns;
+  const state = failedJobs.length ? "fail" : pendingJobNames.length || !checkRuns.length ? "pending" : "pass";
+  return { state, pending_job_names: pendingJobNames, failed_jobs: failedJobs };
+}
+
+/** What --pr and --commit print: each failed job with its failures, then PASS, PENDING or FAIL. */
+export function formatGithubResult(result) {
+  const lines = [`GitHub's check on ${result.commit_sha.slice(0, 7)}${result.pull_request_number ? ` (pull request ${result.pull_request_number})` : ""}`];
+  for (const job of result.failed_jobs) {
+    lines.push(`JOB ${job.job_name} ${job.url}`);
+    for (const failure of job.test_failures) lines.push(`TEST ${failure.file}${failure.test_name ? ` > ${failure.test_name}` : ""}`, ...failure.error.split("\n").map((text) => `  ${text}`));
+    for (const failure of job.typecheck_failures) lines.push(`TYPE ${failure.file}:${failure.line}: ${failure.message}`);
+    for (const text of job.step_lines) lines.push(`  ${text}`);
+  }
+  if (result.pending_job_names.length) lines.push(`Still running: ${result.pending_job_names.join(", ")}.`);
+  if (result.state === "pending" && !result.pending_job_names.length) lines.push("No job has started on this commit yet.");
+  lines.push(result.state.toUpperCase());
+  return lines.join("\n");
+}
+
+async function gh(args) {
+  return (await promisify(execFile)("gh", args, { cwd: ROOT, maxBuffer: 256 * 1024 * 1024 })).stdout;
+}
+
+export async function githubCheck({ pullRequestNumber = null, commitSha = null }) {
+  if (pullRequestNumber) commitSha = JSON.parse(await gh(["pr", "view", String(pullRequestNumber), "--repo", GITHUB_REPOSITORY, "--json", "headRefOid"])).headRefOid;
+  const checkRuns = JSON.parse(await gh(["api", "--paginate", "--slurp", `repos/${GITHUB_REPOSITORY}/commits/${commitSha}/check-runs?per_page=100`])).flatMap((page) => page.check_runs);
+  const judged = judgeCheckRuns(checkRuns);
+  const failedJobs = await Promise.all(
+    judged.failed_jobs.map(async (checkRun) => {
+      let parsed;
+      try {
+        parsed = parseJobLog(await gh(["api", `repos/${GITHUB_REPOSITORY}/actions/jobs/${checkRun.id}/logs`]));
+      } catch {
+        parsed = { test_failures: [], typecheck_failures: [], step_lines: [`GitHub has no log for this job (${checkRun.conclusion}): open ${checkRun.html_url}`] };
+      }
+      return { job_name: checkRun.name, conclusion: checkRun.conclusion, url: checkRun.html_url, ...parsed };
+    }),
+  );
+  return { pull_request_number: pullRequestNumber, commit_sha: commitSha, state: judged.state, pending_job_names: judged.pending_job_names, failed_jobs: failedJobs };
 }
 
 function firstLines(text) {
@@ -167,8 +292,10 @@ export async function check({ base = "origin/main" } = {}) {
 async function main() {
   const args = process.argv.slice(2);
   const isJson = args.includes("--json");
-  const unknown = args.filter((arg, i) => !["--json", "--base"].includes(arg) && args[i - 1] !== "--base");
-  if (unknown.length) return refuse(isJson, "unknown_option", `Unknown option ${unknown.join(" ")}.`, "The options are --json and --base <ref>.");
+  const valueOptions = ["--base", "--pr", "--commit"];
+  const unknown = args.filter((arg, i) => !["--json", ...valueOptions].includes(arg) && !valueOptions.includes(args[i - 1]));
+  if (unknown.length) return refuse(isJson, "unknown_option", `Unknown option ${unknown.join(" ")}.`, "The options are --json, --base <ref>, --pr <number> and --commit <sha>.");
+  if (args.includes("--pr") || args.includes("--commit")) return mainGithub(args, isJson);
   const base = args.includes("--base") ? args[args.indexOf("--base") + 1] : undefined;
   if (args.includes("--base") && !base) return refuse(isJson, "missing_base", "--base needs a commit.", "Pass --base origin/main, or leave it out.");
   let result;
@@ -179,6 +306,24 @@ async function main() {
   }
   console.log(isJson ? JSON.stringify(result, null, 2) : formatResult(result));
   process.exit(result.is_pass ? 0 : 1);
+}
+
+async function mainGithub(args, isJson) {
+  const pullRequestText = args.includes("--pr") ? args[args.indexOf("--pr") + 1] : null;
+  const commitSha = args.includes("--commit") ? args[args.indexOf("--commit") + 1] : null;
+  if (args.includes("--pr") && args.includes("--commit")) return refuse(isJson, "pr_and_commit", "--pr and --commit both name a commit.", "Pass one: --pr <number> reads the pull request's latest commit.");
+  if (args.includes("--base")) return refuse(isJson, "base_with_github", "--base is for the local run; --pr and --commit read GitHub's check.", "Leave --base out.");
+  if (args.includes("--pr") && !/^\d+$/.test(pullRequestText ?? "")) return refuse(isJson, "bad_pull_request_number", `--pr needs a pull request's number, not ${pullRequestText ?? "nothing"}.`, "Pass --pr 104; gh pr list shows the open ones.");
+  if (args.includes("--commit") && !/^[0-9a-f]{7,40}$/.test(commitSha ?? "")) return refuse(isJson, "bad_commit_sha", `--commit needs a commit's sha, not ${commitSha ?? "nothing"}.`, "Pass --commit with git rev-parse HEAD's answer, pushed to GitHub.");
+  let result;
+  try {
+    result = await githubCheck({ pullRequestNumber: pullRequestText ? Number(pullRequestText) : null, commitSha });
+  } catch (error) {
+    const said = String(error.stderr || error.message).trim().split("\n")[0];
+    return refuse(isJson, "github_unreachable", `gh couldn't read the check: ${said}`, "Check gh auth status, and that the pull request or commit is on zaisma/zaisma.");
+  }
+  console.log(isJson ? JSON.stringify(result, null, 2) : formatGithubResult(result));
+  process.exit({ pass: 0, fail: 1, pending: 3 }[result.state]);
 }
 
 function refuse(isJson, code, message, fix) {
