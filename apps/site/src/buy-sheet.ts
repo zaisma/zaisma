@@ -30,10 +30,11 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
         isHidden: true,
         markup: stack({
           items: [
-            { kind: "control", markup: cutField({ name: "receipt_email", id: "buy-receipt-email", label: "Email for receipts", type: "email", autocomplete: "email", hint: "Leave it empty for your account's email." }) },
-            // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so a test card stands in for it.
+            // The card first, then where its receipts go. Stripe's card form goes here; the local preview's stand-in Stripe has no form, so a
+            // test card stands in for it.
             { kind: "block", id: "buy-card-form", markup: html`<div id="buy-card-element"></div>` },
             { kind: "control", id: "buy-test-card", isHidden: true, markup: cutButton("Test card", { type: "button", isFullWidth: true }) },
+            { kind: "control", markup: cutField({ name: "receipt_email", id: "buy-receipt-email", label: "Email for receipts", type: "email", autocomplete: "email", hint: "Leave it empty for your account's email." }) },
           ],
         }),
       },

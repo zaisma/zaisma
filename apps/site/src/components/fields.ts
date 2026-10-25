@@ -183,7 +183,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const focusedIndex = options.state === "is-focused" ? Math.min(digits.length, PIN_DIGIT_COUNT - 1) : -1;
   const boxes = Array.from({ length: PIN_DIGIT_COUNT }, (_, boxIndex) => {
     const className = ["field", "cut-carved", "no-icon", "pin-box", options.error ? "is-marked" : "", boxIndex === focusedIndex ? "is-focused" : ""].filter(Boolean).join(" ");
-    const input = html`<input type="password" inputmode="numeric" pattern="[0-9]*" size="1" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Digit ${boxIndex + 1} of ${PIN_DIGIT_COUNT}" aria-describedby="${errorId}"${digits[boxIndex] ? html` value="${digits[boxIndex]}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
+    const input = html`<input type="password" inputmode="numeric" pattern="[0-9]*" size="1" placeholder=" " autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Digit ${boxIndex + 1} of ${PIN_DIGIT_COUNT}" aria-describedby="${errorId}"${digits[boxIndex] ? html` value="${digits[boxIndex]}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
     return { kind: "control" as const, markup: controlMarkup(html`<span class="${className}" data-cut-line="10">${CUT_LINE}${input}</span>`, "field") };
   });
   return controlMarkup(html`<fieldset class="pin-field" id="${id}" data-pin>
@@ -656,8 +656,12 @@ component({
    in it and shares the pane's in one that doesn't. What's typed sits in the middle. */
 .pin-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .pin-field > legend { padding: 0 var(--pad-words); margin-bottom: var(--gap-words-control); font: var(--type-label); color: var(--ink-2); }
-.pin-box { width: var(--control-height-small); min-width: 0; }
-.pin-box > input { --text-start: 0px; --text-end: 0px; text-align: center; }
+.pin-box { flex: 1 1 0; width: auto; min-width: var(--control-height-small); }
+/* One digit, centered in its box with no start or end room and no fade at the edges. The browser's own dot is too small to count at a
+   glance, so the typed digit is clear and the box draws its own dot in the middle once it's filled. */
+.pin-field .pin-box.field > input { --text-start: 0px; --text-end: 0px; padding: 0; text-align: center; color: transparent; caret-color: var(--ink); -webkit-mask-image: none; mask-image: none; }
+.pin-box:has(> input:not(:placeholder-shown))::after { content: ""; position: absolute; z-index: 3; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--ink); pointer-events: none; }
+.pin-box:has(> input:not(:placeholder-shown)) > input { caret-color: transparent; }
 `,
   render: pinField,
   examples: [
