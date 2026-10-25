@@ -481,7 +481,9 @@ async function saveCard() {
   const saved = await call("/api/payment-methods/saved", { setup_intent_id: setup.setup_intent_id });
   if (saved.error) return problem("Couldn't save your card", saved.error.message);
   sale.saved_card = saved.saved_card;
-  // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why.
+  // Saved: Buy was pressed for it, so it takes it from here, asking first only when the start answer said why. Saving is done, so the
+  // sheet isn't busy any more: buyWithSavedCard turns away a press while it is.
+  busy(false);
   buyWithSavedCard();
 }
 byId("buy-test-card").querySelector("button").addEventListener("click", (event) => {

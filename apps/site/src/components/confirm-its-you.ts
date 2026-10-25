@@ -41,6 +41,8 @@ export function confirmItsYouSheet(options: ConfirmItsYouOptions): Raw {
     items: [
       { kind: "words", id: `${id}-reason`, markup: html`<p>${options.reasonText ?? ""}</p>` },
       { kind: "control", id: `${id}-pin`, isHidden: method !== "purchase_pin", markup: cutField({ name: "purchase_pin", id: `${id}-pin-field`, label: "Purchase PIN", type: "password", icon: "lock", autocomplete: "off" }) },
+      // A password form names its account for password managers and screen readers; the field stays hidden.
+      { kind: "words", id: `${id}-username`, isHidden: true, markup: html`<input type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">` },
       { kind: "control", id: `${id}-password`, isHidden: method !== "password", markup: cutField({ name: "password", id: `${id}-password-field`, label: "Password", type: "password", icon: "lock", autocomplete: "current-password" }) },
       { kind: "words", id: `${id}-problem`, isHidden: !options.errorText, markup: html`<p class="confirm-problem" role="alert">${options.errorText ?? ""}</p>` },
       { kind: "words", id: `${id}-switch`, isHidden: !options.switchTo, markup: textButton(SWITCH_WORDS[options.switchTo ?? "password"], { type: "button" }) },
