@@ -439,6 +439,10 @@ component({
 export interface CardRowOptions extends ButtonTarget {
   /** What a screen reader says after the card's words, for what pressing it does: "Use another card". */
   hiddenText?: string;
+  /** A word at its far end, before the chevron, for what pressing it does: "Change". */
+  changeText?: string;
+  /** Stripe's lowercase brand ("visa", "mastercard"): its mark shows in place of the plain card. A page script sets data-card-brand to change it. */
+  cardBrand?: string;
   state?: ButtonState;
   /** Not shown for now: a page script shows it (the buy sheet, once a saved card is known). */
   isHidden?: boolean;
@@ -448,10 +452,28 @@ export interface CardRowOptions extends ButtonTarget {
  * A card row: the card a buy is paid with as one full-width row (a card mark, its words, a chevron). Pressing it changes the card. It is a
  * cut button in a row's clothes, a field's height, with its words lined up with a pane's words as a field's are.
  */
+/**
+ * The common card brands' marks, as their owners draw them, small enough for a row: shown so a card is known at a glance. Keyed by
+ * Stripe's lowercase brand; any other brand shows the plain card.
+ */
+const CARD_BRAND_MARKS: Record<string, string> = {
+  visa: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><text x="16" y="13.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" font-style="italic" fill="#1A1F71">VISA</text>',
+  mastercard: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><circle cx="12.6" cy="10" r="6" fill="#EB001B"/><circle cx="19.4" cy="10" r="6" fill="#F79E1B" fill-opacity=".9"/>',
+  amex: '<rect width="32" height="20" rx="2.5" fill="#1F72CD"/><text x="16" y="13.2" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="8" font-weight="700" fill="#fff">AMEX</text>',
+  discover: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><text x="4" y="12.6" font-family="Arial, Helvetica, sans-serif" font-size="6.4" font-weight="700" fill="#231F20">DISC</text><circle cx="24" cy="10.4" r="3.6" fill="#F47216"/>',
+  jcb: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><rect x="5" y="4" width="7" height="12" rx="2" fill="#0E4C96"/><rect x="12.5" y="4" width="7" height="12" rx="2" fill="#E21836"/><rect x="20" y="4" width="7" height="12" rx="2" fill="#007B40"/>',
+  diners: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><circle cx="16" cy="10" r="6" fill="none" stroke="#0079BE" stroke-width="2"/><path d="M14.2 6.6v6.8M17.8 6.6v6.8" stroke="#0079BE" stroke-width="1.4"/>',
+  unionpay: '<rect x=".5" y=".5" width="31" height="19" rx="2.5" fill="#fff" stroke="#d0d3d8"/><path d="M7 4h6l-2.4 12h-6z" fill="#E21836"/><path d="M13.4 4h6l-2.4 12h-6z" fill="#00447C"/><path d="M19.8 4h6l-2.4 12h-6z" fill="#007B84"/>',
+  cartes_bancaires: '<rect width="32" height="20" rx="2.5" fill="#0A6BB0"/><text x="16" y="13.6" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" font-weight="700" fill="#fff">CB</text>',
+};
+const CARD_BRANDS = Object.keys(CARD_BRAND_MARKS);
+// Drawn from the cached stylesheet, so a page with many card rows carries none of them and a script changes one by its data-card-brand.
+const cardBrandImage = (brand: string) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 20">${CARD_BRAND_MARKS[brand]}</svg>`)}")`;
+
 export function cardRow(label: string, options: CardRowOptions = {}): ControlMarkup {
-  const extra = html`${options.isHidden ? raw(" hidden") : ""}`;
+  const extra = html`${options.isHidden ? raw(" hidden") : ""}${options.cardBrand ? html` data-card-brand="${options.cardBrand}"` : ""}`;
   return controlMarkup(
-    html`${opening(classes("cut-btn", "card-row", "is-full", options.state), options, undefined, extra)}<span class="face cut-raised" data-cut-line="10">${CUT_LINE}${icon("card")}<span>${label}</span>${options.hiddenText ? html`<span class="sr">. ${options.hiddenText}</span>` : ""}<span class="card-row-go" aria-hidden="true">${icon("chevron-right")}</span></span>${closing(options)}`,
+    html`${opening(classes("cut-btn", "card-row", "is-full", options.state), options, undefined, extra)}<span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span class="card-row-mark">${icon("card")}<span class="card-brand" aria-hidden="true"></span></span><span>${label}</span>${options.hiddenText ? html`<span class="sr">. ${options.hiddenText}</span>` : ""}<span class="card-row-go" aria-hidden="true">${options.changeText ? html`<span class="card-row-change">${options.changeText}</span>` : ""}${icon("chevron-right")}</span></span>${closing(options)}`,
     "field",
   );
 }
@@ -466,14 +488,23 @@ component({
 .cut-btn.card-row { --control-height: var(--control-height-field); }
 .cut-btn.card-row > .face { justify-content: flex-start; --face-padding: var(--pad-inside-words); }
 .cut-btn.card-row > .face > span:not([class]) { flex: 1 1 auto; text-align: start; }
-.card-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
+/* The card's brand mark in place of the plain card, when the brand is one it knows. */
+.card-row-mark { flex: none; display: inline-flex; align-items: center; }
+.card-row-change { white-space: nowrap; }
+.card-row-mark > .card-brand { display: none; width: 32px; height: 20px; background: no-repeat center / contain; }
+${CARD_BRANDS.map((brand) => `.cut-btn.card-row[data-card-brand="${brand}"] .card-brand { display: block; background-image: ${cardBrandImage(brand)}; }`).join("\n")}
+.cut-btn.card-row:is(${CARD_BRANDS.map((brand) => `[data-card-brand="${brand}"]`).join(", ")}) .card-row-mark > .ico { display: none; }
+.card-row-go { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
 .card-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
 .cut-btn.card-row:hover .card-row-go, .cut-btn.card-row.is-pointed .card-row-go { transform: translateX(2px); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .card-row-go { transition: none; } }
 `,
   render: cardRow,
   examples: [
-    ...stateExamples((state) => cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card", state }), "cut", true),
+    ...stateExamples((state) => cardRow("Visa ending 4242", { type: "button", hiddenText: "Use another card", changeText: "Change", cardBrand: "visa", state }), "cut", true),
+    ...(
+      [["mastercard", "Mastercard"], ["amex", "American Express"], ["discover", "Discover"], ["jcb", "JCB"], ["diners", "Diners Club"], ["unionpay", "UnionPay"], ["cartes_bancaires", "Cartes Bancaires"], ["eftpos_au", "A brand without a mark: the plain card"]] as const
+    ).map(([brand, name]) => ({ label: name, markup: html`<div style="${COLUMN}">${cardRow(`${brand === "eftpos_au" ? "eftpos" : name} ending 4444`, { type: "button", hiddenText: "Use another card", changeText: "Change", cardBrand: brand })}</div>` })),
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${cardRow("American Express ending 1005 for the household budget", { type: "button", hiddenText: "Use another card" })}</div>` },
   ],
 });

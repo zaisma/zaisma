@@ -63,7 +63,7 @@ import type { Env } from "./env.ts";
  *   POST   /api/buy/purchases/:purchase_id/pay-with-saved-card  → completed, or action_needed (3-D Secure)
  *   POST   /api/buy/purchases/:purchase_id/wallet-intent  → what Apple Pay or Google Pay pays
  *   GET    /api/buy/purchases/:purchase_id                the purchase, asking Stripe while it's pending
- *   POST   /api/payment-methods/setup                     { receipt_email } → a card setup
+ *   POST   /api/payment-methods/setup                     → a card setup (receipts go to the account's email)
  *   POST   /api/payment-methods/saved                     { setup_intent_id }: keeps the card
  *   DELETE /api/payment-methods/saved                     forgets it
  *   PUT    /api/account/purchase-pin                      { purchase_pin, password }
@@ -146,7 +146,7 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
     }
     if (path === "/api/payment-methods/setup" && method === "POST") {
       await checkPurchaseLimit(env, `card:${signedAccount.id}`);
-      return answer(await startSavingCard(env, signedSession, signedAccount, body), cookies);
+      return answer(await startSavingCard(env, signedSession, signedAccount), cookies);
     }
     if (path === "/api/payment-methods/saved" && method === "POST") {
       await checkPurchaseLimit(env, `card:${signedAccount.id}`);
@@ -254,11 +254,10 @@ interface SavedCard {
   stripe_payment_method_id: string;
   card_brand: string;
   card_last_digits: string;
-  receipt_email: string;
 }
 
 const savedCardOf = (env: Env, accountId: string) =>
-  env.DB.prepare("SELECT stripe_payment_method_id, card_brand, card_last_digits, receipt_email FROM saved_payment_methods WHERE account_id = ?").bind(accountId).first<SavedCard>();
+  env.DB.prepare("SELECT stripe_payment_method_id, card_brand, card_last_digits FROM saved_payment_methods WHERE account_id = ?").bind(accountId).first<SavedCard>();
 
 /**
  * Opens the sheet: checks the item can be bought by this player, makes a pending purchase at the price for their
@@ -314,6 +313,8 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     refund_policy_words: refundPolicyWords(purchaseSettingsOf(game)),
     is_eu_withdrawal_line_shown: isEuWithdrawalLineShown,
     saved_card: card ? { card_brand: card.card_brand, card_last_digits: card.card_last_digits } : null,
+    // A saved card's receipt goes to the account's email; the sheet says where, or that there's none to send it to.
+    has_account_email: realEmail(session.email) !== null,
     is_confirmation_needed: confirmationReason !== null,
     confirmation_reason: confirmationReason,
     confirmation_methods: {
@@ -431,8 +432,10 @@ async function payWithSavedCard(request: Request, env: Env, session: Session, ac
     await failPurchase(env, sale.id);
     return refuse(402, "payment_declined", `The card didn't go through: ${error.stripeMessage} Try another card, or Apple Pay or Google Pay.`);
   }
-  await notePayment(env, sale.id, { paymentIntentId: paymentIntent.id, receiptEmail: card.receipt_email, taxCalculationId });
-  const noted: Sale = { ...sale, stripe_payment_intent_id: paymentIntent.id, receipt_email: card.receipt_email, stripe_tax_calculation_id: taxCalculationId };
+  // The receipt goes to the account's email as it is now; an account with none gets no receipt email.
+  const receiptEmail = realEmail(session.email);
+  await notePayment(env, sale.id, { paymentIntentId: paymentIntent.id, receiptEmail, taxCalculationId });
+  const noted: Sale = { ...sale, stripe_payment_intent_id: paymentIntent.id, receipt_email: receiptEmail, stripe_tax_calculation_id: taxCalculationId };
   if (paymentIntent.status === "succeeded") return { status: "completed", purchase: await purchaseAnswer(env, await completePurchase(env, noted, paymentIntent, nowMs)) };
   if (paymentIntent.status === "requires_action") return { status: "action_needed", client_secret: paymentIntent.client_secret, stripe_account_id: stripeAccountId, purchase: purchaseJson(noted, null) };
   await failPurchase(env, sale.id);
@@ -494,34 +497,28 @@ async function purchaseAnswer(env: Env, sale: Sale) {
   return purchaseJson(sale, null);
 }
 
-/** Saving a card asks for the email its receipts go to; an account with neither a passkey nor an email must protect itself first. */
-async function startSavingCard(env: Env, session: Session, account: Account, body: Record<string, unknown>) {
-  const email = realEmail(session.email);
+/** Saving a card: an account with neither a passkey nor an email must protect itself first. Its receipts go to the account's email. */
+async function startSavingCard(env: Env, session: Session, account: Account) {
   const passkeys = await passkeysFor(env.DB, account.id);
-  if (!email && !passkeys.length) return refuse(409, "account_protection_needed", "Add a passkey or an email to your account first, so nobody else can spend with your card.");
-  const receiptEmail = body.receipt_email ?? email;
-  if (!isReceiptEmail(receiptEmail)) return refuse(400, "bad_receipt_email", "receipt_email is the email your receipts go to, like alex@example.com.");
-  const setup = await setUpCard(env, account.id, receiptEmail);
-  return { setup_intent_id: setup.setupIntentId, client_secret: setup.clientSecret, receipt_email: receiptEmail };
+  if (!realEmail(session.email) && !passkeys.length) return refuse(409, "account_protection_needed", "Add a passkey or an email to your account first, so nobody else can spend with your card.");
+  const setup = await setUpCard(env, account.id);
+  return { setup_intent_id: setup.setupIntentId, client_secret: setup.clientSecret };
 }
 
-/**
- * Keeps the card a finished setup saved, replacing any card before it. Its receipt email is the one startSavingCard checked
- * and kept with the setup at Stripe, never one the browser sends now: nobody can aim a saved card's receipts at a stranger.
- */
+/** Keeps the card a finished setup saved, replacing any card before it. */
 async function keepCard(env: Env, account: Account, body: Record<string, unknown>, nowMs: number) {
   if (typeof body.setup_intent_id !== "string") return refuse(400, "bad_request", "Send setup_intent_id.");
   const customer = await playerCustomerFor(env, account.id);
   const card = await cardOfSetup(env, body.setup_intent_id, customer);
-  if (!card || !isReceiptEmail(card.receiptEmail)) return refuse(409, "card_not_saved", "Stripe didn't save that card. Try again.");
+  if (!card) return refuse(409, "card_not_saved", "Stripe didn't save that card. Try again.");
   const before = await savedCardOf(env, account.id);
   await env.DB.prepare(
-    "INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET stripe_payment_method_id = excluded.stripe_payment_method_id, card_brand = excluded.card_brand, card_last_digits = excluded.card_last_digits, receipt_email = excluded.receipt_email, created_at_ms = excluded.created_at_ms",
+    "INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET stripe_payment_method_id = excluded.stripe_payment_method_id, card_brand = excluded.card_brand, card_last_digits = excluded.card_last_digits, created_at_ms = excluded.created_at_ms",
   )
-    .bind(account.id, card.paymentMethodId, card.cardBrand, card.cardLastDigits, card.receiptEmail, nowMs)
+    .bind(account.id, card.paymentMethodId, card.cardBrand, card.cardLastDigits, nowMs)
     .run();
   if (before && before.stripe_payment_method_id !== card.paymentMethodId) await removeCard(env, before.stripe_payment_method_id);
-  return { saved_card: { card_brand: card.cardBrand, card_last_digits: card.cardLastDigits, receipt_email: card.receiptEmail } };
+  return { saved_card: { card_brand: card.cardBrand, card_last_digits: card.cardLastDigits } };
 }
 
 async function forgetCard(env: Env, account: Account) {
@@ -597,11 +594,6 @@ export async function failStaleSales(env: Env, nowMs = Date.now()): Promise<void
 /** Whether some developer still has this Stripe account connected. */
 async function isStripeAccountConnected(env: Env, stripeAccountId: string): Promise<boolean> {
   return (await env.DB.prepare("SELECT 1 AS is_connected FROM owners WHERE stripe_account_id = ?").bind(stripeAccountId).first()) !== null;
-}
-
-/** Whether a receipt email is one: an address like alex@example.com, at most 254 characters. */
-export function isReceiptEmail(receiptEmail: unknown): receiptEmail is string {
-  return typeof receiptEmail === "string" && receiptEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail);
 }
 
 /**

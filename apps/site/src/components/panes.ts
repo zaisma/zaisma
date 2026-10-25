@@ -866,7 +866,7 @@ component({
     {
       label: "A first card: the email for receipts and the card form",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-card", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-card-item"), { kind: "control", markup: cutField({ name: "receipt_email", id: "example-store-panel-email", label: "Email for receipts", type: "email", autocomplete: "email", hint: "Leave it empty for your account's email." }) }] }), foot: stack({ items: [storeExampleBuy("example-store-panel-card-buy")] }) }),
+      markup: storePanel({ id: "example-store-panel-card", title: "Buy", closeLabel: "Close", isShown: true, body: stack({ items: [storeExampleItem("example-store-panel-card-item")] }), foot: stack({ items: [storeExampleBuy("example-store-panel-card-buy")] }) }),
     },
     {
       label: "A guest: a way to an account, the game running on",

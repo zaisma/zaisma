@@ -192,7 +192,7 @@ const connect = () => env.DB.prepare("UPDATE owners SET stripe_account_id = ?, c
 const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/tiny-farm/items/${itemName}`, { method: "PUT", body: { description: "", item_category: "gameplay", local_prices: [], ...fields } });
 const revive = { title: "Revive", item_kind: "consumable", price_minor_units: 199, currency_code: "eur" };
 const barn = { title: "Golden Barn", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 999, currency_code: "eur" };
-const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', 'emma@example.com', ?)").bind(Date.now()).run();
+const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', ?)").bind(Date.now()).run();
 const setPin = async (pin = "482917") => env.DB.prepare("UPDATE accounts SET purchase_pin_hash = ? WHERE id = 'player-1'").bind(await hashPurchasePin(pin)).run();
 const givePassword = () => env.DB.prepare("UPDATE accounts SET password_changed_at_ms = ? WHERE id = 'player-1'").bind(Date.now()).run();
 /** The player's address as Supabase knows an account that never added an email. */
@@ -440,7 +440,7 @@ describe("paying with the saved card", () => {
     // No fee for Zaisma, and no receipt of Stripe's own: the player gets Zaisma's one.
     expect(intent.form.has("application_fee_amount")).toBe(false);
     expect(intent.form.has("receipt_email")).toBe(false);
-    expect(emails.filter((email) => email.to === "emma@example.com")).toHaveLength(1);
+    expect(emails.filter((email) => email.to === "player-1@example.com")).toHaveLength(1);
     expect(emails[0]!.text).toContain("Pixel Smith Games");
     expect((await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" })).answer.error.code).toBe("already_paid");
   });
@@ -644,7 +644,7 @@ describe("paying with the saved card", () => {
     const opened = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, country });
     const paid = await player(`/api/buy/purchases/${opened.answer.purchase_id}/pay-with-saved-card`, { method: "POST" });
     expect(paid.answer.status).toBe("completed");
-    const sent = emails.filter((email) => email.to === "emma@example.com");
+    const sent = emails.filter((email) => email.to === "player-1@example.com");
     expect(sent).toHaveLength(1);
     return { purchaseId: opened.answer.purchase_id as string, refundWords: opened.answer.refund_policy_words as string, receipt: sent[0]! };
   }
@@ -853,23 +853,20 @@ describe("the player's saved card and purchase PIN", () => {
     expect(noEmail).toMatchObject({ status: 409, answer: { error: { code: "account_protection_needed" } } });
     expect(stripeCalls.filter((call) => call.path === "/v1/setup_intents")).toEqual([]);
 
-    // With an email: the receipts go there unless the player says another address.
-    expect((await sheetCall("/api/payment-methods/setup", { body: {} })).answer).toEqual({ setup_intent_id: "seti_test_new", client_secret: "seti_test_new_secret", receipt_email: "player-1@example.com" });
-    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma@example.com" } })).answer.receipt_email).toBe("emma@example.com");
-    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma" } })).answer.error.code).toBe("bad_receipt_email");
+    // With an email: the card's receipts go to the account's email.
+    expect((await sheetCall("/api/payment-methods/setup", { body: {} })).answer).toEqual({ setup_intent_id: "seti_test_new", client_secret: "seti_test_new_secret" });
     const setup = stripeCalls.find((call) => call.path === "/v1/setup_intents")!;
     expect(Object.fromEntries(setup.form)).toMatchObject({ customer: "cus_test_player", usage: "on_session", "payment_method_types[0]": "card", "metadata[account_id]": "player-1" });
 
-    // A passkey is protection too, but then there is no address to default to.
+    // A passkey is protection too: the card saves, and with no email its buys send no receipt email.
     await passkeyOfPlayer();
-    expect((await sheetCall("/api/payment-methods/setup", { body: {}, email: NO_EMAIL })).answer.error.code).toBe("bad_receipt_email");
-    expect((await sheetCall("/api/payment-methods/setup", { body: { receipt_email: "emma@example.com" }, email: NO_EMAIL })).answer.setup_intent_id).toBe("seti_test_new");
+    expect((await sheetCall("/api/payment-methods/setup", { body: {}, email: NO_EMAIL })).answer.setup_intent_id).toBe("seti_test_new");
   });
 
   it("keeps the card a finished setup saved, replaces an older one, and forgets it on request", async () => {
-    const keep = (body: unknown = { setup_intent_id: "seti_test_new", receipt_email: "emma@example.com" }) => sheetCall("/api/payment-methods/saved", { body });
-    const stored = () => env.DB.prepare("SELECT stripe_payment_method_id, card_brand, card_last_digits, receipt_email FROM saved_payment_methods WHERE account_id = 'player-1'").first();
-    expect((await keep({ receipt_email: "emma@example.com" })).answer.error.code).toBe("bad_request");
+    const keep = (body: unknown = { setup_intent_id: "seti_test_new" }) => sheetCall("/api/payment-methods/saved", { body });
+    const stored = () => env.DB.prepare("SELECT stripe_payment_method_id, card_brand, card_last_digits FROM saved_payment_methods WHERE account_id = 'player-1'").first();
+    expect((await keep({})).answer.error.code).toBe("bad_request");
 
     // Stripe says it isn't this player's customer, or it didn't finish: no card.
     setupAnswer = { ...setupAnswer, customer: "cus_someone_else" };
@@ -880,8 +877,8 @@ describe("the player's saved card and purchase PIN", () => {
 
     setupAnswer = { status: "succeeded", customer: "cus_test_player", metadata: { receipt_email: "emma@example.com" }, payment_method: { id: "pm_test_new", card: { brand: "mastercard", last4: "4444" } } };
     await saveCard();
-    expect((await keep()).answer).toEqual({ saved_card: { card_brand: "mastercard", card_last_digits: "4444", receipt_email: "emma@example.com" } });
-    expect(await stored()).toEqual({ stripe_payment_method_id: "pm_test_new", card_brand: "mastercard", card_last_digits: "4444", receipt_email: "emma@example.com" });
+    expect((await keep()).answer).toEqual({ saved_card: { card_brand: "mastercard", card_last_digits: "4444" } });
+    expect(await stored()).toEqual({ stripe_payment_method_id: "pm_test_new", card_brand: "mastercard", card_last_digits: "4444" });
     // The card it replaced is taken off the player's Stripe customer.
     expect(stripeCalls.filter((call) => call.path.endsWith("/detach")).map((call) => call.path)).toEqual(["/v1/payment_methods/pm_test_saved/detach"]);
 

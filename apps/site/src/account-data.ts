@@ -181,7 +181,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
       "SELECT COALESCE(game.slug, purchase.deleted_game_slug) AS game_slug, COALESCE(game.title, purchase.deleted_game_title) AS game_title, purchase.id, purchase.item_name, purchase.item_kind, purchase.item_count, purchase.purchase_source, purchase.purchase_status, purchase.paid_minor_units, purchase.currency_code, purchase.refunded_minor_units, purchase.receipt_email, purchase.purchased_at_ms, purchase.refunded_at_ms FROM purchases purchase LEFT JOIN games game ON game.id = purchase.game_id WHERE purchase.player_id = ? ORDER BY purchase.created_at_ms",
       account.player_id,
     ),
-    saved_card: (await rows(env, "SELECT card_brand, card_last_digits, receipt_email, created_at_ms FROM saved_payment_methods WHERE account_id = ?", id))[0] ?? null,
+    saved_card: (await rows(env, "SELECT card_brand, card_last_digits, created_at_ms FROM saved_payment_methods WHERE account_id = ?", id))[0] ?? null,
   });
 
   // --- saves/<game>/: each save and its earlier versions, in the shape the save API answers (as v1, read without writing back) ---

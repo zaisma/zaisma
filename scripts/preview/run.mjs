@@ -1855,7 +1855,7 @@ async function seedBuySheet(api, upload, approveNewest) {
   await signedIn({ name: "Card_Keeper", email: "card@example.test", year: "1992" }, "198.51.100.233");
   const withPin = await signedIn({ name: "Pin_Keeper", email: "pin@example.test", year: "1993" }, "198.51.100.234");
   if (!STRIPE_TEST_VARS) {
-    runSql(`INSERT OR REPLACE INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) SELECT id, 'pm_preview_saved', 'visa', '4242', 'card@example.test', ${Date.now()} FROM accounts WHERE username = 'Card_Keeper'`);
+    runSql(`INSERT OR REPLACE INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) SELECT id, 'pm_preview_saved', 'visa', '4242', ${Date.now()} FROM accounts WHERE username = 'Card_Keeper'`);
   }
   // Card_Keeper was given Straw Hat (the developer API's grant), so buying it again says it's owned.
   const [{ player_id: cardKeeperPlayerId }] = querySql("SELECT player_id FROM accounts WHERE username = 'Card_Keeper'");

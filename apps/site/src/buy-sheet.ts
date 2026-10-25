@@ -1,10 +1,10 @@
 import { html, pageData, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cardRow, cutButton, runButton } from "./components/actions.ts";
+import { cardRow, cutButton, runButton, textButton } from "./components/actions.ts";
+import { cutField } from "./components/fields.ts";
 import { doneState, loadingState, problemState } from "./components/data.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
-import { cutField } from "./components/fields.ts";
 import { row, stack } from "./components/layout.ts";
 import { storeItem, storePanel } from "./components/panes.ts";
 import { isLocalPreview } from "./stripe.ts";
@@ -30,11 +30,12 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
         isHidden: true,
         markup: stack({
           items: [
-            // The card first, then where its receipts go. Stripe's card form goes here; the local preview's stand-in Stripe has no form, so a
-            // test card stands in for it.
+            // What this step is: a new card, saved for the next buys too (it takes the saved card's place when there is one).
+            { kind: "words", id: "buy-card-words", markup: html`<p></p>` },
+            // Stripe's card form goes here; the local preview's stand-in Stripe has no form, so its test card's number stands in for it.
             { kind: "block", id: "buy-card-form", markup: html`<div id="buy-card-element"></div>` },
-            { kind: "control", id: "buy-test-card", isHidden: true, markup: cutButton("Test card", { type: "button", isFullWidth: true }) },
-            { kind: "control", markup: cutField({ name: "receipt_email", id: "buy-receipt-email", label: "Email for receipts", type: "email", autocomplete: "email", hint: "Leave it empty for your account's email." }) },
+            { kind: "control", id: "buy-test-card", isHidden: true, markup: cutField({ name: "test_card_number", id: "buy-test-card-field", label: "Card number", type: "text", text: "4242 4242 4242 4242", isReadOnly: true, autocomplete: "off", hint: "The preview's test card. On zaisma.com, Stripe's card form is here." }) },
+            { kind: "control", id: "buy-keep-card", isHidden: true, markup: textButton("Keep your saved card", { type: "button" }) },
           ],
         }),
       },
@@ -58,7 +59,7 @@ export function buySheet(options: { joinHref: string; signInHref: string; coverU
     items: [
       { kind: "block", id: "buy-wallet", isHidden: true, markup: html`<div id="buy-wallet-element"></div>` },
       { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: cutButton("Apple Pay", { type: "button", isFullWidth: true }) },
-      { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card" }) },
+      { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
       { kind: "words", id: "buy-eu", isHidden: true, markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` },
       { kind: "control", markup: runButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "", isHidden: true }) },
@@ -116,8 +117,8 @@ let asking = null;
 let sale = null;
 let moment = "closed";
 let cardForm = null;
-// The stand-in's test card, chosen in the place of Stripe's form: Buy saves it and pays, as Buy does with the form filled in.
-let isTestCardChosen = false;
+// Whether this buy was paid with Apple Pay or Google Pay, whose receipt goes to the wallet's email rather than the account's.
+let isWalletPayment = false;
 let wallet = null;
 let isBusy = false;
 let isHeld = false;
@@ -281,7 +282,8 @@ const cardWords = (card) => (BRANDS[card.card_brand] || "Card") + " ending " + c
 function ready() {
   moment = "ready";
   busy(false);
-  byId("buy-other-card").querySelector(".face > span").textContent = cardWords(sale.saved_card);
+  byId("buy-other-card").querySelector(".face > span:not([class])").textContent = cardWords(sale.saved_card);
+  byId("buy-other-card").querySelector("button").dataset.cardBrand = sale.saved_card.card_brand;
   const shown = ["buy-other-card"];
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
@@ -354,6 +356,7 @@ function askToConfirm() {
 // Buy is pressed: confirmed first when the account asks, then paid, and a purchase in flight can't be pressed again.
 function buyWithSavedCard() {
   if (isBusy) return;
+  isWalletPayment = false;
   if (needsConfirm()) return askToConfirm();
   pay();
 }
@@ -424,7 +427,8 @@ function bought(purchase) {
   moment = "bought";
   busy(false);
   ended = { status: "bought", purchase: purchase || null, error: null };
-  byId("buy-done").querySelector(".state-text").textContent = sale.item.title + " is yours. The receipt is on its way by email.";
+  const receiptWords = isWalletPayment ? "The receipt is on its way by email." : sale.has_account_email ? "The receipt is on its way to your account's email." : "Add an email to your account to get receipts.";
+  byId("buy-done").querySelector(".state-text").textContent = sale.item.title + " is yours. " + receiptWords;
   showCells(["buy-done"], false);
   showButtons(["back"]);
   setTimeout(() => { if (moment === "bought" && buySheet.open) buySheet.close(); }, BOUGHT_SHOWN_MS);
@@ -438,14 +442,14 @@ function enterCard() {
   const shown = ["buy-card"];
   byId("buy-card-form").hidden = buyData.stripe_mode !== "stripe";
   byId("buy-test-card").hidden = buyData.stripe_mode !== "stand_in";
+  setText("buy-card-words", sale.saved_card ? "A new card for this buy. It takes the place of " + cardWords(sale.saved_card) + " for your next buys too." : "Add a card to pay with. It's saved to your account, so your next buy is one press.");
+  byId("buy-keep-card").hidden = !sale.saved_card;
+  if (sale.saved_card) byId("buy-keep-card").querySelector(".text-label").textContent = "Keep " + cardWords(sale.saved_card);
   showWallet(shown);
   if (sale.is_eu_withdrawal_line_shown) shown.push("buy-eu");
   showCells(shown, true);
   goLabel.textContent = "Buy";
-  // The stand-in has no form: its test card button fills it in, and Buy saves the card and pays, as with Stripe's form.
-  isTestCardChosen = false;
-  byId("buy-test-card").querySelector(".face > span:not(.loader)").textContent = "Test card";
-  byId("buy-test-card").querySelector("button").setAttribute("aria-pressed", "false");
+  // Buy saves the card and pays: Stripe's form, or the stand-in's test card, filled in already.
   showButtons(["go"]);
   if (buyData.stripe_mode === "stripe" && !cardForm) {
     cardForm = stripeFor(null).then((stripe) => {
@@ -459,21 +463,14 @@ function enterCard() {
 
 async function saveCard() {
   busy(true);
-  const receiptEmail = byId("buy-receipt-email").value.trim();
   let form = null;
-  if (buyData.stripe_mode === "stand_in" && !isTestCardChosen) {
-    busy(false);
-    setText("buy-message", "Press Test card first: it stands in for Stripe's card form here.");
-    byId("buy-message").hidden = false;
-    return;
-  }
   if (buyData.stripe_mode === "stripe") {
     form = await cardForm;
     if (!form) return;
     const submitted = await form.elements.submit();
     if (submitted.error) return busy(false);
   }
-  const setup = await call("/api/payment-methods/setup", receiptEmail ? { receipt_email: receiptEmail } : {});
+  const setup = await call("/api/payment-methods/setup", {});
   if (setup.error) return problem("Couldn't save your card", setup.error.message);
   if (form) {
     const confirmed = await form.stripe.confirmSetup({ elements: form.elements, clientSecret: setup.client_secret, confirmParams: { return_url: location.href }, redirect: "if_required" });
@@ -487,12 +484,7 @@ async function saveCard() {
   busy(false);
   buyWithSavedCard();
 }
-byId("buy-test-card").querySelector("button").addEventListener("click", (event) => {
-  isTestCardChosen = true;
-  event.currentTarget.setAttribute("aria-pressed", "true");
-  event.currentTarget.querySelector(".face > span:not(.loader)").textContent = "Test card, Visa ending 4242";
-  byId("buy-message").hidden = true;
-});
+byId("buy-keep-card").querySelector("button").addEventListener("click", () => ready());
 
 // Apple Pay and Google Pay, on the developer's account: the wallet asks for Face ID or a fingerprint itself, so Zaisma doesn't, and its
 // email gets the receipt. The local preview can't show them, so ?preview_wallet=1 draws their place.
@@ -511,6 +503,7 @@ function showWallet(shown) {
       if (moment === "ready" || moment === "card") byId("buy-wallet").hidden = false;
     });
     element.on("confirm", async () => {
+      isWalletPayment = true;
       waiting("Paying");
       const intent = await call("/api/buy/purchases/" + forSale.purchase_id + "/wallet-intent");
       if (intent.error) return problem("Couldn't buy it", intent.error.message);
@@ -586,7 +579,6 @@ if (buyData.is_preview) {
     // Buy pressed once, as a player would: it opens the Confirm it's you dialog where the account asks for one (and charges at once where it
     // doesn't, so the check only presses it for an account that asks). A first card is saved with the stand-in's test card first.
     if (name === "press_buy") { isHeld = false; syncGo(); return go.click(); }
-    if (name === "save_test_card") return byId("buy-test-card").querySelector("button").click();
   };
 }
 })();`);

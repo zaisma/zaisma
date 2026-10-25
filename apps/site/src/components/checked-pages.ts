@@ -125,7 +125,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, one press", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },
   // Pin_Keeper has a purchase PIN: Buy is pressed once, which opens the Confirm it's you dialog over the panel, asking for the PIN (the stand-in's test card is saved first where it has none).
-  { name: "Buying, confirm with a PIN", area: "Playing", path: "/g/tiny-farm?play", account: "Pin_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive", "save_test_card", "press_buy"), stateBeforeSetUp: "Game page, no rooms" },
+  { name: "Buying, confirm with a PIN", area: "Playing", path: "/g/tiny-farm?play", account: "Pin_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive", "press_buy"), stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, a first card", area: "Playing", path: "/g/tiny-farm?play", account: "Moss_Runner", mainActionShows: "nowhere", setUp: openBuySheet("spring_valley"), stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, already owned", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("straw_hat"), stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, can't be bought", area: "Playing", path: "/g/seaside-stand?play", mainActionShows: "nowhere", setUp: openBuySheet("extra_lemons"), stateBeforeSetUp: "Game page, no rooms" },

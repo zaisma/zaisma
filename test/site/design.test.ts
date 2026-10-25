@@ -596,6 +596,7 @@ const OWN_SVG = new Map<string, string>([
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
+  ["const cardBrandImage = ", "the card brands' marks on a card row (Visa, Mastercard and the rest), as their owners draw them"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],

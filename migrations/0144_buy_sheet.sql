@@ -25,7 +25,6 @@ CREATE TABLE saved_payment_methods (
   stripe_payment_method_id TEXT NOT NULL,
   card_brand TEXT NOT NULL,
   card_last_digits TEXT NOT NULL,
-  receipt_email TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL
 );
 

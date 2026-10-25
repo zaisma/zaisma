@@ -151,7 +151,7 @@ const connect = () => env.DB.prepare("UPDATE owners SET stripe_account_id = ?, c
 const setItem = (itemName: string, fields: Record<string, unknown>) => api(`/games/tiny-farm/items/${itemName}`, { method: "PUT", body: { description: "", item_category: "gameplay", local_prices: [], ...fields } });
 const revive = { title: "Revive", item_kind: "consumable", price_minor_units: 199, currency_code: "eur" };
 const barn = { title: "Golden Barn", item_kind: "permanent", item_category: "cosmetic", price_minor_units: 999, currency_code: "eur" };
-const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, receipt_email, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', 'emma@example.com', ?)").bind(Date.now()).run();
+const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', ?)").bind(Date.now()).run();
 const setPin = async (pin = "482917") => env.DB.prepare("UPDATE accounts SET purchase_pin_hash = ? WHERE id = 'player-1'").bind(await hashPurchasePin(pin)).run();
 const started = async (itemName = "revive") => (await player("/api/buy/tiny-farm/start", { body: { item_name: itemName } })).answer.purchase_id as string;
 const confirmed = async () => {
@@ -160,30 +160,12 @@ const confirmed = async () => {
 };
 
 describe("a saved card's receipts (review 14 and 21)", () => {
-  it("refuses a junk receipt email when the card setup starts", async () => {
-    for (const given of ["x", "a".repeat(300) + "@example.com", 7]) {
-      expect((await player("/api/payment-methods/setup", { body: { receipt_email: given } })).answer.error.code).toBe("bad_receipt_email");
-    }
-    expect(stripeCalls.filter((call) => call.path === "/v1/setup_intents")).toEqual([]);
-  });
-
-  it("keeps the checked email with the setup at Stripe, and saves the card with that one, never the browser's copy", async () => {
-    const setup = await player("/api/payment-methods/setup", { body: { receipt_email: "emma.receipts@example.com" } });
-    expect(setup.answer).toMatchObject({ setup_intent_id: "seti_test", receipt_email: "emma.receipts@example.com" });
-    expect(setupMetadata.receipt_email).toBe("emma.receipts@example.com");
-    // The browser sends someone else's address now: it is ignored.
+  it("never takes a receipt address from the browser: a saved card's receipts go to the account's email", async () => {
+    const setup = await player("/api/payment-methods/setup", { body: { receipt_email: "victim@example.com" } });
+    expect(setup.answer).toEqual({ setup_intent_id: "seti_test", client_secret: expect.any(String) });
+    expect(setupMetadata.receipt_email).toBeUndefined();
     const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test", receipt_email: "victim@example.com" } });
-    expect(kept.answer).toEqual({ saved_card: { card_brand: "visa", card_last_digits: "4242", receipt_email: "emma.receipts@example.com" } });
-    expect(await env.DB.prepare("SELECT receipt_email FROM saved_payment_methods WHERE account_id = 'player-1'").first()).toEqual({ receipt_email: "emma.receipts@example.com" });
-  });
-
-  it("doesn't save a card whose setup holds no checked email", async () => {
-    await player("/api/payment-methods/setup", { body: {} });
-    for (const stored of [{}, { receipt_email: "not an email" }] as Record<string, string>[]) {
-      setupMetadata = stored;
-      expect((await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test", receipt_email: "victim@example.com" } })).answer.error.code).toBe("card_not_saved");
-    }
-    expect(await env.DB.prepare("SELECT 1 FROM saved_payment_methods").first()).toBeNull();
+    expect(kept.answer).toEqual({ saved_card: { card_brand: "visa", card_last_digits: "4242" } });
   });
 });
 

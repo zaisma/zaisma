@@ -302,20 +302,19 @@ export async function playerCustomerFor(env: Env, accountId: string): Promise<st
   return (await env.DB.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?").bind(accountId).first<{ stripe_customer_id: string }>())!.stripe_customer_id;
 }
 
-/** Starts saving a card on the platform, for buys while the player is there (never charged while they're away). receiptEmail is the checked address the card's receipts go to; it stays in the setup's metadata, where only Zaisma writes it, so keeping the card never trusts the browser's copy. */
-export async function setUpCard(env: Env, accountId: string, receiptEmail: string): Promise<{ setupIntentId: string; clientSecret: string }> {
+/** Starts saving a card on the platform, for buys while the player is there (never charged while they're away). */
+export async function setUpCard(env: Env, accountId: string): Promise<{ setupIntentId: string; clientSecret: string }> {
   const customer = await playerCustomerFor(env, accountId);
-  const intent = await stripeCall(env, "POST", "/setup_intents", { customer, usage: "on_session", payment_method_types: ["card"], metadata: { account_id: accountId, receipt_email: receiptEmail } });
+  const intent = await stripeCall(env, "POST", "/setup_intents", { customer, usage: "on_session", payment_method_types: ["card"], metadata: { account_id: accountId } });
   return { setupIntentId: intent.id, clientSecret: String(intent.client_secret) };
 }
 
 /** The card a finished setup saved, when it's this customer's and it succeeded, with the receipt email setUpCard kept in the setup (null when it holds none). */
-export async function cardOfSetup(env: Env, setupIntentId: string, customerId: string): Promise<{ paymentMethodId: string; cardBrand: string; cardLastDigits: string; receiptEmail: string | null } | null> {
+export async function cardOfSetup(env: Env, setupIntentId: string, customerId: string): Promise<{ paymentMethodId: string; cardBrand: string; cardLastDigits: string } | null> {
   const intent = await stripeCall(env, "GET", `/setup_intents/${encodeURIComponent(setupIntentId)}`, { expand: ["payment_method"] });
   const method = intent.payment_method as { id?: string; card?: { brand?: string; last4?: string } } | null;
   if (intent.status !== "succeeded" || intent.customer !== customerId || !method?.id || !method.card?.last4) return null;
-  const receiptEmail = (intent.metadata as { receipt_email?: unknown } | undefined)?.receipt_email;
-  return { paymentMethodId: method.id, cardBrand: method.card.brand ?? "card", cardLastDigits: method.card.last4, receiptEmail: typeof receiptEmail === "string" ? receiptEmail : null };
+  return { paymentMethodId: method.id, cardBrand: method.card.brand ?? "card", cardLastDigits: method.card.last4 };
 }
 
 /** Takes a saved card off the platform customer. Already gone counts as done. */

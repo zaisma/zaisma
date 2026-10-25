@@ -86,7 +86,6 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "saved_payment_methods.card_brand", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "saved_payment_methods.card_last_digits", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // A receipt email: the player's, checked as they save a card, or the billing email a wallet payment brought from Stripe.
-  { stored: "saved_payment_methods.receipt_email", format: "escaped_text", source: "player", checked_by: checkedIn("apps/site/src/buy.ts", "isReceiptEmail"), saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "purchases.receipt_email", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // The copy 0134 kept when it made game_images again: never read or shown.
   { stored: "game_shaders.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
