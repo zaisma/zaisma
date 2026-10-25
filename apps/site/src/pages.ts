@@ -176,7 +176,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const gameFacts = [
     ...(describedModes.length ? [{ label: "Players", entries: describedModes.map((playMode) => ({ text: playMode.playerCount ? `${playMode.label}, ${playMode.playerCount}` : playMode.label, icon: MODE_ICON_NAMES[playMode.mode] })) }] : []),
     ...(devices.length ? [{ label: "Works on", entries: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICON_NAMES[device] ?? ("computer" as const) })) }] : []),
-    // What the game sells, before anyone plays ("Every game that sells something states its refund policy").
+  ];
+  // What the game sells, before anyone plays ("Every game that sells something states its refund policy"), under About.
+  const purchaseFacts = [
     { label: "Purchases", text: purchaseWords(purchaseLabel) },
     ...(purchaseLabel.categories.length && refundWords ? [{ label: "Refunds", text: refundWords }] : []),
   ];
@@ -242,6 +244,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
+      { kind: "words", markup: facts({ facts: purchaseFacts, arrangement: "down", label: "Purchases and refunds" }) },
       ...(developer ? [{ kind: "block" as const, markup: person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) }] : []),
       ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
     ]),
